@@ -1,0 +1,14 @@
+{
+  "name": "ai-quant-research-platform-admin",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "frontend/admin"
+  ],
+  "scripts": {
+    "admin:dev": "npm --workspace frontend/admin run dev",
+    "admin:build": "npm --workspace frontend/admin run build",
+    "admin:lint": "npm --workspace frontend/admin run lint"
+  }
+}
+
