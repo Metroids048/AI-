@@ -25,10 +25,22 @@
 - 第一层真源：研究报告
 - 第二层真源：`AGENTS.md`
 - 第二层实施母文档：`docs/architecture/platform-master-design.md`
+- 已完成子设计：`docs/architecture/domain-and-interfaces-design.md`
+- 已完成子设计：`docs/architecture/data-and-ingestion-design.md`
+- 已完成子设计：`docs/architecture/agent-and-orchestration-design.md`
+- 已完成子设计：`docs/architecture/execution-risk-review-design.md`
 - 设计附录：
   - `appendix-a-repository-structure.md`
   - `appendix-b-feature-phasing.md`
   - `appendix-c-principles-and-non-goals.md`
+
+## Additional Design Assets
+
+- 产品规格：`docs/product/product-spec.md`
+- 功能清单：`docs/product/feature-catalog.md`
+- 路线图：`docs/roadmap/phase-roadmap.md`
+- 配置规范：`docs/ops/environment-and-config.md`
+- 准备清单：`docs/ops/delivery-checklist.md`
 
 ## Planned Repository Structure
 
@@ -51,3 +63,8 @@
 4. 后端主干
 5. 初始前端骨架
 6. 平台总设计包母文档
+7. 领域与接口设计包
+8. 数据与接入设计包
+9. Agent 与任务编排设计包
+10. 执行 / 风控 / 复盘设计包
+11. 产品与路线规格包
