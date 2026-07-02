@@ -1,5 +1,11 @@
 # 产品规格文档
 
+本文件只负责产品定位、用户与总模块边界，是产品层的上层真源；开发验收细节与字段承接
+统一以下列文档为准：
+
+- `docs/product/prd.md`
+- `docs/product/module-feature-catalog.md`
+
 ## 产品定位
 
 AI Quant Research Platform 是一个面向个人/小团队的内部研究台，用于把交易假设转化为可验证、可执行、可复盘的策略资产。
@@ -30,4 +36,3 @@ AI Quant Research Platform 是一个面向个人/小团队的内部研究台，�
 - 面向公众的荐股产品
 - 复杂 SaaS 平台
 - 高风险自动化交易产品
-

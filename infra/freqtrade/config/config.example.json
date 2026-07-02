@@ -1,0 +1,27 @@
+{
+  "_comment": "Template only. Platform generates per-strategy {strategy_id}.json at runtime. Real config files are gitignored.",
+  "max_open_trades": 1,
+  "stake_currency": "USDT",
+  "stake_amount": 50,
+  "stoploss": -0.02,
+  "_stoploss_comment": "平台风控层注入，策略文件不得覆盖 (PDF §2.1)",
+  "max_single_pair_stake_ratio": 0.1,
+  "dry_run": true,
+  "trading_mode": "futures",
+  "margin_mode": "isolated",
+  "exchange": {
+    "name": "binance",
+    "key": "",
+    "secret": "",
+    "pair_whitelist": ["BTC/USDT:USDT"]
+  },
+  "entry_pricing": { "price_side": "same", "use_order_book": true },
+  "exit_pricing": { "price_side": "same", "use_order_book": true },
+  "api_server": {
+    "enabled": true,
+    "listen_ip_address": "0.0.0.0",
+    "listen_port": 8080,
+    "username": "freqtradeuser",
+    "password": ""
+  }
+}

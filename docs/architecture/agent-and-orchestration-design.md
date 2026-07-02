@@ -72,6 +72,13 @@
 - 输入：回测/模拟盘/实盘/风险结果
 - 输出：`ReviewReport` / `FailureRecord`
 
+### 2.11 Decision Veto Agent
+
+- 输入：`SignalEnsemble`、`MetaLabel`、近期 `RiskEvent`
+- 输出：`veto_decision`（`veto: bool` + `veto_reason`）
+- 职责：在信号融合与二级仓位判定完成之后、执行前做一票否决判断；不输出方向/仓位/价格，详见 `execution-risk-review-design.md` 03a
+- 越权限制：不得替代 Risk Engine 的硬性拒绝规则，也不得直接下单
+
 ---
 
 ## 03 AgentTask 统一模型
@@ -112,14 +119,17 @@
 3. 人工审核草案
 4. 创建 `Strategy` / `StrategyVersion`
 5. 生成 `StrategyCodeArtifact`
-6. 启动 `BacktestRun`
-7. 可选启动 `OptimizationRun`
-8. 计算准入结论
-9. 启动 `PaperRun`
-10. 监控 `RiskEvent`
-11. 生成 `ReviewReport`
-12. 沉淀 `FailureRecord`
-13. 更新策略状态
+6. 相关性过滤后形成 `SignalEnsemble`（多策略/alpha 信号融合）
+7. 生成 `MetaLabel`（二级仓位判定）
+8. 启动 `BacktestRun`（基于融合后的候选交易评估）
+9. 可选启动 `OptimizationRun`
+10. 计算准入结论
+11. 启动 `PaperRun`
+12. Decision Veto Agent 复核信号（否决为 true 则终止本次执行）
+13. 监控 `RiskEvent`
+14. 生成 `ReviewReport`
+15. 沉淀 `FailureRecord`
+16. 更新策略状态
 
 ### 4.2 外部研究任务链
 
@@ -144,6 +154,8 @@
 - 未审核的 `StrategyDraft` 不得升级为正式策略
 - 未通过 Validation 的策略不得进入执行链
 - 未经过 Risk Engine 的信号不得触发执行
+- 未经相关性过滤形成 `SignalEnsemble` 与 `MetaLabel` 判定的信号不得进入 `BacktestRun`/执行链
+- 否决为 `true` 的信号不得进入 `ExecutionSignal`
 - 未被 Review 回写的失败不得视为闭环完成
 
 ---

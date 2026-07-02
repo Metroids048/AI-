@@ -24,6 +24,8 @@
 ### 1.3 执行前置检查
 
 - 信号必须来自通过验证的策略版本
+- 信号必须已经过 `SignalEnsemble` 融合与 `MetaLabel` 二级仓位判定，且 `bet_decision = bet_taken`
+- 信号必须未被 LLM 否决（`veto = false`，见 03a）
 - 必须具备止损计划
 - 必须通过当前风险开关
 - 必须通过交易所与数据可用性检查
@@ -57,10 +59,22 @@
 - 连续亏损保护
 - 最大回撤保护
 - 极端回撤熔断
-- 重大宏观事件暂停
+- 重大宏观/新闻事件暂停（分级触发，见 2.2a）
 - 稳定币异常紧急处理
 - API 连续失败停机
 - 数据中断禁开仓
+
+### 2.2a 新闻/消息面事件分级触发规则
+
+新闻与社媒数据的用法是“过滤器/否决器”，不是“新闻驱动开单”的信号源。具体分级：
+
+- 高严重度（`RiskEvent.severity = high`，如重大监管/交易所暴雷/黑天鹅事件）：
+  - 暂停新开仓，暂停时长为可配置参数（默认建议区间几分钟到几十分钟，具体数值留给 Risk Engine 实现时配置，不在设计层硬编码）
+  - 已有持仓的止损按可配置比例上移（多头）/下移（空头），收紧风险敞口
+- 中严重度：仅记录 `RiskEvent`，不触发暂停，供 Review Layer 事后分析
+- 低严重度：仅落库，不产生任何执行层动作
+
+触发与解除都必须落一条 `RiskEvent` 记录，`resolution_status` 走 `detected -> acknowledged -> mitigated -> resolved`，不允许静默恢复。
 
 ### 2.3 风控结果
 
@@ -89,6 +103,24 @@
 - API/交易所异常
 - 数据缺口
 - 账户/策略风控越限
+
+---
+
+## 03a LLM 否决职责边界
+
+### 3a.1 定位
+
+- LLM（Decision Veto Agent，见 `agent-and-orchestration-design.md`）只在信号融合与二级仓位判定完成之后、`ExecutionSignal` 生成之前介入
+- 输入：`SignalEnsemble`、`MetaLabel`、近期 `RiskEvent`（新闻/社媒异常）
+- 输出：`veto: bool` + `veto_reason`（自然语言，供 Review Layer 复盘引用）
+
+### 3a.2 硬性边界
+
+- LLM 不得输出方向、仓位大小、入场/止损/止盈价格——这些必须已经由 `SignalEnsemble`/`MetaLabel` 产出
+- LLM 只能做“否/不否”的二元判断，不能修改已有信号内容
+- 否决结果本身作为 `AgentTask` 输出对象记录，不直接写入执行层状态；Execution Layer 的前置检查（见 1.3）读取该否决结果作为准入条件之一
+- 否决为 `true` 的信号不得进入 `ExecutionSignal`（与 `agent-and-orchestration-design.md` 05 编排约束一致）
+- LLM 的复盘生成职责（辨识 alpha decay 等）由 Review Layer 承接，与否决职责分离但共享同一批输入
 
 ---
 

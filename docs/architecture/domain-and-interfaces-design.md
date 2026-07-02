@@ -64,6 +64,7 @@
    - 接收交易假设、研究来源、研究备注
 2. `Strategy Library`
    - 管理策略定义、版本、状态、失败与迭代
+   - 含信号融合与二级仓位判定子模块（ensemble / meta-labeling），职责是把多个策略/alpha 的候选信号融合为单一交易候选，并判定是否下注与下注大小；不升级为独立子域
 3. `Validation`
    - 管理回测、优化、样本外验证、模拟盘/实盘准入
 4. `Execution`
@@ -239,6 +240,64 @@
 - `rejected`
 - `superseded`
 
+### 3.5a SignalEnsemble
+
+定义：
+
+- 多个策略/alpha 候选信号在同一时间窗口内的融合结果
+
+职责：
+
+- 承接“多信号 -> 单一交易候选”这一步，属于 Strategy Library 的信号融合子模块
+- 参与融合的信号只做相关性过滤后的低相关子集，避免同质信号重复下注
+- WorldQuant alpha 在此层只作为低权重投票输入之一，权重由历史验证数据迭代调整，不作为独立策略
+
+典型属性：
+
+- `ensemble_id`
+- `strategy_refs`（参与融合的 `Strategy`/alpha 来源列表）
+- `fusion_method`
+- `correlation_matrix_ref`
+- `raw_votes`（各来源方向 + 初始权重）
+- `fused_direction`
+- `fused_confidence`
+- `created_at`
+
+生命周期：
+
+- `formed`
+- `passed_to_meta_label`
+- `discarded_low_confidence`
+
+### 3.5b MetaLabel
+
+定义：
+
+- 对 `SignalEnsemble` 做二级仓位判定的结果对象（meta-labeling）
+
+职责：
+
+- 一级信号（技术策略/alpha/融合结果）只回答方向与机会；本对象回答“要不要真的下注、下多大仓位”
+- 判定依据三重界限法（triple-barrier：止盈线/止损线/时间限，看价格先触达哪个）标注的历史样本训练得到
+- 判定模型定位为轻量模型（如逻辑回归），不要求复杂度，模型细节留给 Phase 1/2 实现
+
+典型属性：
+
+- `meta_label_id`
+- `ensemble_id`
+- `triple_barrier_result`
+- `bet_decision`
+- `position_size_fraction`
+- `model_ref`
+- `training_window_ref`
+
+生命周期：
+
+- `pending`
+- `labeled`
+- `bet_taken`
+- `bet_skipped`
+
 ### 3.6 BacktestRun
 
 定义：
@@ -255,6 +314,9 @@
 - `parameter_set`
 - `market_regime_coverage`
 - `sample_split_plan`
+- `cost_model_ref`（手续费 maker/taker 费率、订单簿深度滑点估算方法、资金费率净收支核算口径的引用，方法论细节见 [validation-methodology.md](C:\Users\Windows11\Desktop\量化项目\docs\architecture\validation-methodology.md)）
+- `validation_methodology`（walk-forward 滚动窗口参数 + Deflated Sharpe 所需的“测试过组合数”记录，用于多重检验偏差校正）
+- `stress_test_scenarios`（引用预置压力测试场景库，如 LUNA 崩盘/312/交易所宕机/极端插针）
 - `metrics_summary`
 - `run_status`
 - `eligibility_result`
@@ -516,6 +578,7 @@
   - 持有 `StrategyVersion`
   - 关联 `StrategyCodeArtifact`
   - 关联 `FailureRecord`
+  - 关联 `SignalEnsemble` / `MetaLabel`（信号融合与二级仓位判定，多个 `Strategy` 可共同参与同一个 `SignalEnsemble`）
 - `ValidationRun` 聚合
   - `BacktestRun`
   - `OptimizationRun`
@@ -536,12 +599,15 @@
 
 主链路应固定为：
 
-`StrategyIdea -> StrategyDraft -> Strategy -> StrategyVersion -> StrategyCodeArtifact -> BacktestRun -> PaperRun -> LiveRun -> ReviewReport -> FailureRecord -> Strategy`
+`StrategyIdea -> StrategyDraft -> Strategy -> StrategyVersion -> StrategyCodeArtifact -> SignalEnsemble -> MetaLabel -> BacktestRun -> PaperRun -> LiveRun -> ReviewReport -> FailureRecord -> Strategy`
+
+信号融合与二级仓位判定（`SignalEnsemble -> MetaLabel`）发生在单策略信号生成之后、进入回测/执行之前，即历史回测阶段就要按融合后的候选交易来评估，不能只回测单策略信号。
 
 这条链路的意义：
 
 - 保证所有策略都能追溯到研究起点
 - 保证失败与迭代能够回写到策略主资产
+- 保证多信号叠加时经过相关性过滤与二级仓位判定，而不是各信号各自开仓
 
 ### 4.3 辅助链路关系
 
@@ -612,6 +678,8 @@
 - `StrategyDraft`
 - `Strategy`
 - `StrategyVersion`
+- `SignalEnsemble`（信号融合子模块）
+- `MetaLabel`（二级仓位判定子模块）
 
 ### AI Agent Layer
 
