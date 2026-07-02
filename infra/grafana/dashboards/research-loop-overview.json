@@ -1,0 +1,39 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "panels": [
+    {
+      "type": "text",
+      "title": "Research Loop",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "Strategy -> Validation -> Paper Admission -> Review writeback"
+      }
+    },
+    {
+      "type": "text",
+      "title": "Current Focus",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "Carry lane, risk gating, and review persistence are implemented. Extend walk-forward and alerts next."
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["ai-quant", "research"],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "AI Quant Research Loop Overview",
+  "version": 1
+}

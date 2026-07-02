@@ -3,13 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from shared.models import MarketExtras
 from services.data import DataRepository
+from services.strategy_library import ValidationRepository
+from shared.models import BacktestReport, BacktestRun, GateDecision, MarketExtras
 
 
-def test_strategy_to_backtest_to_paper_vertical_slice(api_client) -> None:
+def test_strategy_to_backtest_to_paper_vertical_slice(api_client, db_session) -> None:
     idea_resp = api_client.post(
-        "/strategies/ideas",
+        "/api/v1/strategies/ideas",
         json={
             "title": "Binance carry idea",
             "source": "manual_note",
@@ -20,16 +21,16 @@ def test_strategy_to_backtest_to_paper_vertical_slice(api_client) -> None:
     assert idea_resp.status_code == 201
     idea_id = idea_resp.json()["idea_id"]
 
-    draft_resp = api_client.post(f"/strategies/ideas/{idea_id}/drafts")
+    draft_resp = api_client.post(f"/api/v1/strategies/ideas/{idea_id}/drafts")
     assert draft_resp.status_code == 201
     draft_id = draft_resp.json()["draft_id"]
 
-    strategy_resp = api_client.post(f"/strategies/{draft_id}/materialize")
+    strategy_resp = api_client.post(f"/api/v1/strategies/{draft_id}/materialize")
     assert strategy_resp.status_code == 201
     strategy_id = strategy_resp.json()["strategy_id"]
 
     version_resp = api_client.post(
-        "/strategies/versions",
+        "/api/v1/strategies/versions",
         json={
             "strategy_id": strategy_id,
             "version_label": "v1",
@@ -39,44 +40,40 @@ def test_strategy_to_backtest_to_paper_vertical_slice(api_client) -> None:
     assert version_resp.status_code == 201
     version_id = version_resp.json()["version_id"]
 
-    backtest_resp = api_client.post(
-        "/backtests",
-        json={
-            "strategy_id": strategy_id,
-            "version_id": version_id,
-            "execution_engine": "freqtrade",
-            "sample_split_plan": {"train": "2024Q1", "oos": "2024Q2"},
-            "validation_methodology": {"lane": "carry_research"},
-            "cost_model_ref": "spot hedge reconciliation performed platform-side",
-            "stress_test_scenarios": ["funding_flip", "spread_widening"],
-            "metrics_summary": {
-                "strategy_id": strategy_id,
-                "engine": "freqtrade",
-                "sharpe": 1.5,
-                "profit_factor": 1.4,
-                "max_drawdown": 0.12,
-                "win_rate": 0.57,
-                "expectancy": 0.1,
-                "total_cost_bps": 14.0,
-            },
-            "eligibility_result": {
-                "strategy_id": strategy_id,
-                "passed": True,
-                "decision_status": "conditional",
-                "reason": "deflated sharpe pending",
-                "deflated_sharpe_applied": False,
-            },
-        },
+    backtest = ValidationRepository(db_session).create_backtest_run(
+        BacktestRun(
+            strategy_id=strategy_id,
+            version_id=version_id,
+            execution_engine="freqtrade",
+            sample_split_plan={"train": "2024Q1", "oos": "2024Q2"},
+            validation_methodology={"lane": "carry_research"},
+            cost_model_ref="spot hedge reconciliation performed platform-side",
+            stress_test_scenarios=["funding_flip", "spread_widening"],
+            metrics_summary=BacktestReport(
+                strategy_id=strategy_id,
+                engine="freqtrade",
+                sharpe=1.5,
+                profit_factor=1.4,
+                max_drawdown=0.12,
+                win_rate=0.57,
+                expectancy=0.1,
+                total_cost_bps=14.0,
+            ),
+            eligibility_result=GateDecision(
+                strategy_id=strategy_id,
+                passed=True,
+                decision_status="accepted",
+                reason="validated",
+            ),
+        )
     )
-    assert backtest_resp.status_code == 201
-    backtest_id = backtest_resp.json()["backtest_run_id"]
 
-    eligibility_resp = api_client.get(f"/backtests/{backtest_id}/eligibility")
+    eligibility_resp = api_client.get(f"/api/v1/backtests/{backtest.backtest_run_id}/eligibility")
     assert eligibility_resp.status_code == 200
-    assert eligibility_resp.json()["decision_status"] == "conditional"
+    assert eligibility_resp.json()["decision_status"] == "accepted"
 
     ingestion_resp = api_client.post(
-        "/ingestion/jobs",
+        "/api/v1/ingestion/jobs",
         json={
             "source_family": "A",
             "source_name": "binance",
@@ -87,27 +84,35 @@ def test_strategy_to_backtest_to_paper_vertical_slice(api_client) -> None:
             },
         },
     )
-    assert ingestion_resp.status_code == 201
-    assert len(ingestion_resp.json()["target_symbols"]) == 20
-    assert ingestion_resp.json()["target_symbols"][:2] == ["BTC/USDT", "ETH/USDT"]
+    assert ingestion_resp.status_code == 202
+    ingestion_job_id = ingestion_resp.json()["resource_id"]
+
+    ingestion_job = api_client.get(f"/api/v1/ingestion/jobs/{ingestion_job_id}")
+    assert ingestion_job.status_code == 200
+    assert len(ingestion_job.json()["target_symbols"]) == 20
+    assert ingestion_job.json()["target_symbols"][:2] == ["BTC/USDT", "ETH/USDT"]
 
     paper_resp = api_client.post(
-        "/paper-runs",
+        "/api/v1/execution/paper-runs",
         json={
             "strategy_id": strategy_id,
             "version_id": version_id,
-            "gate_decision_ref": backtest_id,
+            "gate_decision_ref": backtest.backtest_run_id,
         },
     )
-    assert paper_resp.status_code == 201
-    body = paper_resp.json()
+    assert paper_resp.status_code == 202
+    paper_run_id = paper_resp.json()["resource_id"]
+
+    paper_run = api_client.get(f"/api/v1/execution/paper-runs/{paper_run_id}")
+    assert paper_run.status_code == 200
+    body = paper_run.json()
     assert body["candidate_symbols"][:2] == ["BTC/USDT", "ETH/USDT"]
-    assert body["gate_decision_ref"] == backtest_id
+    assert body["gate_decision_ref"] == backtest.backtest_run_id
 
 
 def test_carry_backtest_api_uses_persisted_market_data(api_client, db_session) -> None:
     strategy_resp = api_client.post(
-        "/strategies",
+        "/api/v1/strategies",
         json={
             "strategy_key": "carry_api_v1",
             "source": "manual",
@@ -208,7 +213,7 @@ def test_carry_backtest_api_uses_persisted_market_data(api_client, db_session) -
     )
 
     backtest_resp = api_client.post(
-        "/backtests/carry",
+        "/api/v1/backtests/carry",
         json={
             "strategy_id": strategy_id,
             "spot_symbol": "BTC/USDT",
@@ -219,7 +224,11 @@ def test_carry_backtest_api_uses_persisted_market_data(api_client, db_session) -
         },
     )
 
-    assert backtest_resp.status_code == 201
-    body = backtest_resp.json()
+    assert backtest_resp.status_code == 202
+    backtest_run_id = backtest_resp.json()["resource_id"]
+
+    run_resp = api_client.get(f"/api/v1/backtests/{backtest_run_id}")
+    assert run_resp.status_code == 200
+    body = run_resp.json()
     assert body["eligibility_result"]["decision_status"] == "conditional"
     assert body["validation_methodology"]["data_quality"]["gap_check"]["has_gaps"] is False

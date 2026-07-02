@@ -19,6 +19,7 @@
 ## Current Phase
 
 - Phase 0：平台骨架、统一模型与设计冻结
+- 现实进度：已进入“Phase 0 完成 + 第一批 P1 落地”状态，主链已具备可审计的研究闭环骨架
 
 ## Active Design Sources
 
@@ -92,6 +93,17 @@
 9. Agent 与任务编排设计包
 10. 执行 / 风控 / 复盘设计包
 11. 产品与路线规格包
+
+## Current Executable Status (TASK-011, 2026-07-02)
+
+- API 已统一到 `/api/v1`，列表接口使用 `items + total`，错误返回统一 `error_code/message/detail`
+- 已落地真实持久化对象：`OptimizationRun`、`RiskProfile`、`ReviewReport`、`FailureRecord`、`AgentTask`、`LiveRun`、`OrderExecution`、`PositionSnapshot`
+- `risk_events` 已从内存假实现切换为 Timescale-owned 持久化事件流
+- 执行前 gatekeeper 已拒绝：无止损、validation 未通过、数据不新鲜、`veto=true`、高严重度风险事件
+- Review Layer 已支持 `FailureRecord -> Strategy.failure_reasons + iteration_history` 回写
+- `research_source/worldquant_adapter` 已具备本地 `alpha` 扫描器，可把研究源转成结构化 `StrategyIdea`
+- `frontend/admin` 已不再是占位页，现为 React + Tailwind 管理台壳；本地 build 已通过
+- `docker-compose.test.yml`、`docker-compose.paper.yml`、`docker-compose.live.yml` 已入仓，Prometheus/Grafana dashboard 资产已有首版骨架
 
 ## Phase-0 开发前完整方案包 (TASK-007, 2026-07-02)
 

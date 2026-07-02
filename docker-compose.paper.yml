@@ -1,0 +1,23 @@
+services:
+  api:
+    environment:
+      APP_ENV: paper
+
+  celery_worker:
+    environment:
+      APP_ENV: paper
+    command: >
+      sh -c "pip install -e . &&
+      celery -A apps.api.celery_app:celery_app worker --loglevel=info -Q default,backtest_queue,paper_queue"
+
+  celery_beat:
+    environment:
+      APP_ENV: paper
+
+  freqtrade:
+    environment:
+      FREQTRADE__DRY_RUN: "true"
+
+  grafana:
+    environment:
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/research-loop-overview.json

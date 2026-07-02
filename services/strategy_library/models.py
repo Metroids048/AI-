@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, JSON, String, Text, func
+from sqlalchemy import Float, ForeignKey, JSON, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -160,6 +160,7 @@ class IngestionJob(Base):
     target_symbols: Mapped[list[str]] = mapped_column(JSON, default=list)
     output_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    execution_summary: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now()
@@ -186,3 +187,197 @@ class PaperRun(Base):
     paper_metrics_summary: Mapped[dict] = mapped_column(JSON, default=dict)
     paper_status: Mapped[str] = mapped_column(String(30), default="queued")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class OptimizationRun(Base):
+    __tablename__ = "optimization_runs"
+
+    optimization_run_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=_uuid_str
+    )
+    strategy_id: Mapped[str] = mapped_column(ForeignKey("strategies.id"), index=True)
+    version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("strategy_versions.version_id"), nullable=True, index=True
+    )
+    search_space_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    optimization_method: Mapped[str] = mapped_column(String(40), default="hyperopt")
+    best_candidate_summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    run_status: Mapped[str] = mapped_column(String(30), default="queued")
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class RiskProfile(Base):
+    __tablename__ = "risk_profiles"
+
+    risk_profile_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    single_trade_risk_limit: Mapped[float] = mapped_column(Float, default=0.01)
+    max_symbol_exposure: Mapped[float] = mapped_column(Float, default=0.20)
+    max_total_exposure: Mapped[float] = mapped_column(Float, default=0.60)
+    max_open_positions: Mapped[int] = mapped_column(default=3)
+    max_leverage: Mapped[float] = mapped_column(Float, default=3.0)
+    daily_loss_limit: Mapped[float] = mapped_column(Float, default=0.03)
+    weekly_loss_limit: Mapped[float] = mapped_column(Float, default=0.08)
+    drawdown_limit: Mapped[float] = mapped_column(Float, default=0.10)
+    hard_stop_drawdown_limit: Mapped[float] = mapped_column(Float, default=0.20)
+    market_scope: Mapped[str] = mapped_column(String(120), default="BTC/USDT perpetual")
+    config_source: Mapped[str] = mapped_column(
+        String(255), default="risk-control-and-safeguards-plan.md section 4"
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class ReviewReport(Base):
+    __tablename__ = "review_reports"
+
+    review_report_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=_uuid_str
+    )
+    report_date: Mapped[str] = mapped_column(String(20))
+    scope_type: Mapped[str] = mapped_column(String(40), default="daily")
+    strategy_refs: Mapped[list[str]] = mapped_column(JSON, default=list)
+    worst_performer_refs: Mapped[list[str]] = mapped_column(JSON, default=list)
+    failure_patterns: Mapped[list[str]] = mapped_column(JSON, default=list)
+    deviation_analysis: Mapped[list[str]] = mapped_column(JSON, default=list)
+    recommendations: Mapped[list[str]] = mapped_column(JSON, default=list)
+    report_status: Mapped[str] = mapped_column(String(30), default="draft")
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class FailureRecord(Base):
+    __tablename__ = "failure_records"
+
+    failure_record_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=_uuid_str
+    )
+    strategy_id: Mapped[str] = mapped_column(ForeignKey("strategies.id"), index=True)
+    version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("strategy_versions.version_id"), nullable=True, index=True
+    )
+    origin_run_type: Mapped[str] = mapped_column(String(40))
+    origin_run_id: Mapped[str] = mapped_column(String(36))
+    failure_type: Mapped[str] = mapped_column(String(60))
+    failure_summary: Mapped[str] = mapped_column(Text)
+    evidence_refs: Mapped[list[str]] = mapped_column(JSON, default=list)
+    recommended_change: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class AgentTask(Base):
+    __tablename__ = "agent_tasks"
+
+    agent_task_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    agent_type: Mapped[str] = mapped_column(String(60), index=True)
+    task_type: Mapped[str] = mapped_column(String(80))
+    input_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    output_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    input_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    output_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    priority: Mapped[int] = mapped_column(default=5)
+    task_status: Mapped[str] = mapped_column(String(30), default="queued")
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scheduled_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class LiveRun(Base):
+    __tablename__ = "live_runs"
+
+    live_run_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    strategy_id: Mapped[str] = mapped_column(ForeignKey("strategies.id"), index=True)
+    version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("strategy_versions.version_id"), nullable=True, index=True
+    )
+    exchange: Mapped[str] = mapped_column(String(20), default="binance")
+    capital_tier: Mapped[str] = mapped_column(String(30), default="micro")
+    live_status: Mapped[str] = mapped_column(String(30), default="queued")
+    risk_profile_ref: Mapped[str | None] = mapped_column(
+        ForeignKey("risk_profiles.risk_profile_id"), nullable=True
+    )
+    live_metrics_summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class SignalEnsemble(Base):
+    __tablename__ = "signal_ensembles"
+
+    ensemble_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    strategy_refs: Mapped[list[str]] = mapped_column(JSON, default=list)
+    fusion_method: Mapped[str] = mapped_column(String(40), default="weighted_vote")
+    correlation_matrix_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    raw_votes: Mapped[list] = mapped_column(JSON, default=list)
+    fused_direction: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    fused_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ensemble_status: Mapped[str] = mapped_column(String(40), default="formed")
+    created_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+
+class MetaLabel(Base):
+    __tablename__ = "meta_labels"
+
+    meta_label_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    ensemble_id: Mapped[str] = mapped_column(
+        ForeignKey("signal_ensembles.ensemble_id"), index=True
+    )
+    triple_barrier_result: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    bet_decision: Mapped[str] = mapped_column(String(20), default="pending")
+    position_size_fraction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    model_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    training_window_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class OrderExecution(Base):
+    __tablename__ = "order_executions"
+
+    order_execution_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=_uuid_str
+    )
+    strategy_id: Mapped[str] = mapped_column(ForeignKey("strategies.id"), index=True)
+    version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("strategy_versions.version_id"), nullable=True, index=True
+    )
+    symbol: Mapped[str] = mapped_column(String(30), index=True)
+    direction: Mapped[str] = mapped_column(String(20))
+    execution_status: Mapped[str] = mapped_column(String(30), default="queued")
+    stoploss_present: Mapped[bool] = mapped_column(default=False)
+    close_only_mode: Mapped[bool] = mapped_column(default=False)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    entry_context: Mapped[dict] = mapped_column(JSON, default=dict)
+    stoploss_plan: Mapped[dict] = mapped_column(JSON, default=dict)
+    takeprofit_plan: Mapped[dict] = mapped_column(JSON, default=dict)
+    risk_profile_ref: Mapped[str | None] = mapped_column(
+        ForeignKey("risk_profiles.risk_profile_id"), nullable=True
+    )
+    validation_backtest_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("backtest_runs.backtest_run_id"), nullable=True
+    )
+    paper_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("paper_runs.paper_run_id"), nullable=True
+    )
+    live_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("live_runs.live_run_id"), nullable=True
+    )
+    signal_ensemble_id: Mapped[str | None] = mapped_column(
+        ForeignKey("signal_ensembles.ensemble_id"), nullable=True
+    )
+    meta_label_id: Mapped[str | None] = mapped_column(
+        ForeignKey("meta_labels.meta_label_id"), nullable=True
+    )
+    veto_result: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class PositionSnapshot(Base):
+    __tablename__ = "position_snapshots"
+
+    position_snapshot_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=_uuid_str
+    )
+    run_type: Mapped[str] = mapped_column(String(20))
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    symbol: Mapped[str] = mapped_column(String(30), index=True)
+    side: Mapped[str] = mapped_column(String(20))
+    quantity: Mapped[float] = mapped_column(Float)
+    entry_price: Mapped[float] = mapped_column(Float)
+    mark_price: Mapped[float] = mapped_column(Float)
+    unrealized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    snapshot_time: Mapped[datetime] = mapped_column(index=True)

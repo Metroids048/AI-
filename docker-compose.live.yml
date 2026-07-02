@@ -1,0 +1,22 @@
+services:
+  api:
+    environment:
+      APP_ENV: live
+
+  celery_worker:
+    environment:
+      APP_ENV: live
+    command: >
+      sh -c "pip install -e . &&
+      celery -A apps.api.celery_app:celery_app worker --loglevel=info -Q default,backtest_queue,paper_queue"
+
+  celery_beat:
+    environment:
+      APP_ENV: live
+
+  freqtrade:
+    environment:
+      FREQTRADE__DRY_RUN: "false"
+
+  flower:
+    ports: []

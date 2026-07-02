@@ -1,5 +1,11 @@
 # 技术架构方案
 
+> 实现状态更新（2026-07-02）：
+> 当前仓库已不再是“services 全空实现”状态。真实落地范围已覆盖：
+> `shared/models` 统一契约、`/api/v1` 主接口、策略生命周期持久化、Timescale A 级时序仓储、
+> carry 回测应用服务、RiskProfile/RiskEvent/Review/Failure/AgentTask/OrderExecution 持久化与首版 gatekeeper。
+> 最新对账请优先查看 [implementation-status-matrix.md](implementation-status-matrix.md)。
+
 ## 文档定位
 
 本文件是开发前文档包的第 1 份，回答的是"系统具体怎么部署、代码怎么组织、当前技术缺口在哪里"，
@@ -338,13 +344,13 @@ integration"`）、`compose-validate`（仅 `docker compose config` 语法校验
 | 缺口 | 所属层/模块 | 影响 | 建议目标阶段 |
 |---|---|---|---|
 | Celery 已声明发现包，但仍无真实任务模块/路由策略 | AI Agent / Validation / Data | 队列骨架存在，但异步任务仍不可执行 | P1 |
-| `services/{data,agents,validation,execution,review}` 均为空实现 | 对应六层 | 无实际业务逻辑 | P1（data/validation 优先，见 appendix-b） |
+| `services/{data,agents,validation,execution,review}` 均为空实现 | 对应六层 | 该描述已过期：Data/Validation/Risk/Review/Agent/Execution 已有首版真实实现，剩余缺口见 `implementation-status-matrix.md` | 已从“全空”收敛到“partial/implemented` 混合状态 |
 | 六大接口簇已建 API skeleton，但大多仍是内存/占位实现 | API | 接口边界已固定，但尚无服务层能力与持久化支撑 | P1，随各服务实现同步补 |
 | `Settings` 已覆盖 `.env.example`，但多数变量尚未被业务模块真正消费 | 配置管理 | 类型入口已统一，仍需避免后续模块重新绕过 Settings 直读环境变量 | P1，随首次使用该变量的模块同步补 |
 | 无告警/通知机制（Telegram/邮件/Webhook 出站推送） | Review / Risk / Execution | 熔断、异常、日报无法主动触达人工 | P1（配合 24 小时运行方案文档） |
 | 无 Prometheus，Grafana dashboards 为空 | 可观测性 | 无法监控系统运行时健康度 | P1/P2 |
 | `migrations/` 仅有 `strategies` 表，`SignalEnsemble`/`MetaLabel`/`BacktestRun`/`PaperRun`/
-  `ReviewReport`/`FailureRecord`/`AgentTask` 等对象未建表 | Strategy/Validation/Review | 领域对象无法持久化 | P1 |
+  `ReviewReport`/`FailureRecord`/`AgentTask` 等对象未建表 | Strategy/Validation/Review | 该描述已过期：`0001` 已覆盖主生命周期表，`0002` 已补 `OptimizationRun`、`RiskProfile`、`ReviewReport`、`FailureRecord`、`AgentTask`、`LiveRun`、`OrderExecution`、`PositionSnapshot` 等关系表；SignalEnsemble/MetaLabel 也已纳入迁移 | 后续重点转向服务层能力而非“是否有表” |
 | `anthropic`/`langchain`/`llama-index` 已声明依赖但零代码引用 | AI Agent Layer | LLM 能力尚未接入 | P1（见后续 LLM 接入方案文档） |
 | 无 API 鉴权/访问控制实现 | API | 内部工具场景风险可接受，但仍是空缺 | P1 结束前 |
 | `infra/jesse/` 为占位目录，未在依赖中声明，用途未定 | Validation | 目录存在但无实际路径引用它 | P1 决策：启用或移除 |

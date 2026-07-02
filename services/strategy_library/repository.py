@@ -1,4 +1,4 @@
-"""Repositories and mappers for the strategy-intake chain."""
+"""Repositories and mappers for the platform research loop."""
 
 from __future__ import annotations
 
@@ -6,14 +6,25 @@ import re
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from shared.models import (
+    AgentTask,
     BacktestRun,
+    FailureRecord,
     GateDecision,
     IngestionJob,
+    LiveRun,
+    MetaLabel,
+    OptimizationRun,
+    OrderExecution,
     PaperRun,
+    PositionSnapshot,
+    ReviewReport,
+    RiskProfile,
+    SignalEnsemble,
     StrategyContract,
     StrategyCreate,
     StrategyDraft,
@@ -30,7 +41,9 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def _jsonable(value):
+def _jsonable(value: Any):
+    if hasattr(value, "model_dump"):
+        return _jsonable(value.model_dump(mode="json"))
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, Decimal):
@@ -131,9 +144,7 @@ def _version_from_orm(row: models.StrategyVersion) -> StrategyVersion:
     )
 
 
-def _gate_from_payload(
-    strategy_id: str, payload: dict | GateDecision | None
-) -> GateDecision | None:
+def _gate_from_payload(strategy_id: str, payload: dict | GateDecision | None) -> GateDecision | None:
     if payload is None:
         return None
     if isinstance(payload, GateDecision):
@@ -164,6 +175,19 @@ def _backtest_from_orm(row: models.BacktestRun) -> BacktestRun:
     )
 
 
+def _optimization_from_orm(row: models.OptimizationRun) -> OptimizationRun:
+    return OptimizationRun(
+        optimization_run_id=row.optimization_run_id,
+        strategy_id=row.strategy_id,
+        version_id=row.version_id,
+        search_space_ref=row.search_space_ref,
+        optimization_method=row.optimization_method,
+        best_candidate_summary=row.best_candidate_summary,
+        run_status=row.run_status,
+        created_at=row.created_at,
+    )
+
+
 def _ingestion_job_from_orm(row: models.IngestionJob) -> IngestionJob:
     return IngestionJob(
         ingestion_job_id=row.ingestion_job_id,
@@ -176,6 +200,7 @@ def _ingestion_job_from_orm(row: models.IngestionJob) -> IngestionJob:
         target_symbols=row.target_symbols,
         output_ref=row.output_ref,
         error_summary=row.error_summary,
+        execution_summary=row.execution_summary,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -199,6 +224,150 @@ def _paper_run_from_orm(row: models.PaperRun) -> PaperRun:
     )
 
 
+def _live_run_from_orm(row: models.LiveRun) -> LiveRun:
+    return LiveRun(
+        live_run_id=row.live_run_id,
+        strategy_id=row.strategy_id,
+        version_id=row.version_id,
+        exchange=row.exchange,
+        capital_tier=row.capital_tier,
+        live_status=row.live_status,
+        risk_profile_ref=row.risk_profile_ref,
+        live_metrics_summary=row.live_metrics_summary,
+        created_at=row.created_at,
+    )
+
+
+def _risk_profile_from_orm(row: models.RiskProfile) -> RiskProfile:
+    return RiskProfile(
+        risk_profile_id=row.risk_profile_id,
+        single_trade_risk_limit=row.single_trade_risk_limit,
+        max_symbol_exposure=row.max_symbol_exposure,
+        max_total_exposure=row.max_total_exposure,
+        max_open_positions=row.max_open_positions,
+        max_leverage=row.max_leverage,
+        daily_loss_limit=row.daily_loss_limit,
+        weekly_loss_limit=row.weekly_loss_limit,
+        drawdown_limit=row.drawdown_limit,
+        hard_stop_drawdown_limit=row.hard_stop_drawdown_limit,
+        market_scope=row.market_scope,
+        config_source=row.config_source,
+    )
+
+
+def _review_report_from_orm(row: models.ReviewReport) -> ReviewReport:
+    return ReviewReport(
+        review_report_id=row.review_report_id,
+        report_date=row.report_date,
+        scope_type=row.scope_type,
+        strategy_refs=row.strategy_refs,
+        worst_performer_refs=row.worst_performer_refs,
+        failure_patterns=row.failure_patterns,
+        deviation_analysis=row.deviation_analysis,
+        recommendations=row.recommendations,
+        report_status=row.report_status,
+        created_at=row.created_at,
+    )
+
+
+def _failure_record_from_orm(row: models.FailureRecord) -> FailureRecord:
+    return FailureRecord(
+        failure_record_id=row.failure_record_id,
+        strategy_id=row.strategy_id,
+        version_id=row.version_id,
+        origin_run_type=row.origin_run_type,
+        origin_run_id=row.origin_run_id,
+        failure_type=row.failure_type,
+        failure_summary=row.failure_summary,
+        evidence_refs=row.evidence_refs,
+        recommended_change=row.recommended_change,
+        created_at=row.created_at,
+    )
+
+
+def _agent_task_from_orm(row: models.AgentTask) -> AgentTask:
+    return AgentTask(
+        agent_task_id=row.agent_task_id,
+        agent_type=row.agent_type,
+        task_type=row.task_type,
+        input_ref=row.input_ref,
+        output_ref=row.output_ref,
+        input_payload=row.input_payload,
+        output_payload=row.output_payload,
+        priority=row.priority,
+        task_status=row.task_status,
+        error_summary=row.error_summary,
+        scheduled_at=row.scheduled_at,
+        created_at=row.created_at,
+    )
+
+
+def _signal_ensemble_from_orm(row: models.SignalEnsemble) -> SignalEnsemble:
+    return SignalEnsemble(
+        ensemble_id=row.ensemble_id,
+        strategy_refs=row.strategy_refs,
+        fusion_method=row.fusion_method,
+        correlation_matrix_ref=row.correlation_matrix_ref,
+        raw_votes=row.raw_votes,
+        fused_direction=row.fused_direction,
+        fused_confidence=row.fused_confidence,
+        ensemble_status=row.ensemble_status,
+        created_at=row.created_at,
+    )
+
+
+def _meta_label_from_orm(row: models.MetaLabel) -> MetaLabel:
+    return MetaLabel(
+        meta_label_id=row.meta_label_id,
+        ensemble_id=row.ensemble_id,
+        triple_barrier_result=row.triple_barrier_result,
+        bet_decision=row.bet_decision,
+        position_size_fraction=row.position_size_fraction,
+        model_ref=row.model_ref,
+        training_window_ref=row.training_window_ref,
+    )
+
+
+def _order_execution_from_orm(row: models.OrderExecution) -> OrderExecution:
+    return OrderExecution(
+        order_execution_id=row.order_execution_id,
+        strategy_id=row.strategy_id,
+        version_id=row.version_id,
+        symbol=row.symbol,
+        direction=row.direction,
+        execution_status=row.execution_status,
+        stoploss_present=row.stoploss_present,
+        close_only_mode=row.close_only_mode,
+        rejection_reason=row.rejection_reason,
+        entry_context=row.entry_context,
+        stoploss_plan=row.stoploss_plan,
+        takeprofit_plan=row.takeprofit_plan,
+        risk_profile_ref=row.risk_profile_ref,
+        validation_backtest_run_id=row.validation_backtest_run_id,
+        paper_run_id=row.paper_run_id,
+        live_run_id=row.live_run_id,
+        signal_ensemble_id=row.signal_ensemble_id,
+        meta_label_id=row.meta_label_id,
+        veto_result=row.veto_result,
+        created_at=row.created_at,
+    )
+
+
+def _position_snapshot_from_orm(row: models.PositionSnapshot) -> PositionSnapshot:
+    return PositionSnapshot(
+        position_snapshot_id=row.position_snapshot_id,
+        run_type=row.run_type,
+        run_id=row.run_id,
+        symbol=row.symbol,
+        side=row.side,
+        quantity=row.quantity,
+        entry_price=row.entry_price,
+        mark_price=row.mark_price,
+        unrealized_pnl=row.unrealized_pnl,
+        snapshot_time=row.snapshot_time,
+    )
+
+
 def _draft_to_strategy_key(title: str) -> str:
     normalized = re.sub(r"[^A-Za-z0-9_]+", "_", title).strip("_")
     base = normalized or "strategy"
@@ -206,7 +375,7 @@ def _draft_to_strategy_key(title: str) -> str:
 
 
 class StrategyRepository:
-    """Repository for the first strategy lifecycle slice."""
+    """Repository for the strategy lifecycle."""
 
     def __init__(self, session: Session):
         self.session = session
@@ -363,6 +532,21 @@ class StrategyRepository:
         self.session.refresh(row)
         return _strategy_from_orm(row)
 
+    def append_failure_record(self, strategy_id: str, failure_summary: str, recommended_change: str | None) -> None:
+        row = self.session.get(models.Strategy, strategy_id)
+        if row is None:
+            return
+        row.failure_reasons = [*row.failure_reasons, failure_summary]
+        row.iteration_history = [
+            *row.iteration_history,
+            {
+                "recorded_at": _utcnow().isoformat(),
+                "failure_summary": failure_summary,
+                "recommended_change": recommended_change,
+            },
+        ]
+        row.updated_at = _utcnow()
+
     def delete_strategy(self, strategy_id: str) -> bool:
         row = self.session.get(models.Strategy, strategy_id)
         if row is None:
@@ -432,6 +616,34 @@ class ValidationRepository:
         return _backtest_from_orm(row)
 
 
+class OptimizationRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def list_runs(self) -> list[OptimizationRun]:
+        rows = self.session.query(models.OptimizationRun).order_by(models.OptimizationRun.created_at).all()
+        return [_optimization_from_orm(row) for row in rows]
+
+    def get_run(self, optimization_run_id: str) -> OptimizationRun | None:
+        row = self.session.get(models.OptimizationRun, optimization_run_id)
+        return _optimization_from_orm(row) if row else None
+
+    def create_run(self, run: OptimizationRun) -> OptimizationRun:
+        row = models.OptimizationRun(
+            optimization_run_id=run.optimization_run_id or str(uuid.uuid4()),
+            strategy_id=run.strategy_id,
+            version_id=run.version_id,
+            search_space_ref=run.search_space_ref,
+            optimization_method=run.optimization_method,
+            best_candidate_summary=_jsonable(run.best_candidate_summary),
+            run_status=run.run_status,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _optimization_from_orm(row)
+
+
 class IngestionRepository:
     def __init__(self, session: Session):
         self.session = session
@@ -452,12 +664,24 @@ class IngestionRepository:
             job_type=job.job_type,
             schedule_mode=job.schedule_mode,
             job_status=job.job_status,
-            input_window=job.input_window,
+            input_window=_jsonable(job.input_window),
             target_symbols=job.target_symbols,
             output_ref=job.output_ref,
             error_summary=job.error_summary,
+            execution_summary=_jsonable(job.execution_summary),
         )
         self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _ingestion_job_from_orm(row)
+
+    def update_job(self, ingestion_job_id: str, **fields) -> IngestionJob | None:
+        row = self.session.get(models.IngestionJob, ingestion_job_id)
+        if row is None:
+            return None
+        for key, value in fields.items():
+            setattr(row, key, _jsonable(value))
+        row.updated_at = _utcnow()
         self.session.commit()
         self.session.refresh(row)
         return _ingestion_job_from_orm(row)
@@ -484,13 +708,264 @@ class PaperRunRepository:
             symbol_scope=run.symbol_scope,
             candidate_symbols=run.candidate_symbols,
             selection_basis=run.selection_basis,
-            run_window=run.run_window,
-            execution_profile=run.execution_profile,
+            run_window=_jsonable(run.run_window),
+            execution_profile=_jsonable(run.execution_profile),
             gate_decision_ref=run.gate_decision_ref,
-            paper_metrics_summary=run.paper_metrics_summary,
+            paper_metrics_summary=_jsonable(run.paper_metrics_summary),
             paper_status=run.paper_status,
         )
         self.session.add(row)
         self.session.commit()
         self.session.refresh(row)
         return _paper_run_from_orm(row)
+
+
+class RiskProfileRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def list_profiles(self) -> list[RiskProfile]:
+        rows = self.session.query(models.RiskProfile).order_by(models.RiskProfile.created_at).all()
+        return [_risk_profile_from_orm(row) for row in rows]
+
+    def get_profile(self, risk_profile_id: str) -> RiskProfile | None:
+        row = self.session.get(models.RiskProfile, risk_profile_id)
+        return _risk_profile_from_orm(row) if row else None
+
+    def create_profile(self, profile: RiskProfile) -> RiskProfile:
+        row = models.RiskProfile(
+            risk_profile_id=profile.risk_profile_id or str(uuid.uuid4()),
+            single_trade_risk_limit=profile.single_trade_risk_limit,
+            max_symbol_exposure=profile.max_symbol_exposure,
+            max_total_exposure=profile.max_total_exposure,
+            max_open_positions=profile.max_open_positions,
+            max_leverage=profile.max_leverage,
+            daily_loss_limit=profile.daily_loss_limit,
+            weekly_loss_limit=profile.weekly_loss_limit,
+            drawdown_limit=profile.drawdown_limit,
+            hard_stop_drawdown_limit=profile.hard_stop_drawdown_limit,
+            market_scope=profile.market_scope,
+            config_source=profile.config_source,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _risk_profile_from_orm(row)
+
+
+class ReviewRepository:
+    def __init__(self, session: Session):
+        self.session = session
+        self.strategy_repo = StrategyRepository(session)
+
+    def list_reports(self) -> list[ReviewReport]:
+        rows = self.session.query(models.ReviewReport).order_by(models.ReviewReport.created_at).all()
+        return [_review_report_from_orm(row) for row in rows]
+
+    def get_report(self, review_report_id: str) -> ReviewReport | None:
+        row = self.session.get(models.ReviewReport, review_report_id)
+        return _review_report_from_orm(row) if row else None
+
+    def create_report(self, report: ReviewReport) -> ReviewReport:
+        row = models.ReviewReport(
+            review_report_id=report.review_report_id or str(uuid.uuid4()),
+            report_date=report.report_date,
+            scope_type=report.scope_type,
+            strategy_refs=report.strategy_refs,
+            worst_performer_refs=report.worst_performer_refs,
+            failure_patterns=report.failure_patterns,
+            deviation_analysis=report.deviation_analysis,
+            recommendations=report.recommendations,
+            report_status=report.report_status,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _review_report_from_orm(row)
+
+    def list_failures(self) -> list[FailureRecord]:
+        rows = self.session.query(models.FailureRecord).order_by(models.FailureRecord.created_at).all()
+        return [_failure_record_from_orm(row) for row in rows]
+
+    def create_failure(self, record: FailureRecord) -> FailureRecord:
+        row = models.FailureRecord(
+            failure_record_id=record.failure_record_id or str(uuid.uuid4()),
+            strategy_id=record.strategy_id,
+            version_id=record.version_id,
+            origin_run_type=record.origin_run_type,
+            origin_run_id=record.origin_run_id,
+            failure_type=record.failure_type,
+            failure_summary=record.failure_summary,
+            evidence_refs=record.evidence_refs,
+            recommended_change=record.recommended_change,
+        )
+        self.session.add(row)
+        self.strategy_repo.append_failure_record(
+            strategy_id=record.strategy_id,
+            failure_summary=record.failure_summary,
+            recommended_change=record.recommended_change,
+        )
+        self.session.commit()
+        self.session.refresh(row)
+        return _failure_record_from_orm(row)
+
+
+class AgentTaskRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def list_tasks(self) -> list[AgentTask]:
+        rows = self.session.query(models.AgentTask).order_by(models.AgentTask.created_at).all()
+        return [_agent_task_from_orm(row) for row in rows]
+
+    def get_task(self, agent_task_id: str) -> AgentTask | None:
+        row = self.session.get(models.AgentTask, agent_task_id)
+        return _agent_task_from_orm(row) if row else None
+
+    def create_task(self, task: AgentTask) -> AgentTask:
+        row = models.AgentTask(
+            agent_task_id=task.agent_task_id or str(uuid.uuid4()),
+            agent_type=task.agent_type,
+            task_type=task.task_type,
+            input_ref=task.input_ref,
+            output_ref=task.output_ref,
+            input_payload=_jsonable(task.input_payload),
+            output_payload=_jsonable(task.output_payload),
+            priority=task.priority,
+            task_status=task.task_status,
+            error_summary=task.error_summary,
+            scheduled_at=task.scheduled_at,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _agent_task_from_orm(row)
+
+    def update_task(self, agent_task_id: str, **fields) -> AgentTask | None:
+        row = self.session.get(models.AgentTask, agent_task_id)
+        if row is None:
+            return None
+        for key, value in fields.items():
+            setattr(row, key, _jsonable(value))
+        self.session.commit()
+        self.session.refresh(row)
+        return _agent_task_from_orm(row)
+
+
+class ExecutionRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def list_live_runs(self) -> list[LiveRun]:
+        rows = self.session.query(models.LiveRun).order_by(models.LiveRun.created_at).all()
+        return [_live_run_from_orm(row) for row in rows]
+
+    def create_live_run(self, run: LiveRun) -> LiveRun:
+        row = models.LiveRun(
+            live_run_id=run.live_run_id or str(uuid.uuid4()),
+            strategy_id=run.strategy_id,
+            version_id=run.version_id,
+            exchange=str(run.exchange),
+            capital_tier=run.capital_tier,
+            live_status=run.live_status,
+            risk_profile_ref=run.risk_profile_ref,
+            live_metrics_summary=_jsonable(run.live_metrics_summary),
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _live_run_from_orm(row)
+
+    def list_orders(self) -> list[OrderExecution]:
+        rows = self.session.query(models.OrderExecution).order_by(models.OrderExecution.created_at).all()
+        return [_order_execution_from_orm(row) for row in rows]
+
+    def create_order(self, order: OrderExecution) -> OrderExecution:
+        row = models.OrderExecution(
+            order_execution_id=order.order_execution_id or str(uuid.uuid4()),
+            strategy_id=order.strategy_id,
+            version_id=order.version_id,
+            symbol=order.symbol,
+            direction=str(order.direction),
+            execution_status=order.execution_status,
+            stoploss_present=order.stoploss_present,
+            close_only_mode=order.close_only_mode,
+            rejection_reason=order.rejection_reason,
+            entry_context=_jsonable(order.entry_context),
+            stoploss_plan=_jsonable(order.stoploss_plan),
+            takeprofit_plan=_jsonable(order.takeprofit_plan),
+            risk_profile_ref=order.risk_profile_ref,
+            validation_backtest_run_id=order.validation_backtest_run_id,
+            paper_run_id=order.paper_run_id,
+            live_run_id=order.live_run_id,
+            signal_ensemble_id=order.signal_ensemble_id,
+            meta_label_id=order.meta_label_id,
+            veto_result=_jsonable(order.veto_result),
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _order_execution_from_orm(row)
+
+    def list_positions(self) -> list[PositionSnapshot]:
+        rows = self.session.query(models.PositionSnapshot).order_by(models.PositionSnapshot.snapshot_time).all()
+        return [_position_snapshot_from_orm(row) for row in rows]
+
+    def create_position_snapshot(self, snapshot: PositionSnapshot) -> PositionSnapshot:
+        row = models.PositionSnapshot(
+            position_snapshot_id=snapshot.position_snapshot_id or str(uuid.uuid4()),
+            run_type=snapshot.run_type,
+            run_id=snapshot.run_id,
+            symbol=snapshot.symbol,
+            side=str(snapshot.side),
+            quantity=snapshot.quantity,
+            entry_price=snapshot.entry_price,
+            mark_price=snapshot.mark_price,
+            unrealized_pnl=snapshot.unrealized_pnl,
+            snapshot_time=snapshot.snapshot_time,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _position_snapshot_from_orm(row)
+
+    def list_signal_ensembles(self) -> list[SignalEnsemble]:
+        rows = self.session.query(models.SignalEnsemble).order_by(models.SignalEnsemble.created_at).all()
+        return [_signal_ensemble_from_orm(row) for row in rows]
+
+    def create_signal_ensemble(self, ensemble: SignalEnsemble) -> SignalEnsemble:
+        row = models.SignalEnsemble(
+            ensemble_id=ensemble.ensemble_id,
+            strategy_refs=ensemble.strategy_refs,
+            fusion_method=ensemble.fusion_method,
+            correlation_matrix_ref=ensemble.correlation_matrix_ref,
+            raw_votes=_jsonable(ensemble.raw_votes),
+            fused_direction=str(ensemble.fused_direction) if ensemble.fused_direction else None,
+            fused_confidence=ensemble.fused_confidence,
+            ensemble_status=str(ensemble.ensemble_status),
+            created_at=ensemble.created_at,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _signal_ensemble_from_orm(row)
+
+    def create_meta_label(self, meta_label: MetaLabel) -> MetaLabel:
+        row = models.MetaLabel(
+            meta_label_id=meta_label.meta_label_id,
+            ensemble_id=meta_label.ensemble_id,
+            triple_barrier_result=(
+                str(meta_label.triple_barrier_result)
+                if meta_label.triple_barrier_result
+                else None
+            ),
+            bet_decision=str(meta_label.bet_decision),
+            position_size_fraction=meta_label.position_size_fraction,
+            model_ref=meta_label.model_ref,
+            training_window_ref=meta_label.training_window_ref,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _meta_label_from_orm(row)
+

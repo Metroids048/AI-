@@ -1,5 +1,13 @@
 # Task History
 
+### [TASK-011] Expand the persisted research loop with v1 APIs, gates, review writeback, and admin shell
+- **Date**: 2026-07-02
+- **Type**: feat
+- **Summary**: Extended the platform beyond the first persisted carry slice. Added `/api/v1` envelopes and error handling, Alembic `0002`, persisted `RiskProfile` / `RiskEvent` / `ReviewReport` / `FailureRecord` / `AgentTask` / `LiveRun` / `OrderExecution` / `PositionSnapshot`, execution gatekeeper checks, review writeback, local alpha scanning into `StrategyIdea`, implementation-status reconciliation docs, compose overlays, Grafana dashboard scaffolding, and a React + Tailwind admin shell.
+- **Files changed**: `apps/api/**`, `services/{agents,execution,review}/**`, `services/data/repository.py`, `services/strategy_library/{__init__,models,repository}.py`, `research_source/worldquant_adapter/**`, `migrations/versions/0002_expand_research_loop.py`, `docs/architecture/{implementation-status-matrix,technical-architecture-plan}.md`, `docs/ops/delivery-checklist.md`, `docker-compose*.yml`, `infra/{grafana,prometheus}/**`, `frontend/admin/**`, `tests/api/**`
+- **Verification**: `py -3 -m pytest -q` -> 24 passed, 1 warning (`asyncio_mode` unknown because local environment still does not load `pytest-asyncio`); `npm install` + `npm run build` in `frontend/admin` passed.
+- **Notes**: Ops overlays and Prometheus/Grafana assets are now in-repo scaffolds, but compose-level runtime validation is still pending. Walk-forward / DSR / stress-engine execution remains a Phase-1 gap.
+
 ### [TASK-010] Add persisted market-data carry backtest application flow
 - **Date**: 2026-07-02
 - **Type**: feat

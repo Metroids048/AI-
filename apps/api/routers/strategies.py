@@ -1,13 +1,15 @@
-"""Strategy Lifecycle API backed by the strategy repository."""
+"""Strategy lifecycle API backed by the persisted strategy repository."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
+from apps.api.http import collection_response, not_found
 from services.database import get_db_session
 from services.strategy_library import StrategyRepository
 from shared.models import (
+    CollectionResponse,
     StrategyCreate,
     StrategyDraft,
     StrategyIdea,
@@ -23,9 +25,9 @@ def _repo(db: Session) -> StrategyRepository:
     return StrategyRepository(db)
 
 
-@router.get("/ideas", response_model=list[StrategyIdea])
-def list_strategy_ideas(db: Session = Depends(get_db_session)) -> list[StrategyIdea]:
-    return _repo(db).list_ideas()
+@router.get("/ideas", response_model=CollectionResponse[StrategyIdea])
+def list_strategy_ideas(db: Session = Depends(get_db_session)) -> CollectionResponse[StrategyIdea]:
+    return collection_response(_repo(db).list_ideas())
 
 
 @router.post("/ideas", response_model=StrategyIdea, status_code=status.HTTP_201_CREATED)
@@ -45,13 +47,13 @@ def promote_idea_to_draft(
 ) -> StrategyDraft:
     draft = _repo(db).promote_idea_to_draft(idea_id)
     if draft is None:
-        raise HTTPException(status_code=404, detail="strategy idea not found")
+        raise not_found("strategy_idea", idea_id)
     return draft
 
 
-@router.get("/drafts", response_model=list[StrategyDraft])
-def list_strategy_drafts(db: Session = Depends(get_db_session)) -> list[StrategyDraft]:
-    return _repo(db).list_drafts()
+@router.get("/drafts", response_model=CollectionResponse[StrategyDraft])
+def list_strategy_drafts(db: Session = Depends(get_db_session)) -> CollectionResponse[StrategyDraft]:
+    return collection_response(_repo(db).list_drafts())
 
 
 @router.post("/drafts", response_model=StrategyDraft, status_code=status.HTTP_201_CREATED)
@@ -67,13 +69,13 @@ def materialize_strategy_from_draft(
 ) -> StrategyRead:
     strategy = _repo(db).materialize_strategy_from_draft(draft_id)
     if strategy is None:
-        raise HTTPException(status_code=404, detail="strategy draft not found")
+        raise not_found("strategy_draft", draft_id)
     return strategy
 
 
-@router.get("/versions", response_model=list[StrategyVersion])
-def list_strategy_versions(db: Session = Depends(get_db_session)) -> list[StrategyVersion]:
-    return _repo(db).list_versions()
+@router.get("/versions", response_model=CollectionResponse[StrategyVersion])
+def list_strategy_versions(db: Session = Depends(get_db_session)) -> CollectionResponse[StrategyVersion]:
+    return collection_response(_repo(db).list_versions())
 
 
 @router.post("/versions", response_model=StrategyVersion, status_code=status.HTTP_201_CREATED)
@@ -83,9 +85,9 @@ def create_strategy_version(
     return _repo(db).create_version(body)
 
 
-@router.get("", response_model=list[StrategyRead])
-def list_strategies(db: Session = Depends(get_db_session)) -> list[StrategyRead]:
-    return _repo(db).list_strategies()
+@router.get("", response_model=CollectionResponse[StrategyRead])
+def list_strategies(db: Session = Depends(get_db_session)) -> CollectionResponse[StrategyRead]:
+    return collection_response(_repo(db).list_strategies())
 
 
 @router.post("", response_model=StrategyRead, status_code=status.HTTP_201_CREATED)
@@ -99,7 +101,7 @@ def create_strategy(
 def get_strategy(strategy_id: str, db: Session = Depends(get_db_session)) -> StrategyRead:
     strategy = _repo(db).get_strategy(strategy_id)
     if strategy is None:
-        raise HTTPException(status_code=404, detail="strategy not found")
+        raise not_found("strategy", strategy_id)
     return strategy
 
 
@@ -109,7 +111,7 @@ def update_strategy(
 ) -> StrategyRead:
     strategy = _repo(db).update_strategy(strategy_id, body)
     if strategy is None:
-        raise HTTPException(status_code=404, detail="strategy not found")
+        raise not_found("strategy", strategy_id)
     return strategy
 
 
@@ -120,4 +122,4 @@ def update_strategy(
 )
 def delete_strategy(strategy_id: str, db: Session = Depends(get_db_session)) -> None:
     if not _repo(db).delete_strategy(strategy_id):
-        raise HTTPException(status_code=404, detail="strategy not found")
+        raise not_found("strategy", strategy_id)

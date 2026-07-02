@@ -8,6 +8,7 @@ Import from here, never redefine these shapes inside a service:
 from __future__ import annotations
 
 from .alpha import AlphaOperator, AlphaPlan
+from .api import ApiError, CollectionResponse, TaskSubmission
 from .backtest import (
     GATE_MAX_DRAWDOWN,
     GATE_MIN_EXPECTANCY,
@@ -50,14 +51,23 @@ from .strategy import (
 )
 from .workflow import (
     AgentTask,
+    AgentTaskRequest,
     BacktestRun,
+    BacktestSubmissionRequest,
     CarryBacktestRequest,
+    ExecutionOrderRequest,
     ExecutionSignal,
     FailureRecord,
     IngestionJob,
+    IngestionJobRequest,
     LiveRun,
+    LiveRunRequest,
     OptimizationRun,
+    OptimizationSubmissionRequest,
+    OrderExecution,
     PaperRun,
+    PaperRunRequest,
+    PositionSnapshot,
     ReviewReport,
 )
 
@@ -103,6 +113,10 @@ __all__ = [
     # alpha
     "AlphaOperator",
     "AlphaPlan",
+    # api
+    "CollectionResponse",
+    "TaskSubmission",
+    "ApiError",
     # strategy
     "StrategyIdea",
     "StrategyDraft",
@@ -115,13 +129,22 @@ __all__ = [
     "StrategyRules",
     # workflow
     "BacktestRun",
+    "BacktestSubmissionRequest",
     "CarryBacktestRequest",
     "OptimizationRun",
+    "OptimizationSubmissionRequest",
     "PaperRun",
+    "PaperRunRequest",
     "LiveRun",
+    "LiveRunRequest",
     "ExecutionSignal",
+    "ExecutionOrderRequest",
+    "OrderExecution",
+    "PositionSnapshot",
     "ReviewReport",
     "FailureRecord",
     "IngestionJob",
+    "IngestionJobRequest",
     "AgentTask",
+    "AgentTaskRequest",
 ]
