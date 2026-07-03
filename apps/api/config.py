@@ -2,16 +2,7 @@
 
 from __future__ import annotations
 
-try:
-    from pydantic_settings import BaseSettings, SettingsConfigDict
-except ImportError:  # pragma: no cover - local fallback for minimal smoke tests
-    from pydantic import BaseModel
-
-    class BaseSettings(BaseModel):
-        pass
-
-    def SettingsConfigDict(**kwargs):
-        return kwargs
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -47,7 +38,7 @@ class Settings(BaseSettings):
     coindesk_rss_url: str = "https://www.coindesk.com/arc/outboundfeeds/rss/"
     theblock_rss_url: str = "https://www.theblock.co/rss.xml"
     reuters_crypto_rss_url: str = ""
-    sec_edgar_rss_url: str = 'https://efts.sec.gov/LATEST/search-index?q=%22crypto%22'
+    sec_edgar_rss_url: str = "https://efts.sec.gov/LATEST/search-index?q=%22crypto%22"
 
     twitter_bearer_token: str = ""
     twitter_watch_user_ids: str = "25073877,44196397,902926941413453824"

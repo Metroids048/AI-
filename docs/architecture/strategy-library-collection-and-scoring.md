@@ -1,5 +1,14 @@
 # 量化策略库：收集 / 评分 / 淘汰机制方案
 
+## 2026-07-03 Implementation Addendum
+
+- The first executable ensemble slice now exists in `services/strategy_library/ensemble/service.py`.
+- Ensemble scoring currently supports correlation filtering / down-weighting and weighted vote fusion with audit payload references.
+- Meta-labeling currently uses deterministic historical win-rate and average-net-return rules, with triple-barrier-style sample contracts and no heavyweight model dependency.
+- The first deterministic technical modules are MACD and Dow swing trend in `services/strategy_library/technical/`.
+- Chan theory remains intentionally unimplemented until the project defines objective pivot/stroke/segment boundaries.
+- WorldQuant alpha semantic migration is deferred for now; alpha sources may still enter as research intake ideas, but they are not treated as executable factor logic in this phase.
+
 ## 文档定位
 
 本文件是开发前文档包的第 4 份，回答"策略从哪里来、怎么打分、什么时候被淘汰"这一机制设计问题。

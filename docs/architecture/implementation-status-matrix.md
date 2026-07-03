@@ -1,6 +1,46 @@
 # Implementation Status Matrix
 
-更新时间：2026-07-02
+## 2026-07-03 Remediation Plan Addendum
+
+- Engineering baseline has been restored locally: `apps/__init__.py` defines the package boundary, Ruff B008 is scoped to FastAPI router files, and `apps/api/config.py` now requires the declared `pydantic-settings` dependency instead of carrying a local fallback.
+- Validation Layer first slice now includes real walk-forward/OOS/stress diagnostics under `services/validation/{walk_forward,report,stress_scenarios}.py`.
+- Public APIs added under the existing `/api/v1` prefix: `POST /api/v1/backtests/carry/walk-forward`, `GET /api/v1/validation/reports/{backtest_run_id}`, `GET /api/v1/system/health/dependencies`, `GET /api/v1/market/capabilities`, and `GET /api/v1/notifications/outbox`.
+- `BacktestReport` now carries `validation_windows`, `stress_test_results`, and `lookahead_check`; `IngestionJob` carries `data_quality_summary`; `ExchangeCapability` and `NotificationOutboxItem` are exported from `shared/models`.
+- `Makefile` no longer hides operational gaps behind `echo TODO`: `data-check` and `backtest` call real script entrypoints, while unsupported umbrella targets fail explicitly with guidance.
+- Agent tasks with no registered executor now fail explicitly; deterministic Decision Veto and Review executor slices exist and do not generate orders.
+- Binance public smoke is present as an opt-in integration test (`RUN_BINANCE_INTEGRATION=1`), and the default CI/test path remains offline deterministic.
+
+## 2026-07-03 Binance Data Layer First-Tranche Addendum
+
+- Binance public market-data ingestion is now implemented for the first Paper-console tranche.
+- `DataRepository` writes to `ohlcv_bars` and `market_extras` are idempotent for repeated REST backfill / WS collector data.
+- `services/data/binance.py` now provides CCXT-backed OHLCV/funding backfill services plus WS payload handlers that ignore in-progress Kline candles.
+- `services/data/tasks.py` executes `binance_ohlcv_backfill` and `binance_funding_backfill` ingestion jobs and records `binance_live_market_collector` as a long-lived worker seam.
+- `frontend/admin/vite.config.js` proxies `/api` to `http://127.0.0.1:8000` by default, with `VITE_API_BASE_URL` retained as an override.
+- Scope remains Data Layer only: no live order execution, account sync, order-book persistence, alerting, LLM veto, or frontend push channel.
+
+## 2026-07-03 Phase 1a/1b/1d/1e Verification Addendum
+
+- `services/data/` has been restored in-repo and import smoke passes: `import services.data; import apps.api.main`.
+- `.gitignore` now anchors root runtime data as `/data/`, `/artifacts/`, `/coverage/`, and ignores `/.pytest_ai_quant.db` plus `*.egg-info/`.
+- LLM dependencies are optional under the `llm` extra; dev install no longer pulls `anthropic` / `langchain` / `llama-index`.
+- Carry backtest metrics are no longer hardcoded. Sharpe, max drawdown, profit factor, expectancy, win rate, DSR-style penalty, and cost breakdown are calculated from trade returns / PnL.
+- Carry fixtures that fail net expectancy after real fees/slippage/funding are now rejected instead of marked conditional.
+- SignalEnsemble / MetaLabel service and API routes are implemented for the first deterministic service slice.
+- Technical signals implemented: MACD and Dow swing trend. Chan theory remains not implemented by decision.
+- WorldQuant alpha semantic evaluator is explicitly deferred per 2026-07-03 user instruction; keep only the existing scan/intake seam in active scope.
+- Verification: `py -3 -m pip install -e ".[dev]"` passed; targeted Phase 1 tests passed (`14 passed`); full `py -3 -m pytest -q` passed (`31 passed`).
+- Not locally verified: `docker compose -f docker-compose.yml config`, because `docker` is not available on this machine PATH.
+
+## 2026-07-03 Paper Trading Console Addendum
+
+- Added read APIs for the first Paper console: `/api/v1/market/snapshot`, `/api/v1/market/ohlcv`, and `/api/v1/console/overview`.
+- Added small control APIs for Paper status and RiskEvent acknowledgement: `PATCH /api/v1/execution/paper-runs/{id}/status` and `PATCH /api/v1/risk/events/{id}/resolution`.
+- `frontend/admin` is now a real Paper trading console that polls APIs, renders Binance Kline data with `lightweight-charts`, and displays carry, orders, positions, risk events, and manual controls.
+- Scope remains Paper-first and Binance-first. Real exchange WebSocket ingestion, account sync, order placement/cancel, and live trading controls remain not implemented.
+- Verification: `npm --workspace frontend/admin run build` passed; full `py -3 -m pytest -q` passed (`35 passed`); Playwright desktop/mobile smoke verified no mobile horizontal overflow after the chart resize fix.
+
+更新时间：2026-07-03
 
 本表用于把设计真源与仓库真实实现状态对账，避免继续被旧文档里的“空实现”描述误导。
 
@@ -18,7 +58,7 @@
 | Binance A 级时序仓储 | Data Layer | implemented | `services/data/repository.py` (`ohlcv_bars`, `market_extras`, `risk_events`) | `tests/services/test_timeseries_repository.py` |
 | Binance carry 回测应用服务 | Validation Layer | implemented | `services/validation/{carry,application}.py` | `tests/services/test_backtest_application.py`, `tests/api/test_vertical_slice.py` |
 | 通用回测提交接口 | Validation Layer | partial | `POST /api/v1/backtests` 已改为提交请求并生成 `TaskSubmission`，但仍是同步落库 seam | `tests/api/test_vertical_slice.py` |
-| 优化任务持久化 | Validation Layer | partial | `OptimizationRun` ORM + repository + `/api/v1/optimizations` | API 列表/提交已覆盖，尚无 walk-forward/DSR 引擎测试 |
+| 优化任务持久化 | Validation Layer | partial | `OptimizationRun` ORM + repository + `/api/v1/optimizations` | API 列表/提交已覆盖；walk-forward 已覆盖 carry lane，通用优化/DSR 引擎仍未完整落地 |
 | Paper admission gate | Execution Layer | implemented | `services/execution/gatekeeper.py` | `tests/api/test_vertical_slice.py` |
 | Order gatekeeper | Execution Layer | implemented | 无止损/数据不新鲜/validation fail/veto/blocking risk event 拒绝 | `tests/api/test_risk_review_agents.py` |
 | RiskProfile 持久化 | Risk Layer | implemented | `RiskProfileRepository` + `/api/v1/risk/profiles` | `tests/api/test_risk_review_agents.py` |
@@ -27,10 +67,13 @@
 | AgentTask 状态机与结构化 I/O | Agent Layer | implemented | `AgentTaskRepository` + `services/agents/service.py` | `tests/api/test_risk_review_agents.py` |
 | 本地 alpha 扫描 -> StrategyIdea | Research Source | implemented | `research_source/worldquant_adapter/{expression_parser,local_alpha_scanner}.py` | `tests/api/test_risk_review_agents.py` |
 | WorldQuant 算子方法论移植 | Research Source | partial | `operators.py`、`CryptoFactorGenerator` 已有首版可执行实现 | 尚缺针对真实 crypto 因子输出的专项验证 |
-| SignalEnsemble / MetaLabel 持久化 | Strategy Layer | partial | ORM + repository 已存在 | 尚无服务层与 API 闭环 |
+| SignalEnsemble / MetaLabel 持久化 | Strategy Layer | partial | ORM + repository + `services/strategy_library/ensemble/service.py` + `/api/v1/strategy/ensemble/*` | `tests/api/test_signal_ensemble.py` 覆盖 deterministic service/API；训练型 meta-label 模型仍未落地 |
 | LiveRun / PositionSnapshot 基础仓储 | Execution Layer | partial | ORM + repository + `/api/v1/execution/live-runs|positions` | 暂无 live 运行闭环测试 |
-| Frontend Admin 控制台 | Frontend | partial | `frontend/admin` 已从占位页升级为 React + Tailwind 控制台壳 | `npm run build` 通过 |
+| Frontend Admin 控制台 | Frontend | partial | `frontend/admin` 已升级为 Paper Trading Console；K线、carry、订单、持仓、风险事件、人工操作面板接真实 API | `npm --workspace frontend/admin run build` 通过；Playwright 桌面/移动 smoke 通过；remediation 后需重新跑 build |
 | Prometheus / Grafana dashboard | Ops | partial | `docker-compose.yml` 已新增 `prometheus`，Grafana dashboard provisioning 与 `research-loop-overview.json` 已入仓 | 本轮未跑 compose 验证 |
 | `docker-compose.test/paper/live` overlays | Ops | partial | `docker-compose.{test,paper,live}.yml` 已新增 | 本轮未跑 compose 验证 |
-| News/Twitter/Telegram/Decision Veto Agent | Agent Layer | partial | schema 与 order gate veto 输入已接缝，Agent 真实执行未接 LLM | 无 |
-| Walk-forward / OOS / Deflated Sharpe / stress engine | Validation Layer | missing | 仅在模型与文档中定义，尚未成为真实服务 | 无 |
+| News/Twitter/Telegram/Decision Veto Agent | Agent Layer | partial | schema 与 order gate veto 输入已接缝；`decision_veto_agent/pre_execution_veto` 有 deterministic executor | `tests/api/test_remediation_plan.py` 覆盖未注册 executor 不得标记完成；LLM 接入仍未实现 |
+| Walk-forward / OOS / stress engine | Validation Layer | partial | `services/validation/{walk_forward,report,stress_scenarios}.py` + carry walk-forward API + report API | `tests/api/test_remediation_plan.py` 覆盖 OOS/压力结果影响 GateDecision；Deflated Sharpe 仍是字段/门槛口径，未实现完整统计校正引擎 |
+| Exchange capability registry | Data/Execution boundary | partial | `services/data/capabilities.py` + `GET /api/v1/market/capabilities` | `tests/api/test_remediation_plan.py` |
+| Notification outbox | Ops / Review / Risk | partial | `services/notifications.py` + `GET /api/v1/notifications/outbox` | `tests/api/test_remediation_plan.py`；真实 Telegram/Email/Webhook adapter 未实现 |
+| System dependency health | Ops | partial | `apps/api/routers/system.py` + `GET /api/v1/system/health/dependencies` | `tests/api/test_remediation_plan.py`；当前为配置/连通性可见性，不替代外部监控 |

@@ -31,9 +31,7 @@ def create_review_report(body: ReviewReport, db: Session = Depends(get_db_sessio
 
 
 @router.post("/reviews/daily/{report_date}", response_model=ReviewReport, status_code=status.HTTP_201_CREATED)
-def generate_daily_review_report(
-    report_date: str, db: Session = Depends(get_db_session)
-) -> ReviewReport:
+def generate_daily_review_report(report_date: str, db: Session = Depends(get_db_session)) -> ReviewReport:
     datetime.strptime(report_date, "%Y-%m-%d")
     return _service(db).build_daily_report(report_date)
 
@@ -52,7 +50,5 @@ def list_failure_records(db: Session = Depends(get_db_session)) -> CollectionRes
 
 
 @router.post("/failures", response_model=FailureRecord, status_code=status.HTTP_201_CREATED)
-def create_failure_record(
-    body: FailureRecord, db: Session = Depends(get_db_session)
-) -> FailureRecord:
+def create_failure_record(body: FailureRecord, db: Session = Depends(get_db_session)) -> FailureRecord:
     return _service(db).record_failure(body)

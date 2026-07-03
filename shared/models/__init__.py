@@ -35,14 +35,31 @@ from .enums import (
     TripleBarrierOutcome,
 )
 from .macro import MacroEvent
-from .market import MarketExtras, OHLCVBar
-from .risk import RiskEvent, RiskProfile
-from .signal import DecisionVetoResult, MetaLabel, SignalEnsemble, SignalVote, TradeSignal
+from .market import (
+    ConsoleOverview,
+    ExchangeCapability,
+    MarketExtras,
+    MarketSnapshot,
+    OHLCVBar,
+    OhlcvSeriesResponse,
+)
+from .risk import RiskEvent, RiskEventResolutionUpdate, RiskProfile
+from .signal import (
+    CandidateSignalSeries,
+    DecisionVetoResult,
+    MetaLabel,
+    MetaLabelRequest,
+    MetaLabelSample,
+    SignalEnsemble,
+    SignalEnsembleRequest,
+    SignalVote,
+    TradeSignal,
+)
 from .strategy import (
-    StrategyDraft,
     StrategyBase,
     StrategyContract,
     StrategyCreate,
+    StrategyDraft,
     StrategyIdea,
     StrategyRead,
     StrategyRules,
@@ -62,11 +79,13 @@ from .workflow import (
     IngestionJobRequest,
     LiveRun,
     LiveRunRequest,
+    NotificationOutboxItem,
     OptimizationRun,
     OptimizationSubmissionRequest,
     OrderExecution,
     PaperRun,
     PaperRunRequest,
+    PaperRunStatusUpdate,
     PositionSnapshot,
     ReviewReport,
 )
@@ -92,6 +111,10 @@ __all__ = [
     # market
     "OHLCVBar",
     "MarketExtras",
+    "MarketSnapshot",
+    "OhlcvSeriesResponse",
+    "ConsoleOverview",
+    "ExchangeCapability",
     # backtest
     "BacktestReport",
     "GateDecision",
@@ -101,15 +124,20 @@ __all__ = [
     "GATE_MIN_EXPECTANCY",
     # risk
     "RiskEvent",
+    "RiskEventResolutionUpdate",
     "RiskProfile",
     # macro
     "MacroEvent",
     # signal
     "TradeSignal",
+    "CandidateSignalSeries",
     "SignalVote",
     "SignalEnsemble",
+    "SignalEnsembleRequest",
     "DecisionVetoResult",
     "MetaLabel",
+    "MetaLabelSample",
+    "MetaLabelRequest",
     # alpha
     "AlphaOperator",
     "AlphaPlan",
@@ -135,6 +163,7 @@ __all__ = [
     "OptimizationSubmissionRequest",
     "PaperRun",
     "PaperRunRequest",
+    "PaperRunStatusUpdate",
     "LiveRun",
     "LiveRunRequest",
     "ExecutionSignal",
@@ -147,4 +176,5 @@ __all__ = [
     "IngestionJobRequest",
     "AgentTask",
     "AgentTaskRequest",
+    "NotificationOutboxItem",
 ]

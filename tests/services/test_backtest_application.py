@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from shared.models import CarryBacktestRequest, MarketExtras, StrategyCreate, StrategyRules
 from services.data.repository import DataRepository
 from services.strategy_library import StrategyRepository, ValidationRepository
 from services.validation.application import CarryBacktestApplicationService
+from shared.models import CarryBacktestRequest, MarketExtras, StrategyCreate, StrategyRules
 
 
 def _seed_bar(symbol: str, at: datetime, close: str) -> dict:
@@ -42,7 +42,7 @@ def test_carry_backtest_application_uses_persisted_data(db_session) -> None:
             ),
         )
     )
-    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2024, 1, 1, tzinfo=UTC)
     data_repo.store_ohlcv_bars(
         [
             _seed_bar("BTC/USDT", start, "42000"),
@@ -81,5 +81,6 @@ def test_carry_backtest_application_uses_persisted_data(db_session) -> None:
 
     assert run.backtest_run_id is not None
     assert run.eligibility_result is not None
-    assert run.eligibility_result.decision_status == "conditional"
+    assert run.eligibility_result.decision_status == "rejected_with_reason"
+    assert "min_expectancy" in run.eligibility_result.failed_thresholds
     assert run.validation_methodology["data_quality"]["gap_check"]["has_gaps"] is False

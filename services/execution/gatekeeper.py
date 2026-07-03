@@ -127,8 +127,6 @@ class ExecutionGatekeeperService:
             live_run_id=request.live_run_id,
             signal_ensemble_id=request.signal_ensemble_id,
             meta_label_id=request.meta_label_id,
-            veto_result=(
-                request.veto_result.model_dump(mode="json") if request.veto_result is not None else {}
-            ),
+            veto_result=(request.veto_result.model_dump(mode="json") if request.veto_result is not None else {}),
         )
         return self.execution_repo.create_order(order)

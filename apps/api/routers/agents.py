@@ -27,9 +27,7 @@ def list_agent_tasks(db: Session = Depends(get_db_session)) -> CollectionRespons
 
 
 @router.post("/tasks", response_model=TaskSubmission, status_code=status.HTTP_202_ACCEPTED)
-def submit_agent_task(
-    body: AgentTaskRequest, db: Session = Depends(get_db_session)
-) -> TaskSubmission:
+def submit_agent_task(body: AgentTaskRequest, db: Session = Depends(get_db_session)) -> TaskSubmission:
     task = _service(db).submit_task(body)
     return TaskSubmission(
         task_id=task.agent_task_id,

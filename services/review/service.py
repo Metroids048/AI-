@@ -37,13 +37,7 @@ class ReviewService:
             if failure.created_at is not None and failure.created_at.date().isoformat() == report_date
         ]
         strategy_refs = sorted({failure.strategy_id for failure in failures})
-        recommendations = sorted(
-            {
-                failure.recommended_change
-                for failure in failures
-                if failure.recommended_change
-            }
-        )
+        recommendations = sorted({failure.recommended_change for failure in failures if failure.recommended_change})
         report = ReviewReport(
             report_date=report_date,
             scope_type="daily",

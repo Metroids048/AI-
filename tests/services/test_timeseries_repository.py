@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from shared.models import MarketExtras, OHLCVBar
 from services.data.repository import DataRepository
+from shared.models import MarketExtras, OHLCVBar
 
 
 def _bar(symbol: str, at: datetime, close: str) -> OHLCVBar:
@@ -23,7 +23,7 @@ def _bar(symbol: str, at: datetime, close: str) -> OHLCVBar:
 
 def test_timeseries_repository_store_and_query(db_session) -> None:
     repo = DataRepository(db_session)
-    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2024, 1, 1, tzinfo=UTC)
     bars = [
         _bar("BTC/USDT", start, "42000"),
         _bar("BTC/USDT", start + timedelta(hours=1), "42100"),
@@ -42,9 +42,27 @@ def test_timeseries_repository_store_and_query(db_session) -> None:
     assert str(loaded_extras[0].funding_rate) == "0.0008"
 
 
+def test_timeseries_repository_upserts_duplicate_market_rows(db_session) -> None:
+    repo = DataRepository(db_session)
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+
+    repo.store_ohlcv_bars([_bar("BTC/USDT", start, "42000")])
+    repo.store_ohlcv_bars([_bar("BTC/USDT", start, "42100")])
+    repo.store_market_extras([MarketExtras(symbol="BTC/USDT:USDT", time=start, funding_rate=Decimal("0.0008"))])
+    repo.store_market_extras([MarketExtras(symbol="BTC/USDT:USDT", time=start, funding_rate=Decimal("0.0009"))])
+
+    loaded_bars = repo.list_ohlcv_bars(symbol="BTC/USDT", timeframe="1h")
+    loaded_extras = repo.list_market_extras(symbol="BTC/USDT:USDT")
+
+    assert len(loaded_bars) == 1
+    assert loaded_bars[0].close == Decimal("42100")
+    assert len(loaded_extras) == 1
+    assert loaded_extras[0].funding_rate == Decimal("0.0009")
+
+
 def test_gap_and_freshness_checks(db_session) -> None:
     repo = DataRepository(db_session)
-    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2024, 1, 1, tzinfo=UTC)
     repo.store_ohlcv_bars(
         [
             _bar("ETH/USDT", start, "2300"),

@@ -12,10 +12,7 @@ class PaperOrchestrationService:
 
     def prepare_run(self, run: PaperRun) -> PaperRun:
         combined = list(dict.fromkeys([*PAPER_PRIORITY_SYMBOLS, *run.candidate_symbols, *run.symbol_scope]))
-        if not run.symbol_scope:
-            symbol_scope = PAPER_PRIORITY_SYMBOLS
-        else:
-            symbol_scope = run.symbol_scope
+        symbol_scope = PAPER_PRIORITY_SYMBOLS if not run.symbol_scope else run.symbol_scope
         return run.model_copy(
             update={
                 "symbol_scope": symbol_scope,

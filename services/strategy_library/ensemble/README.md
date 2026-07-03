@@ -1,6 +1,15 @@
 # 信号融合与二级仓位判定（Ensemble / Meta-labeling）
 
-Phase 0 占位说明，本目录暂无实现代码。
+当前状态（2026-07-03）：本目录已有首版 deterministic service/API，实现的是可审计的
+信号投票融合与规则化 meta-label 判定接缝；训练型模型、三重界限法样本生成和在线调参
+仍未实现。
+
+已落地代码：
+
+- `service.py`：`EnsembleService`，根据 `SignalVote` 权重生成 `SignalEnsemble`，
+  并按置信度、相关性与建议风险倍数生成 `MetaLabel`。
+- `apps/api/routers/ensemble.py`：`/api/v1/strategy/ensemble/*` 路由。
+- `tests/api/test_signal_ensemble.py`：deterministic service/API 行为测试。
 
 ## 定位
 
@@ -15,6 +24,8 @@ Phase 0 占位说明，本目录暂无实现代码。
 - [agent-and-orchestration-design.md](C:\Users\Windows11\Desktop\量化项目\docs\architecture\agent-and-orchestration-design.md)
 - [execution-risk-review-design.md §03a](C:\Users\Windows11\Desktop\量化项目\docs\architecture\execution-risk-review-design.md)
 
-## 何时实现
+## 后续实现边界
 
-按 `appendix-b-feature-phasing.md` 的 P1 优先级，先跑通资金费率/基差套利底仓策略，再接入技术策略框架化与本融合子模块。不在 Phase 0 实现具体算法。
+按 `appendix-b-feature-phasing.md` 的 P1 优先级，资金费率/基差套利底仓策略仍优先服务
+Validation Layer 闭环。本目录当前只提供 Strategy Layer 子模块的结构化融合接缝，
+后续如引入训练型 meta-label，必须继续复用 `shared/models/signal.py` 的契约，不新增第 7 层。

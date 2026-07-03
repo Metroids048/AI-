@@ -36,14 +36,17 @@ class RiskProfile(PlatformModel):
 class RiskEvent(PlatformModel):
     """Unified risk event across macro / news / social / market / exec sources."""
 
+    risk_event_id: str | None = None
     event_type: RiskEventType
     severity: RiskSeverity
     source: str = Field(examples=["jinshi", "twitter", "macro_calendar"])
     description: str
-    affected_scope: list[str] | None = Field(
-        default=None, description="Affected symbols; None == whole market"
-    )
+    affected_scope: list[str] | None = Field(default=None, description="Affected symbols; None == whole market")
     recommended_action: str | None = None
     resolution_status: RiskResolutionStatus = RiskResolutionStatus.DETECTED
     occurred_at: datetime | None = None
     expires_at: datetime | None = None
+
+
+class RiskEventResolutionUpdate(PlatformModel):
+    resolution_status: RiskResolutionStatus

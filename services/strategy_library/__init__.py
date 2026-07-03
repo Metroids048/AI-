@@ -4,6 +4,7 @@ from .models import (
     AgentTask,
     BacktestRun,
     Base,
+    FailureRecord,
     IngestionJob,
     LiveRun,
     MetaLabel,
@@ -18,7 +19,6 @@ from .models import (
     StrategyDraft,
     StrategyIdea,
     StrategyVersion,
-    FailureRecord,
 )
 from .repository import (
     AgentTaskRepository,

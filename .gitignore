@@ -31,13 +31,14 @@ Thumbs.db
 .DS_Store
 
 # Data artifacts
-data/
-artifacts/
-coverage/
+/data/
+/artifacts/
+/coverage/
+/.pytest_ai_quant.db
+*.egg-info/
 
 # Freqtrade runtime (keep .gitkeep + the example config only)
 infra/freqtrade/user_data/*
 !infra/freqtrade/user_data/.gitkeep
 infra/freqtrade/config/*.json
 !infra/freqtrade/config/config.example.json
-

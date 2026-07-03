@@ -103,6 +103,10 @@ class PaperRunRequest(PlatformModel):
     idempotency_key: str | None = None
 
 
+class PaperRunStatusUpdate(PlatformModel):
+    paper_status: str
+
+
 class LiveRun(PlatformModel):
     live_run_id: str | None = None
     strategy_id: str
@@ -233,6 +237,7 @@ class IngestionJob(PlatformModel):
     output_ref: str | None = None
     error_summary: str | None = None
     execution_summary: dict[str, Any] = Field(default_factory=dict)
+    data_quality_summary: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -269,3 +274,17 @@ class AgentTaskRequest(PlatformModel):
     input_payload: dict[str, Any] = Field(default_factory=dict)
     priority: int = 5
     idempotency_key: str | None = None
+
+
+class NotificationOutboxItem(PlatformModel):
+    """Structured notification intent; delivery adapters are a later tranche."""
+
+    notification_id: str
+    event_type: str
+    severity: str
+    channel_group: str = "ops"
+    subject: str
+    body: str
+    source_ref: str | None = None
+    delivery_status: str = "pending_adapter"
+    created_at: datetime | None = None

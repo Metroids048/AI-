@@ -9,7 +9,7 @@ from apps.api.http import collection_response, not_found
 from services.data import DataRepository
 from services.database import get_db_session
 from services.strategy_library import RiskProfileRepository
-from shared.models import CollectionResponse, RiskEvent, RiskProfile
+from shared.models import CollectionResponse, RiskEvent, RiskEventResolutionUpdate, RiskProfile
 
 router = APIRouter(prefix="/risk", tags=["risk"])
 
@@ -28,9 +28,7 @@ def list_risk_profiles(db: Session = Depends(get_db_session)) -> CollectionRespo
 
 
 @router.post("/profiles", response_model=RiskProfile, status_code=status.HTTP_201_CREATED)
-def create_risk_profile(
-    body: RiskProfile, db: Session = Depends(get_db_session)
-) -> RiskProfile:
+def create_risk_profile(body: RiskProfile, db: Session = Depends(get_db_session)) -> RiskProfile:
     return _profile_repo(db).create_profile(body)
 
 
@@ -53,3 +51,18 @@ def list_risk_events(
 @router.post("/events", response_model=RiskEvent, status_code=status.HTTP_201_CREATED)
 def create_risk_event(body: RiskEvent, db: Session = Depends(get_db_session)) -> RiskEvent:
     return _data_repo(db).store_risk_event(body)
+
+
+@router.patch("/events/{risk_event_id}/resolution", response_model=RiskEvent)
+def update_risk_event_resolution(
+    risk_event_id: str,
+    body: RiskEventResolutionUpdate,
+    db: Session = Depends(get_db_session),
+) -> RiskEvent:
+    event = _data_repo(db).update_risk_event_resolution(
+        risk_event_id=risk_event_id,
+        resolution_status=str(body.resolution_status),
+    )
+    if event is None:
+        raise not_found("risk_event", risk_event_id)
+    return event

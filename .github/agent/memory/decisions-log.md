@@ -1,5 +1,33 @@
 # Decisions Log
 
+## ADR-026: Remediation restores confidence through existing six-layer seams
+- Date: 2026-07-03
+- Status: accepted
+- Context: The remediation plan required restoring engineering trust, adding real validation closure, and improving Paper/ops visibility while preserving the six-layer architecture and keeping AI out of direct order generation.
+- Decision: Fix local quality gates first, then implement the first validation/ops slices inside existing layers: carry walk-forward/OOS/stress diagnostics in Validation, exchange capability registry in Data/Execution boundary, notification outbox in Ops/Review/Risk, and deterministic Decision Veto/Review executors in Agent Layer. Do not introduce a seventh layer, new dependencies, live order placement, or LLM-driven orders.
+- Consequences: The platform now has better evidence for whether a carry strategy can approach Paper admission, and operational gaps are visible through explicit endpoints/outbox items instead of hidden TODO echoes. Full Deflated Sharpe, real notification adapters, Docker runtime verification, and live execution remain future work.
+
+## ADR-025: Binance public market ingestion fills the Paper console before live execution
+- Date: 2026-07-03
+- Status: accepted
+- Context: The Paper console already queried `/api/v1/market/*`, but the underlying `ohlcv_bars` and `market_extras` tables had no real collector writing Binance data, causing explicit empty states. The user asked to implement the Data Layer first tranche without expanding into live orders, account sync, alerts, or LLM veto.
+- Decision: Implement Binance public market data ingestion only: CCXT REST OHLCV/funding backfill, idempotent writes keyed by market-data timestamps, and Binance WS collector seams that persist closed Kline candles/funding updates. Keep frontend polling existing read APIs and add only a Vite API proxy for development.
+- Consequences: The research loop gains real A-level market data for validation and Paper console visibility. Live execution autonomy, account reconciliation, notifications, news/social data, and frontend push remain separate future tranches with stricter risk controls.
+
+## ADR-023: Phase 1 grounding prioritizes real metrics and defers WorldQuant alpha semantics
+- Date: 2026-07-03
+- Status: accepted
+- Context: The repo had documented services/data and carry validation as implemented, but the concrete risks were missing data-layer source control coverage, hardcoded carry metrics/costs, incomplete ensemble service behavior, and technical-rule gaps. The user also explicitly instructed that WorldQuant alpha work should be deferred for now.
+- Decision: Restore the data layer and fix ignore rules first; move LLM deps to an optional extra; replace carry placeholder metrics with calculated net metrics and cost breakdown; implement deterministic SignalEnsemble/MetaLabel service/API and only MACD + Dow technical rules in this phase. Do not implement WorldQuant alpha semantic evaluator in this task.
+- Consequences: Carry samples with negative net expectancy are rejected rather than marked conditional. WorldQuant remains a research intake source, not executable factor logic. Docker/Git operations remain manual follow-up items in this workspace because Docker is not installed and the folder is not a Git repository.
+
+## ADR-024: Paper console ships before live exchange autonomy
+- Date: 2026-07-03
+- Status: accepted
+- Context: The user asked for a frontend that shows real-exchange Klines, orders, positions, funding carry state, and user-facing operations. The backend still lacks real WebSocket ingestion, exchange account sync, and live order execution.
+- Decision: Implement a Paper-first, Binance-first console over persisted data and current repository APIs. Add read aggregation endpoints and small status-control endpoints, but do not add real live order placement/cancel or account sync in this tranche.
+- Consequences: The frontend is now a usable operational surface for persisted/paper data and explicit empty/error states. Real-time Binance streams and live trading controls remain a separate next phase with stricter risk and connector work.
+
 ## ADR-001: 研究报告作为主架构真源
 
 - Date: 2026-06-28

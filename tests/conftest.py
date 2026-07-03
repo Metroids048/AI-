@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import os
 from collections.abc import Generator
-from datetime import datetime, timezone
+from contextlib import suppress
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -29,7 +30,7 @@ def sample_ohlcv_bar() -> dict:
         "symbol": "BTC/USDT",
         "exchange": "binance",
         "timeframe": "1h",
-        "time": datetime(2024, 1, 1, tzinfo=timezone.utc),
+        "time": datetime(2024, 1, 1, tzinfo=UTC),
         "open": Decimal("42000"),
         "high": Decimal("42500"),
         "low": Decimal("41800"),
@@ -49,8 +50,8 @@ def api_client():
 
 @pytest.fixture(scope="session", autouse=True)
 def _bootstrap_sqlite_schema() -> Generator[None, None, None]:
-    from services.database import create_relational_schema, get_engine, reset_database_caches
     from services.data.repository import create_timeseries_schema
+    from services.database import create_relational_schema, get_engine, reset_database_caches
 
     if TEST_DB_PATH.exists():
         TEST_DB_PATH.unlink()
@@ -61,10 +62,8 @@ def _bootstrap_sqlite_schema() -> Generator[None, None, None]:
     get_engine().dispose()
     reset_database_caches()
     if TEST_DB_PATH.exists():
-        try:
+        with suppress(PermissionError):
             TEST_DB_PATH.unlink()
-        except PermissionError:
-            pass
 
 
 @pytest.fixture(autouse=True)

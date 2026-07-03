@@ -109,9 +109,7 @@ def test_risk_event_rejects_execution_and_review_writeback(api_client, db_sessio
     assert strategy_resp.status_code == 200
     assert "Rejected because of blocking risk event" in strategy_resp.json()["failure_reasons"]
 
-    review_resp = api_client.post(
-        f"/api/v1/reviews/daily/{datetime.now(UTC).date().isoformat()}"
-    )
+    review_resp = api_client.post(f"/api/v1/reviews/daily/{datetime.now(UTC).date().isoformat()}")
     assert review_resp.status_code == 201
     assert "Rejected because of blocking risk event" in review_resp.json()["deviation_analysis"]
 
@@ -120,7 +118,7 @@ def test_research_agent_scans_local_alpha_and_persists_ideas(api_client, tmp_pat
     alpha_root = tmp_path / "alpha"
     alpha_root.mkdir()
     (alpha_root / "alpha_candidates.jsonl").write_text(
-        '\n'.join(
+        "\n".join(
             [
                 '{"expression":"rank(close/delay(close,5))","family":"momentum","risk_adjusted_score":0.42}',
                 '{"expression":"ts_mean(volume,20)","family":"volume","risk_adjusted_score":0.21}',

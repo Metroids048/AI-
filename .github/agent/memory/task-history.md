@@ -1,5 +1,37 @@
 # Task History
 
+### [TASK-015] Remediation plan first pass: engineering baseline, validation closure, ops visibility
+- **Date**: 2026-07-03
+- **Type**: fix + feat + docs
+- **Summary**: Implemented the first remediation tranche without changing the six-layer architecture. Added package-boundary and Ruff/mypy baseline fixes; implemented carry walk-forward/OOS/stress validation reports; added system dependency health, exchange capabilities, and notification outbox APIs; made Makefile data/backtest targets real or explicitly failing; made unregistered Agent executors fail rather than falsely complete; and synchronized stale status docs.
+- **Files changed**: `apps/__init__.py`, `pyproject.toml`, `apps/api/{config,main}.py`, `apps/api/routers/{backtests,market,notifications,system}.py`, `shared/models/{backtest,workflow,market,__init__}.py`, `services/validation/{walk_forward,report,stress_scenarios,__init__}.py`, `services/data/capabilities.py`, `services/notifications.py`, `services/agents/service.py`, `scripts/{data_check,data_sync,run_carry_backtest}.py`, `Makefile`, tests, status docs, and memory files.
+- **Verification**: `py -3 -m pytest -q` -> 45 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m ruff format --check .` passed; `py -3 -m mypy` passed; `npm --workspace frontend/admin run build` passed.
+- **Notes**: Docker compose config was not locally verified because `docker` is not on PATH. The current folder is still not a Git repository, so publishing requires cloning/syncing to the original remote once GitHub network/auth are available.
+
+### [TASK-014] Binance Data Layer first-tranche ingestion
+- **Date**: 2026-07-03
+- **Type**: feat
+- **Summary**: Implemented the Data Layer tranche that makes the Paper console able to read real persisted Binance public market data. Added idempotent timeseries upserts, CCXT-backed OHLCV/funding backfill services, Binance WS payload normalization for closed Kline candles and funding updates, ingestion task execution for Binance backfill job types, and Vite `/api` proxy support for the admin console.
+- **Files changed**: `services/data/{binance,repository,service,tasks,__init__}.py`, `infra/timescale/init.sql`, `frontend/admin/vite.config.js`, `pyproject.toml`, `tests/services/{test_binance_ingestion,test_timeseries_repository}.py`, project memory/status docs.
+- **Verification**: Editable dev install passed; targeted Data Layer tests passed (`11 passed`); changed-file Ruff check passed; full `py -3 -m pytest -q` passed (`41 passed`); `npm --workspace frontend/admin run build` passed.
+- **Notes**: Scope remains Binance public market data only. Live collector is a long-lived worker seam, not account sync or live trading execution.
+
+### [TASK-013] Add Paper trading console and market overview APIs
+- **Date**: 2026-07-03
+- **Type**: feat
+- **Summary**: Added market snapshot/OHLCV read APIs, console overview aggregation, Paper status update and RiskEvent acknowledgement endpoints, plus a real `frontend/admin` Paper Trading Console using `lightweight-charts`. The UI now shows Binance symbols, Kline panel, funding carry metrics, orders, positions, risk events, and manual Paper controls with explicit empty/error states.
+- **Files changed**: `shared/models/{market,risk,workflow,__init__}.py`, `services/data/{repository,market,__init__}.py`, `services/strategy_library/repository.py`, `apps/api/{main.py,routers/{market,console,runs,risk}.py}`, `frontend/admin/{package.json,src/main.jsx,src/styles.css}`, `tests/api/test_console_market.py`.
+- **Verification**: Targeted API tests passed; full `py -3 -m pytest -q` passed (`35 passed`); `npm --workspace frontend/admin run build` passed; Playwright desktop/mobile smoke passed with no mobile horizontal overflow.
+- **Notes**: Browser smoke ran against frontend only, so API failure state was visible by design. Real WebSocket ingestion, exchange account sync, real order placement/cancel, notifications, and LLM veto remain not implemented.
+
+### [TASK-012] Phase 1a/1b/1d/1e grounding implementation
+- **Date**: 2026-07-03
+- **Type**: fix + feat
+- **Summary**: Restored `services/data`, fixed root-scoped ignore rules and runtime artifact ignores, moved LLM dependencies to optional extra, aligned compose Python images with Python 3.11, replaced carry placeholder metrics/cost constants with calculated net metrics and cost breakdown, added deterministic SignalEnsemble/MetaLabel service/API, and added MACD plus Dow swing trend technical signal modules. WorldQuant alpha semantics were explicitly deferred per user instruction.
+- **Files changed**: `.gitignore`, `pyproject.toml`, `docker-compose.yml`, `services/data/**`, `services/validation/{carry,metrics,costs}.py`, `shared/models/{backtest,risk,signal,__init__}.py`, `services/strategy_library/{repository,ensemble/**,technical/**}`, `apps/api/{main.py,routers/ensemble.py}`, targeted tests, status docs, and project memory files.
+- **Verification**: `py -3 -m pip install -e ".[dev]"` passed; `py -3 -c "import services.data; import apps.api.main"` passed; targeted Phase 1 tests passed (`14 passed`); full `py -3 -m pytest -q` passed (`31 passed`).
+- **Notes**: `docker compose -f docker-compose.yml config` could not run because `docker` is not available on PATH. No git commit or `git rm --cached` was possible because `C:\Users\win\Desktop\AI--main` is not a Git repository in this environment.
+
 ### [TASK-011] Expand the persisted research loop with v1 APIs, gates, review writeback, and admin shell
 - **Date**: 2026-07-02
 - **Type**: feat

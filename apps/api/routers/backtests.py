@@ -13,7 +13,11 @@ from services.strategy_library import (
     StrategyRepository,
     ValidationRepository,
 )
-from services.validation import CarryBacktestApplicationService
+from services.validation import (
+    CarryBacktestApplicationService,
+    CarryWalkForwardValidationService,
+    build_validation_report,
+)
 from shared.models import (
     BacktestRun,
     BacktestSubmissionRequest,
@@ -50,9 +54,7 @@ def list_backtest_runs(db: Session = Depends(get_db_session)) -> CollectionRespo
 
 
 @router.post("/backtests", response_model=TaskSubmission, status_code=status.HTTP_202_ACCEPTED)
-def create_backtest_run(
-    body: BacktestSubmissionRequest, db: Session = Depends(get_db_session)
-) -> TaskSubmission:
+def create_backtest_run(body: BacktestSubmissionRequest, db: Session = Depends(get_db_session)) -> TaskSubmission:
     created = _validation_repo(db).create_backtest_run(
         BacktestRun(
             strategy_id=body.strategy_id,
@@ -80,9 +82,7 @@ def create_backtest_run(
     response_model=TaskSubmission,
     status_code=status.HTTP_202_ACCEPTED,
 )
-def submit_carry_backtest(
-    body: CarryBacktestRequest, db: Session = Depends(get_db_session)
-) -> TaskSubmission:
+def submit_carry_backtest(body: CarryBacktestRequest, db: Session = Depends(get_db_session)) -> TaskSubmission:
     try:
         run = _carry_app(db).submit(body)
     except ValueError as exc:
@@ -102,20 +102,49 @@ def submit_carry_backtest(
     )
 
 
+@router.post(
+    "/backtests/carry/walk-forward",
+    response_model=TaskSubmission,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def submit_carry_walk_forward(body: CarryBacktestRequest, db: Session = Depends(get_db_session)) -> TaskSubmission:
+    try:
+        run = CarryWalkForwardValidationService(_carry_app(db)).submit(body)
+    except ValueError as exc:
+        message = str(exc)
+        if "strategy not found" in message:
+            raise not_found("strategy", body.strategy_id) from exc
+        raise api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="carry_walk_forward_failed",
+            message=message,
+        ) from exc
+    return TaskSubmission(
+        task_id=run.backtest_run_id,
+        resource_type="backtest_run",
+        resource_id=run.backtest_run_id,
+        detail={"lane": "carry", "validation": "walk_forward"},
+    )
+
+
 @router.get("/backtests/{backtest_run_id}", response_model=BacktestRun)
-def get_backtest_run(
-    backtest_run_id: str, db: Session = Depends(get_db_session)
-) -> BacktestRun:
+def get_backtest_run(backtest_run_id: str, db: Session = Depends(get_db_session)) -> BacktestRun:
     run = _validation_repo(db).get_backtest_run(backtest_run_id)
     if run is None:
         raise not_found("backtest_run", backtest_run_id)
     return run
 
 
+@router.get("/validation/reports/{backtest_run_id}", response_model=dict)
+def get_validation_report(backtest_run_id: str, db: Session = Depends(get_db_session)) -> dict:
+    run = _validation_repo(db).get_backtest_run(backtest_run_id)
+    if run is None:
+        raise not_found("backtest_run", backtest_run_id)
+    return build_validation_report(run)
+
+
 @router.get("/backtests/{backtest_run_id}/eligibility", response_model=GateDecision)
-def get_backtest_eligibility(
-    backtest_run_id: str, db: Session = Depends(get_db_session)
-) -> GateDecision:
+def get_backtest_eligibility(backtest_run_id: str, db: Session = Depends(get_db_session)) -> GateDecision:
     run = _validation_repo(db).get_backtest_run(backtest_run_id)
     if run is None:
         raise not_found("backtest_run", backtest_run_id)
@@ -137,9 +166,7 @@ def list_optimization_runs(
 
 
 @router.post("/optimizations", response_model=TaskSubmission, status_code=status.HTTP_202_ACCEPTED)
-def submit_optimization(
-    body: OptimizationSubmissionRequest, db: Session = Depends(get_db_session)
-) -> TaskSubmission:
+def submit_optimization(body: OptimizationSubmissionRequest, db: Session = Depends(get_db_session)) -> TaskSubmission:
     created = _optimization_repo(db).create_run(
         OptimizationRun(
             strategy_id=body.strategy_id,

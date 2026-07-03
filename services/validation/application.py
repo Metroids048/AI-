@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime, timedelta
-from typing import Iterable
 
-from shared.models import BacktestRun, CarryBacktestRequest
 from services.data.repository import DataRepository
 from services.strategy_library import StrategyRepository, ValidationRepository
+from shared.models import BacktestRun, CarryBacktestRequest
 
 from .carry import CarryBacktestService
 

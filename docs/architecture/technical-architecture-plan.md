@@ -4,6 +4,9 @@
 > 当前仓库已不再是“services 全空实现”状态。真实落地范围已覆盖：
 > `shared/models` 统一契约、`/api/v1` 主接口、策略生命周期持久化、Timescale A 级时序仓储、
 > carry 回测应用服务、RiskProfile/RiskEvent/Review/Failure/AgentTask/OrderExecution 持久化与首版 gatekeeper。
+> 2026-07-03 remediation 后，carry walk-forward/OOS/stress 诊断、系统依赖健康、交易所能力注册表、
+> 通知 outbox 和 deterministic Decision Veto/Review executor 已有首版可测试实现；完整 DSR、真实通知推送、
+> live 下单仍未实现。
 > 最新对账请优先查看 [implementation-status-matrix.md](implementation-status-matrix.md)。
 
 ## 文档定位
@@ -72,15 +75,15 @@ Risk Engine 横切 Validation/Execution/Review 三层，任何一层拒绝，执
 |---|---|---|---|---|
 | `timescaledb` | `timescale/timescaledb:2.17.2-pg16`（钉版本） | 仅 dev overlay 暴露 `5432` | — | 已建，`init.sql` 建表 |
 | `redis` | `redis:7` | 仅 dev overlay 暴露 `6379` | — | 已建 |
-| `api` | `python:3.12-slim` + `pip install -e .` | `8000` | timescaledb、redis（健康检查） | 已建，仅 1 个路由文件 |
-| `celery_worker` | 同上 | — | redis、timescaledb | 已建，队列 `default,backtest_queue`，但 `autodiscover_tasks([])` 为空 |
-| `celery_beat` | 同上 | — | redis | 已建，无调度任务 |
+| `api` | `python:3.12-slim` + `pip install -e .` | `8000` | timescaledb、redis（健康检查） | 已建，多 router 均挂载在 `/api/v1` |
+| `celery_worker` | 同上 | — | redis、timescaledb | 已建，已有 data/backtest/paper 等任务入口；队列路由和 beat 编排仍待强化 |
+| `celery_beat` | 同上 | — | redis | 已建，调度表仍待按 ingestion/review/risk heartbeat 补齐 |
 | `flower` | 同上 | `5555` | redis | 已建 |
 | `freqtrade` | `freqtradeorg/freqtrade:stable` | `8080` | — | 已建骨架，策略目录为空，`stable` 标签未来上线前需钉定日期版本 |
 | `grafana` | `grafana/grafana` | `3000` | timescaledb | 已建，仅数据源，无 dashboard |
 
 已知缺口（不在本轮实现，登记为技术债，见 §12）：
-- 无 `prometheus` 服务（Grafana 只连了 TimescaleDB，没有指标采集链路）
+- `prometheus` 服务与 Grafana dashboard 骨架已入仓，但本机尚未通过 Docker compose runtime 验证
 - `infra/jesse/strategies/.gitkeep` 是纯占位，`pyproject.toml` 未声明 Jesse 依赖，用途未定
 - `celery_worker`/`celery_beat`/`flower`/`freqtrade`/`grafana` 均无 `docker-compose.dev.yml` 覆盖项（例如 debug 日志级别只对 `celery_worker` 生效）
 
@@ -92,11 +95,12 @@ Risk Engine 横切 Validation/Execution/Review 三层，任何一层拒绝，执
 | 环境 | Compose 组合 | 关键差异 |
 |---|---|---|
 | `dev` | `docker-compose.yml` + `docker-compose.dev.yml` | 暴露全部端口，`--reload`，debug 日志，`freqtrade dry_run=true` |
-| `test` | `docker-compose.yml` + `docker-compose.test.yml`（P1 新增） | 独立 Postgres schema/db 名，CI 内一次性起停，不暴露端口 |
-| `paper` | `docker-compose.yml` + `docker-compose.paper.yml`（P1 新增） | `freqtrade dry_run=true` 但连真实行情，独立 `.env.paper`，独立 Redis DB 编号段 |
-| `live` | `docker-compose.yml` + `docker-compose.live.yml`（P2，小资金实盘前必须） | `freqtrade dry_run=false`，交易所 key 仅 trade 权限、禁提现（见风控方案文档），独立子账户 |
+| `test` | `docker-compose.yml` + `docker-compose.test.yml` | 独立 Postgres schema/db 名，CI 内一次性起停，不暴露端口 |
+| `paper` | `docker-compose.yml` + `docker-compose.paper.yml` | `freqtrade dry_run=true` 但连真实行情，独立 `.env.paper`，独立 Redis DB 编号段 |
+| `live` | `docker-compose.yml` + `docker-compose.live.yml` | `freqtrade dry_run=false`，交易所 key 仅 trade 权限、禁提现（见风控方案文档），独立子账户 |
 
-这四份 overlay 文件本身是 P1/P2 的实现任务，本文档只定义规划和差异点，不在本轮创建文件。
+这些 overlay 文件已有首版，但 Docker runtime 尚未在当前 Windows 工作区验证；上线前仍需执行
+`docker compose -f docker-compose.yml -f docker-compose.{test,paper,live}.yml config` 与实际起停测试。
 
 ---
 
@@ -129,13 +133,13 @@ Risk Engine 横切 Validation/Execution/Review 三层，任何一层拒绝，执
 
 ```
 apps/api/            FastAPI 入口、路由、DI、配置
-frontend/admin/       管理台（尚未创建代码，P1）
-services/data/        数据抓取/清洗/调度（空实现）
-services/strategy_library/  策略定义/版本/状态（已有 models.py + 内存 CRUD seam）
-services/agents/       11 个 Agent（空实现）
-services/validation/   回测/优化/OOS/模拟盘准入（空实现）
-services/execution/    执行引擎/风险引擎（空实现）
-services/review/       复盘/知识回写（空实现）
+frontend/admin/       Paper-first 管理台（Kline/carry/orders/positions/risk/manual controls）
+services/data/        Binance public data ingestion、timeseries repository、capability registry
+services/strategy_library/  策略定义/版本/状态、ensemble/meta-label deterministic service
+services/agents/       AgentTask 持久化与 deterministic executor registry 首版
+services/validation/   carry 回测、persisted application flow、walk-forward/OOS/stress diagnostics
+services/execution/    paper preparation、order gatekeeper、execution facts
+services/review/       FailureRecord/ReviewReport 与策略失败原因回写
 research_source/worldquant_adapter/  WQ 方法论移植（有 README + 3 个模块骨架）
 docs/                  设计与方案文档
 tests/                 测试（仅契约测试 + API 骨架测试）
@@ -193,8 +197,8 @@ tests/                 测试（仅契约测试 + API 骨架测试）
 
 ### 6.1 队列规划
 
-当前 `celery_worker` 已监听 `default,backtest_queue`，但 `autodiscover_tasks([])` 为空。
-Phase 1 队列划分建议：
+当前 `celery_worker` 已有首版任务模块（data/backtest/paper），但队列隔离与 beat 调度仍不完整。
+Phase 1 队列划分继续按以下方向收敛：
 
 | 队列 | 用途 | 理由 |
 |---|---|---|
@@ -287,8 +291,9 @@ Phase 1 技术要求：`services/data`、`services/execution` 等模块开始读
 
 Grafana 已配置 TimescaleDB 数据源，但 `dashboards/` 目录为空，且没有 Prometheus，
 所以 Grafana 目前只能查数据库里已有的数据，无法看到 API/Celery/Redis 自身的运行时指标。
-全仓库范围内没有任何告警通知渠道（Telegram/邮件/Webhook 推送均未实现，`.env.example` 里的
-`TELEGRAM_BOT_TOKEN` 是 D 级数据源采集用途，不是通知用途）。
+全仓库范围内已有 `NotificationOutboxItem` 与只读 outbox API，用于记录高严重度风险事件、
+数据中断和日报生成等通知意图；真实 Telegram/邮件/Webhook 推送 adapter 仍未实现。`.env.example`
+里的 `TELEGRAM_BOT_TOKEN` 是 D 级数据源采集用途，不是通知用途。
 
 ### 9.2 Phase 1/2 规划
 
@@ -343,18 +348,18 @@ integration"`）、`compose-validate`（仅 `docker compose config` 语法校验
 
 | 缺口 | 所属层/模块 | 影响 | 建议目标阶段 |
 |---|---|---|---|
-| Celery 已声明发现包，但仍无真实任务模块/路由策略 | AI Agent / Validation / Data | 队列骨架存在，但异步任务仍不可执行 | P1 |
+| Celery 已有首版任务入口，但缺少完整路由策略/beat 编排 | AI Agent / Validation / Data | data/backtest/paper 等入口可执行，生产级队列隔离和周期调度仍不足 | P1 |
 | `services/{data,agents,validation,execution,review}` 均为空实现 | 对应六层 | 该描述已过期：Data/Validation/Risk/Review/Agent/Execution 已有首版真实实现，剩余缺口见 `implementation-status-matrix.md` | 已从“全空”收敛到“partial/implemented` 混合状态 |
-| 六大接口簇已建 API skeleton，但大多仍是内存/占位实现 | API | 接口边界已固定，但尚无服务层能力与持久化支撑 | P1，随各服务实现同步补 |
+| 六大接口簇已从 skeleton 扩展到多条持久化/服务闭环，但仍有部分能力是 deterministic seam | API | 策略、验证、风险、复盘、paper console 已有真实路径；LLM、live、真实通知仍待补 | P1/P2，随各服务实现同步补 |
 | `Settings` 已覆盖 `.env.example`，但多数变量尚未被业务模块真正消费 | 配置管理 | 类型入口已统一，仍需避免后续模块重新绕过 Settings 直读环境变量 | P1，随首次使用该变量的模块同步补 |
-| 无告警/通知机制（Telegram/邮件/Webhook 出站推送） | Review / Risk / Execution | 熔断、异常、日报无法主动触达人工 | P1（配合 24 小时运行方案文档） |
-| 无 Prometheus，Grafana dashboards 为空 | 可观测性 | 无法监控系统运行时健康度 | P1/P2 |
+| 仅有通知 outbox，无真实 Telegram/邮件/Webhook 出站 adapter | Review / Risk / Execution | 熔断、异常、日报可留痕但尚不能主动触达人工 | P1（配合 24 小时运行方案文档） |
+| Prometheus/Grafana 骨架存在，但未完成 runtime 验证与指标覆盖 | 可观测性 | 有配置资产，仍无法证明系统运行时健康监控可用 | P1/P2 |
 | `migrations/` 仅有 `strategies` 表，`SignalEnsemble`/`MetaLabel`/`BacktestRun`/`PaperRun`/
   `ReviewReport`/`FailureRecord`/`AgentTask` 等对象未建表 | Strategy/Validation/Review | 该描述已过期：`0001` 已覆盖主生命周期表，`0002` 已补 `OptimizationRun`、`RiskProfile`、`ReviewReport`、`FailureRecord`、`AgentTask`、`LiveRun`、`OrderExecution`、`PositionSnapshot` 等关系表；SignalEnsemble/MetaLabel 也已纳入迁移 | 后续重点转向服务层能力而非“是否有表” |
 | `anthropic`/`langchain`/`llama-index` 已声明依赖但零代码引用 | AI Agent Layer | LLM 能力尚未接入 | P1（见后续 LLM 接入方案文档） |
 | 无 API 鉴权/访问控制实现 | API | 内部工具场景风险可接受，但仍是空缺 | P1 结束前 |
 | `infra/jesse/` 为占位目录，未在依赖中声明，用途未定 | Validation | 目录存在但无实际路径引用它 | P1 决策：启用或移除 |
-| 仅一份 `docker-compose.dev.yml`，`test`/`paper`/`live` overlay 不存在 | 部署 | 环境隔离目前只停留在文档声明层面 | P1（paper 上线前必须） |
+| `test`/`paper`/`live` overlay 已存在但未在本机 Docker 验证 | 部署 | 环境隔离已有文件基础，仍缺 runtime 证据 | P1（paper 上线前必须） |
 | Freqtrade 镜像标签为 `stable`（浮动标签） | Execution | 生产前版本不可控 | live 上线前必须钉定日期版本 |
 
 ---

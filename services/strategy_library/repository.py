@@ -12,26 +12,37 @@ from sqlalchemy.orm import Session
 
 from shared.models import (
     AgentTask,
+    BacktestReport,
     BacktestRun,
+    BetDecision,
+    EnsembleStatus,
+    Exchange,
     FailureRecord,
     GateDecision,
     IngestionJob,
     LiveRun,
+    Market,
     MetaLabel,
     OptimizationRun,
     OrderExecution,
     PaperRun,
     PositionSnapshot,
     ReviewReport,
+    RiskLevel,
     RiskProfile,
+    RunStatus,
     SignalEnsemble,
     StrategyContract,
     StrategyCreate,
     StrategyDraft,
     StrategyIdea,
     StrategyRules,
+    StrategyStatus,
     StrategyUpdate,
     StrategyVersion,
+    Timeframe,
+    TradeSide,
+    TripleBarrierOutcome,
 )
 
 from . import models
@@ -60,7 +71,7 @@ def _idea_from_orm(row: models.StrategyIdea) -> StrategyIdea:
         idea_id=row.idea_id,
         title=row.title,
         source=row.source,
-        market=row.market,
+        market=Market(row.market),
         symbol_scope=row.symbol_scope,
         hypothesis_summary=row.hypothesis_summary,
         source_ref=row.source_ref,
@@ -87,11 +98,11 @@ def _draft_from_orm(row: models.StrategyDraft) -> StrategyDraft:
         title=row.title,
         source=row.source,
         core_thesis=row.core_thesis,
-        market=row.market,
+        market=Market(row.market),
         symbol_scope=row.symbol_scope,
-        timeframe=row.timeframe,
+        timeframe=Timeframe(row.timeframe),
         market_regime=row.market_regime,
-        risk_level=row.risk_level,
+        risk_level=RiskLevel(row.risk_level),
         rules=_draft_rules_from_orm(row),
         draft_status=row.draft_status,
         review_notes=row.review_notes,
@@ -116,16 +127,16 @@ def _strategy_from_orm(row: models.Strategy) -> StrategyContract:
         strategy_key=row.strategy_key,
         source=row.source,
         core_thesis=row.core_thesis,
-        market=row.market,
+        market=Market(row.market),
         symbol_scope=row.symbol_scope,
-        timeframe=row.timeframe,
+        timeframe=Timeframe(row.timeframe),
         market_regime=row.market_regime,
-        risk_level=row.risk_level,
+        risk_level=RiskLevel(row.risk_level),
         rules=_strategy_rules_from_orm(row),
-        strategy_status=row.strategy_status,
-        backtest_status=row.backtest_status,
-        paper_status=row.paper_status,
-        live_status=row.live_status,
+        strategy_status=StrategyStatus(row.strategy_status),
+        backtest_status=RunStatus(row.backtest_status),
+        paper_status=RunStatus(row.paper_status),
+        live_status=RunStatus(row.live_status),
         failure_reasons=row.failure_reasons,
         iteration_history=row.iteration_history,
         created_at=row.created_at,
@@ -155,6 +166,9 @@ def _gate_from_payload(strategy_id: str, payload: dict | GateDecision | None) ->
 
 
 def _backtest_from_orm(row: models.BacktestRun) -> BacktestRun:
+    metrics_summary = (
+        BacktestReport(**row.metrics_summary) if isinstance(row.metrics_summary, dict) else row.metrics_summary
+    )
     return BacktestRun(
         backtest_run_id=row.backtest_run_id,
         strategy_id=row.strategy_id,
@@ -167,7 +181,7 @@ def _backtest_from_orm(row: models.BacktestRun) -> BacktestRun:
         cost_model_ref=row.cost_model_ref,
         validation_methodology=row.validation_methodology,
         stress_test_scenarios=row.stress_test_scenarios,
-        metrics_summary=row.metrics_summary,
+        metrics_summary=metrics_summary,
         run_status=row.run_status,
         eligibility_result=_gate_from_payload(row.strategy_id, row.eligibility_result),
         created_at=row.created_at,
@@ -211,7 +225,7 @@ def _paper_run_from_orm(row: models.PaperRun) -> PaperRun:
         paper_run_id=row.paper_run_id,
         strategy_id=row.strategy_id,
         version_id=row.version_id,
-        exchange=row.exchange,
+        exchange=Exchange(row.exchange),
         symbol_scope=row.symbol_scope,
         candidate_symbols=row.candidate_symbols,
         selection_basis=row.selection_basis,
@@ -229,7 +243,7 @@ def _live_run_from_orm(row: models.LiveRun) -> LiveRun:
         live_run_id=row.live_run_id,
         strategy_id=row.strategy_id,
         version_id=row.version_id,
-        exchange=row.exchange,
+        exchange=Exchange(row.exchange),
         capital_tier=row.capital_tier,
         live_status=row.live_status,
         risk_profile_ref=row.risk_profile_ref,
@@ -309,9 +323,9 @@ def _signal_ensemble_from_orm(row: models.SignalEnsemble) -> SignalEnsemble:
         fusion_method=row.fusion_method,
         correlation_matrix_ref=row.correlation_matrix_ref,
         raw_votes=row.raw_votes,
-        fused_direction=row.fused_direction,
+        fused_direction=TradeSide(row.fused_direction) if row.fused_direction is not None else None,
         fused_confidence=row.fused_confidence,
-        ensemble_status=row.ensemble_status,
+        ensemble_status=EnsembleStatus(row.ensemble_status),
         created_at=row.created_at,
     )
 
@@ -320,8 +334,10 @@ def _meta_label_from_orm(row: models.MetaLabel) -> MetaLabel:
     return MetaLabel(
         meta_label_id=row.meta_label_id,
         ensemble_id=row.ensemble_id,
-        triple_barrier_result=row.triple_barrier_result,
-        bet_decision=row.bet_decision,
+        triple_barrier_result=(
+            TripleBarrierOutcome(row.triple_barrier_result) if row.triple_barrier_result is not None else None
+        ),
+        bet_decision=BetDecision(row.bet_decision),
         position_size_fraction=row.position_size_fraction,
         model_ref=row.model_ref,
         training_window_ref=row.training_window_ref,
@@ -334,7 +350,7 @@ def _order_execution_from_orm(row: models.OrderExecution) -> OrderExecution:
         strategy_id=row.strategy_id,
         version_id=row.version_id,
         symbol=row.symbol,
-        direction=row.direction,
+        direction=TradeSide(row.direction),
         execution_status=row.execution_status,
         stoploss_present=row.stoploss_present,
         close_only_mode=row.close_only_mode,
@@ -359,7 +375,7 @@ def _position_snapshot_from_orm(row: models.PositionSnapshot) -> PositionSnapsho
         run_type=row.run_type,
         run_id=row.run_id,
         symbol=row.symbol,
-        side=row.side,
+        side=TradeSide(row.side),
         quantity=row.quantity,
         entry_price=row.entry_price,
         mark_price=row.mark_price,
@@ -598,16 +614,10 @@ class ValidationRepository:
             cost_model_ref=run.cost_model_ref,
             validation_methodology=_jsonable(run.validation_methodology),
             stress_test_scenarios=_jsonable(run.stress_test_scenarios),
-            metrics_summary=(
-                run.metrics_summary.model_dump(mode="json")
-                if run.metrics_summary is not None
-                else None
-            ),
+            metrics_summary=(run.metrics_summary.model_dump(mode="json") if run.metrics_summary is not None else None),
             run_status=run.run_status,
             eligibility_result=(
-                run.eligibility_result.model_dump(mode="json")
-                if run.eligibility_result is not None
-                else None
+                run.eligibility_result.model_dump(mode="json") if run.eligibility_result is not None else None
             ),
         )
         self.session.add(row)
@@ -698,6 +708,15 @@ class PaperRunRepository:
     def get_paper_run(self, paper_run_id: str) -> PaperRun | None:
         row = self.session.get(models.PaperRun, paper_run_id)
         return _paper_run_from_orm(row) if row else None
+
+    def update_paper_run_status(self, paper_run_id: str, paper_status: str) -> PaperRun | None:
+        row = self.session.get(models.PaperRun, paper_run_id)
+        if row is None:
+            return None
+        row.paper_status = paper_status
+        self.session.commit()
+        self.session.refresh(row)
+        return _paper_run_from_orm(row)
 
     def create_paper_run(self, run: PaperRun) -> PaperRun:
         row = models.PaperRun(
@@ -954,11 +973,7 @@ class ExecutionRepository:
         row = models.MetaLabel(
             meta_label_id=meta_label.meta_label_id,
             ensemble_id=meta_label.ensemble_id,
-            triple_barrier_result=(
-                str(meta_label.triple_barrier_result)
-                if meta_label.triple_barrier_result
-                else None
-            ),
+            triple_barrier_result=(str(meta_label.triple_barrier_result) if meta_label.triple_barrier_result else None),
             bet_decision=str(meta_label.bet_decision),
             position_size_fraction=meta_label.position_size_fraction,
             model_ref=meta_label.model_ref,
@@ -969,3 +984,14 @@ class ExecutionRepository:
         self.session.refresh(row)
         return _meta_label_from_orm(row)
 
+    def list_meta_labels(self) -> list[MetaLabel]:
+        rows = self.session.query(models.MetaLabel).all()
+        return [_meta_label_from_orm(row) for row in rows]
+
+    def get_meta_label(self, meta_label_id: str) -> MetaLabel | None:
+        row = self.session.get(models.MetaLabel, meta_label_id)
+        return _meta_label_from_orm(row) if row else None
+
+    def get_signal_ensemble(self, ensemble_id: str) -> SignalEnsemble | None:
+        row = self.session.get(models.SignalEnsemble, ensemble_id)
+        return _signal_ensemble_from_orm(row) if row else None

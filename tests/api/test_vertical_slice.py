@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from services.data import DataRepository
@@ -80,7 +80,7 @@ def test_strategy_to_backtest_to_paper_vertical_slice(api_client, db_session) ->
             "job_type": "top20_historical_backfill",
             "schedule_mode": "manual",
             "input_window": {
-                "requested_at": datetime.now(timezone.utc).isoformat(),
+                "requested_at": datetime.now(UTC).isoformat(),
             },
         },
     )
@@ -129,7 +129,7 @@ def test_carry_backtest_api_uses_persisted_market_data(api_client, db_session) -
     assert strategy_resp.status_code == 201
     strategy_id = strategy_resp.json()["strategy_id"]
 
-    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2024, 1, 1, tzinfo=UTC)
     repo = DataRepository(db_session)
     repo.store_ohlcv_bars(
         [
@@ -230,5 +230,5 @@ def test_carry_backtest_api_uses_persisted_market_data(api_client, db_session) -
     run_resp = api_client.get(f"/api/v1/backtests/{backtest_run_id}")
     assert run_resp.status_code == 200
     body = run_resp.json()
-    assert body["eligibility_result"]["decision_status"] == "conditional"
+    assert body["eligibility_result"]["decision_status"] == "rejected_with_reason"
     assert body["validation_methodology"]["data_quality"]["gap_check"]["has_gaps"] is False

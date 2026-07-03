@@ -83,10 +83,10 @@
 
 ## 04 裁决三：RiskProfile 具体阈值
 
-`domain-and-interfaces-design.md` §3.13 已定义 `RiskProfile` 的字段列表，但目前
-仓库中尚无该模型的代码实现（`shared/models/` 中还没有 `RiskProfile` 类），阈值
-具体数值此前从未确定。本文件给出 P0/P1 阶段的默认阈值建议，作为该模型未来代码化
-时的默认配置，而非最终锁死的数值——具体数值仍应保留为运行时可配置项
+`domain-and-interfaces-design.md` §3.13 已定义 `RiskProfile` 的字段列表；当前代码中
+`shared/models/risk.py` 已有 `RiskProfile` 契约，`RiskProfileRepository` 与
+`/api/v1/risk/profiles` 也已落地。本文档给出的仍是 P0/P1 阶段的默认阈值建议，
+作为代码化/配置化时的默认口径，而非最终锁死的数值——具体数值仍应保留为运行时可配置项
 （呼应 `technical-architecture-plan.md` §08 配置管理原则），本文件的作用是给出
 一组"没有更好依据时可以直接采用"的合理默认值，而不是留一个空字段让实现者随意猜。
 
@@ -148,10 +148,10 @@ API 连续失败等规则族的具体触发条件：
 
 ## 07 P0/P1 边界
 
-- P0：本方案文档产出；`RiskProfile` 阈值默认值确定（尚未要求代码落地）。
-- P1：`RiskProfile` 模型代码化并接入 Risk Engine 实际判断逻辑；启动期 Key 权限
-  自检实现；LLM 超时否决判定逻辑接入 Decision Veto Agent 调用封装；§05 熔断规则
-  表格实现为 Risk Engine 的判断规则。
+- P0：本方案文档产出；`RiskProfile` 阈值默认值确定。
+- P1：`RiskProfile` 已代码化并可持久化，后续重点是把默认阈值配置化接入 Risk Engine
+  的实际判断逻辑；启动期 Key 权限自检实现；LLM 超时否决判定逻辑接入 Decision Veto
+  Agent 调用封装；§05 熔断规则表格实现为 Risk Engine 的判断规则。
 - P2：跨市场扩展时的阈值重新评估（§04 已声明不在本轮裁决范围）；熔断规则的
   动态自适应调整（如根据近期波动率自动调整阈值，当前仍是静态配置）。
 

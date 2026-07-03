@@ -20,9 +20,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     with op.batch_alter_table("ingestion_jobs") as batch_op:
-        batch_op.add_column(
-            sa.Column("execution_summary", sa.JSON(), nullable=False, server_default="{}")
-        )
+        batch_op.add_column(sa.Column("execution_summary", sa.JSON(), nullable=False, server_default="{}"))
 
     op.create_table(
         "optimization_runs",
@@ -35,12 +33,8 @@ def upgrade() -> None:
         sa.Column("run_status", sa.String(length=30), nullable=False, server_default="queued"),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.create_index(
-        "ix_optimization_runs_strategy_id", "optimization_runs", ["strategy_id"], unique=False
-    )
-    op.create_index(
-        "ix_optimization_runs_version_id", "optimization_runs", ["version_id"], unique=False
-    )
+    op.create_index("ix_optimization_runs_strategy_id", "optimization_runs", ["strategy_id"], unique=False)
+    op.create_index("ix_optimization_runs_version_id", "optimization_runs", ["version_id"], unique=False)
 
     op.create_table(
         "risk_profiles",
@@ -119,7 +113,12 @@ def upgrade() -> None:
         sa.Column("exchange", sa.String(length=20), nullable=False, server_default="binance"),
         sa.Column("capital_tier", sa.String(length=30), nullable=False, server_default="micro"),
         sa.Column("live_status", sa.String(length=30), nullable=False, server_default="queued"),
-        sa.Column("risk_profile_ref", sa.String(length=36), sa.ForeignKey("risk_profiles.risk_profile_id"), nullable=True),
+        sa.Column(
+            "risk_profile_ref",
+            sa.String(length=36),
+            sa.ForeignKey("risk_profiles.risk_profile_id"),
+            nullable=True,
+        ),
         sa.Column("live_metrics_summary", sa.JSON(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
@@ -165,11 +164,26 @@ def upgrade() -> None:
         sa.Column("entry_context", sa.JSON(), nullable=False),
         sa.Column("stoploss_plan", sa.JSON(), nullable=False),
         sa.Column("takeprofit_plan", sa.JSON(), nullable=False),
-        sa.Column("risk_profile_ref", sa.String(length=36), sa.ForeignKey("risk_profiles.risk_profile_id"), nullable=True),
-        sa.Column("validation_backtest_run_id", sa.String(length=36), sa.ForeignKey("backtest_runs.backtest_run_id"), nullable=True),
+        sa.Column(
+            "risk_profile_ref",
+            sa.String(length=36),
+            sa.ForeignKey("risk_profiles.risk_profile_id"),
+            nullable=True,
+        ),
+        sa.Column(
+            "validation_backtest_run_id",
+            sa.String(length=36),
+            sa.ForeignKey("backtest_runs.backtest_run_id"),
+            nullable=True,
+        ),
         sa.Column("paper_run_id", sa.String(length=36), sa.ForeignKey("paper_runs.paper_run_id"), nullable=True),
         sa.Column("live_run_id", sa.String(length=36), sa.ForeignKey("live_runs.live_run_id"), nullable=True),
-        sa.Column("signal_ensemble_id", sa.String(length=36), sa.ForeignKey("signal_ensembles.ensemble_id"), nullable=True),
+        sa.Column(
+            "signal_ensemble_id",
+            sa.String(length=36),
+            sa.ForeignKey("signal_ensembles.ensemble_id"),
+            nullable=True,
+        ),
         sa.Column("meta_label_id", sa.String(length=36), sa.ForeignKey("meta_labels.meta_label_id"), nullable=True),
         sa.Column("veto_result", sa.JSON(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
@@ -193,9 +207,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_position_snapshots_run_id", "position_snapshots", ["run_id"], unique=False)
     op.create_index("ix_position_snapshots_symbol", "position_snapshots", ["symbol"], unique=False)
-    op.create_index(
-        "ix_position_snapshots_snapshot_time", "position_snapshots", ["snapshot_time"], unique=False
-    )
+    op.create_index("ix_position_snapshots_snapshot_time", "position_snapshots", ["snapshot_time"], unique=False)
 
 
 def downgrade() -> None:

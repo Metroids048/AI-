@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS ohlcv_bars (
 SELECT create_hypertable('ohlcv_bars', 'time', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_ohlcv_symbol_tf_time
     ON ohlcv_bars (symbol, timeframe, time DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ohlcv_symbol_exchange_tf_time
+    ON ohlcv_bars (symbol, exchange, timeframe, time);
 
 -- A-level: crypto extras (funding / OI / long-short / liquidation) ------------
 CREATE TABLE IF NOT EXISTS market_extras (
@@ -42,6 +44,8 @@ CREATE TABLE IF NOT EXISTS market_extras (
 SELECT create_hypertable('market_extras', 'time', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_market_extras_symbol_time
     ON market_extras (symbol, time DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_market_extras_symbol_time
+    ON market_extras (symbol, time);
 
 -- C/D-level: risk events (subset of shared.models.RiskEvent superset) ---------
 CREATE TABLE IF NOT EXISTS risk_events (
@@ -52,7 +56,8 @@ CREATE TABLE IF NOT EXISTS risk_events (
     event_type       VARCHAR(40),     -- macro_event / news_risk / ...
     description      TEXT,
     affected_symbols TEXT[],          -- NULL == whole market
-    expires_at       TIMESTAMPTZ
+    expires_at       TIMESTAMPTZ,
+    resolution_status VARCHAR(30) DEFAULT 'detected'
 );
 CREATE INDEX IF NOT EXISTS idx_risk_events_created ON risk_events (created_at DESC);
 

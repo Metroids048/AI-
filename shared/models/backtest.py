@@ -10,7 +10,6 @@ Naming reconciliation (see docs/architecture/v2-integration-reconciliation.md):
 
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -52,9 +51,21 @@ class BacktestReport(PlatformModel):
         default=None,
         description="Combined maker/taker fees + slippage + net funding rate, in basis points",
     )
+    cost_breakdown_bps: dict[str, float] | None = Field(
+        default=None,
+        description="fee/slippage/funding components in basis points",
+    )
     stress_test_results: dict[str, float] | None = Field(
         default=None,
         description="Scenario label -> outcome metric, from validation-methodology.md §03 scenario library",
+    )
+    validation_windows: list[dict[str, float | str | int | bool]] = Field(
+        default_factory=list,
+        description="Walk-forward/OOS window summaries used to justify the gate decision",
+    )
+    lookahead_check: dict[str, float | str | int | bool] = Field(
+        default_factory=dict,
+        description="Freqtrade-inspired lookahead/recursive formula diagnostic report",
     )
 
 
@@ -84,7 +95,7 @@ class GateDecision(PlatformModel):
     deflated_sharpe_applied: bool = True
 
     @model_validator(mode="after")
-    def _validate_status(self) -> "GateDecision":
+    def _validate_status(self) -> GateDecision:
         if self.decision_status == "rejected_with_reason":
             self.passed = False
             if not self.reason:

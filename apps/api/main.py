@@ -8,7 +8,20 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from apps.api.config import settings
-from apps.api.routers import agents, backtests, ingestion, review, risk, runs, strategies
+from apps.api.routers import (
+    agents,
+    backtests,
+    console,
+    ensemble,
+    ingestion,
+    market,
+    notifications,
+    review,
+    risk,
+    runs,
+    strategies,
+    system,
+)
 from shared.models import ApiError
 
 app = FastAPI(title="AI Quant Research Platform", version="0.1.0")
@@ -45,6 +58,11 @@ for router in (
     review.router,
     ingestion.router,
     agents.router,
+    ensemble.router,
+    market.router,
+    console.router,
+    system.router,
+    notifications.router,
 ):
     app.include_router(router, prefix="/api/v1")
 

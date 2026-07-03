@@ -24,19 +24,21 @@ migrate:       ## 应用 Alembic 迁移到最新
 migrate-new:   ## 生成新迁移: make migrate-new m="message"
 	$(COMPOSE) exec api alembic revision --autogenerate -m "$(m)"
 
-## ── 数据管理（待实现，Phase 0）─────────────
+## ── 数据管理（首版本地入口）─────────────
 data-sync:
-	@echo "TODO P0-03: ohlcv_downloader.py 未实现"
+	py -3 scripts/data_sync.py
 data-check:
-	@echo "TODO P0-04: gap_checker.py 未实现"
+	py -3 scripts/data_check.py $(ARGS)
 
-## ── 策略开发（待实现，Phase 0/1）───────────
+## ── 策略开发（carry lane 首版入口）───────────
 backtest:
-	@echo "TODO P0-08/P1-07: freqtrade_runner 未实现 (STRATEGY=$(STRATEGY))"
+	py -3 scripts/run_carry_backtest.py $(ARGS)
 backtest-all:
-	@echo "TODO: 全策略批量回测未实现"
+	@echo "Batch backtest is not implemented; run 'make backtest ARGS=\"...\"' per validated strategy."
+	@exit 2
 scan:
-	@echo "TODO P1-04: vectorbt_scanner 未实现 (STRATEGY=$(STRATEGY))"
+	@echo "VectorBT scanner is not implemented; use /api/v1/agents/tasks scan_local_alpha for research intake."
+	@exit 2
 
 ## ── 测试与质量 ────────────────────────────
 test:

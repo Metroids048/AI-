@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import Field
 
@@ -33,6 +34,9 @@ class TradeSignal(PlatformModel):
     leverage: Decimal | None = None
     source: str = Field(examples=["channel_xyz"])
     received_at: datetime | None = None
+    signal_time: datetime | None = None
+    reason: str | None = None
+    confidence: float | None = None
 
 
 class SignalVote(PlatformModel):
@@ -81,3 +85,36 @@ class MetaLabel(PlatformModel):
     )
     model_ref: str | None = Field(default=None, description="Pointer to the trained meta-label model version")
     training_window_ref: str | None = None
+
+
+class CandidateSignalSeries(PlatformModel):
+    strategy_id: str
+    direction: TradeSide
+    weight: float = 1.0
+    confidence: float | None = None
+    validation_score: float | None = None
+    series: list[float] = Field(default_factory=list)
+
+
+class SignalEnsembleRequest(PlatformModel):
+    signals: list[CandidateSignalSeries]
+    correlation_threshold: float = 0.75
+    min_history: int = 200
+    fusion_method: str = "weighted_vote"
+
+
+class MetaLabelSample(PlatformModel):
+    sample_time: datetime
+    net_return: float
+
+
+class MetaLabelRequest(PlatformModel):
+    ensemble_id: str
+    training_samples: list[MetaLabelSample] = Field(default_factory=list)
+    signal_time: datetime | None = None
+    take_profit: float = 0.02
+    stop_loss: float = -0.01
+    time_limit_bars: int = 24
+    min_win_rate: float = 0.55
+    min_average_return: float = 0.0
+    audit_context: dict[str, Any] = Field(default_factory=dict)

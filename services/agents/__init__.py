@@ -1,4 +1,3 @@
-"""AI agent layer package."""
 """Agent-layer services."""
 
 from .service import AgentTaskService

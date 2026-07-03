@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+from services.strategy_library.repository import (
+    IngestionRepository,
+    PaperRunRepository,
+    StrategyRepository,
+    ValidationRepository,
+)
 from shared.models import (
     BacktestEngine,
     BacktestReport,
@@ -12,12 +18,6 @@ from shared.models import (
     StrategyRules,
     StrategyUpdate,
     StrategyVersion,
-)
-from services.strategy_library.repository import (
-    IngestionRepository,
-    PaperRunRepository,
-    StrategyRepository,
-    ValidationRepository,
 )
 
 
@@ -55,7 +55,7 @@ def test_strategy_repository_lifecycle(db_session) -> None:
                 takeprofit_rules={"close_after_windows": 1},
                 position_rules={"hedge_ratio": 1.0},
             ),
-        )
+        ),
     )
     assert updated is not None
     assert updated.rules.entry_rules["funding_threshold_bps"] == 5

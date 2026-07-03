@@ -25,6 +25,7 @@ from shared.models import (
     OrderExecution,
     PaperRun,
     PaperRunRequest,
+    PaperRunStatusUpdate,
     PositionSnapshot,
     TaskSubmission,
 )
@@ -80,6 +81,18 @@ def get_paper_run(paper_run_id: str, db: Session = Depends(get_db_session)) -> P
     return run
 
 
+@router.patch("/paper-runs/{paper_run_id}/status", response_model=PaperRun)
+def update_paper_run_status(
+    paper_run_id: str,
+    body: PaperRunStatusUpdate,
+    db: Session = Depends(get_db_session),
+) -> PaperRun:
+    updated = _paper_repo(db).update_paper_run_status(paper_run_id, body.paper_status)
+    if updated is None:
+        raise not_found("paper_run", paper_run_id)
+    return updated
+
+
 @router.get("/live-runs", response_model=CollectionResponse[LiveRun])
 def list_live_runs(db: Session = Depends(get_db_session)) -> CollectionResponse[LiveRun]:
     return collection_response(_execution_repo(db).list_live_runs())
@@ -107,9 +120,7 @@ def list_orders(db: Session = Depends(get_db_session)) -> CollectionResponse[Ord
 
 
 @router.post("/orders", response_model=OrderExecution, status_code=status.HTTP_201_CREATED)
-def create_order(
-    body: ExecutionOrderRequest, db: Session = Depends(get_db_session)
-) -> OrderExecution:
+def create_order(body: ExecutionOrderRequest, db: Session = Depends(get_db_session)) -> OrderExecution:
     return _gatekeeper(db).submit_order(body)
 
 
@@ -119,7 +130,5 @@ def list_positions(db: Session = Depends(get_db_session)) -> CollectionResponse[
 
 
 @router.post("/positions", response_model=PositionSnapshot, status_code=status.HTTP_201_CREATED)
-def create_position_snapshot(
-    body: PositionSnapshot, db: Session = Depends(get_db_session)
-) -> PositionSnapshot:
+def create_position_snapshot(body: PositionSnapshot, db: Session = Depends(get_db_session)) -> PositionSnapshot:
     return _execution_repo(db).create_position_snapshot(body)

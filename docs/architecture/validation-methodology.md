@@ -10,13 +10,15 @@
 - [AGENTS.md](C:\Users\Windows11\Desktop\量化项目\AGENTS.md)
 - [domain-and-interfaces-design.md](C:\Users\Windows11\Desktop\量化项目\docs\architecture\domain-and-interfaces-design.md)
 
-本轮不做：
+原始设计阶段不做：
 
 - 不实现具体的 Deflated Sharpe 计算代码
 - 不实现具体的滑点估算算法
 - 不接入真实订单簿深度数据
 
 这些留给 Phase 1 实现阶段。本文件只定义方法论边界、必须覆盖的场景与字段口径。
+2026-07-03 remediation 后，carry lane 已有首版 walk-forward/OOS/stress 诊断实现；
+Deflated Sharpe、订单簿深度滑点估算与真实压力场景历史回放仍未完整实现。
 
 ---
 
@@ -74,14 +76,21 @@ AGENTS.md §4 的默认门槛（`Sharpe > 1.0` / `Profit Factor > 1.3` / `Max Dr
 
 ---
 
-## 06 P0 实现边界
+## 06 实现边界与现状
 
-P0（本阶段）只做：
+P0 原始边界：
 
 - 本文件的方法论文字定义
-- `BacktestRun` / `BacktestReport` 契约字段占位
+- `BacktestRun` / `BacktestReport` 契约字段
 
-P1 才做：
+当前已落地的第一片：
+
+- `BacktestReport.validation_windows` / `stress_test_results` / `lookahead_check`
+- `services/validation/walk_forward.py` 的 carry walk-forward/OOS 窗口执行
+- `services/validation/stress_scenarios.py` 的规则化压力诊断
+- `services/validation/report.py` 的验证报告摘要
+
+仍待 P1/P2 补齐：
 
 - Deflated Sharpe 具体公式实现
 - 订单簿深度滑点估算实现
