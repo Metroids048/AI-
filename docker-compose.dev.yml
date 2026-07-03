@@ -1,0 +1,24 @@
+# Development overrides — applied on top of docker-compose.yml via `make up`:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Adds hot-reload, debug logging, and exposes DB/redis ports to the host.
+
+services:
+  timescaledb:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  api:
+    environment:
+      APP_ENV: development
+    command: >
+      sh -c "pip install -e . &&
+      uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  celery_worker:
+    command: >
+      sh -c "pip install -e . &&
+      celery -A apps.api.celery_app:celery_app worker --loglevel=debug -Q default,backtest_queue"

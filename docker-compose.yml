@@ -1,0 +1,140 @@
+# AI Quant Research Platform — base stack (8 services, PDF §1.2).
+# Dev overrides live in docker-compose.dev.yml (use `make up`).
+# Framework isolation: freqtrade runs as its own service; the api/celery
+# containers never `import freqtrade` — they talk to it via REST :8080.
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16   # pinned (PDF risk table 6.2)
+    container_name: ai-quant-timescaledb
+    environment:
+      POSTGRES_DB: ai_quant
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ./infra/timescale/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_quant"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: ai-quant-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    image: python:3.11-slim
+    container_name: ai-quant-api
+    working_dir: /app
+    command: >
+      sh -c "pip install -e . &&
+      uvicorn apps.api.main:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - ./:/app
+    env_file:
+      - .env.example
+    ports:
+      - "8000:8000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery_worker:
+    image: python:3.11-slim
+    container_name: ai-quant-celery-worker
+    working_dir: /app
+    command: >
+      sh -c "pip install -e . &&
+      celery -A apps.api.celery_app:celery_app worker --loglevel=info -Q default,backtest_queue"
+    volumes:
+      - ./:/app
+    env_file:
+      - .env.example
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+
+  celery_beat:
+    image: python:3.11-slim
+    container_name: ai-quant-celery-beat
+    working_dir: /app
+    command: >
+      sh -c "pip install -e . &&
+      celery -A apps.api.celery_app:celery_app beat --loglevel=info"
+    volumes:
+      - ./:/app
+    env_file:
+      - .env.example
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  flower:
+    image: python:3.11-slim
+    container_name: ai-quant-flower
+    working_dir: /app
+    command: >
+      sh -c "pip install -e . &&
+      celery -A apps.api.celery_app:celery_app flower --port=5555"
+    volumes:
+      - ./:/app
+    env_file:
+      - .env.example
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  freqtrade:
+    image: freqtradeorg/freqtrade:stable   # pin a dated tag before live use
+    container_name: ai-quant-freqtrade
+    command: >
+      trade --config /freqtrade/config/config.example.json
+      --strategy-path /freqtrade/strategies
+    volumes:
+      - ./infra/freqtrade/config:/freqtrade/config
+      - ./infra/freqtrade/strategies:/freqtrade/strategies
+      - ./infra/freqtrade/user_data:/freqtrade/user_data
+    ports:
+      - "8080:8080"
+
+  grafana:
+    image: grafana/grafana
+    container_name: ai-quant-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3000:3000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: ai-quant-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+volumes:
+  timescale_data:
+  grafana_data:

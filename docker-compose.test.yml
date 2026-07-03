@@ -1,0 +1,22 @@
+services:
+  timescaledb:
+    environment:
+      POSTGRES_DB: ai_quant_test
+
+  api:
+    environment:
+      APP_ENV: test
+      POSTGRES_URL: postgresql+psycopg://postgres:postgres@timescaledb:5432/ai_quant_test
+
+  celery_worker:
+    environment:
+      APP_ENV: test
+      POSTGRES_URL: postgresql+psycopg://postgres:postgres@timescaledb:5432/ai_quant_test
+    command: >
+      sh -c "pip install -e .[dev] &&
+      pytest -q"
+
+  celery_beat:
+    environment:
+      APP_ENV: test
+      POSTGRES_URL: postgresql+psycopg://postgres:postgres@timescaledb:5432/ai_quant_test

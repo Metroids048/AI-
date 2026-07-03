@@ -1,0 +1,177 @@
+- main [ref=f1e3]:
+  - generic [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - paragraph [ref=f1e6]: AI Quant Research Platform
+      - heading "Paper Trading Console" [level=1] [ref=f1e7]
+    - generic [ref=f1e8]:
+      - generic [ref=f1e9]:
+        - generic [ref=f1e10]: 环境
+        - strong [ref=f1e11]: dev
+      - generic [ref=f1e12]:
+        - generic [ref=f1e13]: 模式
+        - strong [ref=f1e14]: Paper
+      - generic [ref=f1e15]:
+        - generic [ref=f1e16]: 交易所
+        - strong [ref=f1e17]: binance
+      - generic [ref=f1e18]:
+        - generic [ref=f1e19]: 数据
+        - strong [ref=f1e20]: 加载中
+      - generic [ref=f1e21]:
+        - generic [ref=f1e22]: 风控
+        - strong [ref=f1e23]: normal
+  - navigation "console sections" [ref=f1e24]:
+    - button "Research" [ref=f1e25] [cursor=pointer]
+    - button "Validation" [ref=f1e26] [cursor=pointer]
+    - button "Paper" [ref=f1e27] [cursor=pointer]
+    - button "Risk" [ref=f1e28] [cursor=pointer]
+    - button "Review" [ref=f1e29] [cursor=pointer]
+  - generic [ref=f1e30]: 正在加载控制台数据
+  - generic [ref=f1e31]:
+    - generic [ref=f1e32]:
+      - generic [ref=f1e33]:
+        - text: Spot
+        - textbox "Spot" [ref=f1e34]: BTC/USDT
+      - generic [ref=f1e35]:
+        - text: Perp
+        - textbox "Perp" [ref=f1e36]: BTC/USDT:USDT
+      - generic [ref=f1e37]:
+        - text: Timeframe
+        - combobox "Timeframe" [ref=f1e38]:
+          - option "1m"
+          - option "5m"
+          - option "15m"
+          - option "1h" [selected]
+          - option "4h"
+          - option "1d"
+    - generic [ref=f1e39]:
+      - generic [ref=f1e40]:
+        - generic [ref=f1e41]: Spot 最新价
+        - strong [ref=f1e42]: 数据缺失
+      - generic [ref=f1e43]:
+        - generic [ref=f1e44]: Perp 最新价
+        - strong [ref=f1e45]: 数据缺失
+      - generic [ref=f1e46]:
+        - generic [ref=f1e47]: 基差
+        - strong [ref=f1e48]: 数据缺失 bps
+      - generic [ref=f1e49]:
+        - generic [ref=f1e50]: 资金费率
+        - strong [ref=f1e51]: 数据缺失
+      - generic [ref=f1e52]:
+        - generic [ref=f1e53]: 下一次 Funding
+        - strong [ref=f1e54]: 数据缺失
+      - generic [ref=f1e55]:
+        - generic [ref=f1e56]: 数据延迟
+        - strong [ref=f1e57]: 数据缺失
+  - generic [ref=f1e58]:
+    - generic [ref=f1e59]:
+      - generic [ref=f1e60]:
+        - generic [ref=f1e61]:
+          - paragraph [ref=f1e62]: Binance OHLCV
+          - heading "K线与执行标记" [level=2] [ref=f1e63]
+        - generic [ref=f1e64]: 1h
+      - generic [ref=f1e65]:
+        - generic: K线数据缺失
+        - table [ref=f1e67]:
+          - row [ref=f1e68]:
+            - cell [ref=f1e69]
+            - cell [ref=f1e70]:
+              - link "Charting by TradingView" [ref=f1e74] [cursor=pointer]:
+                - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+                - img [ref=f1e75]
+            - cell [ref=f1e79]
+          - row [ref=f1e83]:
+            - cell [ref=f1e84]
+            - cell [ref=f1e85]
+            - cell [ref=f1e89]
+      - generic [ref=f1e92]:
+        - generic [ref=f1e93]: Funding 标记：读取 market_extras
+        - generic [ref=f1e94]: 拒绝信号：0
+        - generic [ref=f1e95]: 成交标记：后续由交易所回报接入
+    - generic [ref=f1e96]:
+      - generic [ref=f1e97]:
+        - generic [ref=f1e98]:
+          - paragraph [ref=f1e99]: Funding Carry
+          - heading "资金费率套利" [level=2] [ref=f1e100]
+        - generic [ref=f1e101]: 尚无 Gate
+      - generic [ref=f1e102]:
+        - generic [ref=f1e103]:
+          - generic [ref=f1e104]: 当前 Funding
+          - strong [ref=f1e105]: 数据缺失
+        - generic [ref=f1e106]:
+          - generic [ref=f1e107]: 当前基差
+          - strong [ref=f1e108]: 数据缺失 bps
+        - generic [ref=f1e109]:
+          - generic [ref=f1e110]: 手续费
+          - strong [ref=f1e111]: 数据缺失 bps
+        - generic [ref=f1e112]:
+          - generic [ref=f1e113]: 滑点
+          - strong [ref=f1e114]: 数据缺失 bps
+        - generic [ref=f1e115]:
+          - generic [ref=f1e116]: Funding 收益/成本
+          - strong [ref=f1e117]: 数据缺失 bps
+        - generic [ref=f1e118]:
+          - generic [ref=f1e119]: 估算净边际
+          - strong [ref=f1e120]: 数据缺失 bps
+      - generic [ref=f1e121]:
+        - text: 最近回测
+        - strong [ref=f1e122]: 数据缺失
+        - paragraph [ref=f1e123]: 尚未产生准入/拒绝原因
+    - generic [ref=f1e124]:
+      - generic [ref=f1e125]:
+        - generic [ref=f1e126]:
+          - paragraph [ref=f1e127]: Manual Gate
+          - heading "人工操作" [level=2] [ref=f1e128]
+        - generic [ref=f1e129]: Paper only
+      - generic [ref=f1e130]:
+        - generic [ref=f1e131]:
+          - text: Strategy ID
+          - textbox "Strategy ID" [ref=f1e132]:
+            - /placeholder: strategy-id
+        - generic [ref=f1e133]:
+          - text: Gate / Backtest ID
+          - textbox "Gate / Backtest ID" [ref=f1e134]:
+            - /placeholder: backtest-run-id
+        - button "启动 Paper" [disabled] [ref=f1e135]
+        - button "暂停 Paper" [disabled] [ref=f1e136]
+        - button "触发 Carry 回测" [disabled] [ref=f1e137]
+      - generic [ref=f1e138]:
+        - textbox [ref=f1e139]: 手动高严重度风险事件
+        - button "提交风险事件" [ref=f1e140] [cursor=pointer]
+  - generic [ref=f1e141]:
+    - generic [ref=f1e142]:
+      - generic [ref=f1e143]:
+        - heading "订单与 Gatekeeper" [level=2] [ref=f1e144]
+        - generic [ref=f1e145]: "0"
+      - table [ref=f1e146]:
+        - rowgroup [ref=f1e147]:
+          - row "时间 Symbol 方向 状态 拒绝原因" [ref=f1e148]:
+            - columnheader "时间" [ref=f1e149]
+            - columnheader "Symbol" [ref=f1e150]
+            - columnheader "方向" [ref=f1e151]
+            - columnheader "状态" [ref=f1e152]
+            - columnheader "拒绝原因" [ref=f1e153]
+        - rowgroup [ref=f1e154]:
+          - row "订单数据缺失" [ref=f1e155]:
+            - cell "订单数据缺失" [ref=f1e156]
+    - generic [ref=f1e157]:
+      - generic [ref=f1e158]:
+        - heading "持仓" [level=2] [ref=f1e159]
+        - generic [ref=f1e160]: "0"
+      - table [ref=f1e161]:
+        - rowgroup [ref=f1e162]:
+          - row "时间 Symbol 方向 数量 入场 标记 未实现 PnL" [ref=f1e163]:
+            - columnheader "时间" [ref=f1e164]
+            - columnheader "Symbol" [ref=f1e165]
+            - columnheader "方向" [ref=f1e166]
+            - columnheader "数量" [ref=f1e167]
+            - columnheader "入场" [ref=f1e168]
+            - columnheader "标记" [ref=f1e169]
+            - columnheader "未实现 PnL" [ref=f1e170]
+        - rowgroup [ref=f1e171]:
+          - row "持仓数据缺失" [ref=f1e172]:
+            - cell "持仓数据缺失" [ref=f1e173]
+    - generic [ref=f1e174]:
+      - generic [ref=f1e175]:
+        - heading "风险事件" [level=2] [ref=f1e176]
+        - generic [ref=f1e177]: "0"
+      - generic [ref=f1e179]: 暂无活跃风险事件

@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+build/
+.next/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Data artifacts
+/data/
+/artifacts/
+/coverage/
+/.pytest_ai_quant.db
+*.egg-info/
+
+# Freqtrade runtime (keep .gitkeep + the example config only)
+infra/freqtrade/user_data/*
+!infra/freqtrade/user_data/.gitkeep
+infra/freqtrade/config/*.json
+!infra/freqtrade/config/config.example.json

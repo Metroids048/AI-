@@ -1,0 +1,34 @@
+name: AI Quant Research Platform
+status: bootstrap
+primary_language: python
+secondary_languages:
+  - typescript
+primary_market: BTC/USDT perpetual
+architecture_source: AGENTS.md
+canonical_report: AI_Quant_Research_Platform_完整报告.docx
+layers:
+  - data
+  - strategy
+  - ai_agent
+  - validation
+  - execution
+  - review
+stack:
+  backend:
+    - FastAPI
+    - Celery
+    - PostgreSQL
+    - Redis
+  quant:
+    - CCXT
+    - Freqtrade
+    - Backtrader
+    - VectorBT
+  frontend:
+    - React
+    - Tailwind
+  ai:
+    - Claude API
+    - LangChain
+    - LlamaIndex
+
