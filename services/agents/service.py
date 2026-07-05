@@ -8,11 +8,13 @@ from pathlib import Path
 from apps.api.config import settings
 from research_source.open_source_strategy_library import OpenSourceStrategyExtractor, OpenSourceStrategyLibrary
 from research_source.worldquant_adapter import LocalAlphaScanner
-from services.strategy_library import AgentTaskRepository, StrategyRepository
+from services.agents.llm_runtime import StructuredLLMRuntime, UnavailableLLMRuntime
+from services.strategy_library import AgentTaskRepository, ReviewRepository, StrategyRepository
 from shared.models import (
     AgentTask,
     AgentTaskRequest,
     DecisionVetoResult,
+    FailureRecord,
     RiskLevel,
     StrategyDraft,
     StrategyIdea,
@@ -31,9 +33,13 @@ class AgentTaskService:
         *,
         agent_repo: AgentTaskRepository,
         strategy_repo: StrategyRepository,
+        review_repo: ReviewRepository | None = None,
+        llm_runtime: StructuredLLMRuntime | None = None,
     ) -> None:
         self.agent_repo = agent_repo
         self.strategy_repo = strategy_repo
+        self.review_repo = review_repo
+        self.llm_runtime = llm_runtime or UnavailableLLMRuntime()
         self.alpha_scanner = LocalAlphaScanner()
         self.open_source_library = OpenSourceStrategyLibrary()
         self.open_source_extractor = OpenSourceStrategyExtractor()
@@ -54,17 +60,23 @@ class AgentTaskService:
                 input_payload=request.input_payload,
                 priority=request.priority,
                 task_status="running",
+                attempt_history=[],
             )
         )
         output_payload = self._execute(task)
-        completed = output_payload.get("executor_registered", True)
+        completed = output_payload.get("completed", output_payload.get("executor_registered", True))
+        task_status = output_payload.get("task_status", "completed" if completed else "failed")
         return (
             self.agent_repo.update_task(
                 task.agent_task_id or "",
                 output_payload=output_payload,
-                task_status="completed" if completed else "failed",
-                error_summary=None if completed else output_payload.get("message"),
+                task_status=task_status,
+                error_summary=None if task_status == "completed" else output_payload.get("message"),
                 output_ref=output_payload.get("output_ref"),
+                executor_name=output_payload.get("executor_name"),
+                attempt_history=output_payload.get("attempt_history", []),
+                provider_trace=output_payload.get("provider_trace", {}),
+                schema_validation_status=output_payload.get("schema_validation_status"),
             )
             or task
         )
@@ -81,6 +93,7 @@ class AgentTaskService:
                     created = self.strategy_repo.create_idea(idea)
                     if created.idea_id is not None:
                         persisted_ids.append(created.idea_id)
+                        self._record_alpha_rejection_if_needed(created)
             return {
                 "executor_registered": True,
                 "alpha_root": root_path,
@@ -175,11 +188,19 @@ class AgentTaskService:
             )
             return {
                 "executor_registered": True,
+                "completed": True,
+                "executor_name": "deterministic_decision_veto",
                 "veto_result": veto_result.model_dump(mode="json"),
                 "risk_event_count": len(risk_events),
                 "high_risk_event_count": len(high_risk_events),
                 "output_ref": f"decision_veto:{task.agent_task_id}",
             }
+
+        if task.agent_type in {"news_agent", "twitter_agent", "telegram_agent"} and task.task_type == "classify_event":
+            return self._execute_llm_classification(task)
+
+        if task.agent_type == "decision_veto_agent" and task.task_type == "pre_execution_veto_llm":
+            return self._execute_llm_veto(task)
 
         if task.agent_type == "review_agent" and task.task_type == "summarize_failures":
             failures = task.input_payload.get("failures", [])
@@ -197,9 +218,148 @@ class AgentTaskService:
 
         return {
             "executor_registered": False,
+            "completed": False,
             "message": "task recorded but no executor is registered yet",
             "output_ref": None,
         }
+
+    def _execute_llm_classification(self, task: AgentTask) -> dict:
+        try:
+            result = self.llm_runtime.generate_structured(
+                agent_type=task.agent_type,
+                task_type=task.task_type,
+                payload=task.input_payload,
+            )
+        except Exception as exc:  # pragma: no cover - exercised by timeout path below
+            return {
+                "executor_registered": True,
+                "completed": False,
+                "executor_name": "llm_structured_classifier",
+                "message": str(exc),
+                "schema_validation_status": "runtime_error",
+                "provider_trace": {},
+                "attempt_history": [{"status": "runtime_error", "message": str(exc)}],
+                "output_ref": f"agent_task:{task.agent_task_id}",
+            }
+
+        raw_output = result.get("raw_output", {})
+        provider_trace = {
+            "provider": result.get("provider", "unknown"),
+            "model": result.get("model", "unknown"),
+        }
+        is_valid = all(key in raw_output for key in ("severity", "summary"))
+        return {
+            "executor_registered": True,
+            "completed": is_valid,
+            "task_status": "completed" if is_valid else "failed",
+            "executor_name": "llm_structured_classifier",
+            "message": None if is_valid else "llm structured output failed schema validation",
+            "schema_validation_status": "passed" if is_valid else "failed",
+            "provider_trace": provider_trace,
+            "attempt_history": [
+                {
+                    "status": "passed" if is_valid else "schema_failed",
+                    "provider": provider_trace["provider"],
+                    "model": provider_trace["model"],
+                }
+            ],
+            "classification": raw_output if is_valid else None,
+            "output_ref": f"agent_task:{task.agent_task_id}",
+        }
+
+    def _execute_llm_veto(self, task: AgentTask) -> dict:
+        try:
+            result = self.llm_runtime.generate_structured(
+                agent_type=task.agent_type,
+                task_type=task.task_type,
+                payload=task.input_payload,
+            )
+            raw_output = result.get("raw_output", {})
+            if not isinstance(raw_output.get("veto"), bool) or not isinstance(raw_output.get("veto_reason"), str):
+                raise ValueError("llm veto output failed schema validation")
+            provider_trace = {
+                "provider": result.get("provider", "unknown"),
+                "model": result.get("model", "unknown"),
+            }
+            return {
+                "executor_registered": True,
+                "completed": True,
+                "task_status": "completed",
+                "executor_name": "llm_decision_veto",
+                "schema_validation_status": "passed",
+                "provider_trace": provider_trace,
+                "attempt_history": [{"status": "passed", **provider_trace}],
+                "veto_result": raw_output,
+                "output_ref": f"decision_veto:{task.agent_task_id}",
+            }
+        except TimeoutError as exc:
+            return {
+                "executor_registered": True,
+                "completed": False,
+                "task_status": "failed",
+                "executor_name": "llm_decision_veto",
+                "message": str(exc),
+                "schema_validation_status": "timeout",
+                "provider_trace": {},
+                "attempt_history": [{"status": "timeout", "message": str(exc)}],
+                "safe_veto_applied": True,
+                "veto_result": {
+                    "veto": True,
+                    "veto_reason": "llm timeout -> fail closed",
+                    "agent_task_ref": task.agent_task_id,
+                },
+                "output_ref": f"decision_veto:{task.agent_task_id}",
+            }
+        except Exception as exc:
+            return {
+                "executor_registered": True,
+                "completed": False,
+                "task_status": "failed",
+                "executor_name": "llm_decision_veto",
+                "message": str(exc),
+                "schema_validation_status": "failed",
+                "provider_trace": {},
+                "attempt_history": [{"status": "failed", "message": str(exc)}],
+                "safe_veto_applied": True,
+                "veto_result": {
+                    "veto": True,
+                    "veto_reason": "schema validation failed -> fail closed",
+                    "agent_task_ref": task.agent_task_id,
+                },
+                "output_ref": f"decision_veto:{task.agent_task_id}",
+            }
+
+    def _record_alpha_rejection_if_needed(self, idea: StrategyIdea) -> None:
+        if self.review_repo is None or idea.idea_id is None or idea.intake_bucket != "subjective_to_drop":
+            return
+        metadata = idea.intake_metadata
+        unsupported_inputs = metadata.get("unsupported_inputs", [])
+        unsupported_operators = metadata.get("unsupported_operators", [])
+        evaluation_error = metadata.get("evaluation_error")
+        reason_parts = []
+        if unsupported_inputs:
+            reason_parts.append(f"unsupported_inputs={','.join(map(str, unsupported_inputs))}")
+        if unsupported_operators:
+            reason_parts.append(f"unsupported_operators={','.join(map(str, unsupported_operators))}")
+        if evaluation_error:
+            reason_parts.append(f"evaluation_error={evaluation_error}")
+        reason = "; ".join(reason_parts) or "alpha expression is not executable in the supported crypto subset"
+        self.review_repo.create_failure(
+            FailureRecord(
+                idea_id=idea.idea_id,
+                origin_run_type="research_intake",
+                origin_run_id=idea.idea_id,
+                failure_type="alpha_evaluator_reject",
+                failure_summary=f"Local alpha rejected during intake: {reason}",
+                evidence_refs=[
+                    f"strategy_idea:{idea.idea_id}",
+                    f"raw_expression:{str(metadata.get('raw_expression', idea.source_ref or ''))[:180]}",
+                ],
+                recommended_change=(
+                    "Keep as research-only or manually port unsupported fields/operators to crypto-native inputs."
+                ),
+            )
+        )
 
 
 def _draft_from_open_source_idea(idea: StrategyIdea) -> StrategyDraft:

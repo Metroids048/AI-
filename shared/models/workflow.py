@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .backtest import BacktestReport, GateDecision
 from .base import PlatformModel
@@ -114,6 +114,48 @@ class PaperRunStepRequest(PlatformModel):
     idempotency_key: str | None = None
 
 
+class PaperRuntimeCycleRequest(PlatformModel):
+    symbols: list[str] = Field(default_factory=list)
+    timeframe: str = "1h"
+    max_symbols: int = Field(default=20, ge=1, le=50)
+    close_on_opposite_signal: bool = True
+
+
+class PaperRuntimeAction(PlatformModel):
+    symbol: str
+    action: str
+    direction: TradeSide | None = None
+    reason: str | None = None
+    order_execution_id: str | None = None
+    reference_price: float | None = None
+    close_only: bool = False
+
+
+class PaperRuntimeCycleResult(PlatformModel):
+    paper_run_id: str
+    paper_status: str
+    cycle_time: datetime
+    scanned_symbols: list[str] = Field(default_factory=list)
+    actions: list[PaperRuntimeAction] = Field(default_factory=list)
+    opened_positions: int = 0
+    closed_positions: int = 0
+    rejected_orders: int = 0
+    skipped_symbols: int = 0
+    open_position_symbols: list[str] = Field(default_factory=list)
+    account_equity: float = 0.0
+
+
+class PaperRuntimeStatus(PlatformModel):
+    paper_run_id: str
+    paper_status: str
+    candidate_symbols: list[str] = Field(default_factory=list)
+    open_position_symbols: list[str] = Field(default_factory=list)
+    account_equity: float = 0.0
+    last_cycle_at: datetime | None = None
+    last_scanned_symbols: list[str] = Field(default_factory=list)
+    last_action_counts: dict[str, int] = Field(default_factory=dict)
+
+
 class LiveRun(PlatformModel):
     live_run_id: str | None = None
     strategy_id: str
@@ -121,6 +163,7 @@ class LiveRun(PlatformModel):
     exchange: Exchange = Exchange.BINANCE
     capital_tier: str = Field(default="micro")
     live_status: str = "queued"
+    validation_backtest_run_id: str | None = None
     risk_profile_ref: str | None = None
     live_metrics_summary: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
@@ -131,6 +174,7 @@ class LiveRunRequest(PlatformModel):
     version_id: str | None = None
     exchange: Exchange = Exchange.BINANCE
     capital_tier: str = Field(default="micro")
+    validation_backtest_run_id: str | None = None
     risk_profile_ref: str | None = None
     idempotency_key: str | None = None
 
@@ -152,6 +196,22 @@ class ExecutionSignal(PlatformModel):
     signal_status: str = "pending_prechecks"
 
 
+class ExecutionRiskState(PlatformModel):
+    """Runtime risk snapshot supplied to the gatekeeper at order-admission time."""
+
+    account_equity: float
+    equity_peak: float
+    daily_realized_pnl: float = 0.0
+    weekly_realized_pnl: float = 0.0
+    consecutive_losses: int = 0
+    api_failures_window: int = 0
+    open_positions: int = 0
+    symbol_exposure: float = 0.0
+    total_exposure: float = 0.0
+    requested_notional: float = 0.0
+    requested_leverage: float = 1.0
+
+
 class ExecutionOrderRequest(PlatformModel):
     strategy_id: str
     version_id: str | None = None
@@ -167,6 +227,7 @@ class ExecutionOrderRequest(PlatformModel):
     paper_run_id: str | None = None
     live_run_id: str | None = None
     veto_result: DecisionVetoResult | None = None
+    risk_state: ExecutionRiskState | None = None
     idempotency_key: str | None = None
 
 
@@ -180,6 +241,7 @@ class OrderExecution(PlatformModel):
     stoploss_present: bool = False
     close_only_mode: bool = False
     rejection_reason: str | None = None
+    rejection_codes: list[str] = Field(default_factory=list)
     entry_context: dict[str, Any] = Field(default_factory=dict)
     stoploss_plan: dict[str, Any] = Field(default_factory=dict)
     takeprofit_plan: dict[str, Any] = Field(default_factory=dict)
@@ -190,6 +252,13 @@ class OrderExecution(PlatformModel):
     signal_ensemble_id: str | None = None
     meta_label_id: str | None = None
     veto_result: dict[str, Any] = Field(default_factory=dict)
+    evaluated_risk_state: ExecutionRiskState | None = None
+    gateway_name: str | None = None
+    gateway_order_id: str | None = None
+    gateway_status: str | None = None
+    lifecycle_history: list[dict[str, Any]] = Field(default_factory=list)
+    reconciliation_status: str | None = None
+    last_gateway_update_at: datetime | None = None
     created_at: datetime | None = None
 
 
@@ -221,7 +290,8 @@ class ReviewReport(PlatformModel):
 
 class FailureRecord(PlatformModel):
     failure_record_id: str | None = None
-    strategy_id: str
+    strategy_id: str | None = None
+    idea_id: str | None = None
     version_id: str | None = None
     origin_run_type: str
     origin_run_id: str
@@ -230,6 +300,12 @@ class FailureRecord(PlatformModel):
     evidence_refs: list[str] = Field(default_factory=list)
     recommended_change: str | None = None
     created_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_subject_ref(self) -> FailureRecord:
+        if not self.strategy_id and not self.idea_id:
+            raise ValueError("failure record requires strategy_id or idea_id")
+        return self
 
 
 class IngestionJob(PlatformModel):
@@ -270,6 +346,10 @@ class AgentTask(PlatformModel):
     priority: int = 5
     task_status: str = "queued"
     error_summary: str | None = None
+    executor_name: str | None = None
+    attempt_history: list[dict[str, Any]] = Field(default_factory=list)
+    provider_trace: dict[str, Any] = Field(default_factory=dict)
+    schema_validation_status: str | None = None
     scheduled_at: datetime | None = None
     created_at: datetime | None = None
 
@@ -284,14 +364,30 @@ class AgentTaskRequest(PlatformModel):
 
 
 class NotificationOutboxItem(PlatformModel):
-    """Structured notification intent; delivery adapters are a later tranche."""
+    """Structured notification intent plus persisted adapter-delivery state."""
 
     notification_id: str
     event_type: str
     severity: str
     channel_group: str = "ops"
+    delivery_channels: list[str] = Field(default_factory=lambda: ["telegram", "webhook"])
     subject: str
     body: str
     source_ref: str | None = None
     delivery_status: str = "pending_adapter"
+    delivery_attempts: int = Field(default=0, ge=0)
+    next_attempt_at: datetime | None = None
+    last_attempt_at: datetime | None = None
+    attempt_history: list[dict[str, Any]] = Field(default_factory=list)
+    last_error: str | None = None
+    delivered_at: datetime | None = None
     created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class NotificationDeliveryUpdate(PlatformModel):
+    """Record delivery-adapter results without performing external side effects."""
+
+    delivery_status: str
+    last_error: str | None = None
+    next_attempt_at: datetime | None = None

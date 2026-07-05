@@ -2,7 +2,7 @@
 COMPOSE      = docker compose
 COMPOSE_DEV  = docker compose -f docker-compose.yml -f docker-compose.dev.yml
 
-.PHONY: up down logs ps build migrate migrate-new \
+.PHONY: up down logs ps build compose-validate migrate migrate-new \
         data-sync data-check backtest backtest-all scan \
         test test-unit lint fmt lock sync memory-update
 
@@ -17,6 +17,8 @@ ps:
 	$(COMPOSE) ps
 build:
 	$(COMPOSE) build
+compose-validate:
+	py -3 scripts/compose_validate.py
 
 ## ── 数据库迁移 ────────────────────────────
 migrate:       ## 应用 Alembic 迁移到最新

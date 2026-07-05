@@ -1,5 +1,85 @@
 # Task History
 
+### [TASK-024] Add autonomous paper-runtime cycle over the admitted Top20 candidate universe
+- **Date**: 2026-07-04
+- **Type**: feat + execution
+- **Summary**: Added the first autonomous paper-runtime slice inside the existing Execution Layer. Paper runs can now execute `/api/v1/execution/paper-runs/{id}/auto-cycle` to scan candidate symbols, open paper positions on fresh admitted signals, close positions on opposite signals, persist filled order lifecycle updates, and expose `/runtime-status` for the current open-position view. The default paper candidate universe is now Binance Top20 with BTC/ETH still pinned first, and a Celery task `services.execution.tasks.run_paper_runtime_cycle` provides the worker-side entrypoint for repeated scheduling.
+- **Files changed**: `apps/api/routers/runs.py`, `services/execution/{__init__.py,gatekeeper.py,paper.py,paper_runtime.py,tasks.py}`, `services/strategy_library/repository.py`, `shared/models/{__init__.py,workflow.py}`, `tests/api/test_paper_runtime_api.py`, `.github/agent/memory/{project-memory.md,decisions-log.md,task-history.md}`
+- **Layer mapping**: This stays inside the Execution Layer and shared contracts only. Validation admission is still enforced upstream through the existing `gate_decision_ref` + gatekeeper path, and no Agent or UI path bypasses `Validation -> Execution`.
+- **Research loop served**: `BacktestRun admission evidence -> PaperRun -> auto cycle -> gatekeeper -> filled paper order -> position snapshot/runtime status` is now explicit, test-covered, and reusable for later Celery scheduling or testnet expansion.
+- **Verification**: `C:\Users\Windows11\AppData\Local\Programs\Python\Python312\python.exe -m pytest -q` -> 108 passed, 1 skipped; `...python.exe -m ruff check .` passed; `...python.exe -m mypy` passed.
+- **Notes**: This is a repeatable autonomous paper cycle plus worker entrypoint, not a proven 7x24 production daemon yet. Docker runtime smoke remains skipped locally because `docker` is not on PATH.
+
+### [TASK-023] Harden Binance access toward testnet-first API credentials
+- **Date**: 2026-07-04
+- **Type**: security + ops
+- **Summary**: Refused unsafe use of exchange login credentials and tightened the repo toward the intended integration path: exchange-owned API keys on testnet or paper first. Added `BINANCE_USE_TESTNET` and `LIVE_TRADING_ENABLED` settings, made `BinanceUsdtPerpetualGateway` propagate sandbox mode to the underlying CCXT client when available, and rewrote the environment/config ops guide so operators configure testnet keys instead of reusing account passwords.
+- **Files changed**: `apps/api/config.py`, `.env.example`, `services/execution/gateway.py`, `tests/services/test_binance_gateway.py`, `docs/ops/environment-and-config.md`, `.github/agent/memory/{project-memory.md,task-history.md}`
+- **Layer mapping**: This is an Ops / Execution boundary hardening change. It does not add a new layer or expand strategy logic; it constrains how exchange connectivity is enabled.
+- **Research loop served**: Keeps `Validation -> Paper -> Live` progression safe by default, ensuring exchange connectivity starts from testnet/sandbox instead of direct real-account login credentials.
+- **Verification**: `C:\Users\Windows11\AppData\Local\Programs\Python\Python312\python.exe -m pytest -q tests/services/test_binance_gateway.py tests/services/test_exchange_gateway.py tests/api/test_execution_runtime_api.py` -> 5 passed; `...python.exe -m ruff check apps/api/config.py services/execution/gateway.py tests/services/test_binance_gateway.py` passed; `...python.exe -m mypy apps/api/config.py services/execution/gateway.py` passed.
+- **Notes**: In this restricted follow-up environment, `py -3` was unavailable, so verification used the explicit Python 3.12 interpreter path.
+
+### [TASK-022] Complete strict promotion evidence, live runtime APIs, and online agent/gateway boundaries
+- **Date**: 2026-07-04
+- **Type**: feat + verification
+- **Summary**: Completed the next remaining-platform closure slice after the Tranche 1 baseline. Tightened Paper/Live promotion so raw backtest pass no longer bypasses missing hypothesis/benchmark/OOS/pod-risk evidence; made validation reports hypothesis-aware; added live runtime APIs for gateway capabilities, account snapshot sync/query, live order submit/cancel, and reconciliation query/trigger; added the first real Binance USDT perpetual gateway implementation over a CCXT-style client boundary; added a real Anthropic structured-output runtime plus per-agent provider/model mapping; and added Alembic `0006` for hypotheses, decision memory, gateway snapshots, reconciliation, and runtime metadata persistence.
+- **Files changed**: `apps/api/routers/{agents,backtests,runs}.py`, `apps/api/config.py`, `services/agents/{__init__,llm_runtime,service}.py`, `services/execution/{__init__,gateway}.py`, `services/validation/report.py`, `migrations/versions/0006_validation_memory_and_gateway_runtime.py`, `.env.example`, new API/service tests, and memory files.
+- **Layer mapping**: Validation evidence enforcement stays in the Validation Layer; gateway/account/reconciliation runtime stays in the Execution Layer; structured online LLM calls stay in the Agent Layer; decision memory remains inside the existing Review deployment boundary. No seventh layer was introduced and no route bypasses `Validation -> Execution`.
+- **Research loop served**: `Hypothesis -> BacktestRun -> promotion_gate -> Paper/Live admission -> gateway lifecycle/reconciliation -> decision memory/review evidence` is now explicit and auditable, while `News/Twitter/Telegram/Decision Veto` tasks can use a real online structured LLM boundary without ever generating orders directly.
+- **Verification**: `py -3 -m pytest -q` -> 106 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m mypy` passed; `Remove-Item .verify_ai_quant.db; $env:POSTGRES_URL='sqlite:///./.verify_ai_quant.db'; py -3 -m alembic upgrade head` passed through `0006`; `npm --workspace frontend/admin run build` passed; `py -3 scripts/compose_validate.py` -> `[skipped] docker not found on PATH; compose runtime validation skipped`.
+- **Notes**: Docker runtime verification is still host-dependent because `docker` is not on PATH locally. Binance/Anthropic online runtime paths are implemented and test-covered at the boundary level, but real credentialed end-to-end exchange/LLM execution still depends on operator-provided secrets and a live environment.
+
+### [TASK-021] Sync Tranche 1 status docs and re-verify baseline
+- **Date**: 2026-07-04
+- **Type**: docs + verification
+- **Summary**: Synchronized the remaining stale status documents after the Tranche 1 auth/notification/ops implementation landed. Updated the implementation matrix, technical architecture plan, and delivery checklist so they now reflect the real single-tenant auth baseline, Telegram/Webhook notification dispatch path, restored `frontend/admin` build, and scripted `compose-validate` workflow with the documented local Docker limitation.
+- **Files changed**: `docs/architecture/{implementation-status-matrix.md,technical-architecture-plan.md}`, `docs/ops/delivery-checklist.md`, `.github/agent/memory/task-history.md`
+- **Layer mapping**: This change updates architecture/ops/status documentation only. It does not introduce new runtime modules or alter the six-layer boundary.
+- **Research loop served**: Keeps the operator and developer view aligned with the real admission/ops baseline, reducing the risk of planning future Validation / Execution / Review work against stale assumptions.
+- **Verification**: `py -3 -m pytest -q` -> 89 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m mypy` passed; `npm --workspace frontend/admin run build` passed; `py -3 scripts/compose_validate.py` -> `[skipped] docker not found on PATH; compose runtime validation skipped`.
+- **Notes**: No new ADR was needed. Local Docker runtime verification remains pending on a host with Docker available.
+
+### [TASK-020] Implement Tranche 1 security + notification dispatch baseline
+- **Date**: 2026-07-04
+- **Type**: feat + ops + auth
+- **Summary**: Implemented the first tranche from the remaining-platform roadmap. Added single-tenant Bearer auth for `/api/v1/*` while keeping health endpoints public; upgraded notification outbox from persisted intent into a real dispatch loop with Telegram/Webhook adapters, retry/backoff state, attempt history, API replay endpoint, and Celery task; restored the frontend admin build by reinstalling workspace dependencies and wiring the admin token into requests; and added a script-backed compose validation path for local/CI use.
+- **Files changed**: `apps/api/{auth.py,main.py,config.py,celery_app.py,routers/notifications.py}`, `services/{notifications.py,notifications_tasks.py,strategy_library/{models.py,repository.py}}`, `shared/models/workflow.py`, `frontend/admin/src/main.jsx`, `.env.example`, `scripts/{__init__.py,compose_validate.py}`, `.github/workflows/ci.yml`, `Makefile`, `migrations/versions/0005_notification_dispatch_runtime_fields.py`, notification/auth/compose tests, status docs, and memory files.
+- **Layer mapping**: Auth belongs to the API boundary; notification dispatch belongs to Ops / Review / Risk visibility and response inside the existing six-layer architecture; compose validation and CI wiring are operational guardrails rather than new product modules.
+- **Research loop served**: `RiskEvent -> NotificationOutboxItem -> dispatcher -> adapter result/audit history` is now a real operational closure, while API auth protects the operator surface that controls validation, paper runs, and risk actions.
+- **Verification**: `py -3 -m pytest -q` -> 89 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m ruff format --check <changed-files>` passed; `py -3 -m mypy` passed; `npm --workspace frontend/admin run build` passed; `py -3 scripts/compose_validate.py` -> `[skipped] docker not found on PATH; compose runtime validation skipped`; `$env:POSTGRES_URL='sqlite:///./.verify_ai_quant.db'; py -3 -m alembic upgrade head` passed from `0001` to `0005`.
+- **Notes**: This completes the planned Tranche 1 baseline only. Full DSR / hypothesis registry / decision memory service / live exchange gateway / real LLM agents remain future tranches.
+
+### [TASK-019] Persist notification outbox intents and delivery status
+- **Date**: 2026-07-04
+- **Type**: feat
+- **Summary**: Upgraded the notification outbox from a read-time derivation over active risk events into a persisted Ops/Review/Risk visibility channel. Added `notification_outbox` ORM/migration, `NotificationRepository`, delivery-status fields, persisted outbox APIs for list/filter/manual create/delivery update, and automatic idempotent notification enqueueing for high/critical `RiskEvent` creation.
+- **Files changed**: `shared/models/{workflow,__init__}.py`, `services/{notifications.py,strategy_library/**}`, `apps/api/routers/{risk,notifications}.py`, `migrations/versions/0004_persist_notification_outbox.py`, `tests/api/test_remediation_plan.py`, status docs, and memory files.
+- **Layer mapping**: Notification outbox belongs to Ops / Review / Risk visibility inside the existing six-layer architecture. It records notification intent and adapter results only; no real Telegram/email/webhook adapter or new Agent subsystem was added.
+- **Research loop served**: `RiskEvent -> NotificationOutboxItem -> delivery_status audit` now keeps operational evidence available after a risk event is resolved, so Review/Ops can reuse the same durable audit trail.
+- **Verification**: Red-green targeted notification tests passed; targeted remediation/shared/repository tests -> 18 passed; full `py -3 -m pytest -q` -> 80 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m mypy` passed; `$env:POSTGRES_URL='sqlite:///./.verify_ai_quant.db'; py -3 -m alembic upgrade head` passed and the temporary SQLite DB was removed.
+- **Notes**: Real outbound adapters and credentials remain future work. High/critical risk events auto-create notification intents; low/mid events do not.
+
+### [TASK-018] Route alpha evaluator rejections into Review failure memory
+- **Date**: 2026-07-04
+- **Type**: feat
+- **Summary**: Completed the remaining decision-memory slice after TASK-017. Persisted `StrategyIdea.intake_metadata`, allowed `FailureRecord` to attach to `idea_id` as well as `strategy_id`, wired Research Agent `scan_local_alpha` so persisted `subjective_to_drop` alpha ideas create `alpha_evaluator_reject` failure records, and added `/api/v1/failures` filters for `strategy_id`, `idea_id`, and `failure_type`.
+- **Files changed**: `shared/models/{strategy,workflow}.py`, `services/{agents,review,strategy_library}/**`, `apps/api/routers/{agents,review}.py`, `research_source/worldquant_adapter/local_alpha_scanner.py`, `migrations/versions/0003_harden_risk_engine_and_alpha_audit.py`, targeted tests, and memory files.
+- **Layer mapping**: Local alpha scanning remains Data Layer E-level research intake feeding Strategy Layer ideas; `FailureRecord` writeback and `/failures` retrieval belong to the Review Layer; Agent orchestration only coordinates structured objects.
+- **Research loop served**: `Alpha expression -> AlphaPlan -> Evaluator -> StrategyIdea.intake_metadata -> FailureRecord` is now reusable by Review/Research without re-parsing rationale text.
+- **Verification**: Targeted tests (`tests/contracts/test_shared_models.py`, `tests/repositories/test_strategy_repository.py`, `tests/api/test_risk_review_agents.py`, `tests/research_source/test_worldquant_adapter.py`) -> 24 passed; full `py -3 -m pytest -q` -> 79 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m mypy` passed; `$env:POSTGRES_URL='sqlite:///./.verify_ai_quant.db'; py -3 -m alembic upgrade head` passed.
+- **Notes**: Temporary SQLite verification database was removed after migration smoke. No new autonomous memory subsystem was added.
+
+### [TASK-017] Harden Risk Engine admission and repair WorldQuant executable intake
+- **Date**: 2026-07-03
+- **Type**: feat + fix
+- **Summary**: Completed the approved Phase 1 slice that hardens order admission and removes WorldQuant placeholders. Added `ExecutionRiskState`, aligned `RiskProfile` defaults and persistence, extended `ExecutionGatekeeperService` with numeric risk checks and structured rejection audit fields, and ensured Paper stepping synthesizes the same runtime risk snapshot used by direct execution. Replaced the WorldQuant placeholder generator with a real evaluator-backed path, implemented `ts_rank` / `ts_zscore` / `group_neutralize`, added explicit crypto group alias migration, and upgraded local alpha intake to preserve behavior signatures and unsupported evidence.
+- **Files changed**: `shared/models/{risk,workflow,alpha,__init__}.py`, `services/{execution,strategy_library}/**`, `apps/api/routers/runs.py`, `research_source/worldquant_adapter/**`, `migrations/versions/0003_harden_risk_engine_and_alpha_audit.py`, targeted docs, tests, and memory files.
+- **Layer mapping**: `ExecutionRiskState` + gatekeeper numeric checks belong to the Execution Layer / Risk Engine; `FailureRecord` writeback belongs to the Review Layer; WorldQuant parser/evaluator/scanner remain Data Layer E-level research intake feeding Strategy Layer seeds.
+- **Research loop served**: `RiskProfile -> ExecutionGatekeeper -> OrderExecution/FailureRecord` is now auditable end-to-end, and `Alpha expression -> AlphaPlan -> Evaluator -> CryptoFactorGenerator -> StrategyIdea` is now explicit about what is executable versus research-only.
+- **Verification**: `py -3 -m pytest -q` -> 76 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m mypy` passed; `$env:POSTGRES_URL='sqlite:///./.verify_ai_quant.db'; py -3 -m alembic upgrade head` passed.
+- **Notes**: To run repository verification locally in this environment, I installed the missing declared/dev dependencies `pydantic-settings`, `ruff`, `celery`, `mypy`, and `pytest-asyncio` into the active Python interpreter because they were absent at session start.
+
 ### [TASK-016] Open-source strategy library intake and Paper order stepping
 - **Date**: 2026-07-03
 - **Type**: feat

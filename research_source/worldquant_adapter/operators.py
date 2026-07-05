@@ -1,11 +1,7 @@
-"""Ported WorldQuant operator vocabulary (methodology, not raw expressions).
+"""Ported WorldQuant operator vocabulary over crypto-native pandas series.
 
-These are the factor-construction primitives observed in the local alpha mining
-pipeline, re-expressed as pure pandas/numpy over crypto series (no TA-Lib, no
-equity fundamentals). Bodies are stubs — implemented in Phase 1 (P1-03).
-
-Per AGENTS.md Non-Negotiable #5, WorldQuant is a research *source*, never the
-platform trunk. Nothing here is imported by apps/api.
+Per AGENTS.md Non-Negotiable #5, WorldQuant remains a research source, never
+the platform trunk. Nothing here is imported by apps/api.
 """
 
 from __future__ import annotations
@@ -14,7 +10,7 @@ import pandas as pd
 
 
 def rank(series: pd.Series) -> pd.Series:
-    """Cross-sectional / rolling rank, normalized to [0, 1]."""
+    """Rank a series over its full index, normalized to [0, 1]."""
     ranked = series.rank(method="average", pct=True)
     return ranked.fillna(0.0)
 
@@ -34,6 +30,23 @@ def ts_std(series: pd.Series, window: int) -> pd.Series:
     return series.rolling(window=window, min_periods=window).std()
 
 
+def ts_rank(series: pd.Series, window: int) -> pd.Series:
+    """Percentile rank of the latest value inside each rolling window."""
+
+    def _rank(values) -> float:
+        ranked = pd.Series(values).rank(method="average", pct=True)
+        return float(ranked.iloc[-1])
+
+    return series.rolling(window=window, min_periods=window).apply(_rank, raw=False)
+
+
+def ts_zscore(series: pd.Series, window: int) -> pd.Series:
+    """Rolling z-score over `window` bars."""
+    mean = ts_mean(series, window)
+    std = ts_std(series, window).replace(0, pd.NA)
+    return ((series - mean) / std).fillna(0.0)
+
+
 def delay(series: pd.Series, window: int) -> pd.Series:
     """Series shifted by `window` bars."""
     return series.shift(window)
@@ -45,11 +58,19 @@ def correlation(a: pd.Series, b: pd.Series, window: int) -> pd.Series:
 
 
 def group_rank(series: pd.Series, group: pd.Series) -> pd.Series:
-    """Rank within group buckets (crypto sector/regime instead of industry)."""
+    """Rank within group buckets (crypto regime instead of stock industry)."""
     if len(series) != len(group):
         raise ValueError("series and group must have the same length")
     ranked = series.groupby(group).rank(method="average", pct=True)
     return ranked.fillna(0.0)
+
+
+def group_neutralize(series: pd.Series, group: pd.Series) -> pd.Series:
+    """Remove the per-group mean to create a regime-neutralized series."""
+    if len(series) != len(group):
+        raise ValueError("series and group must have the same length")
+    means = series.groupby(group).transform("mean")
+    return (series - means).fillna(0.0)
 
 
 def scale(series: pd.Series, target: float = 1.0) -> pd.Series:
@@ -61,7 +82,7 @@ def scale(series: pd.Series, target: float = 1.0) -> pd.Series:
 
 
 def decay_linear(series: pd.Series, window: int) -> pd.Series:
-    """Linearly-weighted moving average over `window` bars."""
+    """Linearly weighted moving average over `window` bars."""
     weights = pd.Series(range(1, window + 1), dtype="float64")
 
     def _weighted(values: pd.Series) -> float:

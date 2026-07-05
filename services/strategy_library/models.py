@@ -4,7 +4,7 @@ These models persist the strategy-intake chain plus the first validation/data
 bookkeeping objects:
 
     StrategyIdea -> StrategyDraft -> Strategy -> StrategyVersion -> BacktestRun
-                                                 \-> IngestionJob
+                                                 -> IngestionJob
 
 Cross-layer contracts still live in `shared.models`. The ORM here remains a
 storage detail owned by Alembic for relational tables only.
@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Float, ForeignKey, String, Text, func
+from sqlalchemy import JSON, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -48,8 +48,25 @@ class StrategyIdea(Base):
     hypothesis_summary: Mapped[str] = mapped_column(Text)
     source_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    intake_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
     intake_bucket: Mapped[str] = mapped_column(String(40), default="rule_candidate")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class Hypothesis(Base):
+    __tablename__ = "hypotheses"
+
+    hypothesis_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    strategy_id: Mapped[str | None] = mapped_column(ForeignKey("strategies.id"), nullable=True, index=True)
+    idea_id: Mapped[str | None] = mapped_column(ForeignKey("strategy_ideas.idea_id"), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    statement: Mapped[str] = mapped_column(Text)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    benchmark_plan: Mapped[dict] = mapped_column(JSON, default=dict)
+    acceptance_criteria: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(30), default="draft")
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
 
 class StrategyDraft(Base, _RulesColumns):
@@ -195,17 +212,42 @@ class RiskProfile(Base):
 
     risk_profile_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
     single_trade_risk_limit: Mapped[float] = mapped_column(Float, default=0.01)
-    max_symbol_exposure: Mapped[float] = mapped_column(Float, default=0.20)
-    max_total_exposure: Mapped[float] = mapped_column(Float, default=0.60)
+    max_symbol_exposure: Mapped[float] = mapped_column(Float, default=0.10)
+    max_total_exposure: Mapped[float] = mapped_column(Float, default=0.50)
     max_open_positions: Mapped[int] = mapped_column(default=3)
     max_leverage: Mapped[float] = mapped_column(Float, default=3.0)
     daily_loss_limit: Mapped[float] = mapped_column(Float, default=0.03)
     weekly_loss_limit: Mapped[float] = mapped_column(Float, default=0.08)
     drawdown_limit: Mapped[float] = mapped_column(Float, default=0.10)
     hard_stop_drawdown_limit: Mapped[float] = mapped_column(Float, default=0.20)
+    consecutive_loss_limit: Mapped[int] = mapped_column(default=4)
+    api_failure_limit: Mapped[int] = mapped_column(default=3)
+    api_failure_window_minutes: Mapped[int] = mapped_column(default=10)
     market_scope: Mapped[str] = mapped_column(String(120), default="BTC/USDT perpetual")
     config_source: Mapped[str] = mapped_column(String(255), default="risk-control-and-safeguards-plan.md section 4")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class NotificationOutbox(Base):
+    __tablename__ = "notification_outbox"
+
+    notification_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(60), index=True)
+    severity: Mapped[str] = mapped_column(String(20), index=True)
+    channel_group: Mapped[str] = mapped_column(String(40), default="ops")
+    delivery_channels: Mapped[list[str]] = mapped_column(JSON, default=list)
+    subject: Mapped[str] = mapped_column(String(240))
+    body: Mapped[str] = mapped_column(Text)
+    source_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delivery_status: Mapped[str] = mapped_column(String(40), default="pending_adapter", index=True)
+    delivery_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    attempt_history: Mapped[list] = mapped_column(JSON, default=list)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
 
 class ReviewReport(Base):
@@ -223,11 +265,27 @@ class ReviewReport(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
+class DecisionMemoryEntry(Base):
+    __tablename__ = "decision_memory_entries"
+
+    decision_memory_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    scope_type: Mapped[str] = mapped_column(String(40), index=True)
+    scope_id: Mapped[str] = mapped_column(String(36), index=True)
+    decision_type: Mapped[str] = mapped_column(String(60), index=True)
+    verdict: Mapped[str] = mapped_column(String(30), index=True)
+    summary: Mapped[str] = mapped_column(Text)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    evidence_refs: Mapped[list[str]] = mapped_column(JSON, default=list)
+    context_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+
+
 class FailureRecord(Base):
     __tablename__ = "failure_records"
 
     failure_record_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
-    strategy_id: Mapped[str] = mapped_column(ForeignKey("strategies.id"), index=True)
+    strategy_id: Mapped[str | None] = mapped_column(ForeignKey("strategies.id"), nullable=True, index=True)
+    idea_id: Mapped[str | None] = mapped_column(ForeignKey("strategy_ideas.idea_id"), nullable=True, index=True)
     version_id: Mapped[str | None] = mapped_column(
         ForeignKey("strategy_versions.version_id"), nullable=True, index=True
     )
@@ -253,6 +311,10 @@ class AgentTask(Base):
     priority: Mapped[int] = mapped_column(default=5)
     task_status: Mapped[str] = mapped_column(String(30), default="queued")
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    executor_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    attempt_history: Mapped[list] = mapped_column(JSON, default=list)
+    provider_trace: Mapped[dict] = mapped_column(JSON, default=dict)
+    schema_validation_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     scheduled_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
@@ -268,9 +330,39 @@ class LiveRun(Base):
     exchange: Mapped[str] = mapped_column(String(20), default="binance")
     capital_tier: Mapped[str] = mapped_column(String(30), default="micro")
     live_status: Mapped[str] = mapped_column(String(30), default="queued")
+    validation_backtest_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("backtest_runs.backtest_run_id"), nullable=True, index=True
+    )
     risk_profile_ref: Mapped[str | None] = mapped_column(ForeignKey("risk_profiles.risk_profile_id"), nullable=True)
     live_metrics_summary: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class ExchangeAccountSnapshot(Base):
+    __tablename__ = "exchange_account_snapshots"
+
+    snapshot_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    live_run_id: Mapped[str] = mapped_column(ForeignKey("live_runs.live_run_id"), index=True)
+    exchange: Mapped[str] = mapped_column(String(30))
+    wallet_balance: Mapped[float] = mapped_column(Float)
+    available_balance: Mapped[float] = mapped_column(Float)
+    margin_balance: Mapped[float] = mapped_column(Float)
+    unrealized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    open_position_count: Mapped[int] = mapped_column(Integer, default=0)
+    source_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    snapshot_time: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+
+
+class ReconciliationRecord(Base):
+    __tablename__ = "reconciliation_records"
+
+    reconciliation_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    live_run_id: Mapped[str] = mapped_column(ForeignKey("live_runs.live_run_id"), index=True)
+    reconciliation_status: Mapped[str] = mapped_column(String(30), default="ok", index=True)
+    open_order_count: Mapped[int] = mapped_column(Integer, default=0)
+    position_mismatches: Mapped[list] = mapped_column(JSON, default=list)
+    notes: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
 
 
 class SignalEnsemble(Base):
@@ -313,6 +405,7 @@ class OrderExecution(Base):
     stoploss_present: Mapped[bool] = mapped_column(default=False)
     close_only_mode: Mapped[bool] = mapped_column(default=False)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rejection_codes: Mapped[list] = mapped_column(JSON, default=list)
     entry_context: Mapped[dict] = mapped_column(JSON, default=dict)
     stoploss_plan: Mapped[dict] = mapped_column(JSON, default=dict)
     takeprofit_plan: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -325,6 +418,13 @@ class OrderExecution(Base):
     signal_ensemble_id: Mapped[str | None] = mapped_column(ForeignKey("signal_ensembles.ensemble_id"), nullable=True)
     meta_label_id: Mapped[str | None] = mapped_column(ForeignKey("meta_labels.meta_label_id"), nullable=True)
     veto_result: Mapped[dict] = mapped_column(JSON, default=dict)
+    evaluated_risk_state: Mapped[dict] = mapped_column(JSON, default=dict)
+    gateway_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    gateway_order_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    gateway_status: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    lifecycle_history: Mapped[list] = mapped_column(JSON, default=list)
+    reconciliation_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    last_gateway_update_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from services.data.service import DEFAULT_BINANCE_TOP20
 from shared.models import PaperRun
 
 PAPER_PRIORITY_SYMBOLS = ["BTC/USDT", "ETH/USDT"]
@@ -11,7 +12,8 @@ class PaperOrchestrationService:
     """Normalize paper-run candidates so the first symbols are always BTC/ETH."""
 
     def prepare_run(self, run: PaperRun) -> PaperRun:
-        combined = list(dict.fromkeys([*PAPER_PRIORITY_SYMBOLS, *run.candidate_symbols, *run.symbol_scope]))
+        default_candidates = run.candidate_symbols or DEFAULT_BINANCE_TOP20
+        combined = list(dict.fromkeys([*PAPER_PRIORITY_SYMBOLS, *default_candidates, *run.symbol_scope]))
         symbol_scope = PAPER_PRIORITY_SYMBOLS if not run.symbol_scope else run.symbol_scope
         return run.model_copy(
             update={

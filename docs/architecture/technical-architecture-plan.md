@@ -1,12 +1,13 @@
 # 技术架构方案
 
-> 实现状态更新（2026-07-02）：
+> 实现状态更新（2026-07-04）：
 > 当前仓库已不再是“services 全空实现”状态。真实落地范围已覆盖：
 > `shared/models` 统一契约、`/api/v1` 主接口、策略生命周期持久化、Timescale A 级时序仓储、
 > carry 回测应用服务、RiskProfile/RiskEvent/Review/Failure/AgentTask/OrderExecution 持久化与首版 gatekeeper。
 > 2026-07-03 remediation 后，carry walk-forward/OOS/stress 诊断、系统依赖健康、交易所能力注册表、
-> 通知 outbox 和 deterministic Decision Veto/Review executor 已有首版可测试实现；完整 DSR、真实通知推送、
-> live 下单仍未实现。
+> 通知 outbox 和 deterministic Decision Veto/Review executor 已有首版可测试实现；2026-07-04 又补齐了
+> `/api/v1/*` 单租户 Bearer 鉴权、Telegram/Webhook 通知派送闭环、`frontend/admin` build 校验恢复，
+> 以及 `compose-validate` 脚本化/CI 路径。完整 DSR、Email adapter、Docker runtime smoke、live 下单仍未实现。
 > 最新对账请优先查看 [implementation-status-matrix.md](implementation-status-matrix.md)。
 
 ## 文档定位
@@ -291,9 +292,10 @@ Phase 1 技术要求：`services/data`、`services/execution` 等模块开始读
 
 Grafana 已配置 TimescaleDB 数据源，但 `dashboards/` 目录为空，且没有 Prometheus，
 所以 Grafana 目前只能查数据库里已有的数据，无法看到 API/Celery/Redis 自身的运行时指标。
-全仓库范围内已有 `NotificationOutboxItem` 与只读 outbox API，用于记录高严重度风险事件、
-数据中断和日报生成等通知意图；真实 Telegram/邮件/Webhook 推送 adapter 仍未实现。`.env.example`
-里的 `TELEGRAM_BOT_TOKEN` 是 D 级数据源采集用途，不是通知用途。
+全仓库范围内已有持久化 `notification_outbox` 与 `NotificationOutboxItem` 契约，用于记录高严重度风险事件、
+数据中断和日报生成等通知意图，并支持读取、手工创建与配送结果回写。当前首批 Telegram/Webhook 推送 adapter
+已接入真实 dispatch 闭环，但 Email 仍未实现，且本机尚未做真实运维凭据演练。`.env.example`
+里的 `TELEGRAM_BOT_TOKEN` 是 D 级数据源采集用途；通知出站应使用独立配置，不与采集链路复用同一语义。
 
 ### 9.2 Phase 1/2 规划
 
@@ -352,14 +354,14 @@ integration"`）、`compose-validate`（仅 `docker compose config` 语法校验
 | `services/{data,agents,validation,execution,review}` 均为空实现 | 对应六层 | 该描述已过期：Data/Validation/Risk/Review/Agent/Execution 已有首版真实实现，剩余缺口见 `implementation-status-matrix.md` | 已从“全空”收敛到“partial/implemented` 混合状态 |
 | 六大接口簇已从 skeleton 扩展到多条持久化/服务闭环，但仍有部分能力是 deterministic seam | API | 策略、验证、风险、复盘、paper console 已有真实路径；LLM、live、真实通知仍待补 | P1/P2，随各服务实现同步补 |
 | `Settings` 已覆盖 `.env.example`，但多数变量尚未被业务模块真正消费 | 配置管理 | 类型入口已统一，仍需避免后续模块重新绕过 Settings 直读环境变量 | P1，随首次使用该变量的模块同步补 |
-| 仅有通知 outbox，无真实 Telegram/邮件/Webhook 出站 adapter | Review / Risk / Execution | 熔断、异常、日报可留痕但尚不能主动触达人工 | P1（配合 24 小时运行方案文档） |
+| 已有 Telegram/Webhook 第一批出站 adapter，但缺 Email 与真实运维凭据演练 | Review / Risk / Execution | 高严重度通知已能派送并回写状态，但值班链路仍未完成全渠道验收 | P1（配合 24 小时运行方案文档） |
 | Prometheus/Grafana 骨架存在，但未完成 runtime 验证与指标覆盖 | 可观测性 | 有配置资产，仍无法证明系统运行时健康监控可用 | P1/P2 |
 | `migrations/` 仅有 `strategies` 表，`SignalEnsemble`/`MetaLabel`/`BacktestRun`/`PaperRun`/
   `ReviewReport`/`FailureRecord`/`AgentTask` 等对象未建表 | Strategy/Validation/Review | 该描述已过期：`0001` 已覆盖主生命周期表，`0002` 已补 `OptimizationRun`、`RiskProfile`、`ReviewReport`、`FailureRecord`、`AgentTask`、`LiveRun`、`OrderExecution`、`PositionSnapshot` 等关系表；SignalEnsemble/MetaLabel 也已纳入迁移 | 后续重点转向服务层能力而非“是否有表” |
 | `anthropic`/`langchain`/`llama-index` 已声明依赖但零代码引用 | AI Agent Layer | LLM 能力尚未接入 | P1（见后续 LLM 接入方案文档） |
-| 无 API 鉴权/访问控制实现 | API | 内部工具场景风险可接受，但仍是空缺 | P1 结束前 |
+| 仅有单租户 Bearer 管理令牌，无多用户账号体系/RBAC | API | 已补最小管理面保护，但仍不适合扩展到多操作者或细粒度权限场景 | P2 |
 | `infra/jesse/` 为占位目录，未在依赖中声明，用途未定 | Validation | 目录存在但无实际路径引用它 | P1 决策：启用或移除 |
-| `test`/`paper`/`live` overlay 已存在但未在本机 Docker 验证 | 部署 | 环境隔离已有文件基础，仍缺 runtime 证据 | P1（paper 上线前必须） |
+| `test`/`paper`/`live` overlay 已存在，且 `compose-validate` 已脚本化，但未在本机 Docker 做 runtime smoke | 部署 | 环境隔离与 CI 语法校验路径已具备，仍缺可运行主机上的启动/停止证据 | P1（paper 上线前必须） |
 | Freqtrade 镜像标签为 `stable`（浮动标签） | Execution | 生产前版本不可控 | live 上线前必须钉定日期版本 |
 
 ---

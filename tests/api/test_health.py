@@ -13,6 +13,18 @@ def test_health(api_client) -> None:
     assert v1_resp.json()["status"] == "ok"
 
 
+def test_api_v1_routes_require_bearer_token(unauth_api_client) -> None:
+    resp = unauth_api_client.get("/api/v1/strategies")
+    assert resp.status_code == 401
+    assert resp.json()["error_code"] == "auth_required"
+
+
+def test_api_v1_routes_reject_wrong_bearer_token(unauth_api_client) -> None:
+    resp = unauth_api_client.get("/api/v1/strategies", headers={"Authorization": "Bearer wrong-token"})
+    assert resp.status_code == 403
+    assert resp.json()["error_code"] == "auth_invalid_token"
+
+
 def test_strategies_crud_seam(api_client) -> None:
     created = api_client.post(
         "/api/v1/strategies",

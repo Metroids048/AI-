@@ -10,6 +10,7 @@ from __future__ import annotations
 from celery import Celery
 from kombu import Queue
 
+import services.notifications_tasks  # noqa: F401
 from apps.api.config import settings
 
 celery_app = Celery(
@@ -23,12 +24,14 @@ celery_app.conf.task_queues = (
     Queue("ingestion_queue"),
     Queue("backtest_queue"),
     Queue("paper_queue"),
+    Queue("ops_queue"),
 )
 celery_app.conf.task_routes = {
     "services.data.tasks.enqueue_binance_ingestion": {"queue": "ingestion_queue"},
     "services.validation.tasks.enqueue_backtest_run": {"queue": "backtest_queue"},
     "services.validation.tasks.enqueue_carry_backtest": {"queue": "backtest_queue"},
     "services.execution.tasks.enqueue_paper_run": {"queue": "paper_queue"},
+    "services.notifications_tasks.dispatch_notification_outbox": {"queue": "ops_queue"},
 }
 celery_app.autodiscover_tasks(
     [

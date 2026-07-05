@@ -6,7 +6,9 @@ from datetime import UTC, datetime
 from statistics import mean
 from typing import Any
 
-from shared.models import BacktestRun, GateDecision
+from shared.models import BacktestRun, GateDecision, HypothesisRecord
+
+from .admission import ValidationAdmissionService
 
 
 def summarize_oos_windows(windows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -30,17 +32,23 @@ def summarize_oos_windows(windows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def build_validation_report(run: BacktestRun) -> dict[str, Any]:
+def build_validation_report(run: BacktestRun, *, hypothesis: HypothesisRecord | None = None) -> dict[str, Any]:
     """Build the API-facing validation report for a persisted BacktestRun."""
 
     metrics = run.metrics_summary
     gate = run.eligibility_result
     windows = metrics.validation_windows if metrics is not None else []
+    promotion_gate = (
+        ValidationAdmissionService().assess_backtest_run(run=run, hypothesis=hypothesis).model_dump(mode="json")
+        if metrics is not None
+        else None
+    )
     return {
         "backtest_run_id": run.backtest_run_id,
         "strategy_id": run.strategy_id,
         "run_status": run.run_status,
         "gate": gate.model_dump(mode="json") if gate is not None else None,
+        "promotion_gate": promotion_gate,
         "metrics": metrics.model_dump(mode="json") if metrics is not None else None,
         "oos_summary": summarize_oos_windows(windows),
         "stress_test_results": metrics.stress_test_results if metrics is not None else {},

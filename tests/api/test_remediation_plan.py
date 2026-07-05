@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from apps.api.routers import notifications as notifications_router
 from services.data import DataRepository
-from services.strategy_library import StrategyRepository
-from shared.models import StrategyCreate, StrategyRules
+from services.notifications import NotificationDispatcherService, NotificationDispatchResult
+from services.strategy_library import NotificationRepository, StrategyRepository
+from shared.models import NotificationOutboxItem, StrategyCreate, StrategyRules
 
 
 def _bar(symbol: str, at: datetime, close: str) -> dict:
@@ -119,6 +121,103 @@ def test_operational_visibility_endpoints(api_client, db_session) -> None:
     assert outbox.status_code == 200
     assert outbox.json()["total"] == 1
     assert outbox.json()["items"][0]["delivery_status"] == "pending_adapter"
+
+    update = api_client.patch(
+        f"/api/v1/notifications/outbox/{outbox.json()['items'][0]['notification_id']}/delivery",
+        json={"delivery_status": "sent"},
+    )
+    assert update.status_code == 200
+    assert update.json()["delivery_status"] == "sent"
+    assert update.json()["delivery_attempts"] == 1
+    assert update.json()["delivered_at"] is not None
+
+    resolved = api_client.patch(
+        f"/api/v1/risk/events/{risk_resp.json()['risk_event_id']}/resolution",
+        json={"resolution_status": "resolved"},
+    )
+    assert resolved.status_code == 200
+
+    persisted_outbox = api_client.get("/api/v1/notifications/outbox?delivery_status=sent&severity=high")
+    assert persisted_outbox.status_code == 200
+    assert persisted_outbox.json()["total"] == 1
+    assert persisted_outbox.json()["items"][0]["source_ref"] == risk_resp.json()["risk_event_id"]
+
+
+def test_notification_outbox_manual_create_and_filters(api_client) -> None:
+    low_risk = api_client.post(
+        "/api/v1/risk/events",
+        json={
+            "event_type": "data_gap",
+            "severity": "mid",
+            "source": "collector",
+            "description": "minor ingestion lag",
+            "affected_scope": ["ETH/USDT"],
+            "resolution_status": "detected",
+        },
+    )
+    assert low_risk.status_code == 201
+    assert api_client.get("/api/v1/notifications/outbox").json()["total"] == 0
+
+    manual = api_client.post(
+        "/api/v1/notifications/outbox",
+        json={
+            "notification_id": "manual:ops-check",
+            "event_type": "ops_manual",
+            "severity": "info",
+            "channel_group": "ops",
+            "subject": "manual operator note",
+            "body": "check paper collector after deploy",
+            "source_ref": "runbook:paper",
+        },
+    )
+    assert manual.status_code == 201
+
+    filtered = api_client.get("/api/v1/notifications/outbox?event_type=ops_manual&delivery_status=pending_adapter")
+    assert filtered.status_code == 200
+    assert filtered.json()["total"] == 1
+    assert filtered.json()["items"][0]["notification_id"] == "manual:ops-check"
+
+    failed = api_client.patch(
+        "/api/v1/notifications/outbox/manual:ops-check/delivery",
+        json={"delivery_status": "failed", "last_error": "adapter not configured"},
+    )
+    assert failed.status_code == 200
+    assert failed.json()["delivery_status"] == "failed"
+    assert failed.json()["delivery_attempts"] == 1
+    assert failed.json()["last_error"] == "adapter not configured"
+
+
+def test_notification_dispatch_endpoint_replays_specific_item(api_client, db_session, monkeypatch) -> None:
+    class StubAdapter:
+        def send(self, item: NotificationOutboxItem) -> NotificationDispatchResult:
+            return NotificationDispatchResult(channel="stub", success=True, external_ref=f"ok:{item.notification_id}")
+
+    repo = NotificationRepository(db_session)
+    repo.create_notification(
+        NotificationOutboxItem(
+            notification_id="manual:dispatch",
+            event_type="ops_manual",
+            severity="info",
+            channel_group="ops",
+            delivery_channels=["stub"],
+            subject="dispatch me",
+            body="manual replay target",
+        )
+    )
+    dispatcher = NotificationDispatcherService(
+        repository=repo,
+        adapters={"stub": StubAdapter()},
+        now_factory=lambda: datetime(2026, 7, 4, tzinfo=UTC),
+    )
+    monkeypatch.setattr(notifications_router, "_dispatcher", lambda db: dispatcher)
+
+    response = api_client.post("/api/v1/notifications/outbox/dispatch?notification_id=manual:dispatch")
+
+    assert response.status_code == 202
+    assert response.json() == {"dispatched": 1}
+    dispatched = repo.get_notification("manual:dispatch")
+    assert dispatched is not None
+    assert dispatched.delivery_status == "sent"
 
 
 def test_unregistered_agent_executor_is_not_marked_completed(api_client) -> None:

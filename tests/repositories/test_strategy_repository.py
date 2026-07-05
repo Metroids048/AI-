@@ -3,6 +3,7 @@ from __future__ import annotations
 from services.strategy_library.repository import (
     IngestionRepository,
     PaperRunRepository,
+    ReviewRepository,
     StrategyRepository,
     ValidationRepository,
 )
@@ -10,6 +11,7 @@ from shared.models import (
     BacktestEngine,
     BacktestReport,
     BacktestRun,
+    FailureRecord,
     GateDecision,
     IngestionJob,
     PaperRun,
@@ -30,9 +32,11 @@ def test_strategy_repository_lifecycle(db_session) -> None:
             source="manual_note",
             hypothesis_summary="Positive funding windows can support short perp / long hedge carry.",
             symbol_scope=["BTC/USDT", "ETH/USDT"],
+            intake_metadata={"raw_expression": "funding_rate", "behavior_signature": "carry"},
         )
     )
     assert idea.idea_id is not None
+    assert idea.intake_metadata["behavior_signature"] == "carry"
 
     draft = repo.promote_idea_to_draft(idea.idea_id)
     assert draft is not None
@@ -59,6 +63,37 @@ def test_strategy_repository_lifecycle(db_session) -> None:
     )
     assert updated is not None
     assert updated.rules.entry_rules["funding_threshold_bps"] == 5
+
+
+def test_review_repository_records_idea_level_failure(db_session) -> None:
+    strategy_repo = StrategyRepository(db_session)
+    review_repo = ReviewRepository(db_session)
+    idea = strategy_repo.create_idea(
+        StrategyIdea(
+            title="Unsupported alpha",
+            source="worldquant_local_alpha",
+            hypothesis_summary="stock field needs manual crypto port",
+            intake_bucket="subjective_to_drop",
+            intake_metadata={"raw_expression": "ts_delta(capex_to_total_assets,252)"},
+        )
+    )
+    assert idea.idea_id is not None
+
+    failure = review_repo.create_failure(
+        FailureRecord(
+            idea_id=idea.idea_id,
+            origin_run_type="research_intake",
+            origin_run_id=idea.idea_id,
+            failure_type="alpha_evaluator_reject",
+            failure_summary="Unsupported input capex_to_total_assets",
+        )
+    )
+
+    failures = review_repo.list_failures(idea_id=idea.idea_id, failure_type="alpha_evaluator_reject")
+    assert failure.failure_record_id is not None
+    assert len(failures) == 1
+    assert failures[0].strategy_id is None
+    assert failures[0].idea_id == idea.idea_id
 
 
 def test_run_repositories_store_backtest_ingestion_and_paper(db_session) -> None:

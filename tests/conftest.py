@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
-TEST_DB_PATH = Path(".pytest_ai_quant.db").resolve()
+TEST_DB_PATH = Path(f".pytest_ai_quant.{os.getpid()}.db").resolve()
 os.environ["POSTGRES_URL"] = f"sqlite:///{TEST_DB_PATH.as_posix()}"
 
 
@@ -41,6 +41,16 @@ def sample_ohlcv_bar() -> dict:
 
 @pytest.fixture
 def api_client():
+    from fastapi.testclient import TestClient
+
+    from apps.api.config import settings
+    from apps.api.main import app
+
+    return TestClient(app, headers={"Authorization": f"Bearer {settings.admin_api_token}"})
+
+
+@pytest.fixture
+def unauth_api_client():
     from fastapi.testclient import TestClient
 
     from apps.api.main import app

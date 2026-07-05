@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     app_name: str = "ai-quant-research-platform"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+    admin_api_token: str = "dev-admin-token"
 
     postgres_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/ai_quant"
     redis_url: str = "redis://localhost:6379/0"
@@ -20,9 +21,14 @@ class Settings(BaseSettings):
 
     claude_api_key: str = ""
     claude_model: str = "claude-sonnet-4-6"
+    anthropic_api_base_url: str = "https://api.anthropic.com"
+    agent_llm_provider_map: str = ""
+    agent_llm_model_map: str = ""
 
     binance_api_key: str = ""
     binance_api_secret: str = ""
+    binance_use_testnet: bool = True
+    live_trading_enabled: bool = False
     okx_api_key: str = ""
     okx_api_secret: str = ""
     okx_passphrase: str = ""
@@ -44,6 +50,9 @@ class Settings(BaseSettings):
     twitter_watch_user_ids: str = "25073877,44196397,902926941413453824"
     telegram_bot_token: str = ""
     telegram_channel_ids: str = ""
+    notification_webhook_url: str = ""
+    notification_dispatch_max_attempts: int = 3
+    notification_dispatch_base_delay_seconds: int = 300
 
     github_token: str = ""
     arxiv_categories: str = "q-fin.TR,q-fin.PM"

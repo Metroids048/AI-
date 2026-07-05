@@ -26,9 +26,12 @@ class AlphaOperator(StrEnum):
     TS_DELTA = "ts_delta"
     TS_MEAN = "ts_mean"
     TS_STD = "ts_std"
+    TS_RANK = "ts_rank"
+    TS_ZSCORE = "ts_zscore"
     DELAY = "delay"
     CORRELATION = "correlation"
     GROUP_RANK = "group_rank"
+    GROUP_NEUTRALIZE = "group_neutralize"
     SCALE = "scale"
     DECAY_LINEAR = "decay_linear"
 
@@ -39,5 +42,12 @@ class AlphaPlan(PlatformModel):
     raw_expression: str = Field(examples=["rank(close/delay(close,5))"])
     operators: list[AlphaOperator] = Field(default_factory=list)
     inputs: list[str] = Field(default_factory=list, description="Referenced fields/series")
+    windows: list[int] = Field(default_factory=list)
     parameters: dict[str, Any] = Field(default_factory=dict)
     target_market: Market = Market.CRYPTO_PERP
+    group_aliases: dict[str, str] = Field(default_factory=dict)
+    behavior_signature: str | None = None
+    supported_inputs: list[str] = Field(default_factory=list)
+    unsupported_inputs: list[str] = Field(default_factory=list)
+    unsupported_operators: list[str] = Field(default_factory=list)
+    evaluable: bool = True

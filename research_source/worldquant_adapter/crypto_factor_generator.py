@@ -1,8 +1,4 @@
-"""Turn a ported AlphaPlan into runnable BTC/USDT factor code.
-
-This is where equity methodology becomes a crypto factor. Output feeds
-services/strategy_library/importers/ → Strategy objects. Stub seam (P1-03).
-"""
+"""Turn a parsed AlphaPlan into runnable crypto-native factor code."""
 
 from __future__ import annotations
 
@@ -14,22 +10,27 @@ class CryptoFactorGenerator:
 
     def from_alpha_plan(self, plan: AlphaPlan) -> str:
         """Return Python signal code (string) computing the factor on OHLCV."""
+        if not plan.evaluable:
+            unsupported = ",".join(plan.unsupported_operators + plan.unsupported_inputs) or "unknown"
+            raise ValueError(f"alpha plan is not executable on crypto-native inputs: {unsupported}")
         operators = ", ".join(operator.value for operator in plan.operators) or "none"
         inputs = ", ".join(plan.inputs) or "close"
-        expression = plan.raw_expression.replace('"', "'")
+        windows = ", ".join(str(window) for window in plan.windows) or "none"
+        group_aliases = ", ".join(f"{raw}->{mapped}" for raw, mapped in plan.group_aliases.items()) or "none"
+        expression = repr(plan.raw_expression)
         return f'''import pandas as pd
 
 # Ported WorldQuant methodology for crypto research.
 # operators: {operators}
 # inputs: {inputs}
+# windows: {windows}
+# groups: {group_aliases}
+
+from research_source.worldquant_adapter.expression_evaluator import evaluate_alpha_expression
 
 def compute_factor(frame: pd.DataFrame) -> pd.Series:
-    close = frame["close"]
-    volume = frame.get("volume", pd.Series(index=frame.index, dtype="float64")).fillna(0.0)
-    expression = "{expression}"
-    # The raw expression is preserved for auditability; implementation remains
-    # crypto-native and should be refined inside the strategy library.
-    signal = (close.pct_change().fillna(0.0) * 0.7) + (volume.pct_change().fillna(0.0) * 0.3)
+    expression = {expression}
+    signal = evaluate_alpha_expression(expression, frame)
     signal.name = "ported_alpha_signal"
     return signal
 '''

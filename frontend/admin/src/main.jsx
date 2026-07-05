@@ -5,6 +5,7 @@ import { CandlestickSeries, createChart } from "lightweight-charts";
 import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+const ADMIN_API_TOKEN = import.meta.env.VITE_ADMIN_API_TOKEN ?? "dev-admin-token";
 const DEFAULT_SYMBOL = "BTC/USDT";
 const DEFAULT_PERP = "BTC/USDT:USDT";
 const TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"];
@@ -15,7 +16,11 @@ function apiUrl(path) {
 
 async function request(path, options = {}) {
   const response = await fetch(apiUrl(path), {
-    headers: { "Content-Type": "application/json", ...(options.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(ADMIN_API_TOKEN ? { Authorization: `Bearer ${ADMIN_API_TOKEN}` } : {}),
+      ...(options.headers ?? {}),
+    },
     ...options,
   });
   const payload = await response.json().catch(() => null);

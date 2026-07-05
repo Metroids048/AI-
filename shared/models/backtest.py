@@ -16,6 +16,7 @@ from pydantic import Field, model_validator
 
 from .base import PlatformModel
 from .enums import BacktestEngine
+from .validation import PodRiskReport, ValidationBenchmarkResult
 
 
 class BacktestReport(PlatformModel):
@@ -67,6 +68,10 @@ class BacktestReport(PlatformModel):
         default_factory=dict,
         description="Freqtrade-inspired lookahead/recursive formula diagnostic report",
     )
+    hypothesis_id: str | None = None
+    benchmark_results: list[ValidationBenchmarkResult] = Field(default_factory=list)
+    vibe_benchmark_summary: dict[str, float | str | int | bool] = Field(default_factory=dict)
+    pod_risk_report: PodRiskReport | None = None
 
 
 # Validation gates from AGENTS.md §4 (默认门槛).

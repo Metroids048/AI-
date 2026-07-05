@@ -21,8 +21,18 @@ class ReviewService:
             payload = payload.model_copy(update={"created_at": datetime.now(UTC)})
         return self.review_repo.create_report(payload)
 
-    def list_failures(self) -> list[FailureRecord]:
-        return self.review_repo.list_failures()
+    def list_failures(
+        self,
+        *,
+        strategy_id: str | None = None,
+        idea_id: str | None = None,
+        failure_type: str | None = None,
+    ) -> list[FailureRecord]:
+        return self.review_repo.list_failures(
+            strategy_id=strategy_id,
+            idea_id=idea_id,
+            failure_type=failure_type,
+        )
 
     def record_failure(self, record: FailureRecord) -> FailureRecord:
         payload = record
@@ -36,7 +46,7 @@ class ReviewService:
             for failure in self.review_repo.list_failures()
             if failure.created_at is not None and failure.created_at.date().isoformat() == report_date
         ]
-        strategy_refs = sorted({failure.strategy_id for failure in failures})
+        strategy_refs = sorted({failure.strategy_id for failure in failures if failure.strategy_id is not None})
         recommendations = sorted({failure.recommended_change for failure in failures if failure.recommended_change})
         report = ReviewReport(
             report_date=report_date,

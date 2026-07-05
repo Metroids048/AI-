@@ -4,8 +4,16 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from services.data import DataRepository
-from services.strategy_library import ValidationRepository
-from shared.models import BacktestReport, BacktestRun, GateDecision, MarketExtras
+from services.strategy_library import HypothesisRepository, ValidationRepository
+from shared.models import (
+    BacktestReport,
+    BacktestRun,
+    GateDecision,
+    HypothesisRecord,
+    MarketExtras,
+    PodRiskReport,
+    ValidationBenchmarkResult,
+)
 
 
 def test_strategy_to_backtest_to_paper_vertical_slice(api_client, db_session) -> None:
@@ -39,6 +47,17 @@ def test_strategy_to_backtest_to_paper_vertical_slice(api_client, db_session) ->
     )
     assert version_resp.status_code == 201
     version_id = version_resp.json()["version_id"]
+    hypothesis = HypothesisRepository(db_session).create_hypothesis(
+        HypothesisRecord(
+            strategy_id=strategy_id,
+            idea_id=idea_id,
+            title="Carry vertical slice hypothesis",
+            statement="Carry strategy should beat passive hold and survive OOS plus pod risk review before paper.",
+            benchmark_plan={"benchmarks": ["passive_hold", "strict_random_control"]},
+            acceptance_criteria={"min_deflated_sharpe": 1.0},
+            status="approved",
+        )
+    )
 
     backtest = ValidationRepository(db_session).create_backtest_run(
         BacktestRun(
@@ -46,18 +65,47 @@ def test_strategy_to_backtest_to_paper_vertical_slice(api_client, db_session) ->
             version_id=version_id,
             execution_engine="freqtrade",
             sample_split_plan={"train": "2024Q1", "oos": "2024Q2"},
-            validation_methodology={"lane": "carry_research"},
+            validation_methodology={"lane": "carry_research", "hypothesis_id": hypothesis.hypothesis_id},
             cost_model_ref="spot hedge reconciliation performed platform-side",
             stress_test_scenarios=["funding_flip", "spread_widening"],
             metrics_summary=BacktestReport(
                 strategy_id=strategy_id,
                 engine="freqtrade",
                 sharpe=1.5,
+                deflated_sharpe=1.2,
                 profit_factor=1.4,
                 max_drawdown=0.12,
                 win_rate=0.57,
                 expectancy=0.1,
                 total_cost_bps=14.0,
+                hypothesis_id=hypothesis.hypothesis_id,
+                benchmark_results=[
+                    ValidationBenchmarkResult(
+                        benchmark_name="passive_hold",
+                        benchmark_type="market_baseline",
+                        baseline_return=0.03,
+                        strategy_return=0.09,
+                        excess_return=0.06,
+                        passed=True,
+                    ),
+                    ValidationBenchmarkResult(
+                        benchmark_name="strict_random_control",
+                        benchmark_type="strict_random_control",
+                        baseline_return=0.01,
+                        strategy_return=0.09,
+                        excess_return=0.08,
+                        passed=True,
+                    ),
+                ],
+                validation_windows=[{"window_id": "oos-1", "passed": True, "sharpe": 1.05, "expectancy": 0.03}],
+                pod_risk_report=PodRiskReport(
+                    pod_id="carry-pod",
+                    passed=True,
+                    violations=[],
+                    max_expected_loss=0.03,
+                    max_expected_leverage=1.0,
+                    data_freshness_ok=True,
+                ),
             ),
             eligibility_result=GateDecision(
                 strategy_id=strategy_id,
@@ -108,6 +156,84 @@ def test_strategy_to_backtest_to_paper_vertical_slice(api_client, db_session) ->
     body = paper_run.json()
     assert body["candidate_symbols"][:2] == ["BTC/USDT", "ETH/USDT"]
     assert body["gate_decision_ref"] == backtest.backtest_run_id
+
+
+def test_validation_report_surfaces_promotion_gate_with_hypothesis_context(api_client, db_session) -> None:
+    strategy_resp = api_client.post(
+        "/api/v1/strategies",
+        json={
+            "strategy_key": "validation_report_hypothesis",
+            "source": "manual",
+            "core_thesis": "validation report should include promotion-gate evidence",
+            "rules": {
+                "stoploss_rules": {"price": 59000},
+                "takeprofit_rules": {"price": 62000},
+                "position_rules": {"risk_per_trade": 0.01},
+            },
+        },
+    )
+    assert strategy_resp.status_code == 201
+    strategy_id = strategy_resp.json()["strategy_id"]
+    hypothesis = HypothesisRepository(db_session).create_hypothesis(
+        HypothesisRecord(
+            strategy_id=strategy_id,
+            title="Validation report hypothesis",
+            statement="Report API should reflect complete promotion evidence.",
+            benchmark_plan={"benchmarks": ["passive_hold"]},
+            acceptance_criteria={"min_deflated_sharpe": 1.0},
+            status="approved",
+        )
+    )
+    backtest = ValidationRepository(db_session).create_backtest_run(
+        BacktestRun(
+            strategy_id=strategy_id,
+            execution_engine="freqtrade",
+            validation_methodology={"hypothesis_id": hypothesis.hypothesis_id},
+            metrics_summary=BacktestReport(
+                strategy_id=strategy_id,
+                engine="freqtrade",
+                sharpe=1.7,
+                deflated_sharpe=1.3,
+                profit_factor=1.5,
+                max_drawdown=0.1,
+                win_rate=0.58,
+                expectancy=0.09,
+                hypothesis_id=hypothesis.hypothesis_id,
+                benchmark_results=[
+                    ValidationBenchmarkResult(
+                        benchmark_name="passive_hold",
+                        benchmark_type="market_baseline",
+                        baseline_return=0.01,
+                        strategy_return=0.08,
+                        excess_return=0.07,
+                        passed=True,
+                    )
+                ],
+                validation_windows=[{"window_id": "oos-1", "passed": True, "sharpe": 1.1, "expectancy": 0.04}],
+                pod_risk_report=PodRiskReport(
+                    pod_id="validation-pod",
+                    passed=True,
+                    violations=[],
+                    max_expected_loss=0.02,
+                    max_expected_leverage=1.0,
+                    data_freshness_ok=True,
+                ),
+            ),
+            eligibility_result=GateDecision(
+                strategy_id=strategy_id,
+                passed=True,
+                decision_status="accepted",
+                reason="validated",
+            ),
+        )
+    )
+
+    report_resp = api_client.get(f"/api/v1/validation/reports/{backtest.backtest_run_id}")
+
+    assert report_resp.status_code == 200
+    report = report_resp.json()
+    assert report["promotion_gate"]["passed"] is True
+    assert report["promotion_gate"]["reason"] == "hypothesis + benchmark + OOS + pod risk evidence complete"
 
 
 def test_carry_backtest_api_uses_persisted_market_data(api_client, db_session) -> None:

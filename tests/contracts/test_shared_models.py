@@ -10,6 +10,8 @@ from pydantic import ValidationError
 from shared.models import (
     BacktestEngine,
     BacktestReport,
+    ExecutionRiskState,
+    FailureRecord,
     MetaLabel,
     OHLCVBar,
     RiskEvent,
@@ -69,8 +71,57 @@ def test_risk_event_defaults() -> None:
 
 def test_risk_profile_defaults() -> None:
     profile = RiskProfile()
+    assert profile.max_symbol_exposure == 0.10
+    assert profile.max_total_exposure == 0.50
     assert profile.max_leverage == 3.0
     assert profile.hard_stop_drawdown_limit == 0.20
+    assert profile.consecutive_loss_limit == 4
+    assert profile.api_failure_limit == 3
+    assert profile.api_failure_window_minutes == 10
+
+
+def test_execution_risk_state_defaults() -> None:
+    state = ExecutionRiskState(account_equity=10_000, equity_peak=10_500)
+    assert state.daily_realized_pnl == 0.0
+    assert state.open_positions == 0
+    assert state.requested_leverage == 1.0
+
+
+def test_failure_record_can_attach_to_strategy_or_idea_but_not_neither() -> None:
+    strategy_failure = FailureRecord(
+        strategy_id="strategy-1",
+        origin_run_type="paper",
+        origin_run_id="paper-1",
+        failure_type="risk_gate_reject",
+        failure_summary="risk rejected",
+    )
+    idea_failure = FailureRecord(
+        idea_id="idea-1",
+        origin_run_type="research_intake",
+        origin_run_id="idea-1",
+        failure_type="alpha_evaluator_reject",
+        failure_summary="unsupported stock field",
+    )
+    assert strategy_failure.strategy_id == "strategy-1"
+    assert idea_failure.idea_id == "idea-1"
+    with pytest.raises(ValidationError):
+        FailureRecord(
+            origin_run_type="research_intake",
+            origin_run_id="unknown",
+            failure_type="alpha_evaluator_reject",
+            failure_summary="missing subject",
+        )
+
+
+def test_risk_profile_orm_defaults_match_shared_contract() -> None:
+    from services.strategy_library.models import RiskProfile as RiskProfileRow
+
+    profile = RiskProfile()
+    assert RiskProfileRow.max_symbol_exposure.default.arg == profile.max_symbol_exposure
+    assert RiskProfileRow.max_total_exposure.default.arg == profile.max_total_exposure
+    assert RiskProfileRow.consecutive_loss_limit.default.arg == profile.consecutive_loss_limit
+    assert RiskProfileRow.api_failure_limit.default.arg == profile.api_failure_limit
+    assert RiskProfileRow.api_failure_window_minutes.default.arg == profile.api_failure_window_minutes
 
 
 def test_signal_ensemble_and_meta_label_minimal() -> None:

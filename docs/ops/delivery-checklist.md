@@ -1,10 +1,10 @@
 # 前期准备交付清单
 
-> 状态更新（2026-07-02）：
+> 状态更新（2026-07-04）：
 > 当前仓库已经完成 Phase 0 文档冻结后的第一批 P1 落地。
 > 已完成：统一领域模型代码、`/api/v1` 主接口、策略生命周期持久化、carry 回测应用服务、
-> risk/review/agent/execution 首版持久化与 gatekeeper。
-> 仍未完成：walk-forward/DSR 引擎、完整前端联调、Prometheus/dashboard、`docker-compose.test|paper|live` overlays。
+> risk/review/agent/execution 首版持久化与 gatekeeper，以及单租户管理令牌鉴权、通知 dispatcher、前端 build 恢复、`compose-validate` 脚本化。
+> 仍未完成：walk-forward/DSR 引擎、Prometheus/dashboard runtime、具备 Docker 主机上的 compose smoke、Email adapter 与 live/exchange 闭环。
 
 ## 治理与真源
 
@@ -35,14 +35,18 @@
 
 - [x] 领域模型代码
 - [x] API schema（首版 `/api/v1` 已落地，后续继续扩展）
+- [x] 最小 API 鉴权基线（单租户 `ADMIN_API_TOKEN`）
 - [x] 数据接入抽象（Binance-first persisted seam）
 - [x] Celery 任务图（首版队列入口已接通，仍待扩展更多任务）
 - [x] 风险规则实现（首版 gatekeeper）
 - [x] Review 回写实现
+- [x] 通知 outbox + dispatcher（首批 `Telegram + Webhook`）
+- [x] `frontend/admin` 可重复 build 校验
+- [x] `compose-validate` 脚本与 CI 路径
 
 ## 进入下一轮开发前仍需补齐
 
 - [ ] walk-forward / OOS / Deflated Sharpe / stress test 真正执行链
-- [ ] Frontend admin 与真实 API 联调
 - [ ] Prometheus + Grafana dashboard + 告警
-- [ ] `docker-compose.test.yml` / `docker-compose.paper.yml` / `docker-compose.live.yml`
+- [ ] 在具备 Docker 的主机或 CI 上完成 `docker-compose.test.yml` / `docker-compose.paper.yml` / `docker-compose.live.yml` runtime smoke
+- [ ] Email adapter、真实 Telegram/Webhook 凭据演练与值班告警联调

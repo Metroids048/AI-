@@ -8,15 +8,20 @@ from datetime import UTC, datetime, timedelta
 from services.data import DataRepository
 from services.strategy_library import (
     ExecutionRepository,
+    HypothesisRepository,
     PaperRunRepository,
+    ReviewRepository,
     RiskProfileRepository,
     ValidationRepository,
 )
+from services.validation.admission import ValidationAdmissionService
 from shared.models import (
     ExecutionOrderRequest,
+    FailureRecord,
     OrderExecution,
     PaperRun,
     PaperRunRequest,
+    RiskProfile,
 )
 
 from .paper import PaperOrchestrationService
@@ -32,16 +37,21 @@ class ExecutionGatekeeperService:
         *,
         data_repo: DataRepository,
         validation_repo: ValidationRepository,
+        hypothesis_repo: HypothesisRepository | None,
         risk_profile_repo: RiskProfileRepository,
         execution_repo: ExecutionRepository,
         paper_repo: PaperRunRepository,
+        review_repo: ReviewRepository | None = None,
     ) -> None:
         self.data_repo = data_repo
         self.validation_repo = validation_repo
+        self.hypothesis_repo = hypothesis_repo
         self.risk_profile_repo = risk_profile_repo
         self.execution_repo = execution_repo
         self.paper_repo = paper_repo
+        self.review_repo = review_repo
         self.paper_service = PaperOrchestrationService()
+        self.validation_admission = ValidationAdmissionService()
 
     def prepare_paper_run(self, request: PaperRunRequest) -> PaperRun:
         if not request.gate_decision_ref:
@@ -51,6 +61,20 @@ class ExecutionGatekeeperService:
             raise ValueError("validation backtest run not found")
         if backtest.eligibility_result is None or not backtest.eligibility_result.passed:
             raise ValueError("validation gate rejected paper admission")
+        hypothesis_id = backtest.validation_methodology.get("hypothesis_id")
+        hypothesis = (
+            self.hypothesis_repo.get_hypothesis(hypothesis_id)
+            if self.hypothesis_repo and hypothesis_id
+            else None
+        )
+        promotion_gate = self.validation_admission.assess_backtest_run(
+            run=backtest,
+            hypothesis=hypothesis,
+        )
+        if not promotion_gate.passed:
+            raise ValueError(
+                f"promotion evidence incomplete: {promotion_gate.reason}"
+            )
         prepared = self.paper_service.prepare_run(
             PaperRun(
                 paper_run_id=str(uuid.uuid4()),
@@ -86,10 +110,19 @@ class ExecutionGatekeeperService:
             elif backtest.eligibility_result is None or not backtest.eligibility_result.passed:
                 rejection_reasons.append("validation_gate_rejected")
 
+        profile = RiskProfile()
         if request.risk_profile_id:
-            profile = self.risk_profile_repo.get_profile(request.risk_profile_id)
-            if profile is None:
+            stored_profile = self.risk_profile_repo.get_profile(request.risk_profile_id)
+            if stored_profile is None:
                 rejection_reasons.append("risk_profile_not_found")
+            else:
+                profile = stored_profile
+
+        risk_state = request.risk_state
+        if risk_state is None:
+            rejection_reasons.append("missing_risk_state")
+        else:
+            rejection_reasons.extend(self._evaluate_numeric_risk(profile=profile, request=request))
 
         timeframe = str(request.entry_context.get("timeframe", "1h"))
         reference_time = datetime.now(UTC)
@@ -115,6 +148,7 @@ class ExecutionGatekeeperService:
             stoploss_present=stoploss_present,
             close_only_mode=bool(request.entry_context.get("close_only_mode", False)),
             rejection_reason=";".join(rejection_reasons) if rejection_reasons else None,
+            rejection_codes=rejection_reasons,
             entry_context={
                 **request.entry_context,
                 "freshness_check": freshness,
@@ -128,5 +162,61 @@ class ExecutionGatekeeperService:
             signal_ensemble_id=request.signal_ensemble_id,
             meta_label_id=request.meta_label_id,
             veto_result=(request.veto_result.model_dump(mode="json") if request.veto_result is not None else {}),
+            evaluated_risk_state=risk_state,
         )
-        return self.execution_repo.create_order(order)
+        created = self.execution_repo.create_order(order)
+        if rejection_reasons:
+            self._record_rejection(created)
+        return created
+
+    @staticmethod
+    def _evaluate_numeric_risk(*, profile: RiskProfile, request: ExecutionOrderRequest) -> list[str]:
+        risk_state = request.risk_state
+        if risk_state is None:
+            return []
+        if bool(request.entry_context.get("close_only_mode", False)):
+            return []
+        if risk_state.account_equity <= 0 or risk_state.equity_peak <= 0:
+            return ["invalid_risk_state"]
+        rejection_reasons: list[str] = []
+        requested_fraction = risk_state.requested_notional / risk_state.account_equity
+        projected_symbol_exposure = risk_state.symbol_exposure + requested_fraction
+        projected_total_exposure = risk_state.total_exposure + requested_fraction
+        drawdown = max(0.0, (risk_state.equity_peak - risk_state.account_equity) / risk_state.equity_peak)
+
+        if projected_symbol_exposure > profile.max_symbol_exposure:
+            rejection_reasons.append("max_symbol_exposure_exceeded")
+        if projected_total_exposure > profile.max_total_exposure:
+            rejection_reasons.append("max_total_exposure_exceeded")
+        if risk_state.open_positions >= profile.max_open_positions:
+            rejection_reasons.append("max_open_positions_exceeded")
+        if risk_state.requested_leverage > profile.max_leverage:
+            rejection_reasons.append("max_leverage_exceeded")
+        if abs(min(risk_state.daily_realized_pnl, 0.0)) >= risk_state.account_equity * profile.daily_loss_limit:
+            rejection_reasons.append("daily_loss_limit_breached")
+        if abs(min(risk_state.weekly_realized_pnl, 0.0)) >= risk_state.account_equity * profile.weekly_loss_limit:
+            rejection_reasons.append("weekly_loss_limit_breached")
+        if drawdown >= profile.hard_stop_drawdown_limit:
+            rejection_reasons.append("hard_stop_drawdown_breached")
+        elif drawdown >= profile.drawdown_limit:
+            rejection_reasons.append("drawdown_limit_breached")
+        if risk_state.consecutive_losses >= profile.consecutive_loss_limit:
+            rejection_reasons.append("consecutive_loss_limit_breached")
+        if risk_state.api_failures_window >= profile.api_failure_limit:
+            rejection_reasons.append("api_failure_limit_breached")
+        return rejection_reasons
+
+    def _record_rejection(self, order: OrderExecution) -> None:
+        if self.review_repo is None:
+            return
+        failure = FailureRecord(
+            strategy_id=order.strategy_id,
+            version_id=order.version_id,
+            origin_run_type="paper" if order.paper_run_id else "live" if order.live_run_id else "execution_request",
+            origin_run_id=order.paper_run_id or order.live_run_id or (order.order_execution_id or ""),
+            failure_type="execution_gate_reject",
+            failure_summary=f"Gatekeeper rejected {order.symbol} order: {', '.join(order.rejection_codes)}",
+            evidence_refs=[f"order_execution:{order.order_execution_id}"],
+            recommended_change="Review gatekeeper rejection codes and risk-state inputs before retrying.",
+        )
+        self.review_repo.create_failure(failure)

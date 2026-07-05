@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from apps.api.http import collection_response, not_found
 from services.data import DataRepository
 from services.database import get_db_session
+from services.notifications import NotificationOutboxService
 from services.strategy_library import RiskProfileRepository
 from shared.models import CollectionResponse, RiskEvent, RiskEventResolutionUpdate, RiskProfile
 
@@ -50,7 +51,9 @@ def list_risk_events(
 
 @router.post("/events", response_model=RiskEvent, status_code=status.HTTP_201_CREATED)
 def create_risk_event(body: RiskEvent, db: Session = Depends(get_db_session)) -> RiskEvent:
-    return _data_repo(db).store_risk_event(body)
+    event = _data_repo(db).store_risk_event(body)
+    NotificationOutboxService(db).enqueue_risk_event_notification(event)
+    return event
 
 
 @router.patch("/events/{risk_event_id}/resolution", response_model=RiskEvent)

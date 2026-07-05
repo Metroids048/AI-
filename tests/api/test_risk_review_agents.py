@@ -86,6 +86,19 @@ def test_risk_event_rejects_execution_and_review_writeback(api_client, db_sessio
             "takeprofit_plan": {"price": 62000},
             "validation_backtest_run_id": backtest.backtest_run_id,
             "risk_profile_id": risk_profile_id,
+            "risk_state": {
+                "account_equity": 10000,
+                "equity_peak": 10000,
+                "daily_realized_pnl": 0,
+                "weekly_realized_pnl": 0,
+                "consecutive_losses": 0,
+                "api_failures_window": 0,
+                "open_positions": 0,
+                "symbol_exposure": 0,
+                "total_exposure": 0,
+                "requested_notional": 100,
+                "requested_leverage": 1,
+            },
         },
     )
     assert order_resp.status_code == 201
@@ -150,3 +163,49 @@ def test_research_agent_scans_local_alpha_and_persists_ideas(api_client, tmp_pat
     ideas_resp = api_client.get("/api/v1/strategies/ideas")
     assert ideas_resp.status_code == 200
     assert ideas_resp.json()["total"] == 2
+
+
+def test_research_agent_writes_alpha_rejections_to_review_memory(api_client, tmp_path) -> None:
+    alpha_root = tmp_path / "alpha"
+    alpha_root.mkdir()
+    (alpha_root / "alpha_candidates.jsonl").write_text(
+        "\n".join(
+            [
+                '{"expression":"rank(close)-rank(volume)","family":"momentum","risk_adjusted_score":0.42}',
+                '{"expression":"ts_delta(capex_to_total_assets,252)","family":"fundamental","risk_adjusted_score":0.91}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    submit_resp = api_client.post(
+        "/api/v1/agents/tasks",
+        json={
+            "agent_type": "research_agent",
+            "task_type": "scan_local_alpha",
+            "input_payload": {
+                "alpha_root": str(alpha_root),
+                "limit": 2,
+                "persist_ideas": True,
+            },
+        },
+    )
+    assert submit_resp.status_code == 202
+    task_id = submit_resp.json()["resource_id"]
+
+    task_resp = api_client.get(f"/api/v1/agents/tasks/{task_id}")
+    assert task_resp.status_code == 200
+    persisted_ids = task_resp.json()["output_payload"]["persisted_idea_ids"]
+    assert len(persisted_ids) == 2
+
+    failures_resp = api_client.get("/api/v1/failures?failure_type=alpha_evaluator_reject")
+    assert failures_resp.status_code == 200
+    failures = failures_resp.json()["items"]
+    assert len(failures) == 1
+    assert failures[0]["strategy_id"] is None
+    assert failures[0]["idea_id"] in persisted_ids
+    assert "capex_to_total_assets" in failures[0]["failure_summary"]
+
+    idea_failure_resp = api_client.get(f"/api/v1/failures?idea_id={failures[0]['idea_id']}")
+    assert idea_failure_resp.status_code == 200
+    assert idea_failure_resp.json()["total"] == 1

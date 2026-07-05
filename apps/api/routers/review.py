@@ -4,20 +4,24 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from apps.api.http import collection_response, not_found
 from services.database import get_db_session
-from services.review import ReviewService
-from services.strategy_library import ReviewRepository
-from shared.models import CollectionResponse, FailureRecord, ReviewReport
+from services.review import DecisionMemoryService, ReviewService
+from services.strategy_library import DecisionMemoryRepository, ReviewRepository
+from shared.models import CollectionResponse, DecisionMemoryEntry, FailureRecord, ReviewReport
 
 router = APIRouter(tags=["review"])
 
 
 def _service(db: Session) -> ReviewService:
     return ReviewService(ReviewRepository(db))
+
+
+def _decision_memory(db: Session) -> DecisionMemoryService:
+    return DecisionMemoryService(DecisionMemoryRepository(db))
 
 
 @router.get("/reviews", response_model=CollectionResponse[ReviewReport])
@@ -45,10 +49,40 @@ def get_review_report(review_report_id: str, db: Session = Depends(get_db_sessio
 
 
 @router.get("/failures", response_model=CollectionResponse[FailureRecord])
-def list_failure_records(db: Session = Depends(get_db_session)) -> CollectionResponse[FailureRecord]:
-    return collection_response(_service(db).list_failures())
+def list_failure_records(
+    strategy_id: str | None = Query(default=None),
+    idea_id: str | None = Query(default=None),
+    failure_type: str | None = Query(default=None),
+    db: Session = Depends(get_db_session),
+) -> CollectionResponse[FailureRecord]:
+    return collection_response(
+        _service(db).list_failures(strategy_id=strategy_id, idea_id=idea_id, failure_type=failure_type)
+    )
 
 
 @router.post("/failures", response_model=FailureRecord, status_code=status.HTTP_201_CREATED)
 def create_failure_record(body: FailureRecord, db: Session = Depends(get_db_session)) -> FailureRecord:
     return _service(db).record_failure(body)
+
+
+@router.get("/decision-memory", response_model=CollectionResponse[DecisionMemoryEntry])
+def list_decision_memory(
+    scope_type: str | None = Query(default=None),
+    scope_id: str | None = Query(default=None),
+    decision_type: str | None = Query(default=None),
+    verdict: str | None = Query(default=None),
+    db: Session = Depends(get_db_session),
+) -> CollectionResponse[DecisionMemoryEntry]:
+    return collection_response(
+        _decision_memory(db).list_entries(
+            scope_type=scope_type,
+            scope_id=scope_id,
+            decision_type=decision_type,
+            verdict=verdict,
+        )
+    )
+
+
+@router.post("/decision-memory", response_model=DecisionMemoryEntry, status_code=status.HTTP_201_CREATED)
+def create_decision_memory(body: DecisionMemoryEntry, db: Session = Depends(get_db_session)) -> DecisionMemoryEntry:
+    return _decision_memory(db).record_entry(body)

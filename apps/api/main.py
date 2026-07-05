@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from apps.api.auth import admin_token_middleware
 from apps.api.config import settings
 from apps.api.routers import (
     agents,
@@ -26,6 +27,7 @@ from apps.api.routers import (
 from shared.models import ApiError
 
 app = FastAPI(title="AI Quant Research Platform", version="0.1.0")
+app.middleware("http")(admin_token_middleware)
 
 
 @app.exception_handler(StarletteHTTPException)

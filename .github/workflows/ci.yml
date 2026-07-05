@@ -26,10 +26,20 @@ jobs:
         run: mypy
       - name: Pytest
         run: pytest -q -m "not integration"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Frontend build
+        run: npm run admin:build
 
   compose-validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - name: Validate docker-compose
-        run: docker compose -f docker-compose.yml config >/dev/null
+        run: python scripts/compose_validate.py --require-docker

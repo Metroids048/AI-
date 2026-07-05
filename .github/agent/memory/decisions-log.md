@@ -1,5 +1,47 @@
 # Decisions Log
 
+## ADR-033: Autonomous paper monitoring stays inside the existing Execution Layer as repeatable cycles, not a direct always-on bot
+- Date: 2026-07-04
+- Status: accepted
+- Context: The user asked to keep filling missing functionality by adapting patterns from TradingAgents, Freqtrade, Hummingbot, Lean, vn.py, and related projects, with the practical near-term goal of moving the repo toward automatic market monitoring and simulated trading. The repo already had validation admission, paper step generation, and execution gatekeeping, but it still lacked a self-owned runtime slice that could repeatedly scan a candidate universe and maintain paper positions without bypassing the six-layer chain.
+- Decision: Add `PaperRuntimeService` and expose it through `/api/v1/execution/paper-runs/{paper_run_id}/auto-cycle` plus `/runtime-status`, with a matching Celery task entrypoint `services.execution.tasks.run_paper_runtime_cycle`. Keep the runtime inside the existing Execution Layer rather than inventing a seventh orchestration layer. Use Binance Top20 fallback candidates with BTC/ETH pinned first, keep all generated paper orders behind `ExecutionGatekeeperService`, derive current open positions from per-symbol latest `PositionSnapshot`, and handle opposite signals conservatively by closing the existing paper position before any later re-entry.
+- Consequences: The platform now has a test-covered autonomous paper cycle that can be scheduled repeatedly, observed, and extended toward testnet/live later without changing the core admission chain. This improves practical automation while remaining honest that the repo still does not prove full 7x24 production autonomy, long-lived scheduler supervision, or exchange-grade recovery loops yet.
+
+## ADR-031: Tranche 1 uses single-tenant Bearer auth plus channel-group notification dispatch
+- Date: 2026-07-04
+- Status: accepted
+- Context: The approved remaining-platform roadmap put `Tranche 1` on the critical path before deeper validation, live execution, or LLM agents. The repo still exposed every `/api/v1/*` route without authentication, and notification outbox only recorded intent without a real outbound delivery loop.
+- Decision: Add a single-tenant static Bearer token gate for `/api/v1/*` with `/health` and `/api/v1/health` explicitly public, using `ADMIN_API_TOKEN` instead of introducing users, sessions, or RBAC. Upgrade notification outbox to a channel-group dispatcher that persists `delivery_channels`, retry timing, attempt history, and adapter results, with first-batch `telegram` and `webhook` adapters plus a shared API/Celery dispatch path.
+- Consequences: The admin/API surface now has a minimal but real security baseline that matches the current single-operator deployment model, and Ops/Review/Risk notifications can move from stored intent to actual outbound delivery with retry auditability. Multi-user auth, RBAC, and Email delivery remain future tranches rather than being overbuilt into Phase 1.
+
+## ADR-032: Promotion evidence is mandatory for Paper/Live, and live/runtime + LLM stay behind explicit self-owned boundaries
+- Date: 2026-07-04
+- Status: accepted
+- Context: The remaining-platform roadmap explicitly required Tranche 2/3/4 to tighten promotion gates, add a self-owned execution runtime over a Binance-first gateway abstraction, and online-ize agents through a unified LLM boundary without letting any agent emit direct trade instructions. The repo had partial contracts and services, but key public routes and runtime seams still behaved like placeholders or legacy pass-throughs.
+- Decision: Make `ValidationAdmissionService` the single promotion-evidence arbiter for both Paper and Live. `/api/v1/execution/paper-runs` and `/api/v1/execution/live-runs` now require hypothesis, benchmark/control, OOS, and pod-risk evidence rather than raw backtest pass alone; validation report APIs resolve the linked hypothesis before computing `promotion_gate`; live runtime APIs are exposed only through the existing Execution Layer over a self-owned `ExchangeGateway` seam; and Agent Layer online calls go through a structured Anthropic runtime that enforces JSON-only outputs plus per-agent provider/model mapping. Binance USDT perpetual is the first real gateway target, with `NullExchangeGateway` remaining the safe default when credentials are absent.
+- Consequences: The platform now rejects legacy/under-evidenced strategies before Paper or Live promotion, and live operations can be audited through account snapshots, gateway order lifecycle, reconciliation records, and decision memory without bypassing the six-layer chain. Online LLM classification/veto is now possible when credentials are configured, but any schema failure or timeout still fails closed and no agent gains direct order authority.
+
+## ADR-030: Notification outbox is persisted intent/state, not an external adapter
+- Date: 2026-07-04
+- Status: accepted
+- Context: ADR-026 introduced notification outbox visibility, but the implementation still derived pending items from active high-severity risk events at read time. That made resolved events disappear from audit retrieval and gave Review/Ops no durable state for adapter attempts, manual operator notes, or later delivery-status reconciliation.
+- Decision: Add a relational `notification_outbox` table, `NotificationRepository`, and persisted `/api/v1/notifications/outbox` APIs for list/filter, manual create, and delivery-result update. High/critical `RiskEvent` creation writes an idempotent `risk:{risk_event_id}` pending notification intent; low/mid events remain visible as risk events but do not auto-enqueue notifications. Keep actual Telegram/email/webhook delivery adapters out of scope.
+- Consequences: Ops/Review/Risk now share a durable notification audit trail even after risk events are resolved, while the platform avoids introducing credentials, side effects, or a new notification-agent subsystem in this tranche. Real outbound adapters remain a separate P1 follow-up.
+
+## ADR-029: Research-side alpha rejections reuse FailureRecord instead of a separate memory store
+- Date: 2026-07-04
+- Status: accepted
+- Context: TASK-017 made local alpha intake preserve unsupported/evaluator rejection evidence, but the evidence was still mainly attached to `StrategyIdea` metadata/rationale. The platform requirement says Review Layer is a first-class module and failure knowledge should be reusable by Research/Strategy agents, so research-side rejections need the same persisted review path as execution rejections.
+- Decision: Extend `FailureRecord` to reference either `strategy_id` or `idea_id`; persist `StrategyIdea.intake_metadata`; have Research Agent `scan_local_alpha` write `subjective_to_drop` alpha ideas into Review as `alpha_evaluator_reject`; and add `/api/v1/failures` filters for `strategy_id`, `idea_id`, and `failure_type`.
+- Consequences: Alpha evaluator failures can be retrieved and clustered without reparsing free text, while the platform avoids adding a separate TradingAgents-style memory subsystem in this tranche. Strategy-level failure writeback remains unchanged for execution and validation failures.
+
+## ADR-028: Risk admission and executable alpha intake must persist structured rejection evidence
+- Date: 2026-07-03
+- Status: accepted
+- Context: The approved Phase 1 tranche required making the Risk Engine auditable at admission time and repairing the WorldQuant adapter so it can execute only a supported crypto-native subset. The previous seams either lacked runtime risk context (`ExecutionGatekeeperService`) or used placeholder alpha generation/evaluation that could silently drift away from later Review/Strategy reuse.
+- Decision: Add `ExecutionRiskState` as a required runtime admission snapshot for direct execution requests and synthesize it during `paper-runs/{id}/step`. Persist `rejection_codes` and `evaluated_risk_state` on every `OrderExecution`, and route gatekeeper rejections into the existing Review writeback loop through `FailureRecord`. On the research side, keep WorldQuant as methodology-only, implement a strict executable subset (`ts_rank`, `ts_zscore`, `group_neutralize`, recursive arithmetic/function evaluation), use explicit crypto group alias migration, and tag unsupported or evaluator-rejected local alphas as `subjective_to_drop` with structured intake evidence instead of placeholder fallback signals.
+- Consequences: Execution and Review now share a reusable rejection memory for risk failures, and local alpha intake can be clustered/reviewed later without re-parsing raw text. Direct order callers can no longer omit runtime risk context. Unsupported stock fundamentals remain research-only until manually ported to crypto-native inputs.
+
 ## ADR-027: Open-source strategy projects enter as E-level research assets, not executable shortcuts
 - Date: 2026-07-03
 - Status: accepted

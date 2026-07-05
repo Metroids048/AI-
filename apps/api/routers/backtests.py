@@ -9,6 +9,7 @@ from apps.api.http import api_error, collection_response, not_found
 from services.data import DataRepository
 from services.database import get_db_session
 from services.strategy_library import (
+    HypothesisRepository,
     OptimizationRepository,
     StrategyRepository,
     ValidationRepository,
@@ -24,6 +25,7 @@ from shared.models import (
     CarryBacktestRequest,
     CollectionResponse,
     GateDecision,
+    HypothesisRecord,
     OptimizationRun,
     OptimizationSubmissionRequest,
     TaskSubmission,
@@ -48,9 +50,30 @@ def _carry_app(db: Session) -> CarryBacktestApplicationService:
     )
 
 
+def _hypothesis_repo(db: Session) -> HypothesisRepository:
+    return HypothesisRepository(db)
+
+
 @router.get("/backtests", response_model=CollectionResponse[BacktestRun])
 def list_backtest_runs(db: Session = Depends(get_db_session)) -> CollectionResponse[BacktestRun]:
     return collection_response(_validation_repo(db).list_backtest_runs())
+
+
+@router.get("/validation/hypotheses", response_model=CollectionResponse[HypothesisRecord])
+def list_hypotheses(
+    strategy_id: str | None = None,
+    idea_id: str | None = None,
+    status: str | None = None,
+    db: Session = Depends(get_db_session),
+) -> CollectionResponse[HypothesisRecord]:
+    return collection_response(
+        _hypothesis_repo(db).list_hypotheses(strategy_id=strategy_id, idea_id=idea_id, status=status)
+    )
+
+
+@router.post("/validation/hypotheses", response_model=HypothesisRecord, status_code=status.HTTP_201_CREATED)
+def create_hypothesis(body: HypothesisRecord, db: Session = Depends(get_db_session)) -> HypothesisRecord:
+    return _hypothesis_repo(db).create_hypothesis(body)
 
 
 @router.post("/backtests", response_model=TaskSubmission, status_code=status.HTTP_202_ACCEPTED)
@@ -140,7 +163,13 @@ def get_validation_report(backtest_run_id: str, db: Session = Depends(get_db_ses
     run = _validation_repo(db).get_backtest_run(backtest_run_id)
     if run is None:
         raise not_found("backtest_run", backtest_run_id)
-    return build_validation_report(run)
+    hypothesis_id = None
+    if run.metrics_summary is not None and run.metrics_summary.hypothesis_id is not None:
+        hypothesis_id = run.metrics_summary.hypothesis_id
+    elif "hypothesis_id" in run.validation_methodology:
+        hypothesis_id = run.validation_methodology["hypothesis_id"]
+    hypothesis = _hypothesis_repo(db).get_hypothesis(hypothesis_id) if hypothesis_id else None
+    return build_validation_report(run, hypothesis=hypothesis)
 
 
 @router.get("/backtests/{backtest_run_id}/eligibility", response_model=GateDecision)

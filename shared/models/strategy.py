@@ -44,6 +44,7 @@ class StrategyIdea(PlatformModel):
     hypothesis_summary: str
     source_ref: str | None = None
     rationale: str | None = None
+    intake_metadata: dict[str, Any] = Field(default_factory=dict)
     intake_bucket: str = Field(
         default="rule_candidate",
         description="rule_candidate / metric_to_validate / subjective_to_drop",

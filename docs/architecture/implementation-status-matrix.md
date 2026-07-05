@@ -1,10 +1,17 @@
 # Implementation Status Matrix
 
+## 2026-07-04 Tranche 1 Security/Ops Addendum
+
+- `/api/v1/*` 现已通过 `apps/api/auth.py` 强制单租户 Bearer-token 鉴权；`/health` 与 `/api/v1/health` 保持公开。
+- 通知能力已从 audit-only outbox 升级为真实 dispatch 闭环：`services/notifications.py` 提供 Telegram/Webhook adapter、重试/退避、attempt history 持久化，`/api/v1/notifications/outbox/dispatch` 与 `services.notifications_tasks.dispatch_notification_outbox` 共享同一派送逻辑。
+- `frontend/admin` 的本地 build 已恢复为稳定校验项，`frontend/admin/src/main.jsx` 会发送 `VITE_ADMIN_API_TOKEN`（默认回退 `dev-admin-token`）以匹配新的管理面鉴权基线。
+- `scripts/compose_validate.py` 已成为标准 compose 校验入口；本机因 `docker` 不在 PATH 仅能得到 documented skip，CI 使用 `--require-docker` 做强制校验。
+
 ## 2026-07-03 Remediation Plan Addendum
 
 - Engineering baseline has been restored locally: `apps/__init__.py` defines the package boundary, Ruff B008 is scoped to FastAPI router files, and `apps/api/config.py` now requires the declared `pydantic-settings` dependency instead of carrying a local fallback.
 - Validation Layer first slice now includes real walk-forward/OOS/stress diagnostics under `services/validation/{walk_forward,report,stress_scenarios}.py`.
-- Public APIs added under the existing `/api/v1` prefix: `POST /api/v1/backtests/carry/walk-forward`, `GET /api/v1/validation/reports/{backtest_run_id}`, `GET /api/v1/system/health/dependencies`, `GET /api/v1/market/capabilities`, and `GET /api/v1/notifications/outbox`.
+- Public APIs added under the existing `/api/v1` prefix: `POST /api/v1/backtests/carry/walk-forward`, `GET /api/v1/validation/reports/{backtest_run_id}`, `GET /api/v1/system/health/dependencies`, `GET /api/v1/market/capabilities`, and persisted notification outbox APIs under `/api/v1/notifications/outbox`.
 - `BacktestReport` now carries `validation_windows`, `stress_test_results`, and `lookahead_check`; `IngestionJob` carries `data_quality_summary`; `ExchangeCapability` and `NotificationOutboxItem` are exported from `shared/models`.
 - `Makefile` no longer hides operational gaps behind `echo TODO`: `data-check` and `backtest` call real script entrypoints, while unsupported umbrella targets fail explicitly with guidance.
 - Agent tasks with no registered executor now fail explicitly; deterministic Decision Veto and Review executor slices exist and do not generate orders.
@@ -55,6 +62,7 @@
 | 统一领域契约 `shared/models` | Cross-layer | implemented | `shared/models/{strategy,workflow,backtest,risk,signal,api}.py` | `tests/contracts/test_shared_models.py` |
 | Strategy 生命周期持久化 | Strategy Layer | implemented | `services/strategy_library/{models,repository}.py` | `tests/repositories/test_strategy_repository.py` |
 | FastAPI `/api/v1` 六类主接口 | API Layer | implemented | `apps/api/main.py` + `apps/api/routers/*.py` | `tests/api/test_health.py` |
+| API 管理令牌鉴权 | API Layer | implemented | `apps/api/auth.py` + `ADMIN_API_TOKEN` + `apps/api/main.py` middleware；`/health` 与 `/api/v1/health` 保持公开 | `tests/api/test_health.py` |
 | Binance A 级时序仓储 | Data Layer | implemented | `services/data/repository.py` (`ohlcv_bars`, `market_extras`, `risk_events`) | `tests/services/test_timeseries_repository.py` |
 | Binance carry 回测应用服务 | Validation Layer | implemented | `services/validation/{carry,application}.py` | `tests/services/test_backtest_application.py`, `tests/api/test_vertical_slice.py` |
 | 通用回测提交接口 | Validation Layer | partial | `POST /api/v1/backtests` 已改为提交请求并生成 `TaskSubmission`，但仍是同步落库 seam | `tests/api/test_vertical_slice.py` |
@@ -69,11 +77,11 @@
 | WorldQuant 算子方法论移植 | Research Source | partial | `operators.py`、`CryptoFactorGenerator` 已有首版可执行实现 | 尚缺针对真实 crypto 因子输出的专项验证 |
 | SignalEnsemble / MetaLabel 持久化 | Strategy Layer | partial | ORM + repository + `services/strategy_library/ensemble/service.py` + `/api/v1/strategy/ensemble/*` | `tests/api/test_signal_ensemble.py` 覆盖 deterministic service/API；训练型 meta-label 模型仍未落地 |
 | LiveRun / PositionSnapshot 基础仓储 | Execution Layer | partial | ORM + repository + `/api/v1/execution/live-runs|positions` | 暂无 live 运行闭环测试 |
-| Frontend Admin 控制台 | Frontend | partial | `frontend/admin` 已升级为 Paper Trading Console；K线、carry、订单、持仓、风险事件、人工操作面板接真实 API | `npm --workspace frontend/admin run build` 通过；Playwright 桌面/移动 smoke 通过；remediation 后需重新跑 build |
+| Frontend Admin 控制台 | Frontend | partial | `frontend/admin` 已升级为 Paper Trading Console；K线、carry、订单、持仓、风险事件、人工操作面板接真实 API，并已接入 Bearer token 请求头 | `npm --workspace frontend/admin run build` 通过；Playwright 桌面/移动 smoke 通过 |
 | Prometheus / Grafana dashboard | Ops | partial | `docker-compose.yml` 已新增 `prometheus`，Grafana dashboard provisioning 与 `research-loop-overview.json` 已入仓 | 本轮未跑 compose 验证 |
-| `docker-compose.test/paper/live` overlays | Ops | partial | `docker-compose.{test,paper,live}.yml` 已新增 | 本轮未跑 compose 验证 |
+| `docker-compose.test/paper/live` overlays | Ops | partial | `docker-compose.{test,paper,live}.yml` 已新增，`scripts/compose_validate.py` 与 CI `compose-validate` 已脚本化校验入口 | 本机 `docker` 不在 PATH；仅完成 skip/CI 路径验证，未做本地 runtime smoke |
 | News/Twitter/Telegram/Decision Veto Agent | Agent Layer | partial | schema 与 order gate veto 输入已接缝；`decision_veto_agent/pre_execution_veto` 有 deterministic executor | `tests/api/test_remediation_plan.py` 覆盖未注册 executor 不得标记完成；LLM 接入仍未实现 |
 | Walk-forward / OOS / stress engine | Validation Layer | partial | `services/validation/{walk_forward,report,stress_scenarios}.py` + carry walk-forward API + report API | `tests/api/test_remediation_plan.py` 覆盖 OOS/压力结果影响 GateDecision；Deflated Sharpe 仍是字段/门槛口径，未实现完整统计校正引擎 |
 | Exchange capability registry | Data/Execution boundary | partial | `services/data/capabilities.py` + `GET /api/v1/market/capabilities` | `tests/api/test_remediation_plan.py` |
-| Notification outbox | Ops / Review / Risk | partial | `services/notifications.py` + `GET /api/v1/notifications/outbox` | `tests/api/test_remediation_plan.py`；真实 Telegram/Email/Webhook adapter 未实现 |
+| Notification outbox / dispatcher | Ops / Review / Risk | partial | `notification_outbox` ORM/migration + `services/notifications.py` + `GET/POST/PATCH /api/v1/notifications/outbox` + `POST /api/v1/notifications/outbox/dispatch`；高/critical `RiskEvent` 自动写入待处理通知，首批 Telegram/Webhook adapter 已可真实投递并回写 attempt history | `tests/api/test_remediation_plan.py`、`tests/services/test_notifications.py`；Email adapter 与真实运维凭据演练仍未实现 |
 | System dependency health | Ops | partial | `apps/api/routers/system.py` + `GET /api/v1/system/health/dependencies` | `tests/api/test_remediation_plan.py`；当前为配置/连通性可见性，不替代外部监控 |
