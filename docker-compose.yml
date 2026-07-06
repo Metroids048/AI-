@@ -39,7 +39,7 @@ services:
     volumes:
       - ./:/app
     env_file:
-      - .env.example
+      - .env
     ports:
       - "8000:8000"
     depends_on:
@@ -58,7 +58,7 @@ services:
     volumes:
       - ./:/app
     env_file:
-      - .env.example
+      - .env
     depends_on:
       redis:
         condition: service_healthy
@@ -75,7 +75,7 @@ services:
     volumes:
       - ./:/app
     env_file:
-      - .env.example
+      - .env
     depends_on:
       redis:
         condition: service_healthy
@@ -90,7 +90,7 @@ services:
     volumes:
       - ./:/app
     env_file:
-      - .env.example
+      - .env
     ports:
       - "5555:5555"
     depends_on:

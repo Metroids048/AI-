@@ -41,5 +41,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Prepare compose env template
+        run: cp .env.example .env
       - name: Validate docker-compose
         run: python scripts/compose_validate.py --require-docker

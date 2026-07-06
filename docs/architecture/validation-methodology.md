@@ -6,9 +6,9 @@
 
 上游真源：
 
-- [AI_Quant_Research_Platform_完整报告.docx](C:\Users\Windows11\Desktop\量化项目\AI_Quant_Research_Platform_完整报告.docx)
-- [AGENTS.md](C:\Users\Windows11\Desktop\量化项目\AGENTS.md)
-- [domain-and-interfaces-design.md](C:\Users\Windows11\Desktop\量化项目\docs\architecture\domain-and-interfaces-design.md)
+- [AI_Quant_Research_Platform_完整报告.docx](../../AI_Quant_Research_Platform_完整报告.docx)
+- [AGENTS.md](../../AGENTS.md)
+- [domain-and-interfaces-design.md](domain-and-interfaces-design.md)
 
 原始设计阶段不做：
 

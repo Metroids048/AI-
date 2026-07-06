@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 from apps.api.config import settings
 from research_source.open_source_strategy_library import OpenSourceStrategyExtractor, OpenSourceStrategyLibrary
@@ -21,8 +20,6 @@ from shared.models import (
     StrategyRules,
     Timeframe,
 )
-
-DEFAULT_ALPHA_ROOT = Path(r"C:\Users\Windows11\Desktop\alpha")
 
 
 class AgentTaskService:
@@ -83,9 +80,15 @@ class AgentTaskService:
 
     def _execute(self, task: AgentTask) -> dict:
         if task.agent_type == "research_agent" and task.task_type == "scan_local_alpha":
-            root_path = (
-                task.input_payload.get("alpha_root") or settings.worldquant_alpha_local_path or str(DEFAULT_ALPHA_ROOT)
-            )
+            root_path = task.input_payload.get("alpha_root") or settings.worldquant_alpha_local_path
+            if not root_path:
+                return {
+                    "executor_registered": True,
+                    "completed": False,
+                    "task_status": "failed",
+                    "message": "alpha_root is required",
+                    "output_ref": "strategy_ideas:0",
+                }
             ideas = self.alpha_scanner.scan(root_path, limit=int(task.input_payload.get("limit", 10)))
             persisted_ids: list[str] = []
             if task.input_payload.get("persist_ideas", True):

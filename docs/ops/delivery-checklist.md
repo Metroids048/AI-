@@ -1,10 +1,12 @@
 # 前期准备交付清单
 
 > 状态更新（2026-07-04）：
-> 当前仓库已经完成 Phase 0 文档冻结后的第一批 P1 落地。
+> 当前仓库状态统一为 `Phase 0 完成 + 第一批 P1 落地`。
 > 已完成：统一领域模型代码、`/api/v1` 主接口、策略生命周期持久化、carry 回测应用服务、
 > risk/review/agent/execution 首版持久化与 gatekeeper，以及单租户管理令牌鉴权、通知 dispatcher、前端 build 恢复、`compose-validate` 脚本化。
-> 仍未完成：walk-forward/DSR 引擎、Prometheus/dashboard runtime、具备 Docker 主机上的 compose smoke、Email adapter 与 live/exchange 闭环。
+> 本轮 P0 补漏追加：运行数据库不得入仓、compose runtime 必须读 `.env`、用户可见 Markdown 不得使用本机绝对路径、非本地环境不得使用默认管理 token。
+> 下一轮 P1 顺序：1. Celery Beat / 7x24 调度；2. 前端管理台补齐；3. B/C/D 级数据源接入。
+> 仍未完成：完整 DSR 引擎、Prometheus/dashboard runtime、具备 Docker 主机上的 compose smoke、Email adapter 与 live/exchange 闭环。
 
 ## 治理与真源
 

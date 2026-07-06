@@ -25,6 +25,23 @@ def test_api_v1_routes_reject_wrong_bearer_token(unauth_api_client) -> None:
     assert resp.json()["error_code"] == "auth_invalid_token"
 
 
+def test_non_dev_environment_rejects_default_admin_token(unauth_api_client, monkeypatch) -> None:
+    from apps.api.config import settings
+
+    monkeypatch.setattr(settings, "app_env", "paper")
+    monkeypatch.setattr(settings, "admin_api_token", "dev-admin-token")
+
+    resp = unauth_api_client.get("/api/v1/strategies", headers={"Authorization": "Bearer dev-admin-token"})
+
+    assert resp.status_code == 500
+    assert resp.json()["error_code"] == "auth_misconfigured"
+
+
+def test_auth_uses_constant_time_token_comparison() -> None:
+    source = __import__("inspect").getsource(__import__("apps.api.auth", fromlist=["admin_token_middleware"]))
+    assert "compare_digest" in source
+
+
 def test_strategies_crud_seam(api_client) -> None:
     created = api_client.post(
         "/api/v1/strategies",

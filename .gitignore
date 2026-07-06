@@ -34,7 +34,11 @@ Thumbs.db
 /data/
 /artifacts/
 /coverage/
+/.dev_ai_quant.db
 /.pytest_ai_quant.db
+/.pytest_ai_quant.*.db
+*.sqlite
+*.sqlite3
 *.egg-info/
 
 # Freqtrade runtime (keep .gitkeep + the example config only)

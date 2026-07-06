@@ -7,9 +7,9 @@
 引用关系：
 
 - 上游真源：
-  - [AI_Quant_Research_Platform_完整报告.docx](C:\Users\Windows11\Desktop\量化项目\AI_Quant_Research_Platform_完整报告.docx)
-  - [AGENTS.md](C:\Users\Windows11\Desktop\量化项目\AGENTS.md)
-  - [platform-master-design.md](C:\Users\Windows11\Desktop\量化项目\docs\architecture\platform-master-design.md)
+  - [AI_Quant_Research_Platform_完整报告.docx](../../AI_Quant_Research_Platform_完整报告.docx)
+  - [AGENTS.md](../../AGENTS.md)
+  - [platform-master-design.md](platform-master-design.md)
 - 下游实现：
   - FastAPI 主干
   - 统一领域模型
@@ -314,7 +314,7 @@
 - `parameter_set`
 - `market_regime_coverage`
 - `sample_split_plan`
-- `cost_model_ref`（手续费 maker/taker 费率、订单簿深度滑点估算方法、资金费率净收支核算口径的引用，方法论细节见 [validation-methodology.md](C:\Users\Windows11\Desktop\量化项目\docs\architecture\validation-methodology.md)）
+- `cost_model_ref`（手续费 maker/taker 费率、订单簿深度滑点估算方法、资金费率净收支核算口径的引用，方法论细节见 [validation-methodology.md](validation-methodology.md)）
 - `validation_methodology`（walk-forward 滚动窗口参数 + Deflated Sharpe 所需的“测试过组合数”记录，用于多重检验偏差校正）
 - `stress_test_scenarios`（引用预置压力测试场景库，如 LUNA 崩盘/312/交易所宕机/极端插针）
 - `metrics_summary`
@@ -929,4 +929,3 @@
 - 它们如何在六层架构之间流动
 
 这些对象一旦稳定，后面的 API、任务编排和实现就不会失焦。
-

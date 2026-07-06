@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 
@@ -9,6 +11,8 @@ from apps.api.config import settings
 from shared.models import ApiError
 
 PUBLIC_PATHS = {"/health", "/api/v1/health"}
+LOCAL_ENVIRONMENTS = {"development", "dev", "test"}
+DEFAULT_ADMIN_TOKEN = "dev-admin-token"
 
 
 def _error_response(*, status_code: int, error_code: str, message: str) -> JSONResponse:
@@ -24,10 +28,24 @@ def _extract_bearer_token(request: Request) -> str | None:
     return token.strip()
 
 
+def _default_token_used_outside_local_env() -> bool:
+    return (
+        settings.app_env.lower() not in LOCAL_ENVIRONMENTS
+        and settings.admin_api_token == DEFAULT_ADMIN_TOKEN
+    )
+
+
 async def admin_token_middleware(request: Request, call_next):
     path = request.url.path
     if not path.startswith("/api/v1") or path in PUBLIC_PATHS:
         return await call_next(request)
+
+    if _default_token_used_outside_local_env():
+        return _error_response(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            error_code="auth_misconfigured",
+            message="ADMIN_API_TOKEN must be changed outside local development and test environments",
+        )
 
     token = _extract_bearer_token(request)
     if token is None:
@@ -36,7 +54,7 @@ async def admin_token_middleware(request: Request, call_next):
             error_code="auth_required",
             message="bearer token required",
         )
-    if token != settings.admin_api_token:
+    if not secrets.compare_digest(token, settings.admin_api_token):
         return _error_response(
             status_code=status.HTTP_403_FORBIDDEN,
             error_code="auth_invalid_token",

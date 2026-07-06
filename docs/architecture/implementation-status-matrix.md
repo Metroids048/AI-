@@ -1,5 +1,12 @@
 # Implementation Status Matrix
 
+## 2026-07-05 P0 Hygiene Addendum
+
+- 当前仓库状态统一表述为 `Phase 0 完成 + 第一批 P1 落地`，不再把已实现的 A 级数据、Paper/Risk/Review 首批切片误标为 Phase 2 以后。
+- Compose 运行契约改为：`.env.example` 只作为模板，runtime `env_file` 必须使用 `.env`；CI 在 compose 校验前从模板复制临时 `.env`。
+- 仓库卫生新增守卫：运行数据库、`.env` 与私钥类文件不得被 Git 跟踪；用户可见 Markdown 不得链接到本机 Windows 绝对路径。
+- 下一轮 P1 顺序固定为：1. Celery Beat / 7x24 调度；2. 前端管理台补齐；3. B/C/D 级数据源接入。
+
 ## 2026-07-04 Tranche 1 Security/Ops Addendum
 
 - `/api/v1/*` 现已通过 `apps/api/auth.py` 强制单租户 Bearer-token 鉴权；`/health` 与 `/api/v1/health` 保持公开。

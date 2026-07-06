@@ -6,7 +6,7 @@
 
 真源层级：
 
-1. 第一层真源： [AI_Quant_Research_Platform_完整报告.docx](C:\Users\Windows11\Desktop\量化项目\AI_Quant_Research_Platform_完整报告.docx)
+1. 第一层真源： [AI_Quant_Research_Platform_完整报告.docx](../../AI_Quant_Research_Platform_完整报告.docx)
 2. 第二层真源：本平台总设计包
 3. 第三层真源：后续子设计文档（领域与接口、数据与接入、Agent 与任务编排、执行/风控/复盘）
 

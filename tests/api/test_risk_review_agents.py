@@ -165,6 +165,28 @@ def test_research_agent_scans_local_alpha_and_persists_ideas(api_client, tmp_pat
     assert ideas_resp.json()["total"] == 2
 
 
+def test_research_agent_requires_explicit_alpha_root(api_client, monkeypatch) -> None:
+    from apps.api.config import settings
+
+    monkeypatch.setattr(settings, "worldquant_alpha_local_path", "")
+
+    submit_resp = api_client.post(
+        "/api/v1/agents/tasks",
+        json={
+            "agent_type": "research_agent",
+            "task_type": "scan_local_alpha",
+            "input_payload": {"persist_ideas": True},
+        },
+    )
+    assert submit_resp.status_code == 202
+    task_id = submit_resp.json()["resource_id"]
+
+    task_resp = api_client.get(f"/api/v1/agents/tasks/{task_id}")
+    assert task_resp.status_code == 200
+    assert task_resp.json()["task_status"] == "failed"
+    assert task_resp.json()["output_payload"]["message"] == "alpha_root is required"
+
+
 def test_research_agent_writes_alpha_rejections_to_review_memory(api_client, tmp_path) -> None:
     alpha_root = tmp_path / "alpha"
     alpha_root.mkdir()

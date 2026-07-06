@@ -1,7 +1,7 @@
 # Report Alignment
 
 本文件只保留“报告 -> 仓库层级映射”的速览版。完整真源层级、Phase 语义、文档职责边界见
-[design-source-index.md](C:\Users\Windows11\Desktop\量化项目\docs\architecture\design-source-index.md)。
+[design-source-index.md](design-source-index.md)。
 
 ## Canonical Rule
 
@@ -28,6 +28,6 @@
 
 ## Entry Docs
 
-- 真源入口：[design-source-index.md](C:\Users\Windows11\Desktop\量化项目\docs\architecture\design-source-index.md)
+- 真源入口：[design-source-index.md](design-source-index.md)
 - 技术落地入口：`docs/architecture/technical-architecture-plan.md`
 - 产品验收入口：`docs/product/prd.md`

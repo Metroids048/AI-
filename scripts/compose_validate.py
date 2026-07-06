@@ -34,6 +34,27 @@ def build_compose_commands(project_root: Path) -> dict[str, list[str]]:
     return commands
 
 
+def _compose_files(project_root: Path) -> list[Path]:
+    return [
+        project_root / "docker-compose.yml",
+        project_root / "docker-compose.dev.yml",
+        project_root / "docker-compose.test.yml",
+        project_root / "docker-compose.paper.yml",
+        project_root / "docker-compose.live.yml",
+    ]
+
+
+def _runtime_env_example_references(project_root: Path) -> list[str]:
+    offenders: list[str] = []
+    for compose_file in _compose_files(project_root):
+        if not compose_file.exists():
+            continue
+        text = compose_file.read_text(encoding="utf-8")
+        if ".env.example" in text:
+            offenders.append(str(compose_file.relative_to(project_root)))
+    return offenders
+
+
 def validate_compose(
     *,
     project_root: Path,
@@ -53,6 +74,17 @@ def validate_compose(
             exit_code=1,
             status="missing_files",
             message=f"missing compose files: {', '.join(sorted(set(missing_files)))}",
+        )
+
+    env_example_references = _runtime_env_example_references(project_root)
+    if env_example_references:
+        return ComposeValidationResult(
+            exit_code=1,
+            status="invalid_env_file",
+            message=(
+                "runtime compose env_file must use .env, not .env.example: "
+                + ", ".join(sorted(env_example_references))
+            ),
         )
 
     if not available():

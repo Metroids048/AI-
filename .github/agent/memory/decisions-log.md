@@ -1,5 +1,12 @@
 # Decisions Log
 
+## ADR-034: P0 runtime hygiene treats templates, local databases, and workstation paths as non-runtime inputs
+- Date: 2026-07-05
+- Status: accepted
+- Context: The P0 audit found three operational risks that could mislead future work: `.dev_ai_quant.db` was tracked in Git, compose runtime services used `.env.example` as their actual env file, and several user-facing Markdown links plus Research Agent alpha scanning still pointed at this workstation's absolute paths. The same audit also found that single-tenant auth used ordinary string comparison and allowed the default token outside local development.
+- Decision: Keep `.env.example` as a template only and require compose runtime services to read `.env`; enforce this in `scripts/compose_validate.py` and CI. Remove runtime database artifacts from tracking and add repository hygiene tests that reject tracked `.db` / `.sqlite` / `.env` / private-key-like files. Make user-facing Markdown links repository-relative. Remove the Research Agent's workstation-specific alpha fallback so alpha intake must receive `alpha_root` or `WORLDQUANT_ALPHA_LOCAL_PATH`. Keep auth single-tenant for now, but use constant-time token comparison and reject `dev-admin-token` outside development/test environments.
+- Consequences: P0 hardening reduces accidental secret/runtime-artifact exposure and makes the repo portable across machines without changing the six-layer architecture or adding RBAC. Operators must create a real `.env` for compose runtime. Future P1 work should preserve these guards before adding 7x24 scheduling, broader frontend coverage, or B/C/D data source ingestion.
+
 ## ADR-033: Autonomous paper monitoring stays inside the existing Execution Layer as repeatable cycles, not a direct always-on bot
 - Date: 2026-07-04
 - Status: accepted

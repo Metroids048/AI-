@@ -53,3 +53,28 @@ def test_validate_compose_requires_docker_when_requested(tmp_path) -> None:
 
     assert result.exit_code == 2
     assert result.status == "blocked"
+
+
+def test_validate_compose_rejects_env_example_as_runtime_env_file(tmp_path) -> None:
+    _project_tree(tmp_path)
+    (tmp_path / "docker-compose.yml").write_text(
+        """
+services:
+  api:
+    image: python:3.11-slim
+    env_file:
+      - .env.example
+""",
+        encoding="utf-8",
+    )
+
+    result = validate_compose(
+        project_root=tmp_path,
+        require_docker=False,
+        docker_available=lambda: False,
+        runner=lambda _: None,
+    )
+
+    assert result.exit_code == 1
+    assert result.status == "invalid_env_file"
+    assert ".env.example" in result.message

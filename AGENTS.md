@@ -3,7 +3,7 @@
 
 ## Canonical Source
 
-- 主架构真源： [AI_Quant_Research_Platform_完整报告.docx](C:\Users\Windows11\Desktop\量化项目\AI_Quant_Research_Platform_完整报告.docx)
+- 主架构真源： [AI_Quant_Research_Platform_完整报告.docx](AI_Quant_Research_Platform_完整报告.docx)
 - 本仓库中的一切实现、拆分、命名、阶段规划，都必须优先服从这份报告。
 - 如代码实现与报告冲突：先修正实现方案，再更新代码；不得擅自降级为“简化版交易工具”。
 
@@ -174,4 +174,3 @@ tests/
   3. 统一领域模型与仓库骨架
   4. API 与任务流
   5. 数据、验证、执行、复盘实现
-

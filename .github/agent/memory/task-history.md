@@ -1,5 +1,15 @@
 # Task History
 
+### [TASK-025] P0 repository hygiene and runtime configuration hardening
+- **Date**: 2026-07-05
+- **Type**: fix + ops + docs + tests
+- **Summary**: Implemented the P0 remediation plan. Removed the tracked `.dev_ai_quant.db` runtime database from Git tracking, expanded `.gitignore` for runtime DB artifacts, changed compose runtime env files from `.env.example` to `.env`, made CI prepare a temporary `.env` for compose validation, added compose/repository/Markdown portability guard tests, hardened admin Bearer auth with constant-time comparison plus non-local default-token rejection, removed the Research Agent's workstation-specific alpha fallback path, and synchronized status docs to `Phase 0 完成 + 第一批 P1 落地`.
+- **Files changed**: `.gitignore`, `.github/workflows/ci.yml`, `docker-compose.yml`, `scripts/compose_validate.py`, `apps/api/auth.py`, `services/agents/service.py`, repository hygiene/portability/auth/agent tests, README/AGENTS/docs status files, and `.github/agent/memory/{project-memory.md,decisions-log.md,task-history.md}`.
+- **Layer mapping**: This is an Ops/API/Agent-boundary hardening task. It does not add a new layer, alter strategy logic, or bypass the required `Strategy -> Validation -> Execution -> Review` chain.
+- **Research loop served**: Keeps the research platform portable and safer to operate before adding 7x24 scheduling by ensuring runtime state and templates do not leak into source control, auth fails closed outside local development, and local research intake paths are explicit.
+- **Verification**: `py -3 -m pytest -q` -> 116 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m mypy` passed; `npm --workspace frontend/admin run build` passed; `py -3 scripts/compose_validate.py` -> `[skipped] docker not found on PATH; compose runtime validation skipped`.
+- **Notes**: No Git history rewrite was performed. `.dev_ai_quant.db` had previously been inspected as an empty schema-only SQLite database, and this task only removes it from future tracked content.
+
 ### [TASK-024] Add autonomous paper-runtime cycle over the admitted Top20 candidate universe
 - **Date**: 2026-07-04
 - **Type**: feat + execution

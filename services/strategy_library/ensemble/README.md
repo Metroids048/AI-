@@ -20,9 +20,9 @@
 
 契约定义见 `shared/models/signal.py` 的 `SignalEnsemble` / `MetaLabel` / `SignalVote`。架构说明见：
 
-- [domain-and-interfaces-design.md §3.5a/§3.5b](C:\Users\Windows11\Desktop\量化项目\docs\architecture\domain-and-interfaces-design.md)
-- [agent-and-orchestration-design.md](C:\Users\Windows11\Desktop\量化项目\docs\architecture\agent-and-orchestration-design.md)
-- [execution-risk-review-design.md §03a](C:\Users\Windows11\Desktop\量化项目\docs\architecture\execution-risk-review-design.md)
+- [domain-and-interfaces-design.md §3.5a/§3.5b](../../../docs/architecture/domain-and-interfaces-design.md)
+- [agent-and-orchestration-design.md](../../../docs/architecture/agent-and-orchestration-design.md)
+- [execution-risk-review-design.md §03a](../../../docs/architecture/execution-risk-review-design.md)
 
 ## 后续实现边界
 
