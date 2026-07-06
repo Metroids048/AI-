@@ -1,5 +1,25 @@
 # Project Memory
 
+## Open-source RAG assetization closure (TASK-027, 2026-07-06)
+
+- `research_source/open_source_strategy_library` no longer stops at manifest registration. `ResearchSourceAsset` now tracks URL, commit/ref, license, local path, sha256, byte size, status, extraction tags, and summary for local RAG assets.
+- `fetch_remote=true` now uses a GitHub allowlist from `seed_sources.json`, writes distilled Markdown assets under `assets/<source_id>/`, and records `asset_manifest.json`; failed remote paths are preserved as `failed_assets` rather than hidden.
+- Seed sources now include allowlists, denylist patterns, license policies, and extraction targets, with added RD-Agent, vectorbt, and OpenBB references alongside the earlier Freqtrade/Jesse/Hummingbot/ABU/Lean/vn.py/TradingAgents/Qbot/Superalgos/Nautilus/Qlib/FinRL set.
+- Extracted `StrategyIdea` records are now asset-driven: `intake_metadata.asset_refs` is populated from local assets, and unknown-license / metadata-only sources stay `research_note_only` so Strategy Agent cannot materialize them into drafts.
+- New research-source APIs expose local assets: `GET /api/v1/research-sources/{source_id}/assets` and `POST /api/v1/research-sources/{source_id}/refresh-assets`.
+- First local asset ingestion evidence exists for Freqtrade, Jesse, Hummingbot, ABU, NautilusTrader, Qlib, vectorbt, and OpenBB. This is still a local Markdown/manifest RAG substrate, not a vector DB or full external repository mirror.
+- Current verification baseline: `py -3 -m pytest -q` -> 124 passed / 1 skipped; Ruff passed; mypy passed; admin build passed.
+
+## 7x24 Paper decision pipeline automation (TASK-026, 2026-07-06)
+
+- Celery Beat is now configured with real schedules for all-running Paper cycles, market-data heartbeat, risk-profile sweep, daily review generation, notification dispatch, C-level news polling, B-level macro polling, and D-level Twitter watchlist polling. This upgrades the previous worker entrypoint from a manual primitive into an always-on Paper scheduler seam.
+- Non-arbitrage Paper order generation now flows through `DecisionPipeline`: persisted MACD/Dow/price-action signals -> `SignalEnsemble` -> `MetaLabel` -> optional `decision_veto_agent.pre_execution_veto_llm` -> `ExecutionOrderRequest`. Funding-threshold arbitrage remains deterministic and bypasses the technical ensemble by design.
+- Paper runtime cycles are idempotent per `paper_run_id + symbol + timeframe + latest_bar_time`, and each action can expose a decision trace for frontend/debug/review usage.
+- Stoploss/takeprofit generation now prioritizes strategy rules and falls back to ATR/risk-reward distances rather than fixed 2%/3% percentages; Gatekeeper remains the final stoploss/veto/risk hard gate.
+- Data Layer now has first C/B/D source seams: `news_items`, macro event storage, RSS/SEC polling, ForexFactory-style macro polling, Twitter watchlist polling, and stale market-data RiskEvents. Missing Twitter credentials produce explicit disabled summaries rather than false success.
+- Admin frontend has been split from a single `main.jsx` into API/hooks/pages/components and now includes a Decision Pipeline debug panel plus news, macro, review, and notification visibility. Vitest is now installed for frontend component coverage.
+- Current verification baseline: `py -3 -m pytest -q` -> 120 passed / 1 skipped; Ruff passed; mypy passed; admin Vitest passed; admin build passed; compose validation skipped locally because Docker is not on PATH.
+
 ## P0 repository hygiene and runtime configuration guardrails (TASK-025, 2026-07-05)
 
 - Runtime database artifacts are no longer allowed in source control. `.dev_ai_quant.db` was removed from Git tracking, and `.gitignore` now covers `.dev_ai_quant.db`, per-process pytest SQLite databases, and SQLite runtime artifacts.

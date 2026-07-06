@@ -21,6 +21,7 @@ from .binance import (
     stream_symbol,
 )
 from .capabilities import list_exchange_capabilities
+from .heartbeat import MarketDataHeartbeatService
 from .market import MarketQueryService
 from .repository import TIMESERIES_METADATA, DataRepository, create_timeseries_schema
 from .service import DEFAULT_BINANCE_TOP20, IngestionService
@@ -36,6 +37,7 @@ __all__ = [
     "IngestionService",
     "list_exchange_capabilities",
     "MarketQueryService",
+    "MarketDataHeartbeatService",
     "TIMESERIES_METADATA",
     "create_timeseries_schema",
     "normalize_funding_rate_history",

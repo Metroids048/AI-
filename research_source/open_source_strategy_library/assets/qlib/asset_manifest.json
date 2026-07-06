@@ -1,0 +1,49 @@
+{
+  "source_id": "qlib",
+  "repo_url": "https://github.com/microsoft/qlib",
+  "license": "MIT",
+  "license_policy": "distilled_research_allowed",
+  "updated_at": "2026-07-06T09:31:31.998018+00:00",
+  "assets": [
+    {
+      "asset_id": "qlib:a451958a64418008",
+      "source_id": "qlib",
+      "asset_type": "source_summary",
+      "origin_url": "https://github.com/microsoft/qlib",
+      "origin_ref": "local_manifest",
+      "license": "MIT",
+      "local_path": "research_source/open_source_strategy_library/assets/qlib/source_summary.md",
+      "sha256": "a451958a64418008a58f291f04ada371c9db10398a779bc74353b362b79787a3",
+      "bytes": 736,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "source_boundary",
+        "experiment_management",
+        "model_training",
+        "dataset_pipeline"
+      ],
+      "summary": "Candidate for research pipeline and experiment management patterns.",
+      "created_at": "2026-07-06T09:31:07.602889Z"
+    },
+    {
+      "asset_id": "qlib:fdb343573651e202",
+      "source_id": "qlib",
+      "asset_type": "architecture_note",
+      "origin_url": "https://github.com/microsoft/qlib/blob/d5379c520f66a39953bad76234a7019a72796fd0/README.md",
+      "origin_ref": "d5379c520f66a39953bad76234a7019a72796fd0",
+      "license": "MIT",
+      "local_path": "research_source/open_source_strategy_library/assets/qlib/workflow_notes/README.md.md",
+      "sha256": "fdb343573651e202b5161434ef0972f41dacfef317caa4cb411645c6534e1082",
+      "bytes": 3316,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "ai_quant",
+        "experiment_management",
+        "dataset_pipeline"
+      ],
+      "summary": "[![Python Versions](https://img.shields.io/pypi/pyversions/pyqlib.svg?logo=python&logoColor=white)](https://pypi.org/project/pyqlib/#files) [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20windows%20%7C%20macos-lightgrey)](https://pypi.org/project/pyqlib/#files) [![PypI Versions](https://img.shields.io/pypi/v/pyqlib)](https://pypi.org/project/pyqlib/#history) [![Upload Python Package](https://github.com/microsoft/qlib/workflows/Upload%20Python%20Package/badge.svg)](https://pypi.org/project/pyqlib/) [![Github Actions Test Status](https://github.com/microsoft/qlib/workflows/Test/badge.svg?branch=main)](https://github.com/microsoft/qlib/actions) [![Documentation Status](https://readthedocs.org/projects/qlib/badge/?version=latest)](https://qlib.readthedocs.io/en/latest/?badge=l",
+      "created_at": "2026-07-06T09:31:31.998018Z"
+    }
+  ],
+  "failed_assets": []
+}

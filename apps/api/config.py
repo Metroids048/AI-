@@ -18,12 +18,20 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
+    paper_runtime_cycle_seconds: int = 300
+    market_data_heartbeat_seconds: int = 60
+    market_data_stale_seconds: int = 120
+    notification_dispatch_seconds: int = 60
+    daily_review_hour_utc: int = 0
+    daily_review_minute_utc: int = 0
 
     claude_api_key: str = ""
     claude_model: str = "claude-sonnet-4-6"
     anthropic_api_base_url: str = "https://api.anthropic.com"
     agent_llm_provider_map: str = ""
     agent_llm_model_map: str = ""
+    decision_veto_daily_budget: int = 200
+    decision_veto_require_llm: bool = True
 
     binance_api_key: str = ""
     binance_api_secret: str = ""
@@ -53,6 +61,9 @@ class Settings(BaseSettings):
     notification_webhook_url: str = ""
     notification_dispatch_max_attempts: int = 3
     notification_dispatch_base_delay_seconds: int = 300
+    news_high_severity_pause_minutes: int = 30
+    macro_event_pause_before_minutes: int = 30
+    macro_event_pause_after_minutes: int = 15
 
     github_token: str = ""
     arxiv_categories: str = "q-fin.TR,q-fin.PM"

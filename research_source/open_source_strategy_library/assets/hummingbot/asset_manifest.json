@@ -1,0 +1,67 @@
+{
+  "source_id": "hummingbot",
+  "repo_url": "https://github.com/hummingbot/hummingbot",
+  "license": "Apache-2.0",
+  "license_policy": "distilled_research_allowed",
+  "updated_at": "2026-07-06T09:30:39.846121+00:00",
+  "assets": [
+    {
+      "asset_id": "hummingbot:8a8bdea8ab100630",
+      "source_id": "hummingbot",
+      "asset_type": "documentation",
+      "origin_url": "https://github.com/hummingbot/hummingbot/blob/816b8ab539360557cee7d9248c2f24473b10b16f/README.md",
+      "origin_ref": "816b8ab539360557cee7d9248c2f24473b10b16f",
+      "license": "Apache-2.0",
+      "local_path": "research_source/open_source_strategy_library/assets/hummingbot/docs/README.md.md",
+      "sha256": "8a8bdea8ab10063048ab94331cbb69d1b3df8ac944dd0f6c5fea89bd763cf4ee",
+      "bytes": 1798,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "market_making",
+        "connectors"
+      ],
+      "summary": "![Hummingbot](https://github.com/user-attachments/assets/3213d7f8-414b-4df8-8c1b-a0cd142a82d8) ---- [![License](https://img.shields.io/badge/License-Apache%202.0-informational.svg)](https://github.com/hummingbot/hummingbot/blob/master/LICENSE) [![Twitter](https://img.shields.io/twitter/url?url=https://twitter.com/_hummingbot?style=social&label=_hummingbot)](https://twitter.com/_hummingbot) [![Youtube](https://img.shields.io/youtube/channel/subscribers/UCxzzdEnDRbylLMWmaMjywOA)](https://www.youtube.com/@hummingbot) [![Discord](https://img.shields.io/discord/530578568154054663?logo=discord&logoColor=white&style=flat-square)](https://discord.gg/hummingbot) Hummingbot is an open-source framework that helps you design and deploy automated trading strategies, or **bots**, that can run on many ce",
+      "created_at": "2026-07-06T09:30:38.446654Z"
+    },
+    {
+      "asset_id": "hummingbot:644ee9f852d916ba",
+      "source_id": "hummingbot",
+      "asset_type": "source_summary",
+      "origin_url": "https://github.com/hummingbot/hummingbot",
+      "origin_ref": "local_manifest",
+      "license": "Apache-2.0",
+      "local_path": "research_source/open_source_strategy_library/assets/hummingbot/source_summary.md",
+      "sha256": "644ee9f852d916ba4a0afa30b258e4b5a945fbffb5735f832b2e1ba3e0d084e8",
+      "bytes": 815,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "source_boundary",
+        "grid_market_making",
+        "market_making",
+        "funding_carry"
+      ],
+      "summary": "Extract market-making, grid, spread, and inventory-risk ideas for Paper-only simulation.",
+      "created_at": "2026-07-06T09:30:35.584007Z"
+    }
+  ],
+  "failed_assets": [
+    {
+      "asset_id": "hummingbot:failed:ada08be0809a",
+      "source_id": "hummingbot",
+      "asset_type": "strategy_shape",
+      "origin_url": "https://github.com/hummingbot/hummingbot/blob/816b8ab539360557cee7d9248c2f24473b10b16f/hummingbot/strategy_v2/README.md",
+      "origin_ref": "816b8ab539360557cee7d9248c2f24473b10b16f",
+      "license": "Apache-2.0",
+      "local_path": "research_source/open_source_strategy_library/assets/hummingbot/strategy_shapes/hummingbot__strategy_v2__README.md.md",
+      "sha256": "ada08be0809a30b7d5bddcbb8c075362531f01dfbd7601b167905639755a7e59",
+      "bytes": 0,
+      "ingestion_status": "failed",
+      "extraction_tags": [
+        "strategy_v2",
+        "grid_market_making"
+      ],
+      "summary": "failed to fetch hummingbot/strategy_v2/README.md: HTTP 404",
+      "created_at": "2026-07-06T09:30:39.845121Z"
+    }
+  ]
+}

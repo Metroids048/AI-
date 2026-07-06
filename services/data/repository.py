@@ -79,6 +79,36 @@ risk_events = Table(
     Column("resolution_status", String(30)),
 )
 
+news_items = Table(
+    "news_items",
+    TIMESERIES_METADATA,
+    Column("id", String(64), primary_key=True),
+    Column("published_at", DateTime(timezone=True), nullable=False),
+    Column("source", String(50), nullable=False),
+    Column("title", Text, nullable=False),
+    Column("url", Text),
+    Column("summary", Text),
+    Column("raw_payload", JSON),
+    Column("relevance_status", String(30)),
+    Column("severity", String(20)),
+    Column("sentiment", String(20)),
+    Column("affected_symbols", JSON),
+    Index("idx_news_items_published", "published_at"),
+)
+
+macro_events = Table(
+    "macro_events",
+    TIMESERIES_METADATA,
+    Column("id", String(64), primary_key=True),
+    Column("event_name", String(80), nullable=False),
+    Column("source", String(50)),
+    Column("impact", String(20)),
+    Column("scheduled_at", DateTime(timezone=True), nullable=False),
+    Column("affected_symbols", JSON),
+    Column("notes", Text),
+    Index("idx_macro_events_scheduled_repo", "scheduled_at"),
+)
+
 
 def create_timeseries_schema(engine: Engine) -> None:
     """Create ordinary tables for local SQLite tests and dev smoke runs."""
@@ -98,6 +128,9 @@ def _as_decimal(value: Any) -> Decimal | None:
 def _as_aware(value: datetime | None) -> datetime | None:
     if value is None:
         return None
+    if isinstance(value, str):
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value
@@ -331,6 +364,100 @@ class DataRepository:
         )
         self.session.commit()
         return event.model_copy(update={"risk_event_id": event_id})
+
+    def store_news_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        import uuid
+
+        news_key = f"{item.get('source')}:{item.get('url') or item.get('title')}"
+        item_id = str(item.get("id") or uuid.uuid5(uuid.NAMESPACE_URL, news_key))
+        row = {
+            "id": item_id,
+            "published_at": _as_aware(item.get("published_at")) or datetime.now(UTC),
+            "source": item.get("source", "unknown"),
+            "title": item.get("title", ""),
+            "url": item.get("url"),
+            "summary": item.get("summary"),
+            "raw_payload": item.get("raw_payload", {}),
+            "relevance_status": item.get("relevance_status", "captured"),
+            "severity": item.get("severity"),
+            "sentiment": item.get("sentiment"),
+            "affected_symbols": item.get("affected_symbols"),
+        }
+        existing = self.session.execute(select(news_items).where(news_items.c.id == item_id)).first()
+        if existing is None:
+            self.session.execute(insert(news_items), row)
+        else:
+            self.session.execute(update(news_items).where(news_items.c.id == item_id).values(**row))
+        self.session.commit()
+        return {**row, "published_at": row["published_at"].isoformat()}
+
+    def list_news_items(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        stmt = select(news_items).order_by(news_items.c.published_at.desc()).limit(limit)
+        return [
+            {
+                "id": row.id,
+                "published_at": (_as_aware(row.published_at) or datetime.now(UTC)).isoformat(),
+                "source": row.source,
+                "title": row.title,
+                "url": row.url,
+                "summary": row.summary,
+                "raw_payload": row.raw_payload or {},
+                "relevance_status": row.relevance_status,
+                "severity": row.severity,
+                "sentiment": row.sentiment,
+                "affected_symbols": row.affected_symbols,
+            }
+            for row in self.session.execute(stmt).all()
+        ]
+
+    def store_macro_event(self, item: dict[str, Any]) -> dict[str, Any]:
+        import uuid
+
+        scheduled_at = _as_aware(item.get("scheduled_at")) or datetime.now(UTC)
+        macro_key = f"{item.get('source')}:{item.get('event_name')}:{scheduled_at.isoformat()}"
+        item_id = str(item.get("id") or uuid.uuid5(uuid.NAMESPACE_URL, macro_key))
+        row = {
+            "id": item_id,
+            "event_name": item.get("event_name", "unknown_macro_event"),
+            "source": item.get("source", "macro_calendar"),
+            "impact": item.get("impact", "low"),
+            "scheduled_at": scheduled_at,
+            "affected_symbols": item.get("affected_symbols"),
+            "notes": item.get("notes"),
+        }
+        existing = self.session.execute(select(macro_events).where(macro_events.c.id == item_id)).first()
+        if existing is None:
+            self.session.execute(insert(macro_events), row)
+        else:
+            self.session.execute(update(macro_events).where(macro_events.c.id == item_id).values(**row))
+        self.session.commit()
+        return {**row, "scheduled_at": row["scheduled_at"].isoformat()}
+
+    def list_macro_events(
+        self,
+        *,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        stmt = select(macro_events).order_by(macro_events.c.scheduled_at)
+        if start_at is not None:
+            stmt = stmt.where(macro_events.c.scheduled_at >= start_at)
+        if end_at is not None:
+            stmt = stmt.where(macro_events.c.scheduled_at <= end_at)
+        stmt = stmt.limit(limit)
+        return [
+            {
+                "id": row.id,
+                "event_name": row.event_name,
+                "source": row.source,
+                "impact": row.impact,
+                "scheduled_at": (_as_aware(row.scheduled_at) or datetime.now(UTC)).isoformat(),
+                "affected_symbols": row.affected_symbols,
+                "notes": row.notes,
+            }
+            for row in self.session.execute(stmt).all()
+        ]
 
     def get_risk_event(self, risk_event_id: str) -> RiskEvent | None:
         row = self.session.execute(select(risk_events).where(risk_events.c.id == risk_event_id)).first()

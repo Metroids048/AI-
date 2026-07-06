@@ -9,7 +9,14 @@ from services.data import DataRepository
 from services.data.service import DEFAULT_BINANCE_TOP20
 from services.execution.gatekeeper import ExecutionGatekeeperService
 from services.execution.paper_signal import PaperSignalGenerator
-from services.strategy_library import ExecutionRepository, PaperRunRepository, StrategyRepository
+from services.strategy_library import (
+    AgentTaskRepository,
+    ExecutionRepository,
+    NotificationRepository,
+    PaperRunRepository,
+    ReviewRepository,
+    StrategyRepository,
+)
 from shared.models import (
     ExecutionOrderRequest,
     OrderExecution,
@@ -35,6 +42,9 @@ class PaperRuntimeService:
         execution_repo: ExecutionRepository,
         paper_repo: PaperRunRepository,
         strategy_repo: StrategyRepository,
+        agent_repo: AgentTaskRepository | None = None,
+        review_repo: ReviewRepository | None = None,
+        notification_repo: NotificationRepository | None = None,
         gatekeeper: ExecutionGatekeeperService,
     ) -> None:
         self.data_repo = data_repo
@@ -42,7 +52,14 @@ class PaperRuntimeService:
         self.paper_repo = paper_repo
         self.strategy_repo = strategy_repo
         self.gatekeeper = gatekeeper
-        self.signal_generator = PaperSignalGenerator(data_repo=data_repo)
+        self.signal_generator = PaperSignalGenerator(
+            data_repo=data_repo,
+            execution_repo=execution_repo,
+            agent_repo=agent_repo,
+            strategy_repo=strategy_repo,
+            review_repo=review_repo,
+            notification_repo=notification_repo,
+        )
 
     def get_runtime_status(self, *, paper_run_id: str) -> PaperRuntimeStatus:
         paper_run = self._require_paper_run(paper_run_id)
@@ -60,6 +77,7 @@ class PaperRuntimeService:
             last_cycle_at=_parse_datetime(metrics.get("last_cycle_at")),
             last_scanned_symbols=list(metrics.get("last_scanned_symbols", [])),
             last_action_counts=dict(metrics.get("last_action_counts", {})),
+            last_cycle_decisions=list(metrics.get("last_cycle_decisions", [])),
         )
 
     def run_cycle(self, *, paper_run_id: str, request: PaperRuntimeCycleRequest) -> PaperRuntimeCycleResult:
@@ -74,6 +92,8 @@ class PaperRuntimeService:
         scanned_symbols = self._select_symbols(paper_run=paper_run, request=request)
         actions: list[PaperRuntimeAction] = []
         metrics = dict(paper_run.paper_metrics_summary)
+        processed_keys = set(metrics.get("processed_cycle_keys", []))
+        new_processed_keys = list(processed_keys)
         realized_total = float(metrics.get("realized_pnl_total", 0.0))
         daily_realized_pnl = float(metrics.get("daily_realized_pnl", 0.0))
         weekly_realized_pnl = float(metrics.get("weekly_realized_pnl", 0.0))
@@ -95,13 +115,50 @@ class PaperRuntimeService:
                     )
                 )
                 continue
+            cycle_key = f"{paper_run_id}:{symbol}:{request.timeframe}:{latest_bar.timestamp.isoformat()}"
+            if cycle_key in processed_keys:
+                skipped_symbols += 1
+                actions.append(
+                    PaperRuntimeAction(
+                        symbol=symbol,
+                        action="skip_duplicate_cycle",
+                        reason="symbol already processed for this closed bar",
+                        reference_price=float(latest_bar.close),
+                        idempotency_key=cycle_key,
+                    )
+                )
+                continue
 
             base_order = self.signal_generator.generate_order(
                 paper_run=paper_run,
                 strategy=strategy,
-                request=PaperRunStepRequest(symbol=symbol, timeframe=request.timeframe),
+                request=PaperRunStepRequest(
+                    symbol=symbol,
+                    timeframe=request.timeframe,
+                    idempotency_key=cycle_key,
+                    enable_decision_veto=request.enable_decision_veto,
+                ),
                 positions=list(active_positions.values()),
             )
+            decision_trace = dict(base_order.entry_context.get("decision_pipeline", {}))
+            if not bool(base_order.entry_context.get("paper_order_should_trade", True)):
+                skipped_symbols += 1
+                if cycle_key not in new_processed_keys:
+                    new_processed_keys.append(cycle_key)
+                actions.append(
+                    PaperRuntimeAction(
+                        symbol=symbol,
+                        action="skip_no_trade_decision",
+                        direction=base_order.direction,
+                        reason=base_order.entry_context.get("decision_reason"),
+                        reference_price=float(latest_bar.close),
+                        idempotency_key=cycle_key,
+                        decision_trace=decision_trace,
+                    )
+                )
+                continue
+            if cycle_key not in new_processed_keys:
+                new_processed_keys.append(cycle_key)
             current_position = active_positions.get(symbol)
             reference_price = float(latest_bar.close)
 
@@ -134,6 +191,8 @@ class PaperRuntimeService:
                                 order_execution_id=order.order_execution_id,
                                 reference_price=reference_price,
                                 close_only=True,
+                                idempotency_key=cycle_key,
+                                decision_trace=decision_trace,
                             )
                         )
                     else:
@@ -147,6 +206,8 @@ class PaperRuntimeService:
                                 order_execution_id=order.order_execution_id,
                                 reference_price=reference_price,
                                 close_only=True,
+                                idempotency_key=cycle_key,
+                                decision_trace=decision_trace,
                             )
                         )
                     continue
@@ -163,6 +224,8 @@ class PaperRuntimeService:
                         action="hold_long" if current_position.side == TradeSide.LONG else "hold_short",
                         direction=current_position.side,
                         reference_price=reference_price,
+                        idempotency_key=cycle_key,
+                        decision_trace=decision_trace,
                     )
                 )
                 continue
@@ -178,6 +241,8 @@ class PaperRuntimeService:
                         reason=order.rejection_reason,
                         order_execution_id=order.order_execution_id,
                         reference_price=reference_price,
+                        idempotency_key=cycle_key,
+                        decision_trace=decision_trace,
                     )
                 )
                 continue
@@ -197,9 +262,10 @@ class PaperRuntimeService:
                     direction=position.side,
                     order_execution_id=order.order_execution_id,
                     reference_price=reference_price,
+                    idempotency_key=cycle_key,
+                    decision_trace=decision_trace,
                 )
             )
-
         account_equity = self._starting_equity(paper_run) + realized_total
         equity_peak = max(float(metrics.get("equity_peak", self._starting_equity(paper_run))), account_equity)
         last_action_counts = {
@@ -220,6 +286,18 @@ class PaperRuntimeService:
             "last_scanned_symbols": scanned_symbols,
             "last_action_counts": last_action_counts,
             "last_cycle_actions": [action.model_dump(mode="json") for action in actions],
+            "last_cycle_decisions": [
+                {
+                    "symbol": action.symbol,
+                    "action": action.action,
+                    "idempotency_key": action.idempotency_key,
+                    "decision_trace": action.decision_trace,
+                    "reason": action.reason,
+                }
+                for action in actions
+                if action.decision_trace
+            ],
+            "processed_cycle_keys": new_processed_keys[-500:],
             "open_position_symbols": sorted(active_positions.keys()),
         }
         updated_run = self.paper_repo.update_paper_run(

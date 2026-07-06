@@ -8,6 +8,9 @@
 > 通知 outbox 和 deterministic Decision Veto/Review executor 已有首版可测试实现；2026-07-04 又补齐了
 > `/api/v1/*` 单租户 Bearer 鉴权、Telegram/Webhook 通知派送闭环、`frontend/admin` build 校验恢复，
 > 以及 `compose-validate` 脚本化/CI 路径。完整 DSR、Email adapter、Docker runtime smoke、live 下单仍未实现。
+> 2026-07-06 开源策略库已补为真实 RAG 资产化摄取：按 manifest allowlist 拉取远端资料、生成
+> `asset_manifest.json` 与本地 Markdown 资产，并基于 `asset_refs` 提取 `StrategyIdea`；向量库/LlamaIndex
+> 检索层和深度 LLM 研究报告仍未实现。
 > 最新对账请优先查看 [implementation-status-matrix.md](implementation-status-matrix.md)。
 
 ## 文档定位
@@ -120,7 +123,7 @@ Risk Engine 横切 Validation/Execution/Review 三层，任何一层拒绝，执
 | Backtrader / VectorBT | 多市场/更灵活研究备用引擎 | AGENTS.md 必需技术栈，P1 预留 |
 | pandas-ta | 技术指标库（TA-Lib 可选） | ADR-010 |
 | Claude API（`anthropic` SDK） | Agent 能力 | AGENTS.md 必需技术栈；接入方式见后续 LLM 接入方案文档 |
-| LangChain / LlamaIndex | RAG / 知识检索层 | AGENTS.md 必需技术栈；P0 仅声明依赖，未接入代码 |
+| LangChain / LlamaIndex | RAG / 知识检索层 | AGENTS.md 必需技术栈；当前已有本地 Markdown 资产与 asset manifest，向量检索/索引服务仍未接入 |
 | React + Tailwind | 管理后台 | AGENTS.md 必需技术栈，P1 起步 |
 | uv + setuptools | 依赖锁定 / 构建后端 | ADR-010 |
 

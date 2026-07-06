@@ -5,7 +5,16 @@ from __future__ import annotations
 from decimal import Decimal
 
 from services.data import DataRepository
+from services.execution.decision_pipeline import DecisionPipeline, DecisionPipelineResult
+from services.strategy_library import (
+    AgentTaskRepository,
+    ExecutionRepository,
+    NotificationRepository,
+    ReviewRepository,
+    StrategyRepository,
+)
 from shared.models import (
+    DecisionVetoResult,
     ExecutionOrderRequest,
     ExecutionRiskState,
     PaperRun,
@@ -19,8 +28,25 @@ from shared.models import (
 class PaperSignalGenerator:
     """Create a candidate paper order; final approval always belongs to gatekeeper."""
 
-    def __init__(self, *, data_repo: DataRepository) -> None:
+    def __init__(
+        self,
+        *,
+        data_repo: DataRepository,
+        execution_repo: ExecutionRepository | None = None,
+        agent_repo: AgentTaskRepository | None = None,
+        strategy_repo: StrategyRepository | None = None,
+        review_repo: ReviewRepository | None = None,
+        notification_repo: NotificationRepository | None = None,
+    ) -> None:
         self.data_repo = data_repo
+        self.decision_pipeline = DecisionPipeline(
+            data_repo=data_repo,
+            execution_repo=execution_repo,
+            agent_repo=agent_repo,
+            strategy_repo=strategy_repo,
+            review_repo=review_repo,
+            notification_repo=notification_repo,
+        )
 
     def generate_order(
         self,
@@ -32,15 +58,26 @@ class PaperSignalGenerator:
     ) -> ExecutionOrderRequest:
         symbol = request.symbol or (paper_run.symbol_scope[0] if paper_run.symbol_scope else "BTC/USDT")
         timeframe = request.timeframe or str(strategy.timeframe)
-        bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=timeframe)
-        reference_price = Decimal("0") if bar is None else bar.close
-        direction = self._direction_for_strategy(strategy=strategy, symbol=symbol, request=request)
-        stoploss, takeprofit = self._risk_prices(reference_price=reference_price, direction=direction)
+        decision = self._decision_for_strategy(
+            strategy=strategy,
+            symbol=symbol,
+            timeframe=timeframe,
+            request=request,
+        )
+        reference_price = decision.reference_price
+        direction = decision.direction or TradeSide.LONG
+        stoploss, takeprofit = self._risk_prices(
+            reference_price=reference_price,
+            direction=direction,
+            strategy=strategy,
+            atr=decision.atr,
+        )
         requested_leverage = self._requested_leverage(strategy=strategy, paper_run=paper_run)
         requested_notional = self._requested_notional(
             strategy=strategy,
             paper_run=paper_run,
             requested_leverage=requested_leverage,
+            confidence_multiplier=decision.confidence_multiplier,
         )
         risk_state = self._build_risk_state(
             paper_run=paper_run,
@@ -49,6 +86,13 @@ class PaperSignalGenerator:
             requested_notional=requested_notional,
             requested_leverage=requested_leverage,
         )
+        veto_result = decision.veto_result
+        if not decision.should_trade and veto_result is None:
+            veto_result = DecisionVetoResult(
+                veto=True,
+                veto_reason=f"decision pipeline skipped order: {decision.reason}",
+                checked_at=decision.bar_time,
+            )
         return ExecutionOrderRequest(
             strategy_id=paper_run.strategy_id,
             version_id=paper_run.version_id,
@@ -61,41 +105,120 @@ class PaperSignalGenerator:
                 "reference_price": str(reference_price),
                 "requested_notional": requested_notional,
                 "requested_leverage": requested_leverage,
+                "decision_pipeline": decision.trace,
+                "decision_reason": decision.reason,
+                "decision_bar_time": decision.bar_time.isoformat() if decision.bar_time else None,
+                "paper_order_should_trade": decision.should_trade,
             },
-            stoploss_plan={"price": float(stoploss), "basis": "paper_generated_required_stop"},
-            takeprofit_plan={"price": float(takeprofit), "basis": "paper_generated_takeprofit"},
+            stoploss_plan={"price": float(stoploss), "basis": "strategy_rule_or_atr_required_stop"},
+            takeprofit_plan={"price": float(takeprofit), "basis": "strategy_rule_or_atr_takeprofit"},
+            signal_ensemble_id=decision.ensemble.ensemble_id if decision.ensemble is not None else None,
+            meta_label_id=decision.meta_label.meta_label_id if decision.meta_label is not None else None,
+            veto_result=veto_result,
             validation_backtest_run_id=paper_run.gate_decision_ref,
             paper_run_id=paper_run.paper_run_id,
             risk_state=risk_state,
             idempotency_key=request.idempotency_key,
         )
 
-    def _direction_for_strategy(
+    def _decision_for_strategy(
         self,
         *,
         strategy: StrategyContract,
         symbol: str,
+        timeframe: str,
         request: PaperRunStepRequest,
-    ) -> TradeSide:
+    ) -> DecisionPipelineResult:
         rules = strategy.rules
         if "funding_threshold_bps" in rules.entry_rules:
             perp_symbol = request.perp_symbol or f"{symbol}:USDT"
             latest_funding = self.data_repo.get_latest_market_extras(symbol=perp_symbol)
             if latest_funding is not None and latest_funding.funding_rate is not None:
-                return TradeSide.SHORT if latest_funding.funding_rate > 0 else TradeSide.LONG
-            return TradeSide.SHORT
+                direction = TradeSide.SHORT if latest_funding.funding_rate > 0 else TradeSide.LONG
+            else:
+                direction = TradeSide.SHORT
+            bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=timeframe)
+            reference_price = Decimal("0") if bar is None else bar.close
+            return DecisionPipelineResult(
+                direction=direction,
+                should_trade=True,
+                reason="funding_threshold_deterministic",
+                reference_price=reference_price,
+                bar_time=bar.timestamp if bar else None,
+                signals=[],
+                ensemble=None,
+                meta_label=None,
+                veto_result=None,
+                confidence_multiplier=1.0,
+                atr=None,
+                volatility_context={"regime": "funding_arbitrage"},
+                trace={
+                    "pipeline_status": "funding_arbitrage_bypass",
+                    "funding_rate": str(latest_funding.funding_rate) if latest_funding else None,
+                    "perp_symbol": perp_symbol,
+                },
+            )
 
-        bars = self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=request.timeframe, limit=2)
-        if len(bars) >= 2 and bars[-1].close < bars[-2].close:
-            return TradeSide.SHORT
-        return TradeSide.LONG
+        return self.decision_pipeline.evaluate(
+            strategy=strategy,
+            symbol=symbol,
+            timeframe=timeframe,
+            enable_decision_veto=request.enable_decision_veto,
+        )
 
-    def _risk_prices(self, *, reference_price: Decimal, direction: TradeSide) -> tuple[Decimal, Decimal]:
+    def _risk_prices(
+        self,
+        *,
+        reference_price: Decimal,
+        direction: TradeSide,
+        strategy: StrategyContract,
+        atr: float | None,
+    ) -> tuple[Decimal, Decimal]:
         if reference_price <= 0:
             reference_price = Decimal("1")
+        stop_distance = self._stop_distance(reference_price=reference_price, strategy=strategy, atr=atr)
+        take_distance = self._take_distance(
+            stop_distance=stop_distance,
+            strategy=strategy,
+            reference_price=reference_price,
+        )
         if direction == TradeSide.LONG:
-            return reference_price * Decimal("0.98"), reference_price * Decimal("1.03")
-        return reference_price * Decimal("1.02"), reference_price * Decimal("0.97")
+            return max(reference_price - stop_distance, Decimal("0.00000001")), reference_price + take_distance
+        return reference_price + stop_distance, max(reference_price - take_distance, Decimal("0.00000001"))
+
+    @staticmethod
+    def _stop_distance(
+        *,
+        reference_price: Decimal,
+        strategy: StrategyContract,
+        atr: float | None,
+    ) -> Decimal:
+        rules = strategy.rules.stoploss_rules
+        if "fixed_bps" in rules:
+            return reference_price * Decimal(str(rules["fixed_bps"])) / Decimal("10000")
+        if "basis_bps" in rules:
+            return reference_price * Decimal(str(rules["basis_bps"])) / Decimal("10000")
+        atr_multiple = Decimal(str(rules.get("atr_multiple", 1.5)))
+        if atr is not None and atr > 0:
+            return Decimal(str(atr)) * atr_multiple
+        if "max_net_loss_bps" in rules:
+            return reference_price * Decimal(str(rules["max_net_loss_bps"])) / Decimal("10000")
+        return reference_price * Decimal("0.015")
+
+    @staticmethod
+    def _take_distance(
+        *,
+        stop_distance: Decimal,
+        strategy: StrategyContract,
+        reference_price: Decimal,
+    ) -> Decimal:
+        rules = strategy.rules.takeprofit_rules
+        if "fixed_bps" in rules:
+            return reference_price * Decimal(str(rules["fixed_bps"])) / Decimal("10000")
+        if "min_net_profit_bps" in rules:
+            return reference_price * Decimal(str(rules["min_net_profit_bps"])) / Decimal("10000")
+        reward = Decimal(str(rules.get("risk_reward", 2.0)))
+        return stop_distance * reward
 
     @staticmethod
     def _requested_leverage(*, strategy: StrategyContract, paper_run: PaperRun) -> float:
@@ -109,20 +232,22 @@ class PaperSignalGenerator:
         strategy: StrategyContract,
         paper_run: PaperRun,
         requested_leverage: float,
+        confidence_multiplier: float = 1.0,
     ) -> float:
         position_rules = strategy.rules.position_rules
         if "notional_usdt" in position_rules:
-            return float(position_rules["notional_usdt"])
+            return float(position_rules["notional_usdt"]) * max(confidence_multiplier, 0.0)
         if "order_notional_usdt" in position_rules:
-            return float(position_rules["order_notional_usdt"])
+            return float(position_rules["order_notional_usdt"]) * max(confidence_multiplier, 0.0)
         account_equity = float(
             paper_run.paper_metrics_summary.get("account_equity")
             or paper_run.execution_profile.get("account_equity")
             or 10_000.0
         )
         if "risk_per_trade" in position_rules:
-            return float(account_equity * float(position_rules["risk_per_trade"]) * max(requested_leverage, 1.0))
-        return min(account_equity * 0.05, 1_000.0)
+            base = float(account_equity * float(position_rules["risk_per_trade"]) * max(requested_leverage, 1.0))
+            return base * max(confidence_multiplier, 0.0)
+        return min(account_equity * 0.05, 1_000.0) * max(confidence_multiplier, 0.0)
 
     @staticmethod
     def _build_risk_state(

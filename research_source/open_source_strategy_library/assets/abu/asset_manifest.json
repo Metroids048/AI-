@@ -1,0 +1,49 @@
+{
+  "source_id": "abu",
+  "repo_url": "https://github.com/bbfamily/abu",
+  "license": "MIT",
+  "license_policy": "distilled_research_allowed",
+  "updated_at": "2026-07-06T09:33:30.125887+00:00",
+  "assets": [
+    {
+      "asset_id": "abu:e47fce973538232b",
+      "source_id": "abu",
+      "asset_type": "documentation",
+      "origin_url": "https://github.com/bbfamily/abu/blob/d602d847677e4c2b77b0a122df30816ea68b5710/readme.md",
+      "origin_ref": "d602d847677e4c2b77b0a122df30816ea68b5710",
+      "license": "MIT",
+      "local_path": "research_source/open_source_strategy_library/assets/abu/docs/readme.md.md",
+      "sha256": "e47fce973538232bdee21952121d8b2e556f09c2f27df1e46bd5ba5ee9116a7b",
+      "bytes": 2114,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "price_action",
+        "market_report",
+        "strategy_taxonomy"
+      ],
+      "summary": "### 索引 | 内容 | 位置 | | ------| ------ | | 阿布量化系统源代码 | abupy目录 | | 阿布量化使用教程 | abupy_lecture目录 | | 阿布量化非编程界面操作 | abupy_ui目录 | | 《量化交易之路》示例代码 | ipython／python目录| | 《机器学习之路》示例代码 | https://github.com/maxmon/abu_ml | ###  🏆 [览器访问网址: https://www.abuquant.com](https://www.abuquant.com) 1. [上证指数(000001) 实时AI研报:](https://www.abuquant.com/abu_context/output_gi_week3/report/000001/index.html) 2. [黄金/美元(XAU) 实时AI研报](https://www.abuquant.com/abu_context/output_gi_week3/report/XAU/index.html) 3. [纳斯达克(NDX) 实时AI研报](https://www.abuquant.com/abu_context/output_gi_week3/report/NDX/index.html) 4. [恒生指数(HSI) 实时AI研报](https://www.abuquant.com/abu_context/output_gi_week3/report/HSI/index.html) 5. [深证成指(399001) 实时AI研报](https://www.abuquant.com/abu_context/output_gi_week3/report/399001/index.html) 6. [美元兑离岸人民币(USDCNH",
+      "created_at": "2026-07-06T09:33:30.104887Z"
+    },
+    {
+      "asset_id": "abu:d3bdd3ed918f94a8",
+      "source_id": "abu",
+      "asset_type": "source_summary",
+      "origin_url": "https://github.com/bbfamily/abu",
+      "origin_ref": "local_manifest",
+      "license": "MIT",
+      "local_path": "research_source/open_source_strategy_library/assets/abu/source_summary.md",
+      "sha256": "d3bdd3ed918f94a85242444a227ecfd424e53f4ec786625ebaaf1042b0ee6af2",
+      "bytes": 798,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "source_boundary",
+        "price_action",
+        "trend_following",
+        "research_report"
+      ],
+      "summary": "Extract market report intake, price-action theory, signal taxonomy, and quant research architecture.",
+      "created_at": "2026-07-06T09:33:27.490606Z"
+    }
+  ],
+  "failed_assets": []
+}

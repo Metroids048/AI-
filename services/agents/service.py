@@ -116,8 +116,12 @@ class AgentTaskService:
                 "executor_registered": True,
                 "imported_count": len(import_result.imported),
                 "failed_count": len(import_result.failed),
+                "asset_count": len(import_result.imported_assets),
+                "failed_asset_count": len(import_result.failed_assets),
                 "imported_source_ids": [item.source_id for item in import_result.imported],
                 "failed_source_ids": [item.source_id for item in import_result.failed],
+                "imported_assets": [item.model_dump(mode="json") for item in import_result.imported_assets],
+                "failed_assets": [item.model_dump(mode="json") for item in import_result.failed_assets],
                 "output_ref": f"open_source_sources:{len(import_result.imported)}",
             }
 

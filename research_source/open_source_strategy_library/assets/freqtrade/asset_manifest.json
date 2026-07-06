@@ -1,0 +1,85 @@
+{
+  "source_id": "freqtrade",
+  "repo_url": "https://github.com/freqtrade/freqtrade",
+  "license": "GPL-3.0",
+  "license_policy": "distilled_research_only",
+  "updated_at": "2026-07-06T09:38:10.863401+00:00",
+  "assets": [
+    {
+      "asset_id": "freqtrade:fe88d4d177c35d33",
+      "source_id": "freqtrade",
+      "asset_type": "documentation",
+      "origin_url": "https://github.com/freqtrade/freqtrade/blob/4de16ac9521079ad03ab97f296bea49ceadb9f6f/README.md",
+      "origin_ref": "4de16ac9521079ad03ab97f296bea49ceadb9f6f",
+      "license": "GPL-3.0",
+      "local_path": "research_source/open_source_strategy_library/assets/freqtrade/docs/README.md.md",
+      "sha256": "fe88d4d177c35d33fe2650e2754b9d9b8b1b971913753c70b7eff92399f232ae",
+      "bytes": 3221,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "dry_run",
+        "backtesting",
+        "hyperopt"
+      ],
+      "summary": "# ![freqtrade](https://raw.githubusercontent.com/freqtrade/freqtrade/develop/docs/assets/freqtrade_poweredby.svg) [![Freqtrade CI](https://github.com/freqtrade/freqtrade/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/freqtrade/freqtrade/actions/workflows/ci.yml) [![DOI](https://joss.theoj.org/papers/10.21105/joss.04864/status.svg)](https://doi.org/10.21105/joss.04864) [![codecov](https://codecov.io/gh/freqtrade/freqtrade/branch/develop/graph/badge.svg?token=AD5BG3ATKI)](https://codecov.io/gh/freqtrade/freqtrade) [![Documentation](https://readthedocs.org/projects/freqtrade/badge/)](https://www.freqtrade.io) [![Discord Server](https://img.shields.io/badge/Freqtrade_Discord-4E4E4E?logo=discord)](https://discord.gg/p7nuUNVfP7) Freqtrade is a free and open source crypto",
+      "created_at": "2026-07-06T09:32:42.654647Z"
+    },
+    {
+      "asset_id": "freqtrade:310f164ff71a8e64",
+      "source_id": "freqtrade",
+      "asset_type": "source_summary",
+      "origin_url": "https://github.com/freqtrade/freqtrade",
+      "origin_ref": "local_manifest",
+      "license": "GPL-3.0",
+      "local_path": "research_source/open_source_strategy_library/assets/freqtrade/source_summary.md",
+      "sha256": "310f164ff71a8e644485102a6b25db20c96c2fe19bf920d5cca5b7effad1adc2",
+      "bytes": 840,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "source_boundary",
+        "funding_carry",
+        "trend_following",
+        "optimization_workflow"
+      ],
+      "summary": "Extract crypto strategy structure, dry-run discipline, and optimization workflow patterns.",
+      "created_at": "2026-07-06T09:38:10.862402Z"
+    },
+    {
+      "asset_id": "freqtrade:64fe8dd7508d58a2",
+      "source_id": "freqtrade",
+      "asset_type": "strategy_shape",
+      "origin_url": "https://github.com/freqtrade/freqtrade/blob/4de16ac9521079ad03ab97f296bea49ceadb9f6f/docs/strategy-customization.md",
+      "origin_ref": "4de16ac9521079ad03ab97f296bea49ceadb9f6f",
+      "license": "GPL-3.0",
+      "local_path": "research_source/open_source_strategy_library/assets/freqtrade/strategy_shapes/docs__strategy-customization.md.md",
+      "sha256": "64fe8dd7508d58a24d221f533a91311a86837a0ecbba585945724d21fcabf70d",
+      "bytes": 2815,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "strategy_template",
+        "technical_signal"
+      ],
+      "summary": "# Strategy Customization This page explains how to customize your strategies, add new indicators and set up trading rules. If you haven't already, please familiarize yourself with: - the [Freqtrade strategy 101](strategy-101.md), which provides a quick start to strategy development - the [Freqtrade bot basics](bot-basics.md), which provides overall info on how the bot operates ## Develop your own strategy The bot includes a default strategy file. Also, several other strategies are available in the [strategy repository](https://github.com/freqtrade/freqtrade-strategies). You will however most likely have your own idea for a strategy. This document intends to help you convert your ideas into a working strategy. ### Generating a strategy template To get started, you can use the command: ```ba",
+      "created_at": "2026-07-06T09:29:43.525157Z"
+    },
+    {
+      "asset_id": "freqtrade:a6b9d84fc3fba04c",
+      "source_id": "freqtrade",
+      "asset_type": "workflow_note",
+      "origin_url": "https://github.com/freqtrade/freqtrade/blob/4de16ac9521079ad03ab97f296bea49ceadb9f6f/docs/hyperopt.md",
+      "origin_ref": "4de16ac9521079ad03ab97f296bea49ceadb9f6f",
+      "license": "GPL-3.0",
+      "local_path": "research_source/open_source_strategy_library/assets/freqtrade/workflow_notes/docs__hyperopt.md.md",
+      "sha256": "a6b9d84fc3fba04c20eb7b343317fbe120ea573df31e8ff4e737f4a07be7dafb",
+      "bytes": 2912,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "optimization",
+        "parameter_search"
+      ],
+      "summary": "# Hyperopt This page explains how to tune your strategy by finding the optimal parameters, a process called hyperparameter optimization. The bot uses algorithms included in the `optuna` package to accomplish this. The search will burn all your CPU cores, make your laptop sound like a fighter jet and still take a long time. In general, the search for best parameters starts with a few random combinations (see [below](#reproducible-results) for more details) and then uses one of optuna's sampler algorithms (currently NSGAIIISampler) to quickly find a combination of parameters in the search hyperspace that minimizes the value of the [loss function](#loss-functions). Hyperopt requires historic data to be available, just as backtesting does (hyperopt runs backtesting many times with different pa",
+      "created_at": "2026-07-06T09:33:27.132395Z"
+    }
+  ],
+  "failed_assets": []
+}

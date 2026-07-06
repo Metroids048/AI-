@@ -8,9 +8,13 @@ from typing import Any
 from celery import shared_task
 
 from services.data.binance import BinanceBackfillService
+from services.data.heartbeat import MarketDataHeartbeatService
+from services.data.macro_calendar import MacroCalendarService
+from services.data.news import NewsIngestionService
 from services.data.repository import DataRepository
+from services.data.social import SocialIngestionService
 from services.database import get_session_factory
-from services.strategy_library import IngestionRepository
+from services.strategy_library import AgentTaskRepository, IngestionRepository, ReviewRepository, StrategyRepository
 from shared.models import IngestionJob
 
 from .service import IngestionService
@@ -117,5 +121,56 @@ def enqueue_binance_ingestion(job_payload: dict, *, client=None) -> dict:
                 error_summary=str(exc),
             )
             raise
+    finally:
+        session.close()
+
+
+@shared_task(name="services.data.tasks.market_data_heartbeat", queue="ops_queue")
+def market_data_heartbeat(symbols: list[str] | None = None, timeframe: str = "1m") -> dict:
+    session = get_session_factory()()
+    try:
+        return MarketDataHeartbeatService(data_repo=DataRepository(session)).check_symbols(
+            symbols=symbols or ["BTC/USDT"],
+            timeframe=timeframe,
+        )
+    finally:
+        session.close()
+
+
+@shared_task(name="services.data.tasks.poll_news_feeds", queue="ingestion_queue")
+def poll_news_feeds() -> dict:
+    session = get_session_factory()()
+    try:
+        service = NewsIngestionService(
+            data_repo=DataRepository(session),
+            agent_repo=AgentTaskRepository(session),
+            strategy_repo=StrategyRepository(session),
+            review_repo=ReviewRepository(session),
+        )
+        return service.poll_configured_feeds()
+    finally:
+        session.close()
+
+
+@shared_task(name="services.data.tasks.poll_macro_calendar", queue="ingestion_queue")
+def poll_macro_calendar() -> dict:
+    session = get_session_factory()()
+    try:
+        return MacroCalendarService(data_repo=DataRepository(session)).poll_configured_sources()
+    finally:
+        session.close()
+
+
+@shared_task(name="services.data.tasks.poll_social_watchlist", queue="ingestion_queue")
+def poll_social_watchlist() -> dict:
+    session = get_session_factory()()
+    try:
+        news_service = NewsIngestionService(
+            data_repo=DataRepository(session),
+            agent_repo=AgentTaskRepository(session),
+            strategy_repo=StrategyRepository(session),
+            review_repo=ReviewRepository(session),
+        )
+        return SocialIngestionService(news_service=news_service).poll_twitter_watchlist()
     finally:
         session.close()

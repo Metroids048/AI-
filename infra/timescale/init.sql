@@ -3,7 +3,7 @@
 --
 -- STORAGE-OWNERSHIP CONTRACT (see docs/architecture/v2-integration-reconciliation.md):
 --   * This file owns TIME-SERIES and EVENT tables ONLY:
---       ohlcv_bars, market_extras, risk_events, macro_events.
+--       ohlcv_bars, market_extras, risk_events, macro_events, news_items.
 --   * Alembic owns RELATIONAL tables (strategies, versions, runs, ...).
 --   No table may be created by both. Do NOT add `strategies` here.
 --
@@ -60,6 +60,22 @@ CREATE TABLE IF NOT EXISTS risk_events (
     resolution_status VARCHAR(30) DEFAULT 'detected'
 );
 CREATE INDEX IF NOT EXISTS idx_risk_events_created ON risk_events (created_at DESC);
+
+-- C-level: raw/news-classified items -----------------------------------------
+CREATE TABLE IF NOT EXISTS news_items (
+    id                VARCHAR(64) PRIMARY KEY,
+    published_at      TIMESTAMPTZ NOT NULL,
+    source            VARCHAR(50) NOT NULL,
+    title             TEXT NOT NULL,
+    url               TEXT,
+    summary           TEXT,
+    raw_payload       JSONB,
+    relevance_status  VARCHAR(30),
+    severity          VARCHAR(20),
+    sentiment         VARCHAR(20),
+    affected_symbols  JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_news_items_published ON news_items (published_at DESC);
 
 -- B-level: macro economic calendar --------------------------------------------
 CREATE TABLE IF NOT EXISTS macro_events (

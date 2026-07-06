@@ -49,3 +49,21 @@ def get_ohlcv_series(
 def get_market_capabilities() -> CollectionResponse[ExchangeCapability]:
     capabilities = list_exchange_capabilities()
     return CollectionResponse(items=capabilities, total=len(capabilities))
+
+
+@router.get("/news", response_model=dict)
+def list_news_items(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    items = DataRepository(db).list_news_items(limit=limit)
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/macro-events", response_model=dict)
+def list_macro_events(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    items = DataRepository(db).list_macro_events(limit=limit)
+    return {"items": items, "total": len(items)}

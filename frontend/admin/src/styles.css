@@ -276,6 +276,13 @@ h2 {
   gap: 14px;
 }
 
+.analysis-grid,
+.ops-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(320px, 1fr));
+  gap: 14px;
+}
+
 .kline-panel {
   min-height: 430px;
 }
@@ -364,6 +371,63 @@ h2 {
   gap: 10px;
 }
 
+.decision-list,
+.feed-list {
+  display: grid;
+  gap: 10px;
+}
+
+.decision-item,
+.feed-list article {
+  border: 1px solid #263549;
+  background: #0f1720;
+  padding: 10px;
+}
+
+.decision-item header,
+.decision-summary,
+.feed-list article {
+  display: grid;
+  gap: 6px;
+}
+
+.decision-item header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.decision-item strong,
+.feed-list strong {
+  color: #f8fafc;
+  overflow-wrap: anywhere;
+}
+
+.decision-item span,
+.decision-summary span,
+.feed-list span {
+  color: #93a4b8;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.decision-summary p {
+  margin: 0;
+  color: #d9e2ec;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.signal-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.signal-chips span {
+  border: 1px solid #334155;
+  padding: 4px 6px;
+}
+
 .risk-item {
   border: 1px solid #334155;
   padding: 10px;
@@ -401,7 +465,9 @@ h2 {
   .topbar,
   .market-header,
   .main-grid,
-  .bottom-grid {
+  .bottom-grid,
+  .analysis-grid,
+  .ops-grid {
     grid-template-columns: 1fr;
   }
 

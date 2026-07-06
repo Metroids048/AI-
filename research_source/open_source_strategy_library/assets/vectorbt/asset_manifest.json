@@ -1,0 +1,47 @@
+{
+  "source_id": "vectorbt",
+  "repo_url": "https://github.com/polakowo/vectorbt",
+  "license": "Apache-2.0",
+  "license_policy": "distilled_research_allowed",
+  "updated_at": "2026-07-06T09:31:33.859841+00:00",
+  "assets": [
+    {
+      "asset_id": "vectorbt:bbded11f00a326df",
+      "source_id": "vectorbt",
+      "asset_type": "source_summary",
+      "origin_url": "https://github.com/polakowo/vectorbt",
+      "origin_ref": "local_manifest",
+      "license": "Apache-2.0",
+      "local_path": "research_source/open_source_strategy_library/assets/vectorbt/source_summary.md",
+      "sha256": "bbded11f00a326df5a3c1c5eab70e74480932853552956fd7bd8878cfbd3e02d",
+      "bytes": 791,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "source_boundary",
+        "parameter_grid",
+        "vectorized_backtest"
+      ],
+      "summary": "Candidate for high-speed parameter grid validation and vectorized research experiments.",
+      "created_at": "2026-07-06T09:31:32.006017Z"
+    },
+    {
+      "asset_id": "vectorbt:3f94750e0b60bda5",
+      "source_id": "vectorbt",
+      "asset_type": "architecture_note",
+      "origin_url": "https://github.com/polakowo/vectorbt/blob/e0e8460dd90aaa0034ee3cffb94bb8de2511358f/README.md",
+      "origin_ref": "e0e8460dd90aaa0034ee3cffb94bb8de2511358f",
+      "license": "Apache-2.0",
+      "local_path": "research_source/open_source_strategy_library/assets/vectorbt/workflow_notes/README.md.md",
+      "sha256": "3f94750e0b60bda5c8e4428e303026f26c33fe6d6946e7b7fb116e1ee9a8b42c",
+      "bytes": 2968,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "vectorized_backtesting",
+        "parameter_grid"
+      ],
+      "summary": "<div align=\"center\"> <a href=\"https://vectorbt.pro/\" title=\"VectorBT PRO\"> <img src=\"https://raw.githubusercontent.com/polakowo/vectorbt/master/docs/docs/assets/logo/header-pro.svg\" /> </a> </div> <div align=\"center\"> <a href=\"https://vectorbt.dev/\" title=\"vectorbt\"> <img src=\"https://raw.githubusercontent.com/polakowo/vectorbt/master/docs/docs/assets/logo/header.svg\" /> </a> </div> <br> <p align=\"center\"> <a href=\"https://pepy.tech/project/vectorbt\" title=\"Downloads\"> <img src=\"https://img.shields.io/pepy/dt/vectorbt?label=downloads&color=blue\" /> </a> <a href=\"https://pypi.org/project/vectorbt\" title=\"PyPI\"> <img src=\"https://img.shields.io/pypi/v/vectorbt\" /> </a> <a href=\"https://pypi.org/project/vectorbt\" title=\"Supported Python versions\"> <img src=\"https://img.shields.io/pypi/pyversi",
+      "created_at": "2026-07-06T09:31:33.859841Z"
+    }
+  ],
+  "failed_assets": []
+}

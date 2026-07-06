@@ -177,7 +177,7 @@ def test_paper_run_step_generates_order_through_gatekeeper(api_client, db_sessio
 
     step_resp = api_client.post(
         f"/api/v1/execution/paper-runs/{paper_run_id}/step",
-        json={"symbol": "BTC/USDT", "timeframe": "1h"},
+        json={"symbol": "BTC/USDT", "timeframe": "1h", "enable_decision_veto": False},
     )
 
     assert step_resp.status_code == 201
@@ -210,7 +210,7 @@ def test_paper_run_step_rejects_when_market_data_is_stale(api_client, db_session
 
     step_resp = api_client.post(
         f"/api/v1/execution/paper-runs/{paper_run_id}/step",
-        json={"symbol": "BTC/USDT", "timeframe": "1h"},
+        json={"symbol": "BTC/USDT", "timeframe": "1h", "enable_decision_veto": False},
     )
 
     assert step_resp.status_code == 201
@@ -253,7 +253,7 @@ def test_paper_run_step_persists_structured_rejection_reasons(api_client, db_ses
 
     step_resp = api_client.post(
         f"/api/v1/execution/paper-runs/{paper_run_id}/step",
-        json={"symbol": "BTC/USDT", "timeframe": "1h"},
+        json={"symbol": "BTC/USDT", "timeframe": "1h", "enable_decision_veto": False},
     )
 
     assert step_resp.status_code == 201

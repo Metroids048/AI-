@@ -18,8 +18,10 @@ from services.execution import (
     configured_gateways,
 )
 from services.strategy_library import (
+    AgentTaskRepository,
     ExecutionRepository,
     HypothesisRepository,
+    NotificationRepository,
     PaperRunRepository,
     ReviewRepository,
     RiskProfileRepository,
@@ -89,6 +91,9 @@ def _paper_runtime_service(db: Session) -> PaperRuntimeService:
         execution_repo=ExecutionRepository(db),
         paper_repo=PaperRunRepository(db),
         strategy_repo=StrategyRepository(db),
+        agent_repo=AgentTaskRepository(db),
+        review_repo=ReviewRepository(db),
+        notification_repo=NotificationRepository(db),
         gatekeeper=_gatekeeper(db),
     )
 
@@ -147,7 +152,14 @@ def step_paper_run(
     strategy = StrategyRepository(db).get_strategy(paper_run.strategy_id)
     if strategy is None:
         raise not_found("strategy", paper_run.strategy_id)
-    order_request = PaperSignalGenerator(data_repo=DataRepository(db)).generate_order(
+    order_request = PaperSignalGenerator(
+        data_repo=DataRepository(db),
+        execution_repo=ExecutionRepository(db),
+        agent_repo=AgentTaskRepository(db),
+        strategy_repo=StrategyRepository(db),
+        review_repo=ReviewRepository(db),
+        notification_repo=NotificationRepository(db),
+    ).generate_order(
         paper_run=paper_run,
         strategy=strategy,
         request=body,
@@ -179,6 +191,21 @@ def get_paper_runtime_status(paper_run_id: str, db: Session = Depends(get_db_ses
     if _paper_repo(db).get_paper_run(paper_run_id) is None:
         raise not_found("paper_run", paper_run_id)
     return _paper_runtime_service(db).get_runtime_status(paper_run_id=paper_run_id)
+
+
+@router.get("/paper-runs/{paper_run_id}/decision-trace", response_model=dict)
+def get_paper_decision_trace(paper_run_id: str, db: Session = Depends(get_db_session)) -> dict:
+    run = _paper_repo(db).get_paper_run(paper_run_id)
+    if run is None:
+        raise not_found("paper_run", paper_run_id)
+    metrics = run.paper_metrics_summary
+    return {
+        "paper_run_id": paper_run_id,
+        "last_cycle_at": metrics.get("last_cycle_at"),
+        "last_cycle_actions": metrics.get("last_cycle_actions", []),
+        "last_cycle_decisions": metrics.get("last_cycle_decisions", []),
+        "processed_cycle_keys": metrics.get("processed_cycle_keys", []),
+    }
 
 
 @router.get("/live-runs", response_model=CollectionResponse[LiveRun])

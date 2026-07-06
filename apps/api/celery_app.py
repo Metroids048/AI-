@@ -8,6 +8,7 @@ beat / flower services boot cleanly. Backtest tasks will use a dedicated
 from __future__ import annotations
 
 from celery import Celery
+from celery.schedules import crontab
 from kombu import Queue
 
 import services.notifications_tasks  # noqa: F401
@@ -28,10 +29,55 @@ celery_app.conf.task_queues = (
 )
 celery_app.conf.task_routes = {
     "services.data.tasks.enqueue_binance_ingestion": {"queue": "ingestion_queue"},
+    "services.data.tasks.poll_news_feeds": {"queue": "ingestion_queue"},
+    "services.data.tasks.poll_macro_calendar": {"queue": "ingestion_queue"},
+    "services.data.tasks.poll_social_watchlist": {"queue": "ingestion_queue"},
+    "services.data.tasks.market_data_heartbeat": {"queue": "ops_queue"},
     "services.validation.tasks.enqueue_backtest_run": {"queue": "backtest_queue"},
     "services.validation.tasks.enqueue_carry_backtest": {"queue": "backtest_queue"},
     "services.execution.tasks.enqueue_paper_run": {"queue": "paper_queue"},
+    "services.execution.tasks.run_all_paper_runtime_cycles": {"queue": "paper_queue"},
+    "services.execution.tasks.run_paper_runtime_cycle": {"queue": "paper_queue"},
+    "services.execution.tasks.risk_profile_sweep": {"queue": "ops_queue"},
     "services.notifications_tasks.dispatch_notification_outbox": {"queue": "ops_queue"},
+    "services.review.tasks.generate_daily_review": {"queue": "ops_queue"},
+}
+celery_app.conf.timezone = "UTC"
+celery_app.conf.beat_schedule = {
+    "paper-runtime-cycle-every-5-minutes": {
+        "task": "services.execution.tasks.run_all_paper_runtime_cycles",
+        "schedule": float(settings.paper_runtime_cycle_seconds),
+        "kwargs": {"request_payload": {"timeframe": "1m", "enable_decision_veto": True}},
+    },
+    "market-data-heartbeat-every-minute": {
+        "task": "services.data.tasks.market_data_heartbeat",
+        "schedule": float(settings.market_data_heartbeat_seconds),
+        "kwargs": {"symbols": ["BTC/USDT"], "timeframe": "1m"},
+    },
+    "risk-profile-sweep-every-minute": {
+        "task": "services.execution.tasks.risk_profile_sweep",
+        "schedule": 60.0,
+    },
+    "notification-dispatch-every-minute": {
+        "task": "services.notifications_tasks.dispatch_notification_outbox",
+        "schedule": float(settings.notification_dispatch_seconds),
+    },
+    "poll-news-feeds-every-3-minutes": {
+        "task": "services.data.tasks.poll_news_feeds",
+        "schedule": 180.0,
+    },
+    "poll-macro-calendar-every-15-minutes": {
+        "task": "services.data.tasks.poll_macro_calendar",
+        "schedule": 900.0,
+    },
+    "poll-social-watchlist-every-5-minutes": {
+        "task": "services.data.tasks.poll_social_watchlist",
+        "schedule": 300.0,
+    },
+    "daily-review-generation": {
+        "task": "services.review.tasks.generate_daily_review",
+        "schedule": crontab(hour=settings.daily_review_hour_utc, minute=settings.daily_review_minute_utc),
+    },
 }
 celery_app.autodiscover_tasks(
     [

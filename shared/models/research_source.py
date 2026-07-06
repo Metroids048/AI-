@@ -26,10 +26,32 @@ class StrategySourceManifest(PlatformModel):
     rag_asset_refs: list[str] = Field(default_factory=list)
     strategy_idea_refs: list[str] = Field(default_factory=list)
     license_notes: str | None = None
+    license_policy: str = "research_reference"
+    asset_allowlist: list[dict[str, Any]] = Field(default_factory=list)
+    asset_denylist: list[str] = Field(default_factory=list)
+    strategy_extraction_targets: list[str] = Field(default_factory=list)
     priority: int = 100
     source_notes: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     last_scanned_at: datetime | None = None
+
+
+class ResearchSourceAsset(PlatformModel):
+    """Local RAG-ready asset distilled from an external research source."""
+
+    asset_id: str
+    source_id: str
+    asset_type: str
+    origin_url: str
+    origin_ref: str
+    license: str
+    local_path: str
+    sha256: str
+    bytes: int
+    ingestion_status: str = "imported"
+    extraction_tags: list[str] = Field(default_factory=list)
+    summary: str | None = None
+    created_at: datetime | None = None
 
 
 class ResearchSourceImportRequest(PlatformModel):
@@ -46,3 +68,5 @@ class ResearchSourceIdeaExtractionRequest(PlatformModel):
 class ResearchSourceImportResult(PlatformModel):
     imported: list[StrategySourceManifest] = Field(default_factory=list)
     failed: list[StrategySourceManifest] = Field(default_factory=list)
+    imported_assets: list[ResearchSourceAsset] = Field(default_factory=list)
+    failed_assets: list[ResearchSourceAsset] = Field(default_factory=list)

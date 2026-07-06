@@ -1,0 +1,68 @@
+{
+  "source_id": "jesse",
+  "repo_url": "https://github.com/jesse-ai/jesse",
+  "license": "MIT",
+  "license_policy": "distilled_research_allowed",
+  "updated_at": "2026-07-06T09:30:35.568650+00:00",
+  "assets": [
+    {
+      "asset_id": "jesse:92e12c490f6de157",
+      "source_id": "jesse",
+      "asset_type": "documentation",
+      "origin_url": "https://github.com/jesse-ai/jesse/blob/7296cec497870215cb343047e81dac36ab3f2223/README.md",
+      "origin_ref": "7296cec497870215cb343047e81dac36ab3f2223",
+      "license": "MIT",
+      "local_path": "research_source/open_source_strategy_library/assets/jesse/docs/README.md.md",
+      "sha256": "92e12c490f6de157d57cfbd8b0fcb1b6c2c5b3096ad4c9b88478071f67c07e0a",
+      "bytes": 3489,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "backtesting",
+        "paper_trading",
+        "strategy_template"
+      ],
+      "summary": "<div align=\"center\"> <br> <p align=\"center\"> <img src=\"assets/jesse-logo.png\" alt=\"Jesse\" height=\"72\" /> </p> <p align=\"center\"> Algo-trading was 😵‍💫, we made it 🤩 </p> </div> # Jesse [![PyPI](https://img.shields.io/pypi/v/jesse)](https://pypi.org/project/jesse) [![Downloads](https://pepy.tech/badge/jesse)](https://pepy.tech/project/jesse) [![Docker Pulls](https://img.shields.io/docker/pulls/salehmir/jesse)](https://hub.docker.com/r/salehmir/jesse) [![GitHub](https://img.shields.io/github/license/jesse-ai/jesse)](https://github.com/jesse-ai/jesse) [![coverage](https://codecov.io/gh/jesse-ai/jesse/graph/badge.svg)](https://codecov.io/gh/jesse-ai/jesse) --- Jesse is an advanced crypto trading framework that aims to **simplify** **researching** and defining **YOUR OWN trading strategies** for",
+      "created_at": "2026-07-06T09:30:06.860423Z"
+    },
+    {
+      "asset_id": "jesse:369864126b1f5ac8",
+      "source_id": "jesse",
+      "asset_type": "source_summary",
+      "origin_url": "https://github.com/jesse-ai/jesse",
+      "origin_ref": "local_manifest",
+      "license": "MIT",
+      "local_path": "research_source/open_source_strategy_library/assets/jesse/source_summary.md",
+      "sha256": "369864126b1f5ac8568c31181e49308a3d95f7e04f8b288761bb4d445673092c",
+      "bytes": 783,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "source_boundary",
+        "funding_carry",
+        "trend_following",
+        "multi_timeframe"
+      ],
+      "summary": "Extract multi-timeframe crypto strategy shape and risk/research workflow concepts.",
+      "created_at": "2026-07-06T09:30:03.920064Z"
+    }
+  ],
+  "failed_assets": [
+    {
+      "asset_id": "jesse:failed:cb36fd0c4ca8",
+      "source_id": "jesse",
+      "asset_type": "strategy_shape",
+      "origin_url": "https://github.com/jesse-ai/jesse/blob/7296cec497870215cb343047e81dac36ab3f2223/docs/docs/strategies.md",
+      "origin_ref": "7296cec497870215cb343047e81dac36ab3f2223",
+      "license": "MIT",
+      "local_path": "research_source/open_source_strategy_library/assets/jesse/strategy_shapes/docs__docs__strategies.md.md",
+      "sha256": "cb36fd0c4ca89eee6775b3b4cb29775fd7ed8d2134de7562d6fa69a996093535",
+      "bytes": 0,
+      "ingestion_status": "failed",
+      "extraction_tags": [
+        "multi_timeframe",
+        "technical_signal"
+      ],
+      "summary": "failed to fetch docs/docs/strategies.md: HTTP 404",
+      "created_at": "2026-07-06T09:30:35.566673Z"
+    }
+  ]
+}

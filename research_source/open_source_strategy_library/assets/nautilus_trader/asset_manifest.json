@@ -1,0 +1,49 @@
+{
+  "source_id": "nautilus_trader",
+  "repo_url": "https://github.com/nautechsystems/nautilus_trader",
+  "license": "LGPL-3.0",
+  "license_policy": "distilled_research_only",
+  "updated_at": "2026-07-06T09:31:07.594936+00:00",
+  "assets": [
+    {
+      "asset_id": "nautilus_trader:5425680fb787dd56",
+      "source_id": "nautilus_trader",
+      "asset_type": "source_summary",
+      "origin_url": "https://github.com/nautechsystems/nautilus_trader",
+      "origin_ref": "local_manifest",
+      "license": "LGPL-3.0",
+      "local_path": "research_source/open_source_strategy_library/assets/nautilus_trader/source_summary.md",
+      "sha256": "5425680fb787dd560b0a0fb57f95a5818a2e5240916b837abf11d0e03013c562",
+      "bytes": 790,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "source_boundary",
+        "research_live_parity",
+        "event_bus",
+        "adapter_state"
+      ],
+      "summary": "Candidate for future architecture comparison, not first-batch strategy extraction.",
+      "created_at": "2026-07-06T09:30:44.489717Z"
+    },
+    {
+      "asset_id": "nautilus_trader:5b57df0b89f8bb20",
+      "source_id": "nautilus_trader",
+      "asset_type": "architecture_note",
+      "origin_url": "https://github.com/nautechsystems/nautilus_trader/blob/692410c522770c878d4a51ca24c487df2d0933cf/README.md",
+      "origin_ref": "692410c522770c878d4a51ca24c487df2d0933cf",
+      "license": "LGPL-3.0",
+      "local_path": "research_source/open_source_strategy_library/assets/nautilus_trader/workflow_notes/README.md.md",
+      "sha256": "5b57df0b89f8bb20d739328f80f9c776bb6ac07d47bf75700b67a38280d95bb8",
+      "bytes": 2979,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "research_live_parity",
+        "event_driven",
+        "backtesting"
+      ],
+      "summary": "# <img src=\"https://github.com/nautechsystems/nautilus_trader/raw/develop/assets/nautilus-trader-logo.png\" width=\"500\"> [![codecov](https://codecov.io/gh/nautechsystems/nautilus_trader/branch/master/graph/badge.svg?token=DXO9QQI40H)](https://codecov.io/gh/nautechsystems/nautilus_trader) [![codspeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/nautechsystems/nautilus_trader) ![pythons](https://img.shields.io/pypi/pyversions/nautilus_trader) ![pypi-version](https://img.shields.io/pypi/v/nautilus_trader) ![pypi-format](https://img.shields.io/pypi/format/nautilus_trader?color=blue) [![Downloads](https://img.shields.io/pepy/dt/nautilus-trader?color=blue)](https://pepy.tech/projects/nautilus-trader) [![Discord](https://img.shields.io/badge/Discord-%23",
+      "created_at": "2026-07-06T09:31:07.594005Z"
+    }
+  ],
+  "failed_assets": []
+}

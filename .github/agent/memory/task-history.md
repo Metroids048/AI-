@@ -1,5 +1,15 @@
 # Task History
 
+### [TASK-026] Implement 7x24 Paper decision pipeline automation
+- **Date**: 2026-07-06
+- **Type**: feat + fix + frontend + ops
+- **Summary**: Implemented the approved full A-F plan for the Binance-only / Paper-only 7x24 automation loop. Added Celery Beat schedules for Paper cycles, market heartbeat, risk sweep, daily review, notifications, news, macro, and Twitter watchlist polling; added `DecisionPipeline` to connect technical signals, price action, SignalEnsemble, MetaLabel, and Decision Veto Agent into real Paper order generation; replaced fixed stoploss/takeprofit percentages with strategy-rule/ATR risk prices; added cycle idempotency keys and decision traces; added news/macro/social data seams and stale-data RiskEvents; split the admin frontend into API/hooks/pages/components and added a Decision Pipeline debug panel with Vitest coverage.
+- **Files changed**: `apps/api/{celery_app.py,config.py,routers/{market,runs,system}.py}`, `services/{data,execution,review,strategy_library/technical}/**`, `shared/models/{enums.py,workflow.py}`, `infra/timescale/init.sql`, `frontend/admin/**`, `tests/{api,services}/**`, and memory files.
+- **Layer mapping**: Data Layer owns heartbeat/news/macro/social capture; Strategy Layer owns technical signals and ensemble/meta-label decisions; Agent Layer owns LLM classification/veto tasks; Execution Layer owns `DecisionPipeline`, Paper idempotent cycles, ATR stop plans, and Gatekeeper admission; Review/Ops own daily reports, notifications, and decision visibility. No seventh layer was introduced.
+- **Research loop served**: The automatic Paper path now follows `Validated PaperRun -> DecisionPipeline -> ExecutionOrderRequest -> Gatekeeper -> OrderExecution/PositionSnapshot -> Review/Failure/decision trace`, so non-arbitrage orders are traceable to technical signals, ensemble confidence, meta-label sizing, LLM veto, and risk checks.
+- **Verification**: `py -3 -m pytest -q` -> 120 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m mypy` passed; `npm --workspace frontend/admin run test` passed; `npm --workspace frontend/admin run build` passed; `py -3 scripts/compose_validate.py` -> skipped because Docker is not on PATH.
+- **Notes**: `npm install --workspace frontend/admin` reported 5 audit vulnerabilities in the frontend dependency tree; no forced audit fix was run because it may introduce breaking upgrades. Real RSS/Twitter/LLM calls still depend on operator-provided network credentials and live environment availability.
+
 ### [TASK-025] P0 repository hygiene and runtime configuration hardening
 - **Date**: 2026-07-05
 - **Type**: fix + ops + docs + tests
@@ -79,6 +89,16 @@
 - **Research loop served**: `Alpha expression -> AlphaPlan -> Evaluator -> StrategyIdea.intake_metadata -> FailureRecord` is now reusable by Review/Research without re-parsing rationale text.
 - **Verification**: Targeted tests (`tests/contracts/test_shared_models.py`, `tests/repositories/test_strategy_repository.py`, `tests/api/test_risk_review_agents.py`, `tests/research_source/test_worldquant_adapter.py`) -> 24 passed; full `py -3 -m pytest -q` -> 79 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m mypy` passed; `$env:POSTGRES_URL='sqlite:///./.verify_ai_quant.db'; py -3 -m alembic upgrade head` passed.
 - **Notes**: Temporary SQLite verification database was removed after migration smoke. No new autonomous memory subsystem was added.
+
+### [TASK-027] Open-source RAG assetization and intake reconciliation
+- **Date**: 2026-07-06
+- **Type**: feat + docs
+- **Summary**: Upgraded open-source strategy intake from manifest-only registration to traceable local RAG assets. Added `ResearchSourceAsset`, GitHub allowlist fetching, distilled Markdown assets, per-source `asset_manifest.json`, source allowlists/denylists/license policies/extraction targets, asset-driven `StrategyIdea` metadata, research-source asset APIs, and Agent output fields for imported/failed assets. Added RD-Agent, vectorbt, and OpenBB to the seed set and reconciled status docs.
+- **Files changed**: `shared/models/research_source.py`, `research_source/open_source_strategy_library/**`, `apps/api/routers/research_sources.py`, `services/agents/service.py`, tests, docs, and memory files.
+- **Layer mapping**: Open-source asset fetching belongs to Data Layer E-level research intake; asset-driven `StrategyIdea` records feed the Strategy Layer; Paper/Execution remain gated by existing Validation and Gatekeeper services.
+- **Research loop served**: `StrategySourceManifest -> ResearchSourceAsset -> StrategyIdea -> StrategyDraft -> Strategy -> BacktestRun -> PaperRun -> Gatekeeper`, without importing external runtime code.
+- **Verification**: `py -3 -m pytest -q` -> 124 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m mypy` passed; `npm --workspace frontend/admin run build` passed.
+- **Notes**: Real fetch evidence exists for Freqtrade/Jesse/Hummingbot/ABU/NautilusTrader/Qlib/vectorbt/OpenBB. Remaining gaps: vector DB/LlamaIndex indexing, deep LLM research reports, full repo mirrors, Docker runtime smoke, and credentialed 24h external API validation.
 
 ### [TASK-017] Harden Risk Engine admission and repair WorldQuant executable intake
 - **Date**: 2026-07-03

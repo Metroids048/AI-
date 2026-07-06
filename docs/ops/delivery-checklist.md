@@ -4,9 +4,10 @@
 > 当前仓库状态统一为 `Phase 0 完成 + 第一批 P1 落地`。
 > 已完成：统一领域模型代码、`/api/v1` 主接口、策略生命周期持久化、carry 回测应用服务、
 > risk/review/agent/execution 首版持久化与 gatekeeper，以及单租户管理令牌鉴权、通知 dispatcher、前端 build 恢复、`compose-validate` 脚本化。
+> 2026-07-06 追加：开源策略库摄取已从 manifest 登记升级为 RAG 资产化，`fetch_remote=true` 会按 allowlist 生成本地 Markdown 资产与 `asset_manifest.json`，并基于 `asset_refs` 提取 `StrategyIdea`。
 > 本轮 P0 补漏追加：运行数据库不得入仓、compose runtime 必须读 `.env`、用户可见 Markdown 不得使用本机绝对路径、非本地环境不得使用默认管理 token。
-> 下一轮 P1 顺序：1. Celery Beat / 7x24 调度；2. 前端管理台补齐；3. B/C/D 级数据源接入。
-> 仍未完成：完整 DSR 引擎、Prometheus/dashboard runtime、具备 Docker 主机上的 compose smoke、Email adapter 与 live/exchange 闭环。
+> 下一轮 P1 顺序：1. Paper Runtime E2E；2. Credentialed Data Smoke；3. Research UI v1；4. Validation Hardening。
+> 仍未完成：完整 DSR 引擎、Prometheus/dashboard runtime、具备 Docker 主机上的 compose smoke、真实外部 API 24h 凭据化验收、Email adapter 与 live/exchange 闭环。
 
 ## 治理与真源
 
@@ -45,10 +46,13 @@
 - [x] 通知 outbox + dispatcher（首批 `Telegram + Webhook`）
 - [x] `frontend/admin` 可重复 build 校验
 - [x] `compose-validate` 脚本与 CI 路径
+- [x] 开源研究源 RAG 资产 manifest 与资产驱动 `StrategyIdea` 提取
 
 ## 进入下一轮开发前仍需补齐
 
 - [ ] walk-forward / OOS / Deflated Sharpe / stress test 真正执行链
+- [ ] Paper Runtime E2E：Docker + Redis + Timescale + Celery Beat 至少跑完整 Paper cycle
+- [ ] Credentialed Data Smoke：Binance/RSS/Macro/Twitter/LLM/Telegram 用真实凭据跑一次并留报告
 - [ ] Prometheus + Grafana dashboard + 告警
 - [ ] 在具备 Docker 的主机或 CI 上完成 `docker-compose.test.yml` / `docker-compose.paper.yml` / `docker-compose.live.yml` runtime smoke
 - [ ] Email adapter、真实 Telegram/Webhook 凭据演练与值班告警联调

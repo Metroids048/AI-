@@ -55,6 +55,7 @@ class RiskEventType(StrEnum):
     EXCHANGE_INCIDENT = "exchange_incident"
     API_FAILURE = "api_failure"
     DATA_GAP = "data_gap"
+    DATA_STALE = "data_stale"
     RISK_LIMIT_BREACH = "risk_limit_breach"
     EXECUTION_ANOMALY = "execution_anomaly"
 

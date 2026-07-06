@@ -128,7 +128,7 @@ def test_paper_runtime_auto_cycle_opens_positions_and_updates_status(api_client,
 
     cycle_resp = api_client.post(
         f"/api/v1/execution/paper-runs/{paper_run_id}/auto-cycle",
-        json={"max_symbols": 2, "timeframe": "1h"},
+        json={"max_symbols": 2, "timeframe": "1h", "enable_decision_veto": False},
     )
 
     assert cycle_resp.status_code == 200
@@ -158,7 +158,7 @@ def test_paper_runtime_auto_cycle_closes_position_on_opposite_signal(api_client,
 
     first_cycle = api_client.post(
         f"/api/v1/execution/paper-runs/{paper_run_id}/auto-cycle",
-        json={"symbols": ["BTC/USDT"], "max_symbols": 1, "timeframe": "1h"},
+        json={"symbols": ["BTC/USDT"], "max_symbols": 1, "timeframe": "1h", "enable_decision_veto": False},
     )
     assert first_cycle.status_code == 200
     assert first_cycle.json()["opened_positions"] == 1
@@ -172,7 +172,7 @@ def test_paper_runtime_auto_cycle_closes_position_on_opposite_signal(api_client,
 
     second_cycle = api_client.post(
         f"/api/v1/execution/paper-runs/{paper_run_id}/auto-cycle",
-        json={"symbols": ["BTC/USDT"], "max_symbols": 1, "timeframe": "1h"},
+        json={"symbols": ["BTC/USDT"], "max_symbols": 1, "timeframe": "1h", "enable_decision_veto": False},
     )
 
     assert second_cycle.status_code == 200

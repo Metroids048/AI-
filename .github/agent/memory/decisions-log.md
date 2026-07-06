@@ -1,5 +1,19 @@
 # Decisions Log
 
+## ADR-036: Open-source projects are stored as traceable distilled RAG assets before strategy extraction
+- Date: 2026-07-06
+- Status: accepted
+- Context: The first open-source intake slice registered Freqtrade, Hummingbot, ABU, TradingAgents, and related repositories, but `fetch_remote=true` still only wrote local summary files. That made the system look RAG-ready while lacking real local source assets, commit traceability, asset hashes, and asset-driven extraction evidence.
+- Decision: Add `ResearchSourceAsset` and make `OpenSourceStrategyLibrary` fetch only allowlisted GitHub files, distill them into local Markdown assets, write `asset_manifest.json`, and record failures explicitly. Keep storage as "distilled assets in repo" rather than full repository mirrors. Extend source manifests with license policies, allowlists, denylists, and extraction targets. Make `OpenSourceStrategyExtractor` require local `asset_refs` for rule/metric extraction and keep unknown-license or metadata-only projects as `research_note_only`.
+- Consequences: The platform now has reproducible local RAG substrate for E-level open-source research sources without importing external runtime code or bypassing Validation/Execution/Review. GPL/AGPL materials remain distilled research references only. Vector database indexing, deep LLM reports, full repository mirrors, and live connector adoption remain future work.
+
+## ADR-035: 7x24 Paper automation uses a Decision Pipeline inside Execution, fed by Strategy/Data/Agent seams
+- Date: 2026-07-06
+- Status: accepted
+- Context: The Paper runtime had an autonomous cycle entrypoint, while technical signals, SignalEnsemble, MetaLabel, and Decision Veto Agent existed but were not connected to the real automatic open/close path. The next implementation plan required a Binance-only, Paper-only 7x24 loop with technical signals, message/macro inputs, LLM veto, and frontend decision visibility, without unlocking live execution or adding a seventh architecture layer.
+- Decision: Keep orchestration inside the existing Execution Layer by adding `DecisionPipeline` as the upstream order-decision component for non-arbitrage Paper signals. The pipeline consumes Strategy Layer technical signals and ensemble/meta-label services, Data Layer market/news/macro/risk context, and Agent Layer Decision Veto tasks, then emits an `ExecutionOrderRequest` that still must pass `ExecutionGatekeeperService`. Funding-threshold arbitrage stays deterministic and bypasses technical ensemble fusion. Celery Beat schedules the Paper loop plus heartbeat/risk/review/notification/news/macro/social tasks. LLM veto has a configurable daily budget, default 200 calls/day, and over-budget/timeout paths fail closed with auditable AgentTask/notification evidence. Admin UI reads the persisted runtime trace rather than inventing a separate frontend decision model.
+- Consequences: The 7x24 Paper loop now has an auditable assembly line while preserving the required `Strategy -> Validation -> Execution -> Review` chain and Binance/Paper safety boundary. Live trading, OKX/Bybit, multi-tenant auth, trained ML meta-labeling, and Chan theory remain out of scope. Docker-level runtime verification remains host-dependent when Docker is not on PATH.
+
 ## ADR-034: P0 runtime hygiene treats templates, local databases, and workstation paths as non-runtime inputs
 - Date: 2026-07-05
 - Status: accepted

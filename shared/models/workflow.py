@@ -111,6 +111,7 @@ class PaperRunStepRequest(PlatformModel):
     symbol: str | None = None
     timeframe: str = "1h"
     perp_symbol: str | None = None
+    enable_decision_veto: bool = True
     idempotency_key: str | None = None
 
 
@@ -119,6 +120,7 @@ class PaperRuntimeCycleRequest(PlatformModel):
     timeframe: str = "1h"
     max_symbols: int = Field(default=20, ge=1, le=50)
     close_on_opposite_signal: bool = True
+    enable_decision_veto: bool = True
 
 
 class PaperRuntimeAction(PlatformModel):
@@ -129,6 +131,8 @@ class PaperRuntimeAction(PlatformModel):
     order_execution_id: str | None = None
     reference_price: float | None = None
     close_only: bool = False
+    idempotency_key: str | None = None
+    decision_trace: dict[str, Any] = Field(default_factory=dict)
 
 
 class PaperRuntimeCycleResult(PlatformModel):
@@ -154,6 +158,7 @@ class PaperRuntimeStatus(PlatformModel):
     last_cycle_at: datetime | None = None
     last_scanned_symbols: list[str] = Field(default_factory=list)
     last_action_counts: dict[str, int] = Field(default_factory=dict)
+    last_cycle_decisions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class LiveRun(PlatformModel):

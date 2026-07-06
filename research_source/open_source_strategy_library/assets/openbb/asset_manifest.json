@@ -1,0 +1,48 @@
+{
+  "source_id": "openbb",
+  "repo_url": "https://github.com/OpenBB-finance/OpenBB",
+  "license": "AGPL-3.0",
+  "license_policy": "distilled_research_only",
+  "updated_at": "2026-07-06T09:31:56.888381+00:00",
+  "assets": [
+    {
+      "asset_id": "openbb:e16c5d792d07770c",
+      "source_id": "openbb",
+      "asset_type": "source_summary",
+      "origin_url": "https://github.com/OpenBB-finance/OpenBB",
+      "origin_ref": "local_manifest",
+      "license": "AGPL-3.0",
+      "local_path": "research_source/open_source_strategy_library/assets/openbb/source_summary.md",
+      "sha256": "e16c5d792d07770ce4ed2998c994c9f5019f96ca0bd1a03e6b233977ba4991e0",
+      "bytes": 777,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "source_boundary",
+        "data_layer",
+        "multi_asset_data"
+      ],
+      "summary": "Candidate for future unified financial data access and multi-market data taxonomy.",
+      "created_at": "2026-07-06T09:31:33.867796Z"
+    },
+    {
+      "asset_id": "openbb:5da4d8efcb1cb2af",
+      "source_id": "openbb",
+      "asset_type": "architecture_note",
+      "origin_url": "https://github.com/OpenBB-finance/OpenBB/blob/52a446cba01dfead6cd275ec63ef397eaf823c1e/README.md",
+      "origin_ref": "52a446cba01dfead6cd275ec63ef397eaf823c1e",
+      "license": "AGPL-3.0",
+      "local_path": "research_source/open_source_strategy_library/assets/openbb/workflow_notes/README.md.md",
+      "sha256": "5da4d8efcb1cb2afd598fb0cca17c3d864e66196eb8803642b4ffc0147088ba7",
+      "bytes": 3423,
+      "ingestion_status": "imported",
+      "extraction_tags": [
+        "data_layer",
+        "multi_asset_data",
+        "ai_agent_data"
+      ],
+      "summary": "<br /> <img src=\"https://github.com/OpenBB-finance/OpenBB/blob/develop/images/odp-light.svg?raw=true#gh-light-mode-only\" alt=\"Open Data Platform by OpenBB logo\" width=\"600\"> <img src=\"https://github.com/OpenBB-finance/OpenBB/blob/develop/images/odp-dark.svg?raw=true#gh-dark-mode-only\" alt=\"Open Data Platform by OpenBB logo\" width=\"600\"> <br /> <br /> [![Twitter](https://img.shields.io/twitter/url/https/twitter.com/openbb_finance.svg?style=social&label=Follow%20%40openbb_finance)](https://x.com/openbb_finance) [![Discord Shield](https://img.shields.io/discord/831165782750789672)](https://discord.com/invite/xPHTuHCmuV) [![Open in Dev Containers](https://img.shields.io/static/v1?label=Dev%20Containers&message=Open&color=blue&logo=visualstudiocode)](https://vscode.dev/redirect?url=vscode://ms-",
+      "created_at": "2026-07-06T09:31:56.887380Z"
+    }
+  ],
+  "failed_assets": []
+}

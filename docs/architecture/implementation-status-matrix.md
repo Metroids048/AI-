@@ -1,5 +1,12 @@
 # Implementation Status Matrix
 
+## 2026-07-06 Open-source RAG Assetization Addendum
+
+- `research_source/open_source_strategy_library` 已从“登记清单 + 本地摘要”升级为真实 RAG 资产摄取：`fetch_remote=true` 会按 manifest allowlist 拉取远端资料、写入清洗后的 Markdown、生成 `asset_manifest.json`，并保存 URL、commit/ref、license、sha256、bytes、extraction tags。
+- 首批已落地本地资产覆盖 Freqtrade、Jesse、Hummingbot、ABU、NautilusTrader、Qlib、vectorbt、OpenBB；失败远端路径会进入 `failed_assets`，不得伪装成功。
+- `StrategyIdea` 提取改为基于 `asset_refs`，并把资产引用写入 `intake_metadata.asset_refs`；未知 license / metadata-only 来源只产出 `research_note_only`，不会被 Strategy Agent 物化为 draft。
+- 仍未完成：向量数据库/LlamaIndex 检索层、完整仓库镜像、自动知识去重聚类、基于 LLM 的深度策略报告生成。
+
 ## 2026-07-05 P0 Hygiene Addendum
 
 - 当前仓库状态统一表述为 `Phase 0 完成 + 第一批 P1 落地`，不再把已实现的 A 级数据、Paper/Risk/Review 首批切片误标为 Phase 2 以后。
@@ -92,3 +99,4 @@
 | Exchange capability registry | Data/Execution boundary | partial | `services/data/capabilities.py` + `GET /api/v1/market/capabilities` | `tests/api/test_remediation_plan.py` |
 | Notification outbox / dispatcher | Ops / Review / Risk | partial | `notification_outbox` ORM/migration + `services/notifications.py` + `GET/POST/PATCH /api/v1/notifications/outbox` + `POST /api/v1/notifications/outbox/dispatch`；高/critical `RiskEvent` 自动写入待处理通知，首批 Telegram/Webhook adapter 已可真实投递并回写 attempt history | `tests/api/test_remediation_plan.py`、`tests/services/test_notifications.py`；Email adapter 与真实运维凭据演练仍未实现 |
 | System dependency health | Ops | partial | `apps/api/routers/system.py` + `GET /api/v1/system/health/dependencies` | `tests/api/test_remediation_plan.py`；当前为配置/连通性可见性，不替代外部监控 |
+| Open-source RAG asset intake | Data Layer E-level / Strategy Layer seed | partial | `ResearchSourceAsset`、`asset_manifest.json`、`GET /api/v1/research-sources/{source_id}/assets`、`POST /api/v1/research-sources/{source_id}/refresh-assets`，首批源可生成 asset-driven `StrategyIdea` | `tests/services/test_open_source_strategy_library.py`、`tests/api/test_research_sources.py`；向量库与深度 LLM 报告仍未实现 |

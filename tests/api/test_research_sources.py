@@ -8,10 +8,15 @@ def test_research_source_api_imports_and_extracts_strategy_ideas(api_client) -> 
 
     import_resp = api_client.post(
         "/api/v1/research-sources/import",
-        json={"source_ids": ["freqtrade"], "refresh_assets": False},
+        json={"source_ids": ["freqtrade"], "refresh_assets": True, "fetch_remote": False},
     )
     assert import_resp.status_code == 202
     assert import_resp.json()["imported"][0]["source_id"] == "freqtrade"
+    assert import_resp.json()["imported_assets"]
+
+    assets_resp = api_client.get("/api/v1/research-sources/freqtrade/assets")
+    assert assets_resp.status_code == 200
+    assert assets_resp.json()["total"] >= 1
 
     extract_resp = api_client.post(
         "/api/v1/research-sources/freqtrade/extract-ideas",
@@ -23,13 +28,21 @@ def test_research_source_api_imports_and_extracts_strategy_ideas(api_client) -> 
     assert all(item["source"].startswith("open_source:freqtrade") for item in body["items"])
 
 
+def test_research_source_asset_endpoints_return_404_for_unknown_source(api_client) -> None:
+    assets_resp = api_client.get("/api/v1/research-sources/not-real/assets")
+    refresh_resp = api_client.post("/api/v1/research-sources/not-real/refresh-assets")
+
+    assert assets_resp.status_code == 404
+    assert refresh_resp.status_code == 404
+
+
 def test_agent_tasks_import_extract_and_materialize_open_source_drafts(api_client) -> None:
     import_task = api_client.post(
         "/api/v1/agents/tasks",
         json={
             "agent_type": "research_agent",
             "task_type": "import_open_source_sources",
-            "input_payload": {"source_ids": ["freqtrade"], "refresh_assets": False},
+            "input_payload": {"source_ids": ["freqtrade"], "refresh_assets": True, "fetch_remote": False},
         },
     )
     assert import_task.status_code == 202
@@ -37,6 +50,7 @@ def test_agent_tasks_import_extract_and_materialize_open_source_drafts(api_clien
     import_result = api_client.get(f"/api/v1/agents/tasks/{import_task_id}").json()
     assert import_result["task_status"] == "completed"
     assert import_result["output_payload"]["imported_count"] == 1
+    assert import_result["output_payload"]["asset_count"] >= 1
 
     extract_task = api_client.post(
         "/api/v1/agents/tasks",

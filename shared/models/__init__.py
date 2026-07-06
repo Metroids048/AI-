@@ -50,6 +50,7 @@ from .market import (
     OhlcvSeriesResponse,
 )
 from .research_source import (
+    ResearchSourceAsset,
     ResearchSourceIdeaExtractionRequest,
     ResearchSourceImportRequest,
     ResearchSourceImportResult,
@@ -150,6 +151,7 @@ __all__ = [
     "RiskEventResolutionUpdate",
     "RiskProfile",
     "StrategySourceManifest",
+    "ResearchSourceAsset",
     "ResearchSourceImportRequest",
     "ResearchSourceIdeaExtractionRequest",
     "ResearchSourceImportResult",

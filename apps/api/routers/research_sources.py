@@ -11,6 +11,7 @@ from services.database import get_db_session
 from services.strategy_library import StrategyRepository
 from shared.models import (
     CollectionResponse,
+    ResearchSourceAsset,
     ResearchSourceIdeaExtractionRequest,
     ResearchSourceImportRequest,
     ResearchSourceImportResult,
@@ -38,6 +39,14 @@ def get_research_source(source_id: str) -> StrategySourceManifest:
     return source
 
 
+@router.get("/{source_id}/assets", response_model=CollectionResponse[ResearchSourceAsset])
+def list_research_source_assets(source_id: str) -> CollectionResponse[ResearchSourceAsset]:
+    source = _library().get_source(source_id)
+    if source is None:
+        raise not_found("research_source", source_id)
+    return collection_response(_library().list_assets(source_id))
+
+
 @router.post("/import", response_model=ResearchSourceImportResult, status_code=status.HTTP_202_ACCEPTED)
 def import_research_sources(body: ResearchSourceImportRequest) -> ResearchSourceImportResult:
     return _library().import_sources(
@@ -45,6 +54,18 @@ def import_research_sources(body: ResearchSourceImportRequest) -> ResearchSource
         refresh_assets=body.refresh_assets,
         fetch_remote=body.fetch_remote,
     )
+
+
+@router.post(
+    "/{source_id}/refresh-assets",
+    response_model=ResearchSourceImportResult,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def refresh_research_source_assets(source_id: str) -> ResearchSourceImportResult:
+    source = _library().get_source(source_id)
+    if source is None:
+        raise not_found("research_source", source_id)
+    return _library().import_sources(source_ids=[source_id], refresh_assets=True, fetch_remote=True)
 
 
 @router.post("/{source_id}/extract-ideas", response_model=CollectionResponse[StrategyIdea])
