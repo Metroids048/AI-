@@ -4,7 +4,7 @@ COMPOSE_DEV  = docker compose -f docker-compose.yml -f docker-compose.dev.yml
 
 .PHONY: up down logs ps build compose-validate migrate migrate-new \
         data-sync data-check backtest backtest-all scan \
-        test test-unit lint fmt lock sync memory-update push-github
+        test test-unit lint fmt lock sync memory-update
 
 ## ── 环境管理 ──────────────────────────────
 up:            ## 启动全部服务（含 dev 覆盖）
@@ -61,7 +61,3 @@ sync:
 ## ── 记忆维护 ──────────────────────────────
 memory-update:
 	@echo "提醒：完工后更新 .github/agent/memory/ 三个文件"
-
-## ── GitHub 上传 ───────────────────────────
-push-github:   ## 一键 add + commit + push（Windows: 双击 一键上传GitHub.bat）
-	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/push-to-github.ps1
