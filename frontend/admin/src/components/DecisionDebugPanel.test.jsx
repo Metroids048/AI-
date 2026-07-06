@@ -27,7 +27,7 @@ describe("DecisionDebugPanel", () => {
       />,
     );
 
-    expect(screen.getByText("决策链路调试")).toBeInTheDocument();
+    expect(screen.getByText("决策链路")).toBeInTheDocument();
     expect(screen.getByText("BTC/USDT")).toBeInTheDocument();
     expect(screen.getByText(/融合：long/)).toBeInTheDocument();
     expect(screen.getByText(/Meta：bet_taken/)).toBeInTheDocument();

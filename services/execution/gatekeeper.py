@@ -94,8 +94,9 @@ class ExecutionGatekeeperService:
 
     def submit_order(self, request: ExecutionOrderRequest) -> OrderExecution:
         rejection_reasons: list[str] = []
+        close_only_mode = bool(request.entry_context.get("close_only_mode", False))
         stoploss_present = bool(request.stoploss_plan)
-        if not stoploss_present:
+        if not stoploss_present and not close_only_mode:
             rejection_reasons.append("missing_stoploss")
 
         if request.veto_result is not None and request.veto_result.veto:
@@ -146,7 +147,7 @@ class ExecutionGatekeeperService:
             direction=request.direction,
             execution_status="rejected" if rejection_reasons else "accepted",
             stoploss_present=stoploss_present,
-            close_only_mode=bool(request.entry_context.get("close_only_mode", False)),
+            close_only_mode=close_only_mode,
             rejection_reason=";".join(rejection_reasons) if rejection_reasons else None,
             rejection_codes=rejection_reasons,
             entry_context={
@@ -208,6 +209,8 @@ class ExecutionGatekeeperService:
 
     def _record_rejection(self, order: OrderExecution) -> None:
         if self.review_repo is None:
+            return
+        if not order.strategy_id:
             return
         failure = FailureRecord(
             strategy_id=order.strategy_id,

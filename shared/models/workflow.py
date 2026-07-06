@@ -218,7 +218,7 @@ class ExecutionRiskState(PlatformModel):
 
 
 class ExecutionOrderRequest(PlatformModel):
-    strategy_id: str
+    strategy_id: str = Field(min_length=1)
     version_id: str | None = None
     symbol: str
     direction: TradeSide
@@ -234,6 +234,63 @@ class ExecutionOrderRequest(PlatformModel):
     veto_result: DecisionVetoResult | None = None
     risk_state: ExecutionRiskState | None = None
     idempotency_key: str | None = None
+
+
+class ManualOrderRequest(PlatformModel):
+    mode: str = Field(default="paper", pattern="^(paper|testnet)$")
+    strategy_id: str = Field(min_length=1)
+    version_id: str | None = None
+    validation_backtest_run_id: str = Field(min_length=1)
+    risk_profile_id: str | None = None
+    live_run_id: str | None = None
+    paper_run_id: str | None = None
+    symbol: str
+    direction: TradeSide
+    quantity: float = Field(gt=0)
+    reference_price: float = Field(gt=0)
+    leverage: float = Field(default=1.0, ge=1)
+    order_type: str = "market"
+    limit_price: float | None = None
+    stoploss_price: float | None = None
+    takeprofit_price: float | None = None
+    account_equity: float = Field(default=10_000.0, gt=0)
+    idempotency_key: str | None = None
+
+
+class ClosePositionRequest(PlatformModel):
+    mode: str = Field(default="paper", pattern="^(paper|testnet)$")
+    strategy_id: str = Field(min_length=1)
+    version_id: str | None = None
+    validation_backtest_run_id: str = Field(min_length=1)
+    risk_profile_id: str | None = None
+    live_run_id: str | None = None
+    paper_run_id: str | None = None
+    symbol: str
+    reference_price: float = Field(gt=0)
+    account_equity: float = Field(default=10_000.0, gt=0)
+    idempotency_key: str | None = None
+
+
+class AdjustLeverageRequest(PlatformModel):
+    mode: str = Field(default="paper", pattern="^(paper|testnet)$")
+    strategy_id: str = Field(min_length=1)
+    live_run_id: str | None = None
+    symbol: str
+    leverage: float = Field(ge=1)
+
+
+class CancelOrderRequest(PlatformModel):
+    mode: str = Field(default="paper", pattern="^(paper|testnet)$")
+    order_execution_id: str
+
+
+class LeverageAdjustmentResult(PlatformModel):
+    mode: str
+    symbol: str
+    leverage: float
+    gateway_name: str
+    gateway_status: str
+    detail: dict[str, Any] = Field(default_factory=dict)
 
 
 class OrderExecution(PlatformModel):

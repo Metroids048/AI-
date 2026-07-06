@@ -1,16 +1,21 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { request } from "../api/client";
 import { AppShell } from "../components/Common";
-import { CarryPanel, KlinePanel, MarketHeader } from "../components/MarketPanels";
+import { KlinePanel, MarketHeader } from "../components/MarketPanels";
 import { OpsReviewPanel } from "../components/OpsPanels";
+import { DecisionDebugPanel, RiskEventFeed } from "../components/RuntimePanels";
 import {
-  DecisionDebugPanel,
+  FundingPanel,
+  MarketList,
+  ModeBanner,
+  OrderBookPanel,
   OrdersTable,
-  PaperRunControls,
   PositionsTable,
-  RiskEventFeed,
-} from "../components/RuntimePanels";
+  RecentTradesPanel,
+  RuntimeControlPanel,
+  TradingTicket,
+} from "../components/TradingConsolePanels";
 import { useConsoleData } from "../hooks/useConsoleData";
 
 const DEFAULT_SYMBOL = "BTC/USDT";
@@ -22,27 +27,42 @@ export function PaperConsole() {
   const [timeframe, setTimeframe] = useState("1h");
   const [actionMessage, setActionMessage] = useState("");
   const data = useConsoleData(symbol, perpSymbol, timeframe);
+  const mode = data.tradingStatus?.mode ?? "paper";
+  const latestPosition = useMemo(
+    () => (data.overview?.positions ?? []).find((position) => position.symbol === symbol && Math.abs(Number(position.quantity)) > 0),
+    [data.overview?.positions, symbol],
+  );
 
-  const handleAction = async (type, payload) => {
+  const handleSelectSymbol = (nextSymbol, nextPerpSymbol) => {
+    setSymbol(nextSymbol);
+    setPerpSymbol(nextPerpSymbol);
+  };
+
+  const handleAction = async (type, payload = {}) => {
     setActionMessage("");
     try {
-      if (type === "startPaper") {
-        await request("/api/v1/execution/paper-runs", { method: "POST", body: JSON.stringify(payload) });
-        setActionMessage("Paper run 已提交");
+      if (type === "manualOrder") {
+        await request("/api/v1/execution/manual-orders", { method: "POST", body: JSON.stringify(payload) });
+        setActionMessage("手动订单已通过风控并写入审计。");
       }
-      if (type === "pausePaper") {
-        await request(`/api/v1/execution/paper-runs/${payload.paper_run_id}/status`, {
-          method: "PATCH",
-          body: JSON.stringify({ paper_status: "paused" }),
-        });
-        setActionMessage("Paper run 已暂停");
+      if (type === "closePosition") {
+        await request("/api/v1/execution/close-position", { method: "POST", body: JSON.stringify(payload) });
+        setActionMessage("平仓请求已按 close-only / reduce-only 处理。");
       }
-      if (type === "autoCycle") {
-        await request(`/api/v1/execution/paper-runs/${payload.paper_run_id}/auto-cycle`, {
+      if (type === "adjustLeverage") {
+        await request("/api/v1/execution/adjust-leverage", { method: "POST", body: JSON.stringify(payload) });
+        setActionMessage("杠杆调整已记录。");
+      }
+      if (type === "cancelOrder") {
+        await request("/api/v1/execution/cancel-order", { method: "POST", body: JSON.stringify(payload) });
+        setActionMessage("撤单已写入订单审计。");
+      }
+      if (type === "runAllCycles") {
+        const result = await request("/api/v1/execution/paper-runs/auto-cycle-all", {
           method: "POST",
-          body: JSON.stringify({ symbols: [symbol], max_symbols: 1, timeframe, enable_decision_veto: false }),
+          body: JSON.stringify({ symbols: [symbol], max_symbols: 1, timeframe, enable_decision_veto: true }),
         });
-        setActionMessage("Paper cycle 已触发");
+        setActionMessage(`自动 cycle 已执行：${result.paper_runs} 个 PaperRun。`);
       }
       if (type === "carryBacktest") {
         const now = new Date();
@@ -58,20 +78,7 @@ export function PaperConsole() {
             end_at: now.toISOString(),
           }),
         });
-        setActionMessage("Carry 回测已提交");
-      }
-      if (type === "createRisk") {
-        await request("/api/v1/risk/events", {
-          method: "POST",
-          body: JSON.stringify({
-            event_type: "exchange_incident",
-            severity: "high",
-            source: "manual_console",
-            description: payload.description,
-            affected_scope: [symbol],
-          }),
-        });
-        setActionMessage("风险事件已提交");
+        setActionMessage("Carry 回测已提交。");
       }
       await data.refresh();
     } catch (err) {
@@ -86,7 +93,7 @@ export function PaperConsole() {
         method: "PATCH",
         body: JSON.stringify({ resolution_status: resolutionStatus }),
       });
-      setActionMessage(resolutionStatus === "resolved" ? "风险事件已恢复" : "风险事件已确认");
+      setActionMessage(resolutionStatus === "resolved" ? "风险事件已恢复。" : "风险事件已确认。");
       await data.refresh();
     } catch (err) {
       setActionMessage(`风险事件操作失败：${err.message}`);
@@ -94,9 +101,16 @@ export function PaperConsole() {
   };
 
   return (
-    <AppShell overview={data.overview} snapshot={data.snapshot} error={data.error}>
-      {data.loading ? <div className="loading-line">正在加载控制台数据</div> : null}
+    <AppShell
+      overview={data.overview}
+      snapshot={data.snapshot}
+      tradingStatus={data.tradingStatus}
+      streamStatus={data.streamStatus}
+      error={data.error}
+    >
+      {data.loading ? <div className="loading-line">正在加载交易台数据...</div> : null}
       {actionMessage ? <div className="action-line">{actionMessage}</div> : null}
+      <ModeBanner status={data.tradingStatus} />
       <MarketHeader
         snapshot={data.snapshot}
         symbol={symbol}
@@ -106,17 +120,30 @@ export function PaperConsole() {
         timeframe={timeframe}
         setTimeframe={setTimeframe}
       />
-      <section className="main-grid">
-        <KlinePanel candles={data.candles} orders={data.overview?.orders} timeframe={timeframe} />
-        <CarryPanel snapshot={data.snapshot} latestBacktests={data.overview?.latest_backtests} />
-        <PaperRunControls overview={data.overview} onAction={handleAction} />
+      <section className="terminal-grid">
+        <div className="left-rail">
+          <OrderBookPanel orderBook={data.orderBook} snapshot={data.snapshot} />
+        </div>
+        <div className="center-stack">
+          <KlinePanel candles={data.candles} orders={data.overview?.orders} timeframe={timeframe} streamStatus={data.streamStatus} />
+          <TradingTicket symbol={symbol} mode={mode} latestPosition={latestPosition} onAction={handleAction} />
+        </div>
+        <div className="right-rail">
+          <MarketList universe={data.universe} selectedSymbol={symbol} onSelect={handleSelectSymbol} />
+          <RecentTradesPanel trades={data.trades} symbol={symbol} />
+        </div>
       </section>
-      <section className="analysis-grid">
+      <section className="execution-grid">
+        <FundingPanel signal={data.fundingSignal} onBacktest={() => handleAction("carryBacktest", { strategy_id: "" })} />
+        <RuntimeControlPanel streamStatus={data.streamStatus} onRunCycle={() => handleAction("runAllCycles")} />
         <DecisionDebugPanel decisionTrace={data.decisionTrace} />
         <RiskEventFeed events={data.overview?.risk_events} onResolve={handleResolveRisk} />
       </section>
-      <section className="bottom-grid">
-        <OrdersTable orders={data.overview?.orders} />
+      <section className="records-grid">
+        <OrdersTable
+          orders={data.overview?.orders}
+          onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })}
+        />
         <PositionsTable positions={data.overview?.positions} />
       </section>
       <OpsReviewPanel

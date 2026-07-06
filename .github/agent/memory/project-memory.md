@@ -1,5 +1,15 @@
 # Project Memory
 
+## Binance public REST realtime Paper console closure (TASK-028, 2026-07-07)
+
+- Paper/Testnet console now uses Binance public REST as the live market-data path for USD-M Top20 universe, OHLCV, order book, recent trades, and premium-index/funding inputs. If `ccxt` is unavailable, `BinancePublicRestExchange` falls back to standard-library HTTP calls rather than returning fake/static market data.
+- `/api/v1/market/ohlcv`, `/snapshot`, `/order-book`, `/trades`, `/universe`, and `/funding-arbitrage-signal` now expose live source evidence such as `binance_public_rest` or `binance_usdm_24h_ticker`, while still writing OHLCV/funding data back into `ohlcv_bars` / `market_extras` for the Validation -> Paper chain.
+- Manual Paper/Testnet trading now rejects blank `strategy_id` / `validation_backtest_run_id` at request validation, and Gatekeeper rejection writeback no longer turns blank strategy evidence into a `FailureRecord` model error. Frontend open buttons are disabled until Strategy ID, Backtest ID, and stoploss are present.
+- The admin console order book and recent trades panels no longer synthesize local rows from the last price. They render backend order-book/trade payloads, show explicit empty states, and the key trading-console Chinese copy has been repaired to UTF-8 text.
+- `scripts/start_paper_console.ps1` and `start-paper-console.bat` provide the local one-click startup path with live public market data enabled, safe Paper/Testnet flags, SQLite schema initialization, FastAPI + Vite startup, and system-browser opening. Browser validation avoids Codex Browser/IAB and uses system Chrome / HTTP smoke only.
+- Fresh smoke evidence: local API returned OHLCV/order book/trades from `binance_public_rest`, Top20 from `binance_usdm_24h_ticker`, then a Paper manual long order filled through `paper_manual` and a close request filled with `close_only=true`.
+- Current verification baseline: `py -3 -m pytest -q` -> 142 passed / 1 skipped; Ruff passed; mypy passed; admin Vitest passed; admin build passed.
+
 ## Open-source RAG assetization closure (TASK-027, 2026-07-06)
 
 - `research_source/open_source_strategy_library` no longer stops at manifest registration. `ResearchSourceAsset` now tracks URL, commit/ref, license, local path, sha256, byte size, status, extraction tags, and summary for local RAG assets.

@@ -5,6 +5,14 @@ export function apiUrl(path) {
   return `${API_BASE}${path}`;
 }
 
+export function streamUrl(path) {
+  const base = API_BASE || window.location.origin;
+  const url = new URL(path, base);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  if (ADMIN_API_TOKEN) url.searchParams.set("token", ADMIN_API_TOKEN);
+  return url.toString();
+}
+
 export async function request(path, options = {}) {
   const response = await fetch(apiUrl(path), {
     headers: {

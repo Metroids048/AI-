@@ -9,8 +9,19 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Protocol
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
-from shared.models import Exchange, MarketExtras, OHLCVBar, Timeframe
+from shared.models import (
+    Exchange,
+    MarketExtras,
+    MarketOrderBookResponse,
+    MarketTrade,
+    MarketTradesResponse,
+    OHLCVBar,
+    OrderBookLevel,
+    Timeframe,
+)
 
 from .repository import DataRepository
 
@@ -21,12 +32,15 @@ STABLE_OR_LEVERAGED_SUFFIXES = (
     "BEAR/USDT",
 )
 STABLE_SYMBOLS = {"USDC/USDT", "FDUSD/USDT", "TUSD/USDT", "DAI/USDT", "USDP/USDT"}
+USDM_EXCLUDED_BASES = {"USDC", "FDUSD", "TUSD", "BTCDOM"}
 DEFAULT_BACKFILL_LIMIT = 1000
 DEFAULT_FUNDING_LIMIT = 1000
 DEFAULT_OHLCV_BACKFILL_DAYS = 14
 DEFAULT_FUNDING_BACKFILL_DAYS = 30
 BINANCE_SPOT_WS_BASE = "wss://stream.binance.com:9443/ws"
 BINANCE_USDM_WS_BASE = "wss://fstream.binance.com/ws"
+BINANCE_SPOT_REST_BASE = "https://api.binance.com"
+BINANCE_USDM_REST_BASE = "https://fapi.binance.com"
 TIMEFRAME_TO_SECONDS = {
     "1m": 60,
     "5m": 5 * 60,
@@ -53,6 +67,26 @@ class BinanceUniverseSelector:
             except Exception:
                 volume = Decimal("0")
             ranked.append((symbol, volume))
+        ranked.sort(key=lambda item: item[1], reverse=True)
+        return [symbol for symbol, _ in ranked[:limit]]
+
+    def select_top_usdm_symbols(self, tickers: Iterable[Mapping[str, Any]], *, limit: int = 20) -> list[str]:
+        ranked: list[tuple[str, Decimal]] = []
+        for payload in tickers:
+            raw_symbol = str(payload.get("symbol", ""))
+            if not raw_symbol.endswith("USDT"):
+                continue
+            base = raw_symbol.removesuffix("USDT")
+            if base in USDM_EXCLUDED_BASES or base.endswith(("UP", "DOWN", "BULL", "BEAR")):
+                continue
+            quote_volume = payload.get("quoteVolume") or payload.get("quote_volume") or 0
+            try:
+                volume = Decimal(str(quote_volume))
+            except Exception:
+                volume = Decimal("0")
+            if volume <= 0:
+                continue
+            ranked.append((f"{base}/USDT", volume))
         ranked.sort(key=lambda item: item[1], reverse=True)
         return [symbol for symbol, _ in ranked[:limit]]
 
@@ -88,9 +122,23 @@ def spot_to_usdm_perp_symbol(symbol: str) -> str:
     return f"{symbol}:USDT"
 
 
+def platform_symbol_to_binance_raw(symbol: str) -> str:
+    """Convert platform symbols like BTC/USDT:USDT to Binance raw BTCUSDT."""
+
+    return symbol.replace(":USDT", "").replace("/", "").upper()
+
+
 def stream_symbol(symbol: str) -> str:
     base = symbol.replace(":USDT", "").replace("/", "")
     return base.lower()
+
+
+def fetch_usdm_24h_tickers() -> list[dict[str, Any]]:
+    """Fetch Binance USD-M 24h tickers without requiring CCXT."""
+
+    with urlopen(f"{BINANCE_USDM_REST_BASE}/fapi/v1/ticker/24hr", timeout=5) as response:  # noqa: S310
+        payload = json.loads(response.read().decode("utf-8"))
+    return payload if isinstance(payload, list) else []
 
 
 def normalize_ohlcv_rows(
@@ -187,7 +235,117 @@ class CcxtLikeExchange(Protocol):
         self, symbol: str, since: int | None = None, limit: int | None = None
     ) -> list[Mapping[str, Any]]: ...
 
+    def fetch_order_book(self, symbol: str, limit: int | None = None) -> Mapping[str, Any]: ...
+
+    def fetch_trades(
+        self, symbol: str, since: int | None = None, limit: int | None = None
+    ) -> list[Mapping[str, Any]]: ...
+
     def close(self) -> Any: ...
+
+
+class BinancePublicRestExchange:
+    """Minimal Binance public REST adapter used when CCXT is unavailable."""
+
+    def __init__(self, *, market_type: str):
+        self.market_type = market_type
+        self.base_url = BINANCE_USDM_REST_BASE if market_type == "usdm" else BINANCE_SPOT_REST_BASE
+
+    def load_markets(self) -> None:
+        return None
+
+    def fetch_ohlcv(
+        self,
+        symbol: str,
+        timeframe: str,
+        since: int | None = None,
+        limit: int | None = None,
+    ) -> list[Sequence]:
+        payload = self._get(
+            "/fapi/v1/klines" if self.market_type == "usdm" else "/api/v3/klines",
+            {
+                "symbol": platform_symbol_to_binance_raw(symbol),
+                "interval": timeframe,
+                "limit": max(1, min(limit or 500, 1000)),
+                **({"startTime": since} if since is not None else {}),
+            },
+        )
+        return [
+            [row[0], row[1], row[2], row[3], row[4], row[5]]
+            for row in payload
+            if isinstance(row, Sequence) and len(row) >= 6
+        ]
+
+    def fetch_funding_rate_history(
+        self,
+        symbol: str,
+        since: int | None = None,
+        limit: int | None = None,
+    ) -> list[Mapping[str, Any]]:
+        if self.market_type != "usdm":
+            return []
+        payload = self._get(
+            "/fapi/v1/fundingRate",
+            {
+                "symbol": platform_symbol_to_binance_raw(symbol),
+                "limit": max(1, min(limit or 100, 1000)),
+                **({"startTime": since} if since is not None else {}),
+            },
+        )
+        return payload if isinstance(payload, list) else []
+
+    def fetch_order_book(self, symbol: str, limit: int | None = None) -> Mapping[str, Any]:
+        payload = self._get(
+            "/fapi/v1/depth" if self.market_type == "usdm" else "/api/v3/depth",
+            {
+                "symbol": platform_symbol_to_binance_raw(symbol),
+                "limit": max(5, min(limit or 20, 100)),
+            },
+        )
+        return payload if isinstance(payload, Mapping) else {}
+
+    def fetch_trades(
+        self,
+        symbol: str,
+        since: int | None = None,
+        limit: int | None = None,
+    ) -> list[Mapping[str, Any]]:
+        payload = self._get(
+            "/fapi/v1/trades" if self.market_type == "usdm" else "/api/v3/trades",
+            {
+                "symbol": platform_symbol_to_binance_raw(symbol),
+                "limit": max(1, min(limit or 50, 1000)),
+            },
+        )
+        if not isinstance(payload, list):
+            return []
+        trades: list[Mapping[str, Any]] = []
+        for row in payload:
+            if not isinstance(row, Mapping):
+                continue
+            is_buyer_maker = bool(row.get("isBuyerMaker"))
+            trades.append(
+                {
+                    "id": row.get("id"),
+                    "timestamp": row.get("time"),
+                    "price": row.get("price"),
+                    "amount": row.get("qty"),
+                    "side": "sell" if is_buyer_maker else "buy",
+                }
+            )
+        return trades
+
+    def fapiPublicGetPremiumIndex(self, params: Mapping[str, Any]) -> Mapping[str, Any]:
+        payload = self._get("/fapi/v1/premiumIndex", {"symbol": params.get("symbol")})
+        return payload if isinstance(payload, Mapping) else {}
+
+    def close(self) -> None:
+        return None
+
+    def _get(self, path: str, params: Mapping[str, Any]) -> Any:
+        query = urlencode({key: value for key, value in params.items() if value is not None})
+        with urlopen(f"{self.base_url}{path}?{query}", timeout=5) as response:  # noqa: S310
+            return json.loads(response.read().decode("utf-8"))
 
 
 @dataclass
@@ -210,10 +368,21 @@ class BinanceCcxtClient:
         usdm_exchange: CcxtLikeExchange | None = None,
     ):
         if spot_exchange is None or usdm_exchange is None:
-            import ccxt
+            try:
+                import ccxt
+            except ImportError:
+                ccxt = None
 
-        self.spot_exchange = spot_exchange or ccxt.binance({"enableRateLimit": True})
-        self.usdm_exchange = usdm_exchange or ccxt.binanceusdm({"enableRateLimit": True})
+        self.spot_exchange = spot_exchange or (
+            ccxt.binance({"enableRateLimit": True})
+            if ccxt is not None
+            else BinancePublicRestExchange(market_type="spot")
+        )
+        self.usdm_exchange = usdm_exchange or (
+            ccxt.binanceusdm({"enableRateLimit": True})
+            if ccxt is not None
+            else BinancePublicRestExchange(market_type="usdm")
+        )
         self._markets_loaded = False
 
     def load_markets(self) -> None:
@@ -308,11 +477,105 @@ class BinanceCcxtClient:
             symbol=symbol,
         )
 
+    def fetch_recent_ohlcv(self, *, symbol: str, timeframe: str, limit: int = 300) -> list[OHLCVBar]:
+        self.load_markets()
+        safe_limit = max(1, min(limit, DEFAULT_BACKFILL_LIMIT))
+        rows = self._exchange_for_symbol(symbol).fetch_ohlcv(symbol, timeframe, None, safe_limit)
+        return normalize_ohlcv_rows(rows=rows, symbol=symbol, timeframe=timeframe)
+
+    def fetch_live_order_book(self, *, symbol: str, limit: int = 20) -> MarketOrderBookResponse:
+        self.load_markets()
+        safe_limit = max(5, min(limit, 100))
+        payload = self._exchange_for_symbol(symbol).fetch_order_book(symbol, safe_limit)
+        bids = _normalize_book_side(payload.get("bids", []), limit=safe_limit)
+        asks = _normalize_book_side(payload.get("asks", []), limit=safe_limit)
+        return MarketOrderBookResponse(
+            symbol=symbol,
+            data_status="ok" if bids or asks else "empty",
+            source="binance_public_rest",
+            last_update_id=_int_or_none(payload.get("nonce")),
+            bids=bids,
+            asks=asks,
+        )
+
+    def fetch_live_trades(self, *, symbol: str, limit: int = 50) -> MarketTradesResponse:
+        self.load_markets()
+        safe_limit = max(1, min(limit, 100))
+        rows = self._exchange_for_symbol(symbol).fetch_trades(symbol, None, safe_limit)
+        trades: list[MarketTrade] = []
+        for row in rows[-safe_limit:]:
+            price = row.get("price")
+            amount = row.get("amount")
+            if price is None or amount is None:
+                continue
+            trades.append(
+                MarketTrade(
+                    trade_id=str(row.get("id")) if row.get("id") is not None else None,
+                    price=Decimal(str(price)),
+                    quantity=Decimal(str(amount)),
+                    side=str(row.get("side") or "unknown"),
+                    trade_time=_from_millis(row["timestamp"]) if row.get("timestamp") is not None else None,
+                )
+            )
+        return MarketTradesResponse(
+            symbol=symbol,
+            data_status="ok" if trades else "empty",
+            source="binance_public_rest",
+            trades=trades,
+        )
+
+    def fetch_premium_index(self, *, symbol: str) -> MarketExtras | None:
+        raw_symbol = platform_symbol_to_binance_raw(symbol)
+        getter = getattr(self.usdm_exchange, "fapiPublicGetPremiumIndex", None)
+        if getter is None:
+            return None
+        payload = getter({"symbol": raw_symbol})
+        if not isinstance(payload, Mapping):
+            return None
+        timestamp = payload.get("time") or payload.get("nextFundingTime")
+        rate = payload.get("lastFundingRate")
+        open_interest = payload.get("openInterest")
+        if timestamp is None and rate is None and open_interest is None:
+            return None
+        return MarketExtras(
+            symbol=spot_to_usdm_perp_symbol(symbol),
+            time=_from_millis(timestamp or int(datetime.now(UTC).timestamp() * 1000)),
+            funding_rate=Decimal(str(rate)) if rate is not None else None,
+            open_interest=Decimal(str(open_interest)) if open_interest is not None else None,
+        )
+
     def close(self) -> None:
         for exchange in (self.spot_exchange, self.usdm_exchange):
             close = getattr(exchange, "close", None)
             if callable(close):
                 close()
+
+
+def _normalize_book_side(rows: Iterable[Sequence], *, limit: int) -> list[OrderBookLevel]:
+    levels: list[OrderBookLevel] = []
+    running_total = Decimal("0")
+    for row in list(rows)[:limit]:
+        if len(row) < 2:
+            continue
+        quantity = Decimal(str(row[1]))
+        running_total += quantity
+        levels.append(
+            OrderBookLevel(
+                price=Decimal(str(row[0])),
+                quantity=quantity,
+                total=running_total,
+            )
+        )
+    return levels
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class BinanceBackfillService:

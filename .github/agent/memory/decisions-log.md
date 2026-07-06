@@ -1,5 +1,12 @@
 # Decisions Log
 
+## ADR-037: Paper console live market data must use Binance public REST fallback, not synthetic UI data
+- Date: 2026-07-07
+- Status: accepted
+- Context: The exchange-style Paper console looked static because several panels still depended on persisted local data or frontend-synthesized order book/trade rows. The local runtime also did not have `ccxt` installed, so CCXT-only live endpoints failed with 500 instead of serving real public market data. The user explicitly required real exchange or TradingView-style data and a demonstrable Paper open/close flow.
+- Decision: Keep the first production boundary as Paper/Testnet only, but make Binance public market data a direct Data Layer capability. Add standard-library Binance REST fallback for USD-M 24h ticker, klines, depth, trades, funding history, and premiumIndex so `ccxt` is optional for public reads. Read endpoints may refresh from Binance and persist OHLCV/funding into the existing repository, while frontend order book and recent trades must render backend payloads only. Manual trading remains behind Strategy/Validation evidence, stoploss, Gatekeeper, and Review; blank evidence is rejected at request validation.
+- Consequences: The local one-click console can show real Binance public data even without CCXT installed and without exposing API keys. Public market reads are still not private account sync or mainnet trading. If Binance public REST is unreachable, endpoints return explicit empty/error-source states or persisted fallback rather than invented market rows.
+
 ## ADR-036: Open-source projects are stored as traceable distilled RAG assets before strategy extraction
 - Date: 2026-07-06
 - Status: accepted

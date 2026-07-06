@@ -7,12 +7,14 @@ import uuid
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
+from apps.api.config import settings
 from apps.api.http import api_error, collection_response, not_found
 from services.data import DataRepository
 from services.database import get_db_session
 from services.execution import (
     ExecutionGatekeeperService,
     LiveExecutionService,
+    ManualTradingService,
     PaperRuntimeService,
     PaperSignalGenerator,
     configured_gateways,
@@ -30,12 +32,17 @@ from services.strategy_library import (
 )
 from services.validation.admission import ValidationAdmissionService
 from shared.models import (
+    AdjustLeverageRequest,
+    CancelOrderRequest,
+    ClosePositionRequest,
     CollectionResponse,
     ExchangeAccountSnapshot,
     ExchangeGatewayCapability,
     ExecutionOrderRequest,
+    LeverageAdjustmentResult,
     LiveRun,
     LiveRunRequest,
+    ManualOrderRequest,
     OrderExecution,
     PaperRun,
     PaperRunRequest,
@@ -47,6 +54,7 @@ from shared.models import (
     PositionSnapshot,
     ReconciliationRecord,
     TaskSubmission,
+    TradingRuntimeStatus,
 )
 
 router = APIRouter(prefix="/execution", tags=["execution"])
@@ -98,9 +106,100 @@ def _paper_runtime_service(db: Session) -> PaperRuntimeService:
     )
 
 
+def _manual_trading_service(db: Session) -> ManualTradingService:
+    return ManualTradingService(
+        execution_repo=ExecutionRepository(db),
+        gatekeeper=_gatekeeper(db),
+        gateway=configured_gateways()[0],
+    )
+
+
 @router.get("/paper-runs", response_model=CollectionResponse[PaperRun])
 def list_paper_runs(db: Session = Depends(get_db_session)) -> CollectionResponse[PaperRun]:
     return collection_response(_paper_repo(db).list_paper_runs())
+
+
+@router.get("/trading-status", response_model=TradingRuntimeStatus)
+def get_trading_status() -> TradingRuntimeStatus:
+    gateway = configured_gateways()[0]
+    credentials_configured = bool(settings.binance_api_key and settings.binance_api_secret)
+    notes = ["secrets are never returned by this endpoint"]
+    if not settings.binance_use_testnet:
+        notes.append("binance_use_testnet is false; manual testnet trading is disabled by policy")
+    return TradingRuntimeStatus(
+        exchange="binance",
+        mode="testnet" if settings.binance_use_testnet and credentials_configured else "paper",
+        app_env=settings.app_env,
+        binance_use_testnet=settings.binance_use_testnet,
+        live_trading_enabled=settings.live_trading_enabled,
+        credentials_configured=credentials_configured,
+        gateway_available=credentials_configured and gateway.capability.supports_order_submit,
+        notes=notes,
+    )
+
+
+@router.post("/manual-orders", response_model=OrderExecution, status_code=status.HTTP_201_CREATED)
+def create_manual_order(body: ManualOrderRequest, db: Session = Depends(get_db_session)) -> OrderExecution:
+    try:
+        order = _manual_trading_service(db).submit_manual_order(body)
+    except ValueError as exc:
+        raise api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="manual_order_rejected",
+            message=str(exc),
+        ) from exc
+    if order.execution_status == "rejected":
+        raise api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="manual_order_rejected",
+            message=order.rejection_reason or "manual order rejected",
+            detail={"rejection_codes": order.rejection_codes},
+        )
+    return order
+
+
+@router.post("/close-position", response_model=OrderExecution, status_code=status.HTTP_201_CREATED)
+def close_manual_position(body: ClosePositionRequest, db: Session = Depends(get_db_session)) -> OrderExecution:
+    try:
+        order = _manual_trading_service(db).close_position(body)
+    except ValueError as exc:
+        raise api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="close_position_rejected",
+            message=str(exc),
+        ) from exc
+    if order.execution_status == "rejected":
+        raise api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="close_position_rejected",
+            message=order.rejection_reason or "close position rejected",
+            detail={"rejection_codes": order.rejection_codes},
+        )
+    return order
+
+
+@router.post("/adjust-leverage", response_model=LeverageAdjustmentResult)
+def adjust_leverage(body: AdjustLeverageRequest, db: Session = Depends(get_db_session)) -> LeverageAdjustmentResult:
+    try:
+        return _manual_trading_service(db).adjust_leverage(body)
+    except ValueError as exc:
+        raise api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="adjust_leverage_rejected",
+            message=str(exc),
+        ) from exc
+
+
+@router.post("/cancel-order", response_model=OrderExecution)
+def cancel_manual_order(body: CancelOrderRequest, db: Session = Depends(get_db_session)) -> OrderExecution:
+    try:
+        return _manual_trading_service(db).cancel_order(body)
+    except ValueError as exc:
+        raise api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="cancel_order_rejected",
+            message=str(exc),
+        ) from exc
 
 
 @router.post("/paper-runs", response_model=TaskSubmission, status_code=status.HTTP_202_ACCEPTED)
@@ -118,6 +217,29 @@ def create_paper_run(body: PaperRunRequest, db: Session = Depends(get_db_session
         resource_type="paper_run",
         resource_id=created.paper_run_id,
     )
+
+
+@router.post("/paper-runs/auto-cycle-all", response_model=dict)
+def run_all_paper_runtime_cycles(
+    body: PaperRuntimeCycleRequest,
+    db: Session = Depends(get_db_session),
+) -> dict:
+    results = []
+    for run in _paper_repo(db).list_paper_runs():
+        if run.paper_status != "running" or run.paper_run_id is None:
+            continue
+        try:
+            result = _paper_runtime_service(db).run_cycle(paper_run_id=run.paper_run_id, request=body)
+            results.append(result.model_dump(mode="json"))
+        except ValueError as exc:
+            results.append(
+                {
+                    "paper_run_id": run.paper_run_id,
+                    "paper_status": run.paper_status,
+                    "error": str(exc),
+                }
+            )
+    return {"paper_runs": len(results), "results": results}
 
 
 @router.get("/paper-runs/{paper_run_id}", response_model=PaperRun)

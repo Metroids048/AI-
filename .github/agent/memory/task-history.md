@@ -1,5 +1,16 @@
 # Task History
 
+### [TASK-028] Complete Binance realtime Paper console data and manual open/close smoke
+- **Date**: 2026-07-07
+- **Type**: feat + fix + frontend + ops + verification
+- **Summary**: Repaired the Paper console so it no longer appears as a static shell. Added Binance public REST live reads for USD-M Top20, OHLCV, order book, recent trades, and premiumIndex/funding with a standard-library fallback when `ccxt` is not installed; wired market APIs to refresh and persist live OHLCV/funding data; added explicit order-book/trade contracts; fixed blank manual-order validation evidence causing `FailureRecord` errors; disabled frontend open buttons until Strategy ID, Backtest ID, and stoploss are present; replaced synthetic frontend order book/trades with backend live payloads; repaired key Chinese mojibake; and hardened the one-click startup script's port handling.
+- **Files changed**: `services/data/{binance,market}.py`, `apps/api/routers/market.py`, `shared/models/{market,workflow,__init__}.py`, `services/execution/gatekeeper.py`, `frontend/admin/src/{api,hooks,pages,components,utils,styles}.js*`, `scripts/start_paper_console.ps1`, `start-paper-console.bat`, and API/service/frontend tests.
+- **Layer mapping**: Data Layer owns Binance public REST live reads and persistence into `ohlcv_bars` / `market_extras`; Execution Layer owns manual Paper/Testnet order admission and close-only handling; Review Layer remains the rejection-memory sink but no longer receives invalid blank-subject failures; Frontend is an operator surface only and never connects directly to Binance.
+- **Research loop served**: Live public market data now feeds `Data -> Validation evidence -> Manual/Auto Paper order -> Gatekeeper -> OrderExecution/PositionSnapshot -> Review`, preserving the required Strategy/Validation/Risk chain while making the trading console operationally inspectable.
+- **Verification**: `py -3 -m pytest -q` -> 142 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m mypy` passed; `npm --workspace frontend/admin run test -- --run` passed; `npm --workspace frontend/admin run build` passed.
+- **Runtime smoke**: `scripts/start_paper_console.ps1` started FastAPI and Vite and opened `http://127.0.0.1:5173` via the system browser. HTTP smoke confirmed OHLCV/order book/trades source `binance_public_rest`, Top20 source `binance_usdm_24h_ticker`, a Paper manual order `filled` through `paper_manual`, and Paper close `filled` with `close_only=true`.
+- **Notes**: Browser/IAB was not used because this Windows Codex Desktop is configured Chrome-only with bundled Browser disabled. Mainnet real trading remains out of scope; this is Paper/Testnet only.
+
 ### [TASK-026] Implement 7x24 Paper decision pipeline automation
 - **Date**: 2026-07-06
 - **Type**: feat + fix + frontend + ops

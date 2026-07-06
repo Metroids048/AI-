@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from apps.api.config import settings
 from services.data import DataRepository
 from services.strategy_library import (
     ExecutionRepository,
@@ -78,6 +79,74 @@ def test_market_ohlcv_empty_state_is_explicit(api_client) -> None:
     assert response.status_code == 200
     assert response.json()["data_status"] == "empty"
     assert response.json()["candles"] == []
+
+
+def test_market_live_public_rest_endpoints_return_binance_source(api_client, db_session, monkeypatch) -> None:
+    from apps.api.config import settings
+    from apps.api.routers import market as market_router
+    from services.data.binance import normalize_ohlcv_rows
+    from shared.models import MarketExtras, MarketOrderBookResponse, MarketTrade, MarketTradesResponse, OrderBookLevel
+
+    class _FakeLiveClient:
+        def fetch_recent_ohlcv(self, *, symbol, timeframe, limit=300):
+            return normalize_ohlcv_rows(
+                rows=[[1711929600000, 61000, 61200, 60900, 61100, 10]],
+                symbol=symbol,
+                timeframe=timeframe,
+            )
+
+        def fetch_premium_index(self, *, symbol):
+            return MarketExtras(symbol=symbol, time=datetime.now(UTC), funding_rate=Decimal("0.0002"))
+
+        def fetch_live_order_book(self, *, symbol, limit=20):
+            return MarketOrderBookResponse(
+                symbol=symbol,
+                data_status="ok",
+                source="binance_public_rest",
+                bids=[OrderBookLevel(price=Decimal("61000"), quantity=Decimal("0.1"), total=Decimal("0.1"))],
+                asks=[OrderBookLevel(price=Decimal("61010"), quantity=Decimal("0.2"), total=Decimal("0.2"))],
+            )
+
+        def fetch_live_trades(self, *, symbol, limit=50):
+            return MarketTradesResponse(
+                symbol=symbol,
+                data_status="ok",
+                source="binance_public_rest",
+                trades=[MarketTrade(trade_id="1", price=Decimal("61000"), quantity=Decimal("0.01"), side="buy")],
+            )
+
+    monkeypatch.setattr(settings, "binance_live_market_enabled", True)
+    monkeypatch.setattr(market_router, "BinanceCcxtClient", _FakeLiveClient)
+
+    candles = api_client.get("/api/v1/market/ohlcv", params={"symbol": "BTC/USDT", "timeframe": "1h"})
+    snapshot = api_client.get("/api/v1/market/snapshot", params={"symbol": "BTC/USDT", "perp_symbol": "BTC/USDT:USDT"})
+    book = api_client.get("/api/v1/market/order-book", params={"symbol": "BTC/USDT:USDT"})
+    trades = api_client.get("/api/v1/market/trades", params={"symbol": "BTC/USDT:USDT"})
+
+    assert candles.status_code == 200
+    assert candles.json()["source"] == "binance_public_rest"
+    assert candles.json()["candles"][0]["close"] == "61100"
+    assert snapshot.status_code == 200
+    assert snapshot.json()["funding_rate"] == "0.0002"
+    assert book.json()["source"] == "binance_public_rest"
+    assert book.json()["bids"][0]["price"] == "61000"
+    assert trades.json()["source"] == "binance_public_rest"
+    assert trades.json()["trades"][0]["side"] == "buy"
+
+
+def test_market_ohlcv_websocket_stream_sends_persisted_snapshot(api_client, db_session) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    DataRepository(db_session).store_ohlcv_bars([_bar("BTC/USDT", now, "42100")])
+
+    with api_client.websocket_connect(
+        f"/api/v1/market/ohlcv/stream?symbol=BTC/USDT&timeframe=1h&limit=5&token={settings.admin_api_token}"
+    ) as websocket:
+        message = websocket.receive_json()
+
+    assert message["event"] == "ohlcv_snapshot"
+    assert message["source"] == "persisted_market_data"
+    assert message["payload"]["data_status"] == "ok"
+    assert message["payload"]["candles"][0]["close"] == "42100"
 
 
 def test_console_overview_aggregates_execution_and_risk_state(api_client, db_session) -> None:

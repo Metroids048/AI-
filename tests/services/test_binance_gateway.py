@@ -7,6 +7,8 @@ from shared.models import ExecutionOrderRequest
 class StubCcxtClient:
     def __init__(self) -> None:
         self.sandbox_mode_calls: list[bool] = []
+        self.leverage_calls: list[tuple[int, str]] = []
+        self.algo_orders: list[dict] = []
 
     def set_sandbox_mode(self, enabled: bool) -> None:
         self.sandbox_mode_calls.append(enabled)
@@ -29,6 +31,14 @@ class StubCcxtClient:
         assert amount == 0.01
         assert params["stopLoss"]["triggerPrice"] == 59000
         return {"id": "binance-order-1", "status": "open"}
+
+    def fapiPrivatePostAlgoOrder(self, payload):  # noqa: N802, ANN001
+        self.algo_orders.append(payload)
+        return {"algoId": f"algo-{len(self.algo_orders)}", "status": "NEW"}
+
+    def set_leverage(self, leverage, symbol):  # noqa: ANN001
+        self.leverage_calls.append((leverage, symbol))
+        return {"leverage": leverage, "symbol": symbol}
 
     def cancel_order(self, order_id, symbol=None):  # noqa: ANN001
         assert order_id == "binance-order-1"
@@ -54,6 +64,7 @@ def test_binance_gateway_maps_account_order_cancel_and_reconcile() -> None:
             entry_context={"order_type": "market", "quantity": 0.01},
         ),
     )
+    leverage = gateway.set_leverage(symbol="BTC/USDT", leverage=2)
     cancelled = gateway.cancel_order(gateway_order_id="binance-order-1")
     reconciled = gateway.reconcile(live_run_id="live-run-1")
 
@@ -61,5 +72,10 @@ def test_binance_gateway_maps_account_order_cancel_and_reconcile() -> None:
     assert snapshot.open_position_count == 1
     assert client.sandbox_mode_calls == [True]
     assert submitted["gateway_order_id"] == "binance-order-1"
+    assert len(submitted["protection_order_refs"]) == 2
+    assert client.algo_orders[0]["type"] == "STOP_MARKET"
+    assert client.algo_orders[1]["type"] == "TAKE_PROFIT_MARKET"
+    assert leverage["gateway_status"] == "acknowledged"
+    assert client.leverage_calls == [(2, "BTC/USDT:USDT")]
     assert cancelled["gateway_status"] == "cancelled"
     assert reconciled["reconciliation_status"] == "ok"

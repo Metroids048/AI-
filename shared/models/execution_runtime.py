@@ -21,6 +21,20 @@ class ExchangeGatewayCapability(PlatformModel):
     supports_reconciliation: bool = True
 
 
+class TradingRuntimeStatus(PlatformModel):
+    """Safe-to-display trading mode and gateway readiness; never includes secrets."""
+
+    exchange: str = "binance"
+    mode: str = "paper"
+    app_env: str
+    binance_use_testnet: bool
+    live_trading_enabled: bool
+    credentials_configured: bool
+    gateway_available: bool
+    supported_modes: list[str] = Field(default_factory=lambda: ["paper", "testnet"])
+    notes: list[str] = Field(default_factory=list)
+
+
 class ExchangeAccountSnapshot(PlatformModel):
     snapshot_id: str | None = None
     live_run_id: str
@@ -42,4 +56,3 @@ class ReconciliationRecord(PlatformModel):
     position_mismatches: list[dict[str, Any]] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
-

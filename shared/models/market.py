@@ -74,6 +74,33 @@ class MarketSnapshot(PlatformModel):
     data_freshness: dict[str, Any] = Field(default_factory=dict)
 
 
+class MarketUniverseItem(PlatformModel):
+    """One tradable Binance USD-M universe row for the console market list."""
+
+    symbol: str
+    perp_symbol: str
+    quote_volume: float | None = None
+    last_price: Decimal | None = None
+    price_change_percent: float | None = None
+    source: str = "fallback_default_top20"
+
+
+class FundingArbitrageSignal(PlatformModel):
+    """Funding/basis carry signal for Paper-only strategy admission."""
+
+    symbol: str
+    perp_symbol: str
+    funding_rate: Decimal | None = None
+    funding_bps: float | None = None
+    basis_bps: float | None = None
+    fee_bps: float
+    slippage_bps: float
+    estimated_net_edge_bps: float | None = None
+    should_enter_paper: bool = False
+    rejection_reasons: list[str] = Field(default_factory=list)
+    recommended_strategy_template: dict[str, Any] = Field(default_factory=dict)
+
+
 class OhlcvSeriesResponse(PlatformModel):
     """Candles for chart rendering plus an explicit data status."""
 
@@ -81,7 +108,48 @@ class OhlcvSeriesResponse(PlatformModel):
     timeframe: str
     exchange: str = "binance"
     data_status: str = "empty"
+    source: str = "persisted_market_data"
     candles: list[OHLCVBar] = Field(default_factory=list)
+
+
+class OrderBookLevel(PlatformModel):
+    """One price level from the exchange order book."""
+
+    price: Decimal
+    quantity: Decimal
+    total: Decimal
+
+
+class MarketOrderBookResponse(PlatformModel):
+    """Live order book read model for the trading console."""
+
+    symbol: str
+    exchange: str = "binance"
+    data_status: str = "empty"
+    source: str = "empty"
+    last_update_id: int | None = None
+    bids: list[OrderBookLevel] = Field(default_factory=list)
+    asks: list[OrderBookLevel] = Field(default_factory=list)
+
+
+class MarketTrade(PlatformModel):
+    """One recent public market trade."""
+
+    trade_id: str | None = None
+    price: Decimal
+    quantity: Decimal
+    side: str
+    trade_time: datetime | None = None
+
+
+class MarketTradesResponse(PlatformModel):
+    """Recent public trades read model for the trading console."""
+
+    symbol: str
+    exchange: str = "binance"
+    data_status: str = "empty"
+    source: str = "empty"
+    trades: list[MarketTrade] = Field(default_factory=list)
 
 
 class ConsoleOverview(PlatformModel):

@@ -37,6 +37,8 @@ Thumbs.db
 /.dev_ai_quant.db
 /.pytest_ai_quant.db
 /.pytest_ai_quant.*.db
+/.browser_paper_smoke.db
+/.local_paper_console.db
 *.sqlite
 *.sqlite3
 *.egg-info/

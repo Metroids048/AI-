@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     paper_runtime_cycle_seconds: int = 300
     market_data_heartbeat_seconds: int = 60
     market_data_stale_seconds: int = 120
+    market_kline_stream_poll_seconds: int = 2
     notification_dispatch_seconds: int = 60
     daily_review_hour_utc: int = 0
     daily_review_minute_utc: int = 0
@@ -43,6 +44,8 @@ class Settings(BaseSettings):
     bybit_api_key: str = ""
     bybit_api_secret: str = ""
     default_exchange: str = "binance"
+    binance_live_universe_enabled: bool = False
+    binance_live_market_enabled: bool = False
 
     trading_economics_api_key: str = ""
     alpha_vantage_api_key: str = ""
@@ -74,4 +77,18 @@ class Settings(BaseSettings):
     freqtrade_password: str = ""
 
 
+def validate_trading_environment(config: Settings) -> None:
+    """Fail closed for environments that must not touch mainnet trading."""
+
+    guarded_envs = {"paper", "testnet"}
+    app_env = config.app_env.lower()
+    if app_env in guarded_envs and not config.binance_use_testnet:
+        raise ValueError("paper/testnet environments require BINANCE_USE_TESTNET=true")
+    if app_env in guarded_envs and config.live_trading_enabled:
+        raise ValueError("paper/testnet environments require LIVE_TRADING_ENABLED=false")
+    if app_env not in {"development", "test"} and config.admin_api_token == "dev-admin-token":
+        raise ValueError("non-local environments require a non-default ADMIN_API_TOKEN")
+
+
 settings = Settings()
+validate_trading_environment(settings)

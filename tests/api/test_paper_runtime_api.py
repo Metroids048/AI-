@@ -151,6 +151,28 @@ def test_paper_runtime_auto_cycle_opens_positions_and_updates_status(api_client,
     assert status_body["last_action_counts"]["opened"] == 2
 
 
+def test_paper_runtime_auto_cycle_all_runs_running_paper_runs(api_client, db_session) -> None:
+    _, paper_run_id = _create_validated_paper_run(api_client, db_session)
+    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=1)
+    _store_trend_bars(db_session, symbol="BTC/USDT", closes=[Decimal("60000"), Decimal("60400")], start_at=start_at)
+    status_resp = api_client.patch(
+        f"/api/v1/execution/paper-runs/{paper_run_id}/status",
+        json={"paper_status": "running"},
+    )
+    assert status_resp.status_code == 200
+
+    cycle_resp = api_client.post(
+        "/api/v1/execution/paper-runs/auto-cycle-all",
+        json={"symbols": ["BTC/USDT"], "max_symbols": 1, "timeframe": "1h", "enable_decision_veto": False},
+    )
+
+    assert cycle_resp.status_code == 200
+    body = cycle_resp.json()
+    assert body["paper_runs"] == 1
+    assert body["results"][0]["paper_run_id"] == paper_run_id
+    assert body["results"][0]["opened_positions"] == 1
+
+
 def test_paper_runtime_auto_cycle_closes_position_on_opposite_signal(api_client, db_session) -> None:
     _, paper_run_id = _create_validated_paper_run(api_client, db_session)
     start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=2)

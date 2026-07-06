@@ -3,7 +3,7 @@
   "repo_url": "https://github.com/freqtrade/freqtrade",
   "license": "GPL-3.0",
   "license_policy": "distilled_research_only",
-  "updated_at": "2026-07-06T09:38:10.863401+00:00",
+  "updated_at": "2026-07-06T17:06:27.639361+00:00",
   "assets": [
     {
       "asset_id": "freqtrade:fe88d4d177c35d33",
@@ -42,7 +42,7 @@
         "optimization_workflow"
       ],
       "summary": "Extract crypto strategy structure, dry-run discipline, and optimization workflow patterns.",
-      "created_at": "2026-07-06T09:38:10.862402Z"
+      "created_at": "2026-07-06T17:06:27.638929Z"
     },
     {
       "asset_id": "freqtrade:64fe8dd7508d58a2",

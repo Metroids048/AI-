@@ -20,6 +20,8 @@ class ExchangeGateway(Protocol):
 
     def reconcile(self, *, live_run_id: str) -> dict[str, Any]: ...
 
+    def set_leverage(self, *, symbol: str, leverage: float) -> dict[str, Any]: ...
+
 
 @dataclass
 class NullExchangeGateway:
@@ -46,6 +48,9 @@ class NullExchangeGateway:
         raise NotImplementedError("live gateway is not configured")
 
     def reconcile(self, *, live_run_id: str) -> dict[str, Any]:
+        raise NotImplementedError("live gateway is not configured")
+
+    def set_leverage(self, *, symbol: str, leverage: float) -> dict[str, Any]:
         raise NotImplementedError("live gateway is not configured")
 
 
@@ -100,11 +105,13 @@ class BinanceUsdtPerpetualGateway:
             order_request.entry_context.get("limit_price"),
             params,
         )
+        protection_refs = self._submit_protection_algo_orders(order_request=order_request, side=side, quantity=quantity)
         return {
             "live_run_id": live_run_id,
             "gateway_order_id": str(created.get("id")),
             "gateway_status": _normalize_order_status(created.get("status")),
             "symbol": order_request.symbol,
+            "protection_order_refs": protection_refs,
         }
 
     def cancel_order(self, *, gateway_order_id: str) -> dict[str, Any]:
@@ -125,6 +132,64 @@ class BinanceUsdtPerpetualGateway:
             "position_mismatches": mismatches,
             "notes": ["binance gateway reconciliation snapshot"],
         }
+
+    def set_leverage(self, *, symbol: str, leverage: float) -> dict[str, Any]:
+        normalized_symbol = _normalize_binance_symbol(symbol)
+        method = getattr(self.client, "set_leverage", None)
+        if callable(method):
+            result = method(int(leverage), normalized_symbol)
+        else:
+            raw_method = getattr(self.client, "fapiPrivatePostLeverage", None)
+            if not callable(raw_method):
+                raise ValueError("binance gateway client does not support leverage adjustment")
+            result = raw_method({"symbol": _binance_market_id(normalized_symbol), "leverage": int(leverage)})
+        return {
+            "symbol": symbol,
+            "leverage": leverage,
+            "gateway_status": "acknowledged",
+            "raw": result,
+        }
+
+    def _submit_protection_algo_orders(
+        self,
+        *,
+        order_request: ExecutionOrderRequest,
+        side: str,
+        quantity: float,
+    ) -> list[dict[str, Any]]:
+        method = getattr(self.client, "fapiPrivatePostAlgoOrder", None)
+        if not callable(method):
+            return []
+        close_side = "SELL" if side == "buy" else "BUY"
+        refs: list[dict[str, Any]] = []
+        symbol = _binance_market_id(_normalize_binance_symbol(order_request.symbol))
+        if "price" in order_request.stoploss_plan:
+            refs.append(
+                method(
+                    {
+                        "symbol": symbol,
+                        "side": close_side,
+                        "type": "STOP_MARKET",
+                        "quantity": quantity,
+                        "triggerPrice": order_request.stoploss_plan["price"],
+                        "reduceOnly": "true",
+                    }
+                )
+            )
+        if "price" in order_request.takeprofit_plan:
+            refs.append(
+                method(
+                    {
+                        "symbol": symbol,
+                        "side": close_side,
+                        "type": "TAKE_PROFIT_MARKET",
+                        "quantity": quantity,
+                        "triggerPrice": order_request.takeprofit_plan["price"],
+                        "reduceOnly": "true",
+                    }
+                )
+            )
+        return refs
 
     @staticmethod
     def _build_default_client() -> Any:
@@ -190,6 +255,9 @@ class _UnavailableBinanceClient:
     def fetch_open_orders(self):
         raise ValueError("binance live credentials are not configured")
 
+    def set_leverage(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        raise ValueError("binance live credentials are not configured")
+
 
 def _normalize_binance_symbol(symbol: str) -> str:
     if symbol.endswith(":USDT"):
@@ -197,6 +265,10 @@ def _normalize_binance_symbol(symbol: str) -> str:
     if symbol.endswith("/USDT"):
         return f"{symbol}:USDT"
     return symbol
+
+
+def _binance_market_id(symbol: str) -> str:
+    return symbol.replace(":USDT", "").replace("/", "")
 
 
 def _normalize_order_status(status: Any) -> str:
