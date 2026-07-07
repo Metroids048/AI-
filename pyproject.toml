@@ -41,7 +41,7 @@ llm = [
 quant = [
   "freqtrade>=2024.9",
   "backtrader>=1.9.78.123",
-  "vectorbt>=0.26,<1.0",
+  "vectorbt>=0.26,<2.0",
   "pandas-ta>=0.3.14b"
   # "TA-Lib>=0.4"  # optional: needs system C library; pandas-ta covers Phase 0
 ]
