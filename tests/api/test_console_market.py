@@ -145,6 +145,7 @@ def test_market_ohlcv_websocket_stream_sends_persisted_snapshot(api_client, db_s
 
     assert message["event"] == "ohlcv_snapshot"
     assert message["source"] == "persisted_market_data"
+    assert message["feed_status"]["status"] in {"idle", "live", "reconnecting"}
     assert message["payload"]["data_status"] == "ok"
     assert message["payload"]["candles"][0]["close"] == "42100"
 

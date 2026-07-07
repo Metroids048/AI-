@@ -68,6 +68,13 @@ function DecisionSummary({ trace }) {
   const ensemble = trace.ensemble ?? {};
   const metaLabel = trace.meta_label ?? {};
   const veto = trace.veto_result ?? {};
+  const rejectionReasons = [
+    trace.rejection_reason,
+    ...(asArray(trace.rejection_codes)),
+    ...(asArray(trace.gatekeeper_rejection_codes)),
+    ...(trace.pipeline_status === "discarded_low_confidence" ? ["signal_strength_below_threshold"] : []),
+    ...(veto.veto === true ? [veto.veto_reason ?? "llm_veto"] : []),
+  ].filter(Boolean);
   return (
     <div className="decision-summary">
       <span>状态：{trace.pipeline_status ?? "unknown"}</span>
@@ -75,6 +82,9 @@ function DecisionSummary({ trace }) {
       <span>Meta：{metaLabel.bet_decision ?? "无"} / {formatNumber(metaLabel.position_size_fraction, 3)}</span>
       <span>LLM：{veto.veto === true ? "否决" : veto.veto === false ? "未否决" : "未调用"}</span>
       <p>{veto.veto_reason ?? "暂无 LLM 理由"}</p>
+      <div className="rejection-list">
+        {rejectionReasons.length ? rejectionReasons.map((reason) => <span key={reason}>{reason}</span>) : <span>未被 Gatekeeper 拒绝</span>}
+      </div>
       <div className="signal-chips">
         {signals.map((signal) => (
           <span key={`${signal.source}-${signal.reason}`}>{signal.source}:{signal.reason}:{signal.side}</span>

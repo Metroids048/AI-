@@ -78,6 +78,8 @@ class PaperSignalGenerator:
             paper_run=paper_run,
             requested_leverage=requested_leverage,
             confidence_multiplier=decision.confidence_multiplier,
+            reference_price=reference_price,
+            stoploss_price=stoploss,
         )
         risk_state = self._build_risk_state(
             paper_run=paper_run,
@@ -233,6 +235,8 @@ class PaperSignalGenerator:
         paper_run: PaperRun,
         requested_leverage: float,
         confidence_multiplier: float = 1.0,
+        reference_price: Decimal | None = None,
+        stoploss_price: Decimal | None = None,
     ) -> float:
         position_rules = strategy.rules.position_rules
         if "notional_usdt" in position_rules:
@@ -245,7 +249,16 @@ class PaperSignalGenerator:
             or 10_000.0
         )
         if "risk_per_trade" in position_rules:
-            base = float(account_equity * float(position_rules["risk_per_trade"]) * max(requested_leverage, 1.0))
+            risk_budget = account_equity * float(position_rules["risk_per_trade"])
+            if reference_price is not None and stoploss_price is not None:
+                stop_distance = abs(float(reference_price - stoploss_price))
+                if stop_distance > 0 and float(reference_price) > 0:
+                    quantity = risk_budget / stop_distance
+                    volatility_sized_notional = quantity * float(reference_price)
+                    max_fraction = float(position_rules.get("max_position_fraction", 0.05))
+                    base = min(volatility_sized_notional, account_equity * max_fraction * max(requested_leverage, 1.0))
+                    return base * max(confidence_multiplier, 0.0)
+            base = float(risk_budget * max(requested_leverage, 1.0))
             return base * max(confidence_multiplier, 0.0)
         return min(account_equity * 0.05, 1_000.0) * max(confidence_multiplier, 0.0)
 

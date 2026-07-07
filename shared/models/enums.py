@@ -22,6 +22,12 @@ class Market(StrEnum):
 
 
 class Exchange(StrEnum):
+    """Exchange identifiers.
+
+    Current runtime integration is Binance-only. OKX/Bybit remain future
+    placeholders so historical contracts do not need a breaking enum change.
+    """
+
     BINANCE = "binance"
     OKX = "okx"
     BYBIT = "bybit"

@@ -21,6 +21,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -160,25 +161,40 @@ class DataRepository:
                 }
             )
         if rows:
-            for row in rows:
-                result = self.session.execute(
-                    update(ohlcv_bars)
-                    .where(
-                        ohlcv_bars.c.time == row["time"],
-                        ohlcv_bars.c.symbol == row["symbol"],
-                        ohlcv_bars.c.exchange == row["exchange"],
-                        ohlcv_bars.c.timeframe == row["timeframe"],
-                    )
-                    .values(
-                        open=row["open"],
-                        high=row["high"],
-                        low=row["low"],
-                        close=row["close"],
-                        volume=row["volume"],
+            if self._is_postgres():
+                stmt = postgres_insert(ohlcv_bars).values(rows)
+                self.session.execute(
+                    stmt.on_conflict_do_update(
+                        index_elements=["symbol", "exchange", "timeframe", "time"],
+                        set_={
+                            "open": stmt.excluded.open,
+                            "high": stmt.excluded.high,
+                            "low": stmt.excluded.low,
+                            "close": stmt.excluded.close,
+                            "volume": stmt.excluded.volume,
+                        },
                     )
                 )
-                if getattr(result, "rowcount", 0) == 0:
-                    self.session.execute(insert(ohlcv_bars), row)
+            else:
+                for row in rows:
+                    result = self.session.execute(
+                        update(ohlcv_bars)
+                        .where(
+                            ohlcv_bars.c.time == row["time"],
+                            ohlcv_bars.c.symbol == row["symbol"],
+                            ohlcv_bars.c.exchange == row["exchange"],
+                            ohlcv_bars.c.timeframe == row["timeframe"],
+                        )
+                        .values(
+                            open=row["open"],
+                            high=row["high"],
+                            low=row["low"],
+                            close=row["close"],
+                            volume=row["volume"],
+                        )
+                    )
+                    if getattr(result, "rowcount", 0) == 0:
+                        self.session.execute(insert(ohlcv_bars), row)
             self.session.commit()
         return len(rows)
 
@@ -243,25 +259,43 @@ class DataRepository:
                 }
             )
         if rows:
-            for row in rows:
-                result = self.session.execute(
-                    update(market_extras)
-                    .where(
-                        market_extras.c.time == row["time"],
-                        market_extras.c.symbol == row["symbol"],
-                    )
-                    .values(
-                        funding_rate=row["funding_rate"],
-                        open_interest=row["open_interest"],
-                        long_ratio=row["long_ratio"],
-                        short_ratio=row["short_ratio"],
-                        liquidation_usd=row["liquidation_usd"],
+            if self._is_postgres():
+                stmt = postgres_insert(market_extras).values(rows)
+                self.session.execute(
+                    stmt.on_conflict_do_update(
+                        index_elements=["symbol", "time"],
+                        set_={
+                            "funding_rate": stmt.excluded.funding_rate,
+                            "open_interest": stmt.excluded.open_interest,
+                            "long_ratio": stmt.excluded.long_ratio,
+                            "short_ratio": stmt.excluded.short_ratio,
+                            "liquidation_usd": stmt.excluded.liquidation_usd,
+                        },
                     )
                 )
-                if getattr(result, "rowcount", 0) == 0:
-                    self.session.execute(insert(market_extras), row)
+            else:
+                for row in rows:
+                    result = self.session.execute(
+                        update(market_extras)
+                        .where(
+                            market_extras.c.time == row["time"],
+                            market_extras.c.symbol == row["symbol"],
+                        )
+                        .values(
+                            funding_rate=row["funding_rate"],
+                            open_interest=row["open_interest"],
+                            long_ratio=row["long_ratio"],
+                            short_ratio=row["short_ratio"],
+                            liquidation_usd=row["liquidation_usd"],
+                        )
+                    )
+                    if getattr(result, "rowcount", 0) == 0:
+                        self.session.execute(insert(market_extras), row)
             self.session.commit()
         return len(rows)
+
+    def _is_postgres(self) -> bool:
+        return self.session.get_bind().dialect.name == "postgresql"
 
     def list_market_extras(
         self,

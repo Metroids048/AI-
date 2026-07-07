@@ -73,6 +73,7 @@ known-first-party = ["shared", "services", "apps"]
 [tool.mypy]
 python_version = "3.11"
 files = ["shared", "services", "apps"]
+explicit_package_bases = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 strict_optional = true

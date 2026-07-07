@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from hmac import compare_digest
-from typing import Any
 
 from fastapi import APIRouter, Depends, Query, WebSocket, status
 from fastapi.websockets import WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from apps.api.config import settings
-from services.data import DataRepository, MarketQueryService
+from services.data import DataRepository, MarketQueryService, live_feed_bus
 from services.data.binance import BinanceCcxtClient, fetch_usdm_24h_tickers
 from services.data.capabilities import list_exchange_capabilities
 from services.database import get_db_session, get_session_factory
@@ -102,26 +101,38 @@ async def stream_ohlcv_series(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     await websocket.accept()
-    last_signature: tuple[Any, ...] | None = None
     sequence = 0
+    subscription = await live_feed_bus.subscribe(symbol=symbol, timeframe=timeframe)
     try:
+        payload = _latest_ohlcv_payload(symbol=symbol, timeframe=timeframe, limit=limit)
+        await websocket.send_json(
+            {
+                "event": "ohlcv_snapshot",
+                "source": payload.get("source", "persisted_market_data"),
+                "feed_status": live_feed_bus.status(symbol=symbol, timeframe=timeframe),
+                "sequence": sequence,
+                "payload": payload,
+            }
+        )
+        sequence += 1
         while True:
-            payload = _latest_ohlcv_payload(symbol=symbol, timeframe=timeframe, limit=limit)
-            signature = _ohlcv_signature(payload)
-            if signature != last_signature or sequence == 0:
+            try:
+                message = await asyncio.wait_for(subscription.queue.get(), timeout=30.0)
+                await websocket.send_json({**message, "sequence": sequence})
+                sequence += 1
+            except TimeoutError:
                 await websocket.send_json(
                     {
-                        "event": "ohlcv_snapshot",
-                        "source": payload.get("source", "persisted_market_data"),
+                        "event": "feed_status",
+                        "feed_status": live_feed_bus.status(symbol=symbol, timeframe=timeframe),
                         "sequence": sequence,
-                        "payload": payload,
                     }
                 )
-                last_signature = signature
                 sequence += 1
-            await asyncio.sleep(max(1, settings.market_kline_stream_poll_seconds))
     except WebSocketDisconnect:
         return
+    finally:
+        await live_feed_bus.unsubscribe(subscription)
 
 
 @router.get("/universe", response_model=CollectionResponse[MarketUniverseItem])
@@ -182,21 +193,6 @@ def _latest_ohlcv_payload(*, symbol: str, timeframe: str, limit: int) -> dict:
         service = _live_market_service(db) if settings.binance_live_market_enabled else _market_service(db)
         method = service.get_live_ohlcv_series if settings.binance_live_market_enabled else service.get_ohlcv_series
         return method(symbol=symbol, timeframe=timeframe, limit=limit).model_dump(mode="json")
-
-
-def _ohlcv_signature(payload: dict) -> tuple[Any, ...]:
-    candles = payload.get("candles") or []
-    last = candles[-1] if candles else {}
-    return (
-        payload.get("data_status"),
-        len(candles),
-        last.get("time") or last.get("timestamp"),
-        last.get("open"),
-        last.get("high"),
-        last.get("low"),
-        last.get("close"),
-        last.get("volume"),
-    )
 
 
 @router.get("/news", response_model=dict)

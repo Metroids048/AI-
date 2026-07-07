@@ -32,6 +32,12 @@ class TradingRuntimeStatus(PlatformModel):
     credentials_configured: bool
     gateway_available: bool
     supported_modes: list[str] = Field(default_factory=lambda: ["paper", "testnet"])
+    scheduler_mode: str = "disabled"
+    scheduler_running: bool = False
+    last_auto_cycle_at: datetime | None = None
+    next_cycle_eta_seconds: int | None = None
+    scheduler_error: str | None = None
+    live_feed_status: dict[str, Any] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
 
 

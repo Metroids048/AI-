@@ -19,6 +19,38 @@ body {
   background: #080d12;
 }
 
+.platform-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  background: #0b1118;
+  border-bottom: 1px solid #202a35;
+  overflow-x: auto;
+}
+
+.platform-nav strong {
+  color: #f5f7fa;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+
+.platform-nav a {
+  color: #8c99a6;
+  text-decoration: none;
+  border: 1px solid #202a35;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.platform-nav a.active {
+  color: #f5f7fa;
+  border-color: rgba(22, 199, 132, 0.75);
+}
+
 button,
 input,
 select {
@@ -96,6 +128,14 @@ td {
   flex-direction: column;
   gap: 10px;
   padding: 10px;
+}
+
+.page-shell {
+  padding-top: 18px;
+}
+
+.page-header {
+  margin-bottom: 6px;
 }
 
 .topbar {
@@ -301,12 +341,39 @@ h2 {
 
 .field-grid input,
 .field-grid select,
-.ticket-grid input {
+.ticket-grid input,
+.ticket-grid select {
   margin-top: 5px;
 }
 
 .quote-grid {
   grid-template-columns: repeat(6, minmax(100px, 1fr));
+}
+
+.auto-engine-badge {
+  border: 1px solid #2b3644;
+  background: #0b1118;
+  padding: 9px;
+  margin-bottom: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.auto-engine-badge.positive {
+  border-color: rgba(22, 199, 132, 0.75);
+}
+
+.auto-engine-badge span {
+  color: #d8dee9;
+  font-size: 13px;
+}
+
+.auto-engine-badge strong,
+.auto-engine-badge em {
+  color: #8c99a6;
+  font-size: 12px;
+  font-style: normal;
+  overflow-wrap: anywhere;
 }
 
 .terminal-grid {

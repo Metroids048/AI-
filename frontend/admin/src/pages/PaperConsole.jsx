@@ -135,7 +135,11 @@ export function PaperConsole() {
       </section>
       <section className="execution-grid">
         <FundingPanel signal={data.fundingSignal} onBacktest={() => handleAction("carryBacktest", { strategy_id: "" })} />
-        <RuntimeControlPanel streamStatus={data.streamStatus} onRunCycle={() => handleAction("runAllCycles")} />
+        <RuntimeControlPanel
+          streamStatus={data.streamStatus}
+          tradingStatus={data.tradingStatus}
+          onRunCycle={() => handleAction("runAllCycles")}
+        />
         <DecisionDebugPanel decisionTrace={data.decisionTrace} />
         <RiskEventFeed events={data.overview?.risk_events} onResolve={handleResolveRisk} />
       </section>

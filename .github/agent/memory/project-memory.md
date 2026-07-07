@@ -1,5 +1,17 @@
 # Project Memory
 
+## Trading core scheduler + Binance WS feed bus (TASK-029, 2026-07-07)
+
+- Local Paper operation now has an in-process scheduler at `services/execution/scheduler.py`. FastAPI lifespan starts it when `RUNTIME_SCHEDULER_MODE=inprocess` and autostart is enabled, while Celery remains the production/multi-process path.
+- `/api/v1/execution/trading-status` now exposes scheduler mode/running state, last auto-cycle time, next ETA, scheduler error, and live feed status without returning secrets.
+- Binance live Kline collection now publishes persisted closed candles through `services/data/live_feed_bus.py`; `/api/v1/market/ohlcv/stream` sends one persisted snapshot and then subscribes to the shared bus instead of polling REST per websocket client.
+- Timescale/Postgres OHLCV and market extras writes now use batch `ON CONFLICT DO UPDATE`, with SQLite fallback preserved for tests and local smoke runs.
+- The trading console now shows an auto-engine status badge, limit/market order controls with GTC audit metadata, stoploss/takeprofit chart price lines, expanded order columns, and clearer Gatekeeper/LLM rejection reasons.
+- Frontend IA has first platform routing: Trading, Risk, Strategy, Validation, Review, Research, and Ops top-level entries. RiskConsole and StrategyLibrary read real existing APIs; other entries are explicit placeholders, not fake data.
+- Strategy execution gained optional multi-timeframe confirmation when confirmation bars exist, and Paper notional sizing now uses stop-distance risk budgeting capped by `max_position_fraction` (default 5%) before Gatekeeper.
+- Engineering cleanup: CI now runs frontend tests, Python dependency audit, and npm audit reporting; Dependabot is configured; mypy uses explicit package bases; docs/config now reflect Binance-only and single-tenant Bearer decisions.
+- Current verification baseline: `py -3 -m pytest -q` -> 146 passed / 1 skipped; Ruff passed; mypy passed; admin Vitest passed; admin build passed; `py -3 scripts/compose_validate.py` skipped because Docker is not on PATH.
+
 ## Binance public REST realtime Paper console closure (TASK-028, 2026-07-07)
 
 - Paper/Testnet console now uses Binance public REST as the live market-data path for USD-M Top20 universe, OHLCV, order book, recent trades, and premium-index/funding inputs. If `ccxt` is unavailable, `BinancePublicRestExchange` falls back to standard-library HTTP calls rather than returning fake/static market data.

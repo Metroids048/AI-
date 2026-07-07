@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
+    runtime_scheduler_mode: str = "inprocess"
+    runtime_scheduler_autostart: bool = True
     paper_runtime_cycle_seconds: int = 300
     market_data_heartbeat_seconds: int = 60
     market_data_stale_seconds: int = 120
@@ -38,14 +40,12 @@ class Settings(BaseSettings):
     binance_api_secret: str = ""
     binance_use_testnet: bool = True
     live_trading_enabled: bool = False
-    okx_api_key: str = ""
-    okx_api_secret: str = ""
-    okx_passphrase: str = ""
-    bybit_api_key: str = ""
-    bybit_api_secret: str = ""
     default_exchange: str = "binance"
     binance_live_universe_enabled: bool = False
     binance_live_market_enabled: bool = False
+    binance_live_ws_enabled: bool = False
+    binance_live_ws_symbols: str = "BTC/USDT"
+    binance_live_ws_timeframe: str = "1m"
 
     trading_economics_api_key: str = ""
     alpha_vantage_api_key: str = ""

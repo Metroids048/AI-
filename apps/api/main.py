@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -24,9 +27,32 @@ from apps.api.routers import (
     strategies,
     system,
 )
+from services.execution.scheduler import RuntimeScheduler, set_runtime_scheduler
 from shared.models import ApiError
 
-app = FastAPI(title="AI Quant Research Platform", version="0.1.0")
+
+def _should_start_inprocess_scheduler() -> bool:
+    if settings.runtime_scheduler_mode != "inprocess" or not settings.runtime_scheduler_autostart:
+        return False
+    return not (os.getenv("PYTEST_CURRENT_TEST") or ".pytest_ai_quant" in os.getenv("POSTGRES_URL", ""))
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    scheduler = None
+    if _should_start_inprocess_scheduler():
+        scheduler = RuntimeScheduler()
+        set_runtime_scheduler(scheduler)
+        scheduler.start()
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            await scheduler.stop()
+        set_runtime_scheduler(None)
+
+
+app = FastAPI(title="AI Quant Research Platform", version="0.1.0", lifespan=lifespan)
 app.middleware("http")(admin_token_middleware)
 
 

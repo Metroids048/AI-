@@ -184,6 +184,7 @@ class ManualTradingService:
                 "order_type": request.order_type,
                 "quantity": request.quantity,
                 "limit_price": request.limit_price,
+                "time_in_force": request.time_in_force,
                 "reference_price": request.reference_price,
                 "requested_notional": requested_notional,
                 "requested_leverage": request.leverage,

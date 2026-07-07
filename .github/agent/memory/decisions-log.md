@@ -1,5 +1,12 @@
 # Decisions Log
 
+## ADR-038: Local Paper runtime uses in-process scheduling and a shared Binance WS feed bus
+- Date: 2026-07-07
+- Status: accepted
+- Context: The Paper runtime logic and Celery Beat schedules existed, but the local one-click console only started FastAPI and Vite, so automatic cycles did not run without Redis/Celery. The market websocket endpoint also still polled REST per frontend websocket connection, while the Binance live collector was implemented but not connected to frontend push.
+- Decision: Keep Celery as the production/multi-process scheduler, but add an in-process FastAPI scheduler for local Paper operation. It calls the same task bodies used by Celery and exposes safe status through `/api/v1/execution/trading-status`. Add an in-process `LiveFeedBus` so Binance WS collectors can publish closed candles once and websocket clients can subscribe to the shared stream. The initial exchange scope remains Binance-only; OKX/Bybit stay enum placeholders only and are removed from runtime configuration templates.
+- Consequences: The one-click Paper console can now run automatic cycles without Redis/Celery and can use one shared Binance WS feed instead of per-tab REST polling. Operators can still switch to Celery mode for Docker/production. Multi-user/RBAC remains a product non-goal for this phase, and compose runtime smoke still requires a host with Docker on PATH.
+
 ## ADR-037: Paper console live market data must use Binance public REST fallback, not synthetic UI data
 - Date: 2026-07-07
 - Status: accepted

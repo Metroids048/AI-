@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  AutoEngineStatusBadge,
   MarketList,
   ModeBanner,
   OrderBookPanel,
@@ -65,13 +66,18 @@ describe("Trading console panels", () => {
     fireEvent.change(screen.getByLabelText("Strategy ID"), { target: { value: "strategy-1" } });
     fireEvent.change(screen.getByLabelText("Backtest ID"), { target: { value: "backtest-1" } });
     fireEvent.change(screen.getByLabelText("数量"), { target: { value: "0.02" } });
+    fireEvent.change(screen.getByLabelText("订单类型"), { target: { value: "limit" } });
+    fireEvent.change(screen.getByLabelText("限价"), { target: { value: "60000" } });
     fireEvent.change(screen.getByLabelText("止损价"), { target: { value: "59000" } });
     fireEvent.click(screen.getByRole("button", { name: "开多" }));
     fireEvent.click(screen.getByRole("button", { name: "开空" }));
     fireEvent.click(screen.getByRole("button", { name: "平仓" }));
     fireEvent.click(screen.getByRole("button", { name: "调整杠杆" }));
 
-    expect(onAction).toHaveBeenCalledWith("manualOrder", expect.objectContaining({ direction: "long" }));
+    expect(onAction).toHaveBeenCalledWith(
+      "manualOrder",
+      expect.objectContaining({ direction: "long", order_type: "limit", limit_price: 60000, time_in_force: "GTC" }),
+    );
     expect(onAction).toHaveBeenCalledWith("manualOrder", expect.objectContaining({ direction: "short" }));
     expect(onAction).toHaveBeenCalledWith("closePosition", expect.objectContaining({ symbol: "BTC/USDT" }));
     expect(onAction).toHaveBeenCalledWith("adjustLeverage", expect.objectContaining({ symbol: "BTC/USDT" }));
@@ -109,5 +115,12 @@ describe("Trading console panels", () => {
 
     expect(screen.getByText("实时 K线已连接")).toBeInTheDocument();
     expect(onRunCycle).toHaveBeenCalledOnce();
+  });
+
+  it("renders automatic engine scheduler status", () => {
+    render(<AutoEngineStatusBadge status={{ scheduler_running: true, scheduler_mode: "inprocess", next_cycle_eta_seconds: 42 }} />);
+
+    expect(screen.getByText("● 自动运行中")).toBeInTheDocument();
+    expect(screen.getByText("inprocess · 下次执行 00:42")).toBeInTheDocument();
   });
 });

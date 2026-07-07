@@ -122,14 +122,19 @@ export function TradingTicket({ symbol, mode, latestPosition, onAction }) {
   const [backtestId, setBacktestId] = useState("");
   const [quantity, setQuantity] = useState("0.01");
   const [price, setPrice] = useState("61000");
+  const [orderType, setOrderType] = useState("market");
+  const [limitPrice, setLimitPrice] = useState("");
   const [stoploss, setStoploss] = useState("");
   const [takeprofit, setTakeprofit] = useState("");
   const [leverage, setLeverage] = useState("1");
   const missingEvidence = !strategyId.trim() || !backtestId.trim();
-  const openDisabled = missingEvidence || !stoploss.trim();
+  const missingLimit = orderType === "limit" && !limitPrice.trim();
+  const openDisabled = missingEvidence || !stoploss.trim() || missingLimit;
   const closeDisabled = missingEvidence || !latestPosition;
   const validationHint = missingEvidence
     ? "请先填写已通过验证的 Strategy ID 和 Backtest ID"
+    : missingLimit
+      ? "限价单必须填写限价"
     : !stoploss.trim()
       ? "开仓必须填写止损价"
       : "订单会进入统一风控和审计链路";
@@ -142,6 +147,9 @@ export function TradingTicket({ symbol, mode, latestPosition, onAction }) {
     quantity: Number(quantity),
     reference_price: Number(price),
     leverage: Number(leverage),
+    order_type: orderType,
+    limit_price: orderType === "limit" && limitPrice ? Number(limitPrice) : undefined,
+    time_in_force: "GTC",
     stoploss_price: stoploss ? Number(stoploss) : undefined,
     takeprofit_price: takeprofit ? Number(takeprofit) : undefined,
     account_equity: 10000,
@@ -167,6 +175,22 @@ export function TradingTicket({ symbol, mode, latestPosition, onAction }) {
           <input value={price} onChange={(event) => setPrice(event.target.value)} inputMode="decimal" />
         </label>
         <label>
+          订单类型
+          <select value={orderType} onChange={(event) => setOrderType(event.target.value)}>
+            <option value="market">市价</option>
+            <option value="limit">限价</option>
+          </select>
+        </label>
+        <label>
+          限价
+          <input
+            value={limitPrice}
+            onChange={(event) => setLimitPrice(event.target.value)}
+            inputMode="decimal"
+            disabled={orderType !== "limit"}
+          />
+        </label>
+        <label>
           止损价
           <input value={stoploss} onChange={(event) => setStoploss(event.target.value)} inputMode="decimal" placeholder="必填" />
         </label>
@@ -177,6 +201,10 @@ export function TradingTicket({ symbol, mode, latestPosition, onAction }) {
         <label>
           杠杆
           <input value={leverage} onChange={(event) => setLeverage(event.target.value)} inputMode="decimal" />
+        </label>
+        <label>
+          TIF
+          <input value="GTC" readOnly />
         </label>
       </div>
       <div className="ticket-actions">
@@ -239,11 +267,12 @@ export function FundingPanel({ signal, onBacktest }) {
   );
 }
 
-export function RuntimeControlPanel({ streamStatus, onRunCycle }) {
+export function RuntimeControlPanel({ streamStatus, tradingStatus, onRunCycle }) {
   const streamLabel = streamStatus === "live" ? "实时 K线已连接" : streamStatus === "connecting" ? "K线连接中" : "K线轮询/REST";
   return (
     <section className="exchange-panel runtime-control-panel">
       <PanelTitle title="自动交易" meta="7x24 Paper Cycle" />
+      <AutoEngineStatusBadge status={tradingStatus} />
       <div className="metric-line positive">
         <span>行情流</span>
         <strong>{streamLabel}</strong>
@@ -252,6 +281,27 @@ export function RuntimeControlPanel({ streamStatus, onRunCycle }) {
       <p className="ticket-note">只扫描 running PaperRun；每个订单仍经过 Validation、Gatekeeper、Risk、Review 审计。</p>
     </section>
   );
+}
+
+export function AutoEngineStatusBadge({ status }) {
+  const running = Boolean(status?.scheduler_running);
+  const eta = status?.next_cycle_eta_seconds;
+  const etaLabel = Number.isFinite(Number(eta)) ? ` · 下次执行 ${formatEta(Number(eta))}` : "";
+  const error = status?.scheduler_error ? ` · ${status.scheduler_error}` : "";
+  return (
+    <div className={`auto-engine-badge ${running ? "positive" : "neutral"}`}>
+      <span>{running ? "● 自动运行中" : "○ 自动引擎停止"}</span>
+      <strong>{status?.scheduler_mode ?? "disabled"}{running ? etaLabel : ""}</strong>
+      {error ? <em>{error}</em> : null}
+    </div>
+  );
+}
+
+function formatEta(seconds) {
+  const safe = Math.max(0, Math.floor(seconds));
+  const minutes = String(Math.floor(safe / 60)).padStart(2, "0");
+  const rest = String(safe % 60).padStart(2, "0");
+  return `${minutes}:${rest}`;
 }
 
 export function OrdersTable({ orders, onCancel }) {
@@ -265,6 +315,10 @@ export function OrdersTable({ orders, onCancel }) {
             <th>时间</th>
             <th>交易对</th>
             <th>方向</th>
+            <th>类型</th>
+            <th>限价</th>
+            <th>止损</th>
+            <th>止盈</th>
             <th>状态</th>
             <th>网关</th>
             <th>拒绝原因</th>
@@ -277,6 +331,10 @@ export function OrdersTable({ orders, onCancel }) {
                 <td>{formatTime(order.created_at)}</td>
                 <td>{order.symbol}</td>
                 <td>{order.direction}</td>
+                <td>{order.entry_context?.order_type ?? "-"}</td>
+                <td>{formatNumber(order.entry_context?.limit_price)}</td>
+                <td>{formatNumber(order.stoploss_plan?.price)}</td>
+                <td>{formatNumber(order.takeprofit_plan?.price)}</td>
                 <td>{order.execution_status}</td>
                 <td>{order.gateway_name ?? "-"}</td>
                 <td>
@@ -290,7 +348,7 @@ export function OrdersTable({ orders, onCancel }) {
               </tr>
             ))
           ) : (
-            <tr><td colSpan="6">暂无订单</td></tr>
+            <tr><td colSpan="10">暂无订单</td></tr>
           )}
         </tbody>
       </table>

@@ -362,7 +362,7 @@ integration"`）、`compose-validate`（仅 `docker compose config` 语法校验
 | `migrations/` 仅有 `strategies` 表，`SignalEnsemble`/`MetaLabel`/`BacktestRun`/`PaperRun`/
   `ReviewReport`/`FailureRecord`/`AgentTask` 等对象未建表 | Strategy/Validation/Review | 该描述已过期：`0001` 已覆盖主生命周期表，`0002` 已补 `OptimizationRun`、`RiskProfile`、`ReviewReport`、`FailureRecord`、`AgentTask`、`LiveRun`、`OrderExecution`、`PositionSnapshot` 等关系表；SignalEnsemble/MetaLabel 也已纳入迁移 | 后续重点转向服务层能力而非“是否有表” |
 | `anthropic`/`langchain`/`llama-index` 已声明依赖但零代码引用 | AI Agent Layer | LLM 能力尚未接入 | P1（见后续 LLM 接入方案文档） |
-| 仅有单租户 Bearer 管理令牌，无多用户账号体系/RBAC | API | 已补最小管理面保护，但仍不适合扩展到多操作者或细粒度权限场景 | P2 |
+| 多用户账号体系/RBAC | API | 产品决策：当前阶段继续保持单租户 Bearer Token，不引入多用户/RBAC；若未来扩展到多操作者再重新立项 | 暂不需要 |
 | `infra/jesse/` 为占位目录，未在依赖中声明，用途未定 | Validation | 目录存在但无实际路径引用它 | P1 决策：启用或移除 |
 | `test`/`paper`/`live` overlay 已存在，且 `compose-validate` 已脚本化，但未在本机 Docker 做 runtime smoke | 部署 | 环境隔离与 CI 语法校验路径已具备，仍缺可运行主机上的启动/停止证据 | P1（paper 上线前必须） |
 | Freqtrade 镜像标签为 `stable`（浮动标签） | Execution | 生产前版本不可控 | live 上线前必须钉定日期版本 |

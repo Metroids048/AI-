@@ -24,7 +24,7 @@ LLM 对 C/D 级数据的分类调用方式（见 `llm-integration-plan.md` §1.1
 | 项目 | 方案 |
 |---|---|
 | 采集方式 | CCXT（`services/data/` 内，遵循框架隔离原则，不进入 `apps/api`） |
-| 已配置交易所 | Binance / OKX / Bybit（`.env.example` 已有对应 Key，`Exchange` 枚举已定义三者） |
+| 已配置交易所 | 当前阶段明确只接 Binance；`Exchange` 枚举中的 OKX / Bybit 仅为未来占位，不在 `.env.example` 暴露 Key，也不承诺运行时支持 |
 | K 线（OHLCV） | 覆盖 `Timeframe` 枚举全部粒度：`1m`/`5m`/`15m`/`1h`/`4h`/`1d`；短周期（1m/5m）用于实时信号与风控巡检，长周期（1h 以上）用于策略回测与研究 |
 | 拉取方式 | 优先使用交易所 WebSocket 实时推送 K 线/成交，REST 轮询作为补齐缺口的兜底手段（WS 断连期间的缺口补齐属于 `24x7-operations-plan.md` §2.2"重连后一致性核对"的范畴） |
 | Funding Rate | 高频轮询（如每 1 分钟一次），因为资金费率是策略与风控共同关注的字段；具体轮询间隔在 P1 实现时按交易所限流规则校准 |
@@ -144,7 +144,7 @@ LLM 对 C/D 级数据的分类调用方式（见 `llm-integration-plan.md` §1.1
 | 来源 | 限制类型 | 应对方式 |
 |---|---|---|
 | Twitter API v2 | 调用频率+月度配额（付费分级） | 只轮询已关注账号列表，不订阅全量流；套餐选型留给 Phase 1 结合预算确定 |
-| 交易所 REST（Binance/OKX/Bybit） | 按权重的限流（各交易所规则不同） | 优先用 WS 推送减少 REST 调用次数；REST 仅用于补齐缺口和低频字段（OI/Long-Short Ratio） |
+| 交易所 REST（Binance） | 按权重限流 | 优先用 WS 推送减少 REST 调用次数；REST 仅用于补齐缺口和低频字段（OI/Long-Short Ratio）；OKX/Bybit 当前阶段不接入 |
 | GitHub API | 按认证方式的调用次数限制 | 已用 Token 认证（比匿名限额高），且拉取频率本身是日级，不构成压力 |
 | RSS 源 | 通常无官方限流，但过于频繁轮询可能被识别为异常流量 | 近实时轮询间隔不低于 1 分钟 |
 | SEC EDGAR | 官方有速率限制规范（需带识别性 User-Agent） | 低频轮询（15 分钟级），并按官方要求设置 User-Agent 标识 |

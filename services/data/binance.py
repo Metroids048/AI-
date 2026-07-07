@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -649,8 +649,16 @@ class BinanceBackfillService:
 class BinanceLiveMarketCollector:
     """Persist closed Binance Kline candles and funding-rate updates from WS streams."""
 
-    def __init__(self, *, data_repo: DataRepository):
+    def __init__(
+        self,
+        *,
+        data_repo: DataRepository,
+        on_candle: Callable[[OHLCVBar], Awaitable[None]] | None = None,
+        on_close: Callable[[], None] | None = None,
+    ):
         self.data_repo = data_repo
+        self.on_candle = on_candle
+        self.on_close = on_close
 
     def build_kline_stream_url(self, *, symbol: str, timeframe: str) -> str:
         base = BINANCE_USDM_WS_BASE if symbol.endswith(":USDT") else BINANCE_SPOT_WS_BASE
@@ -659,9 +667,11 @@ class BinanceLiveMarketCollector:
     def build_mark_price_stream_url(self, *, symbol: str) -> str:
         return f"{BINANCE_USDM_WS_BASE}/{stream_symbol(symbol)}@markPrice@1s"
 
-    def persist_kline_payload(self, payload: Mapping[str, Any], *, symbol: str, timeframe: str) -> int:
+    def persist_kline_payload(self, payload: Mapping[str, Any], *, symbol: str, timeframe: str) -> OHLCVBar | None:
         bar = normalize_ws_kline_event(payload, symbol=symbol, timeframe=timeframe)
-        return self.data_repo.store_ohlcv_bars([bar]) if bar is not None else 0
+        if bar is not None:
+            self.data_repo.store_ohlcv_bars([bar])
+        return bar
 
     def persist_mark_price_payload(self, payload: Mapping[str, Any], *, symbol: str) -> int:
         extra = normalize_ws_mark_price_event(payload, symbol=spot_to_usdm_perp_symbol(symbol))
@@ -678,7 +688,9 @@ class BinanceLiveMarketCollector:
             self.build_kline_stream_url(symbol=symbol, timeframe=timeframe),
             messages,
         ):
-            self.persist_kline_payload(payload, symbol=symbol, timeframe=timeframe)
+            bar = self.persist_kline_payload(payload, symbol=symbol, timeframe=timeframe)
+            if bar is not None and self.on_candle is not None:
+                await self.on_candle(bar)
 
     async def consume_mark_price_stream(
         self,
@@ -710,6 +722,10 @@ class BinanceLiveMarketCollector:
                 message_text = ws_message.decode("utf-8") if isinstance(ws_message, bytes) else str(ws_message)
                 yield json.loads(message_text)
 
+    def close(self) -> None:
+        if self.on_close is not None:
+            self.on_close()
+
 
 async def run_live_collector_forever(
     *,
@@ -730,3 +746,5 @@ async def run_live_collector_forever(
             )
         except Exception:
             await asyncio.sleep(5)
+        finally:
+            collector.close()

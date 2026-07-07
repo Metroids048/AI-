@@ -29,7 +29,7 @@
 
 ## Phase 2
 
-- 多交易所网关（OKX/Bybit）与更完整 live runtime 验证
+- 当前阶段保持 Binance-only；OKX/Bybit 仅作为未来扩展评估项，不进入当前交付缺口
 - 完整 Deflated Sharpe / 参数优化 / 压力历史回放
 - Prometheus/Grafana runtime smoke、告警和值班演练
 

@@ -98,7 +98,9 @@ class DecisionPipeline:
         latest = bars[-1] if bars else None
         reference_price = Decimal("0") if latest is None else latest.close
         frame = _bars_to_frame(bars)
-        volatility = classify_volatility_regime(frame) if not frame.empty else {"regime": "insufficient_data"}
+        volatility: dict[str, Any] = (
+            classify_volatility_regime(frame) if not frame.empty else {"regime": "insufficient_data"}
+        )
         atr = calculate_atr(frame) if not frame.empty else None
         signals = self._technical_signals(frame=frame, symbol=symbol)
         fallback_direction = _fallback_direction(bars)
@@ -124,6 +126,23 @@ class DecisionPipeline:
                 volatility_context=volatility,
                 trace=trace,
             )
+
+        multi_timeframe = self._multi_timeframe_confirmation(
+            symbol=symbol,
+            timeframe=timeframe,
+            main_signals=signals,
+        )
+        if not multi_timeframe["passed"]:
+            return self._skipped(
+                reason="multi_timeframe_disagreement",
+                reference_price=reference_price,
+                latest=latest,
+                signals=signals,
+                ensemble=None,
+                atr=atr,
+                volatility={**volatility, "multi_timeframe": multi_timeframe},
+            )
+        volatility = {**volatility, "multi_timeframe": multi_timeframe}
 
         ensemble = self.ensemble_service.create_ensemble(
             SignalEnsembleRequest(signals=[_candidate_from_signal(signal, bars) for signal in signals])
@@ -208,6 +227,35 @@ class DecisionPipeline:
             *generate_price_action_signals(frame, symbol=symbol),
         ]
         return [signal for signal in candidates if signal is not None]
+
+    def _multi_timeframe_confirmation(
+        self,
+        *,
+        symbol: str,
+        timeframe: str,
+        main_signals: list[TradeSignal],
+    ) -> dict[str, Any]:
+        confirm_timeframe = "15m" if timeframe != "15m" else "1h"
+        confirm_bars = self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=confirm_timeframe, limit=240)
+        confirm_frame = _bars_to_frame(confirm_bars)
+        confirm_signals = self._technical_signals(frame=confirm_frame, symbol=symbol)
+        main_direction = _dominant_signal_direction(main_signals)
+        confirm_direction = _dominant_signal_direction(confirm_signals)
+        if not confirm_bars or not confirm_signals or main_direction is None or confirm_direction is None:
+            return {
+                "passed": True,
+                "status": "confirmation_unavailable",
+                "main_timeframe": timeframe,
+                "confirm_timeframe": confirm_timeframe,
+            }
+        return {
+            "passed": main_direction == confirm_direction,
+            "status": "confirmed" if main_direction == confirm_direction else "disagreed",
+            "main_timeframe": timeframe,
+            "confirm_timeframe": confirm_timeframe,
+            "main_direction": str(main_direction),
+            "confirm_direction": str(confirm_direction),
+        }
 
     def _run_decision_veto(
         self,
@@ -377,6 +425,18 @@ def _fallback_direction(bars: list[OHLCVBar]) -> TradeSide | None:
     if len(bars) < 2:
         return None
     return TradeSide.SHORT if bars[-1].close < bars[-2].close else TradeSide.LONG
+
+
+def _dominant_signal_direction(signals: list[TradeSignal]) -> TradeSide | None:
+    score = 0.0
+    for signal in signals:
+        weight = float(signal.confidence or 0.5)
+        score += weight if signal.side == TradeSide.LONG else -weight
+    if score > 0:
+        return TradeSide.LONG
+    if score < 0:
+        return TradeSide.SHORT
+    return None
 
 
 def _candidate_from_signal(signal: TradeSignal, bars: list[OHLCVBar]) -> CandidateSignalSeries:

@@ -53,6 +53,7 @@ export function KlinePanel({ candles, orders, timeframe, streamStatus }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
+  const priceLinesRef = useRef([]);
   const chartData = useMemo(
     () =>
       (candles ?? [])
@@ -108,6 +109,14 @@ export function KlinePanel({ candles, orders, timeframe, streamStatus }) {
     if (chartData.length) chartRef.current.timeScale().fitContent();
   }, [chartData]);
 
+  useEffect(() => {
+    if (!seriesRef.current) return;
+    for (const line of priceLinesRef.current) {
+      seriesRef.current.removePriceLine(line);
+    }
+    priceLinesRef.current = buildRiskPriceLines(orders).map((line) => seriesRef.current.createPriceLine(line));
+  }, [orders]);
+
   const rejectedOrders = (orders ?? []).filter((order) => order.execution_status === "rejected");
   const streamLabel = streamStatus === "live" ? "实时连接" : streamStatus === "connecting" ? "连接中" : "REST 轮询";
   return (
@@ -126,4 +135,33 @@ export function KlinePanel({ candles, orders, timeframe, streamStatus }) {
       </div>
     </section>
   );
+}
+
+export function buildRiskPriceLines(orders) {
+  const lines = [];
+  for (const order of orders ?? []) {
+    const stoploss = Number(order?.stoploss_plan?.price);
+    const takeprofit = Number(order?.takeprofit_plan?.price);
+    if (Number.isFinite(stoploss) && stoploss > 0) {
+      lines.push({
+        price: stoploss,
+        color: "#f6465d",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: `SL ${order.symbol ?? ""}`.trim(),
+      });
+    }
+    if (Number.isFinite(takeprofit) && takeprofit > 0) {
+      lines.push({
+        price: takeprofit,
+        color: "#16c784",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: `TP ${order.symbol ?? ""}`.trim(),
+      });
+    }
+  }
+  return lines;
 }

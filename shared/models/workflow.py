@@ -251,6 +251,7 @@ class ManualOrderRequest(PlatformModel):
     leverage: float = Field(default=1.0, ge=1)
     order_type: str = "market"
     limit_price: float | None = None
+    time_in_force: str = "GTC"
     stoploss_price: float | None = None
     takeprofit_price: float | None = None
     account_equity: float = Field(default=10_000.0, gt=0)

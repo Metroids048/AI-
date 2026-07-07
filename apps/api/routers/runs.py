@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from apps.api.config import settings
 from apps.api.http import api_error, collection_response, not_found
 from services.data import DataRepository
+from services.data.live_feed_bus import live_feed_bus
 from services.database import get_db_session
 from services.execution import (
     ExecutionGatekeeperService,
@@ -19,6 +20,7 @@ from services.execution import (
     PaperSignalGenerator,
     configured_gateways,
 )
+from services.execution.scheduler import runtime_scheduler_status
 from services.strategy_library import (
     AgentTaskRepository,
     ExecutionRepository,
@@ -126,6 +128,7 @@ def get_trading_status() -> TradingRuntimeStatus:
     notes = ["secrets are never returned by this endpoint"]
     if not settings.binance_use_testnet:
         notes.append("binance_use_testnet is false; manual testnet trading is disabled by policy")
+    scheduler_status = runtime_scheduler_status()
     return TradingRuntimeStatus(
         exchange="binance",
         mode="testnet" if settings.binance_use_testnet and credentials_configured else "paper",
@@ -134,6 +137,12 @@ def get_trading_status() -> TradingRuntimeStatus:
         live_trading_enabled=settings.live_trading_enabled,
         credentials_configured=credentials_configured,
         gateway_available=credentials_configured and gateway.capability.supports_order_submit,
+        scheduler_mode=scheduler_status.mode,
+        scheduler_running=scheduler_status.running,
+        last_auto_cycle_at=scheduler_status.last_auto_cycle_at,
+        next_cycle_eta_seconds=scheduler_status.next_cycle_eta_seconds,
+        scheduler_error=scheduler_status.scheduler_error,
+        live_feed_status=live_feed_bus.status(),
         notes=notes,
     )
 

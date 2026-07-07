@@ -1,5 +1,15 @@
 # Task History
 
+### [TASK-029] Trading core scheduler, live feed bus, and platform console refactor
+- **Date**: 2026-07-07
+- **Type**: feat + refactor + frontend + ops + docs
+- **Summary**: Implemented the trading-core refactor plan. Added a local in-process `RuntimeScheduler` that calls the existing Celery task bodies for Paper cycles, market heartbeat, risk sweep, notifications, and daily review; extended `trading-status` with scheduler/feed observability; connected Binance WS closed Kline collection to a shared `LiveFeedBus`; rewired `/market/ohlcv/stream` away from per-client REST polling; added Postgres batch upsert paths for OHLCV/extras; and updated the one-click Paper console script to run 60s in-process cycles with optional WS feed.
+- **Files changed**: `services/execution/scheduler.py`, `services/data/live_feed_bus.py`, `services/data/{binance,repository,__init__}.py`, `apps/api/{main,config}.py`, `apps/api/routers/{market,runs}.py`, `shared/models/{execution_runtime,workflow,enums}.py`, `frontend/admin/**`, CI/docs/config files, and targeted tests.
+- **Layer mapping**: Data Layer owns Binance WS feed normalization, fan-out, and Timescale upserts; Execution Layer owns in-process scheduling and Paper notional sizing; Strategy Layer owns optional multi-timeframe confirmation; Frontend Admin owns operator visibility; Ops/CI owns dependency scanning and scheduler validation.
+- **Research loop served**: The local runtime now repeatedly drives `Validated PaperRun -> DecisionPipeline -> Gatekeeper -> OrderExecution/PositionSnapshot -> Review/notification`, while live Klines flow through `Binance WS -> DataRepository -> LiveFeedBus -> frontend websocket` without bypassing Validation/Risk.
+- **Verification**: `py -3 -m pytest -q` -> 146 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m mypy` passed; `npm --workspace frontend/admin run test` passed; `npm --workspace frontend/admin run build` passed; `py -3 scripts/compose_validate.py` skipped because Docker is not on PATH.
+- **Notes**: `npm install` still reports 5 existing frontend audit vulnerabilities; no `npm audit fix --force` was run. CI now records npm audit and fails Python dependency audit. OKX/Bybit remain future enum placeholders only; auth remains single-tenant Bearer Token.
+
 ### [TASK-028] Complete Binance realtime Paper console data and manual open/close smoke
 - **Date**: 2026-07-07
 - **Type**: feat + fix + frontend + ops + verification

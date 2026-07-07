@@ -22,6 +22,7 @@ from .binance import (
 )
 from .capabilities import list_exchange_capabilities
 from .heartbeat import MarketDataHeartbeatService
+from .live_feed_bus import LiveFeedBus, live_feed_bus
 from .market import MarketQueryService
 from .repository import TIMESERIES_METADATA, DataRepository, create_timeseries_schema
 from .service import DEFAULT_BINANCE_TOP20, IngestionService
@@ -35,6 +36,8 @@ __all__ = [
     "DataRepository",
     "DEFAULT_BINANCE_TOP20",
     "IngestionService",
+    "LiveFeedBus",
+    "live_feed_bus",
     "list_exchange_capabilities",
     "MarketQueryService",
     "MarketDataHeartbeatService",
