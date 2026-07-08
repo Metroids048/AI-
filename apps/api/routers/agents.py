@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from apps.api.config import settings
 from apps.api.http import collection_response, not_found
-from services.agents import AgentTaskService, ConfiguredStructuredLLMRuntime
+from services.agents import AgentTaskService, build_configured_llm_runtime
 from services.database import get_db_session
 from services.strategy_library import AgentTaskRepository, ReviewRepository, StrategyRepository
 from shared.models import AgentTask, AgentTaskRequest, CollectionResponse, TaskSubmission
@@ -18,20 +15,11 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 
 
 def _service(db: Session) -> AgentTaskService:
-    llm_runtime = None
-    if settings.claude_api_key:
-        llm_runtime = ConfiguredStructuredLLMRuntime(
-            anthropic_api_key=settings.claude_api_key,
-            default_model=settings.claude_model,
-            anthropic_base_url=settings.anthropic_api_base_url,
-            provider_by_agent=json.loads(settings.agent_llm_provider_map or "{}"),
-            model_by_agent=json.loads(settings.agent_llm_model_map or "{}"),
-        )
     return AgentTaskService(
         agent_repo=AgentTaskRepository(db),
         strategy_repo=StrategyRepository(db),
         review_repo=ReviewRepository(db),
-        llm_runtime=llm_runtime,
+        llm_runtime=build_configured_llm_runtime(),
     )
 
 

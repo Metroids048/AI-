@@ -8,6 +8,8 @@ from typing import Any, Protocol
 
 import httpx
 
+from services.agents.rag_context import collect_rag_snippets
+
 
 class StructuredLLMRuntime(Protocol):
     def generate_structured(self, *, agent_type: str, task_type: str, payload: dict[str, Any]) -> dict[str, Any]: ...
@@ -48,22 +50,31 @@ class AnthropicStructuredLLMRuntime:
             "system": prompt["system"],
             "messages": [{"role": "user", "content": prompt["user"]}],
         }
-        with httpx.Client(
-            base_url=self.base_url,
-            timeout=self.timeout_seconds,
-            transport=self.transport,
-        ) as client:
-            response = client.post(
-                "/v1/messages",
-                headers={
-                    "x-api-key": self.api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json=request_payload,
-            )
-            response.raise_for_status()
-            body = response.json()
+        try:
+            with httpx.Client(
+                base_url=self.base_url,
+                timeout=self.timeout_seconds,
+                transport=self.transport,
+            ) as client:
+                response = client.post(
+                    "/v1/messages",
+                    headers={
+                        "x-api-key": self.api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json=request_payload,
+                )
+                response.raise_for_status()
+                body = response.json()
+        except httpx.HTTPStatusError as exc:
+            if _is_fallback_status(exc.response.status_code):
+                raise LLMProviderUnavailable(
+                    f"anthropic/{self.model} unavailable: HTTP {exc.response.status_code}"
+                ) from exc
+            raise
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            raise LLMProviderUnavailable(f"anthropic/{self.model} unavailable: {exc}") from exc
         raw_text = _extract_anthropic_text(body)
         try:
             raw_output = json.loads(_strip_code_fence(raw_text))
@@ -270,6 +281,16 @@ def _build_prompt(*, agent_type: str, task_type: str, payload: dict[str, Any]) -
             ),
         }
     if task_type == "pre_execution_veto_llm":
+        enriched = dict(payload)
+        if "rag_snippets" not in enriched:
+            strategy = enriched.get("strategy", {})
+            if isinstance(strategy, dict):
+                enriched["rag_snippets"] = collect_rag_snippets(
+                    core_thesis=str(strategy.get("core_thesis", "")),
+                    entry_rules=strategy.get("entry_rules") if isinstance(strategy.get("entry_rules"), dict) else {},
+                    symbol=str(enriched.get("symbol", "")),
+                )
+        payload = enriched
         return {
             "prompt_version": prompt_version,
             "system": (

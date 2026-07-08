@@ -1,5 +1,6 @@
 """Agent-layer services."""
 
+from .llm_factory import build_configured_llm_runtime
 from .llm_runtime import (
     AnthropicStructuredLLMRuntime,
     ConfiguredStructuredLLMRuntime,
@@ -20,4 +21,5 @@ __all__ = [
     "OpenAICompatibleStructuredLLMRuntime",
     "StructuredLLMRuntime",
     "UnavailableLLMRuntime",
+    "build_configured_llm_runtime",
 ]

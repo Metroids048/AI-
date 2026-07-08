@@ -68,20 +68,33 @@ function DecisionSummary({ trace }) {
   const ensemble = trace.ensemble ?? {};
   const metaLabel = trace.meta_label ?? {};
   const veto = trace.veto_result ?? {};
+  const carryRejections = asArray(trace.rejection_reasons);
   const rejectionReasons = [
     trace.rejection_reason,
+    ...carryRejections,
     ...(asArray(trace.rejection_codes)),
     ...(asArray(trace.gatekeeper_rejection_codes)),
     ...(trace.pipeline_status === "discarded_low_confidence" ? ["signal_strength_below_threshold"] : []),
     ...(veto.veto === true ? [veto.veto_reason ?? "llm_veto"] : []),
   ].filter(Boolean);
+  const isCarry = trace.strategy_lane === "carry" || trace.pipeline_status?.startsWith("funding_arbitrage");
   return (
     <div className="decision-summary">
+      <span>车道：{trace.strategy_lane ?? (isCarry ? "carry" : "directional")}</span>
       <span>状态：{trace.pipeline_status ?? "unknown"}</span>
-      <span>融合：{ensemble.fused_direction ?? "无"} / {formatNumber(ensemble.fused_confidence, 3)}</span>
-      <span>Meta：{metaLabel.bet_decision ?? "无"} / {formatNumber(metaLabel.position_size_fraction, 3)}</span>
-      <span>LLM：{veto.veto === true ? "否决" : veto.veto === false ? "未否决" : "未调用"}</span>
-      <p>{veto.veto_reason ?? "暂无 LLM 理由"}</p>
+      {isCarry ? (
+        <>
+          <span>净边际(bps)：{trace.estimated_net_edge_bps ?? "—"}</span>
+          <span>资金费率(bps)：{trace.funding_bps ?? "—"}</span>
+        </>
+      ) : (
+        <>
+          <span>融合：{ensemble.fused_direction ?? "无"} / {formatNumber(ensemble.fused_confidence, 3)}</span>
+          <span>Meta：{metaLabel.bet_decision ?? "无"} / {formatNumber(metaLabel.position_size_fraction, 3)}</span>
+          <span>LLM：{veto.veto === true ? "否决" : veto.veto === false ? "未否决" : "未调用"}</span>
+        </>
+      )}
+      {!isCarry ? <p>{veto.veto_reason ?? "暂无 LLM 理由"}</p> : null}
       <div className="rejection-list">
         {rejectionReasons.length ? rejectionReasons.map((reason) => <span key={reason}>{reason}</span>) : <span>未被 Gatekeeper 拒绝</span>}
       </div>

@@ -1,5 +1,13 @@
 # Task History
 
+### [TASK-034] LLM free-model chain + carry/directional dual PaperRun lanes
+- **Date**: 2026-07-09
+- **Type**: feature + execution + agent
+- **Summary**: Wired OpenRouter + GitHub Models free-model fallback via unified `build_configured_llm_runtime()`; fixed Anthropic quota errors to participate in fallback chain; added lightweight RAG snippets for decision veto prompts; enabled `PAPER_RUNTIME_ENABLE_DECISION_VETO` in local startup; split auto Paper into carry (`auto_paper_btc_funding`, FundingArbitrageSignal admission) and directional (`auto_paper_btc_technical`, DecisionPipeline + LLM veto) Top20 runs with `strategy_lane`; carry rejections no longer block protective closes via false LLM veto.
+- **Files changed**: `.env`, `.env.example`, `services/agents/{llm_factory,rag_context,llm_runtime,__init__}.py`, `services/execution/{decision_pipeline,paper_signal,paper_runtime,bootstrap}.py`, `services/data/news.py`, `apps/api/routers/agents.py`, `scripts/{run-api-local,start_paper_console}.ps1`, `frontend/admin/src/components/RuntimePanels.jsx`, `tests/services/{test_llm_dual_lane,test_paper_bootstrap}.py`.
+- **Layer mapping**: Agent Layer (LLM runtime + RAG veto context); Execution Layer (dual-lane PaperRun + carry admission); Strategy Layer (lane-specific bootstrap rules).
+- **Verification**: `py -3 -m pytest -q -m "not integration"` -> 179 passed, 1 deselected; targeted LLM/carry/bootstrap tests 22 passed; `DecisionDebugPanel` Vitest passed. Pre-existing `TradingConsolePanels.test.jsx` failures unchanged (unrelated copy assertions).
+
 ### [TASK-033] Report gap closure — frontend depth, metrics, compose smoke, signal continuity
 - **Date**: 2026-07-08
 - **Type**: feature + refactor + ops

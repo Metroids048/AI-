@@ -22,7 +22,7 @@ def binance_ccxt_proxies() -> dict[str, str] | None:
     return {"http": proxy, "https": proxy}
 
 
-def binance_ccxt_config(*, base: dict[str, Any] | None = None) -> dict[str, Any]:
+def binance_ccxt_config(base: dict[str, Any] | None = None) -> dict[str, Any]:
     config = dict(base or {})
     proxies = binance_ccxt_proxies()
     if proxies:

@@ -10,7 +10,7 @@ from typing import Any
 from services.data import DataRepository
 from services.data.service import DEFAULT_BINANCE_TOP20
 from services.execution.gatekeeper import ExecutionGatekeeperService
-from services.execution.gateway import ExchangeGateway
+from services.execution.gateway import gateway_symbol_available
 from services.execution.paper_signal import PaperSignalGenerator
 from services.strategy_library import (
     AgentTaskRepository,
@@ -139,6 +139,8 @@ class PaperRuntimeService:
                 )
                 continue
 
+            lane = paper_run.execution_profile.get("strategy_lane", "directional")
+            enable_veto = request.enable_decision_veto and lane != "carry"
             base_order = self.signal_generator.generate_order(
                 paper_run=paper_run,
                 strategy=strategy,
@@ -146,7 +148,7 @@ class PaperRuntimeService:
                     symbol=symbol,
                     timeframe=request.timeframe,
                     idempotency_key=cycle_key,
-                    enable_decision_veto=request.enable_decision_veto,
+                    enable_decision_veto=enable_veto,
                 ),
                 positions=list(active_positions.values()),
             )
@@ -395,6 +397,25 @@ class PaperRuntimeService:
                         symbol=symbol,
                         action="hold_long" if current_position.side == TradeSide.LONG else "hold_short",
                         direction=current_position.side,
+                        reference_price=reference_price,
+                        idempotency_key=cycle_key,
+                        decision_trace=decision_trace,
+                    )
+                )
+                continue
+
+            if (
+                self._should_execute_on_binance(paper_run)
+                and self.gateway is not None
+                and not gateway_symbol_available(gateway=self.gateway, symbol=symbol)
+            ):
+                skipped_symbols += 1
+                actions.append(
+                    PaperRuntimeAction(
+                        symbol=symbol,
+                        action="skip_unlisted_on_gateway",
+                        direction=base_order.direction,
+                        reason="symbol not listed on Binance Testnet gateway",
                         reference_price=reference_price,
                         idempotency_key=cycle_key,
                         decision_trace=decision_trace,

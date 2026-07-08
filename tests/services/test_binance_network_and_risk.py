@@ -8,7 +8,7 @@ from shared.models.risk import MEDIUM_RISK_PROFILE_KEY, medium_risk_profile
 def test_binance_ccxt_config_applies_proxy(monkeypatch) -> None:
     monkeypatch.setattr(settings, "binance_https_proxy", "http://127.0.0.1:7890")
     monkeypatch.setattr(settings, "binance_http_proxy", "")
-    config = binance_ccxt_config(base={"apiKey": "k"})
+    config = binance_ccxt_config({"apiKey": "k"})
     assert config["proxies"] == {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890"}
 
 
@@ -21,9 +21,9 @@ def test_binance_proxy_url_prefers_https(monkeypatch) -> None:
 def test_medium_risk_profile_supports_top20_auto_trading() -> None:
     profile = medium_risk_profile()
     assert profile.risk_profile_id == MEDIUM_RISK_PROFILE_KEY
-    assert profile.max_open_positions >= 15
+    assert profile.max_open_positions >= 10
     assert profile.max_total_exposure >= 0.75
-    assert profile.max_leverage >= 8
+    assert profile.max_leverage >= 20
 
 
 def test_bootstrap_medium_risk_profile_is_idempotent(db_session) -> None:

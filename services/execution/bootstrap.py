@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from services.data.service import DEFAULT_BINANCE_TOP20
 from shared.config import settings
@@ -11,17 +12,37 @@ from shared.models.risk import MEDIUM_RISK_PROFILE_KEY, medium_risk_profile
 logger = logging.getLogger(__name__)
 
 AUTO_PAPER_RUNTIME_KEY = "auto_paper_btc_funding"
+AUTO_PAPER_TECHNICAL_KEY = "auto_paper_btc_technical"
 
-# Medium-risk auto-trading preset for Top20 + funding-direction signals.
+# Medium-risk auto-trading preset for Top20 + funding carry admission.
 AUTO_PAPER_STRATEGY_RULES = {
-    "entry_rules": {"funding_threshold_bps": 0.5},
+    "entry_rules": {
+        "funding_threshold_bps": 0.5,
+        "min_estimated_net_edge_bps": 10.0,
+        "requires_positive_funding": True,
+        "fee_bps": 8.0,
+        "slippage_bps": 6.0,
+    },
     "exit_rules": {"close_on_opposite_signal": True},
     "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
     "takeprofit_rules": {"risk_reward": 3.0, "trail_after_r": 1.5},
     "position_rules": {
         "risk_per_trade": 0.02,
-        "max_leverage": 8,
+        "max_leverage": 20,
         "max_position_fraction": 0.10,
+        "min_notional_usdt": 20,
+    },
+}
+
+AUTO_PAPER_TECHNICAL_RULES = {
+    "entry_rules": {"technical_pipeline": True},
+    "exit_rules": {"close_on_opposite_signal": True},
+    "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
+    "takeprofit_rules": {"risk_reward": 2.5, "trail_after_r": 1.5},
+    "position_rules": {
+        "risk_per_trade": 0.02,
+        "max_leverage": 10,
+        "max_position_fraction": 0.08,
         "min_notional_usdt": 20,
     },
 }
@@ -118,10 +139,10 @@ def bootstrap_clear_stale_blocking_risk_events() -> int:
     return cleared
 
 
-def _sync_auto_paper_strategy(strategy_repo, strategy) -> None:  # noqa: ANN001
+def _sync_auto_paper_strategy(strategy_repo, strategy, *, rules: dict[str, Any]) -> None:  # noqa: ANN001
     from shared.models import StrategyRules, StrategyUpdate
 
-    updated_rules = StrategyRules(**{**strategy.rules.model_dump(), **AUTO_PAPER_STRATEGY_RULES})
+    updated_rules = StrategyRules(**{**strategy.rules.model_dump(), **rules})
     if strategy.rules.model_dump() != updated_rules.model_dump():
         strategy_repo.update_strategy(
             strategy.strategy_id or "",
@@ -130,14 +151,15 @@ def _sync_auto_paper_strategy(strategy_repo, strategy) -> None:  # noqa: ANN001
         logger.info("upgraded auto paper strategy rules for %s", strategy.strategy_key)
 
 
-def bootstrap_auto_trading_paper_run() -> str | None:
-    """Ensure a running PaperRun exists for scheduled auto cycles (Binance-first when mirrored)."""
-    if not binance_credentials_configured():
-        logger.info("auto paper run bootstrap skipped: binance credentials not configured")
-        return None
-
-    risk_profile_id = bootstrap_medium_risk_profile()
-
+def _ensure_auto_paper_run(
+    *,
+    runtime_key: str,
+    strategy_key: str,
+    strategy_lane: str,
+    core_thesis: str,
+    rules: dict[str, Any],
+    risk_profile_id: str,
+) -> str | None:
     from services.database import get_session_factory
     from services.strategy_library import PaperRunRepository, StrategyRepository, ValidationRepository
     from shared.models import (
@@ -157,32 +179,29 @@ def bootstrap_auto_trading_paper_run() -> str | None:
 
         strategy = None
         for item in strategy_repo.list_strategies():
-            if item.strategy_key == AUTO_PAPER_RUNTIME_KEY:
+            if item.strategy_key == strategy_key:
                 strategy = item
                 break
         if strategy is None:
             strategy = strategy_repo.create_strategy(
                 StrategyCreate(
-                    strategy_key=AUTO_PAPER_RUNTIME_KEY,
+                    strategy_key=strategy_key,
                     source="platform:auto_bootstrap",
-                    core_thesis=(
-                        "Local auto-cycle bootstrap strategy. Scans Binance USDT-M Top20 with "
-                        "funding-direction signals; total exposure capped by medium risk profile."
-                    ),
+                    core_thesis=core_thesis,
                     symbol_scope=list(DEFAULT_BINANCE_TOP20),
                     timeframe="1m",
-                    rules=StrategyRules(**AUTO_PAPER_STRATEGY_RULES),
+                    rules=StrategyRules(**rules),
                 )
             )
         else:
-            _sync_auto_paper_strategy(strategy_repo, strategy)
+            _sync_auto_paper_strategy(strategy_repo, strategy, rules=rules)
             strategy = strategy_repo.get_strategy(strategy.strategy_id or "")
 
         backtest = None
         for run in validation_repo.list_backtest_runs():
             if (
                 run.strategy_id == strategy.strategy_id
-                and run.validation_methodology.get("auto_paper_runtime_key") == AUTO_PAPER_RUNTIME_KEY
+                and run.validation_methodology.get("auto_paper_runtime_key") == runtime_key
             ):
                 backtest = run
                 break
@@ -193,7 +212,8 @@ def bootstrap_auto_trading_paper_run() -> str | None:
                     execution_engine="vectorbt",
                     parameter_set={"auto_paper_runtime": True},
                     validation_methodology={
-                        "auto_paper_runtime_key": AUTO_PAPER_RUNTIME_KEY,
+                        "auto_paper_runtime_key": runtime_key,
+                        "strategy_lane": strategy_lane,
                         "paper_only": True,
                         "live_promotion_allowed": False,
                     },
@@ -222,17 +242,18 @@ def bootstrap_auto_trading_paper_run() -> str | None:
         for run in paper_repo.list_paper_runs():
             if (
                 run.strategy_id == strategy.strategy_id
-                and run.execution_profile.get("auto_paper_runtime_key") == AUTO_PAPER_RUNTIME_KEY
+                and run.execution_profile.get("auto_paper_runtime_key") == runtime_key
             ):
                 paper_run = run
                 break
         execution_profile = {
-            "auto_paper_runtime_key": AUTO_PAPER_RUNTIME_KEY,
+            "auto_paper_runtime_key": runtime_key,
+            "strategy_lane": strategy_lane,
             "account_equity": 10_000,
             "equity_peak": 10_000,
             "mirror_to_gateway": True,
             "risk_profile_id": risk_profile_id,
-            "max_leverage": AUTO_PAPER_STRATEGY_RULES["position_rules"]["max_leverage"],
+            "max_leverage": rules["position_rules"]["max_leverage"],
         }
         if paper_run is None:
             paper_run = paper_repo.create_paper_run(
@@ -259,11 +280,56 @@ def bootstrap_auto_trading_paper_run() -> str | None:
         session.commit()
         paper_run_id = paper_run.paper_run_id
         if paper_run_id:
-            logger.info("auto trading paper run ready: %s (top20 + medium risk)", paper_run_id)
+            logger.info(
+                "auto trading paper run ready: %s (lane=%s top20 + medium risk)",
+                paper_run_id,
+                strategy_lane,
+            )
         return paper_run_id
+
+
+def bootstrap_auto_trading_paper_run() -> str | None:
+    """Ensure a running carry-lane PaperRun exists for funding arbitrage cycles."""
+    if not binance_credentials_configured():
+        logger.info("auto paper run bootstrap skipped: binance credentials not configured")
+        return None
+
+    risk_profile_id = bootstrap_medium_risk_profile()
+    return _ensure_auto_paper_run(
+        runtime_key=AUTO_PAPER_RUNTIME_KEY,
+        strategy_key=AUTO_PAPER_RUNTIME_KEY,
+        strategy_lane="carry",
+        core_thesis=(
+            "Local auto-cycle bootstrap strategy. Scans Binance USDT-M Top20 with "
+            "funding carry admission (net edge + basis checks); exposure capped by medium risk profile."
+        ),
+        rules=AUTO_PAPER_STRATEGY_RULES,
+        risk_profile_id=risk_profile_id,
+    )
+
+
+def bootstrap_auto_trading_technical_paper_run() -> str | None:
+    """Ensure a running directional-lane PaperRun exists for technical + LLM veto cycles."""
+    if not binance_credentials_configured():
+        logger.info("auto technical paper run bootstrap skipped: binance credentials not configured")
+        return None
+
+    risk_profile_id = bootstrap_medium_risk_profile()
+    return _ensure_auto_paper_run(
+        runtime_key=AUTO_PAPER_TECHNICAL_KEY,
+        strategy_key=AUTO_PAPER_TECHNICAL_KEY,
+        strategy_lane="directional",
+        core_thesis=(
+            "Local auto-cycle bootstrap strategy. Scans Binance USDT-M Top20 through "
+            "MACD/Dow/price-action ensemble, meta-label sizing, and optional LLM veto."
+        ),
+        rules=AUTO_PAPER_TECHNICAL_RULES,
+        risk_profile_id=risk_profile_id,
+    )
 
 
 def bootstrap_local_paper_runtime() -> None:
     bootstrap_paper_testnet_mirror()
     bootstrap_auto_trading_paper_run()
+    bootstrap_auto_trading_technical_paper_run()
     bootstrap_clear_stale_blocking_risk_events()

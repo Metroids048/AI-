@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     github_models_token: str = ""
     github_models_free_models: str = ""
     llm_free_model_catalog_cache_seconds: int = 21600
+    # Local default: use baked-in free model ids; skip outbound catalog fetch unless overridden.
+    llm_use_catalog_seeds_only: bool = True
     decision_veto_daily_budget: int = 200
     decision_veto_require_llm: bool = True
 

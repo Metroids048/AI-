@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from services.data import DataRepository
+from services.data.market import MarketQueryService
 from services.execution.decision_pipeline import DecisionPipeline, DecisionPipelineResult
 from services.strategy_library import (
     AgentTaskRepository,
@@ -64,6 +65,7 @@ class PaperSignalGenerator:
             symbol=symbol,
             timeframe=timeframe,
             request=request,
+            paper_run=paper_run,
         )
         reference_price = decision.reference_price
         direction = decision.direction or TradeSide.LONG
@@ -91,11 +93,14 @@ class PaperSignalGenerator:
         )
         veto_result = decision.veto_result
         if not decision.should_trade and veto_result is None:
-            veto_result = DecisionVetoResult(
-                veto=True,
-                veto_reason=f"decision pipeline skipped order: {decision.reason}",
-                checked_at=decision.bar_time,
-            )
+            pipeline_status = str(decision.trace.get("pipeline_status", ""))
+            carry_admission_skip = pipeline_status.startswith("funding_arbitrage_rejected")
+            if not carry_admission_skip:
+                veto_result = DecisionVetoResult(
+                    veto=True,
+                    veto_reason=f"decision pipeline skipped order: {decision.reason}",
+                    checked_at=decision.bar_time,
+                )
         return ExecutionOrderRequest(
             strategy_id=paper_run.strategy_id,
             version_id=paper_run.version_id,
@@ -135,35 +140,16 @@ class PaperSignalGenerator:
         symbol: str,
         timeframe: str,
         request: PaperRunStepRequest,
+        paper_run: PaperRun | None = None,
     ) -> DecisionPipelineResult:
         rules = strategy.rules
-        if "funding_threshold_bps" in rules.entry_rules:
-            perp_symbol = request.perp_symbol or f"{symbol}:USDT"
-            latest_funding = self.data_repo.get_latest_market_extras(symbol=perp_symbol)
-            if latest_funding is not None and latest_funding.funding_rate is not None:
-                direction = TradeSide.SHORT if latest_funding.funding_rate > 0 else TradeSide.LONG
-            else:
-                direction = TradeSide.SHORT
-            bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=timeframe)
-            reference_price = Decimal("0") if bar is None else bar.close
-            return DecisionPipelineResult(
-                direction=direction,
-                should_trade=True,
-                reason="funding_threshold_deterministic",
-                reference_price=reference_price,
-                bar_time=bar.timestamp if bar else None,
-                signals=[],
-                ensemble=None,
-                meta_label=None,
-                veto_result=None,
-                confidence_multiplier=1.0,
-                atr=None,
-                volatility_context={"regime": "funding_arbitrage"},
-                trace={
-                    "pipeline_status": "funding_arbitrage_bypass",
-                    "funding_rate": str(latest_funding.funding_rate) if latest_funding else None,
-                    "perp_symbol": perp_symbol,
-                },
+        if _is_carry_strategy(rules=rules, paper_run=paper_run):
+            return self._carry_decision(
+                strategy=strategy,
+                symbol=symbol,
+                timeframe=timeframe,
+                request=request,
+                paper_run=paper_run,
             )
 
         return self.decision_pipeline.evaluate(
@@ -172,6 +158,95 @@ class PaperSignalGenerator:
             timeframe=timeframe,
             enable_decision_veto=request.enable_decision_veto,
             relaxed_signals=settings.paper_runtime_relaxed_signals,
+        )
+
+    def _carry_decision(
+        self,
+        *,
+        strategy: StrategyContract,
+        symbol: str,
+        timeframe: str,
+        request: PaperRunStepRequest,
+        paper_run: PaperRun | None,
+    ) -> DecisionPipelineResult:
+        rules = strategy.rules
+        perp_symbol = request.perp_symbol or f"{symbol}:USDT"
+        entry_rules = rules.entry_rules
+        fee_bps = float(entry_rules.get("fee_bps", 8.0))
+        slippage_bps = float(entry_rules.get("slippage_bps", 6.0))
+        threshold_bps = float(entry_rules.get("funding_threshold_bps", 0.5))
+        requires_positive = bool(entry_rules.get("requires_positive_funding", True))
+        min_net_edge_bps = float(entry_rules.get("min_estimated_net_edge_bps", fee_bps + slippage_bps))
+
+        market_service = MarketQueryService(self.data_repo)
+        signal = market_service.get_funding_arbitrage_signal(
+            symbol=symbol,
+            perp_symbol=perp_symbol,
+            timeframe=timeframe,
+            fee_bps=fee_bps,
+            slippage_bps=slippage_bps,
+        )
+
+        rejection_reasons = list(signal.rejection_reasons)
+        funding_bps = signal.funding_bps or 0.0
+        estimated_net = signal.estimated_net_edge_bps
+
+        if funding_bps < threshold_bps:
+            rejection_reasons.append("below_funding_threshold")
+        if estimated_net is None or estimated_net < min_net_edge_bps:
+            rejection_reasons.append("below_min_estimated_net_edge")
+
+        should_trade = (
+            signal.should_enter_paper
+            and funding_bps >= threshold_bps
+            and estimated_net is not None
+            and estimated_net >= min_net_edge_bps
+        )
+        if requires_positive and (signal.funding_rate is None or signal.funding_rate <= 0):
+            should_trade = False
+            if "requires_positive_funding" not in rejection_reasons:
+                rejection_reasons.append("requires_positive_funding")
+
+        if should_trade and signal.funding_rate is not None and signal.funding_rate > 0:
+            direction = TradeSide.SHORT
+        elif (
+            should_trade
+            and signal.funding_rate is not None
+            and signal.funding_rate < 0
+            and not requires_positive
+        ):
+            direction = TradeSide.LONG
+        else:
+            direction = TradeSide.SHORT
+
+        bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=timeframe)
+        reference_price = Decimal("0") if bar is None else bar.close
+        pipeline_status = "funding_arbitrage_admitted" if should_trade else "funding_arbitrage_rejected"
+        return DecisionPipelineResult(
+            direction=direction,
+            should_trade=should_trade,
+            reason="funding_arbitrage_admitted" if should_trade else "funding_arbitrage_rejected",
+            reference_price=reference_price,
+            bar_time=bar.timestamp if bar else None,
+            signals=[],
+            ensemble=None,
+            meta_label=None,
+            veto_result=None,
+            confidence_multiplier=1.0,
+            atr=None,
+            volatility_context={"regime": "funding_arbitrage"},
+            trace={
+                "pipeline_status": pipeline_status,
+                "strategy_lane": "carry",
+                "funding_rate": str(signal.funding_rate) if signal.funding_rate is not None else None,
+                "funding_bps": funding_bps,
+                "estimated_net_edge_bps": estimated_net,
+                "funding_threshold_bps": threshold_bps,
+                "min_estimated_net_edge_bps": min_net_edge_bps,
+                "rejection_reasons": list(dict.fromkeys(rejection_reasons)),
+                "perp_symbol": perp_symbol,
+                "basis_bps": signal.basis_bps,
+            },
         )
 
     def _risk_prices(
@@ -305,3 +380,13 @@ class PaperSignalGenerator:
             requested_notional=float(requested_notional),
             requested_leverage=float(requested_leverage),
         )
+
+
+def _is_carry_strategy(*, rules, paper_run: PaperRun | None) -> bool:  # noqa: ANN001
+    if paper_run is not None:
+        lane = paper_run.execution_profile.get("strategy_lane")
+        if lane == "carry":
+            return True
+        if lane == "directional":
+            return False
+    return "funding_threshold_bps" in rules.entry_rules

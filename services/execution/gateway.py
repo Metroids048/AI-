@@ -132,6 +132,15 @@ class BinanceUsdtPerpetualGateway:
 
     def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict[str, Any]:
         symbol = _normalize_binance_symbol(order_request.symbol)
+        if not gateway_symbol_available(gateway=self, symbol=order_request.symbol):
+            raise ValueError(f"symbol_not_found: {order_request.symbol}")
+        requested_leverage = float(order_request.entry_context.get("requested_leverage") or 0)
+        if requested_leverage >= 1:
+            try:
+                self.set_leverage(symbol=order_request.symbol, leverage=requested_leverage)
+            except Exception:
+                # ponytail: leverage best-effort; order submit still attempted at exchange default.
+                pass
         quantity = _resolve_gateway_quantity(client=self.client, symbol=symbol, order_request=order_request)
         side = "buy" if str(order_request.direction).lower() == "long" else "sell"
         order_type = str(order_request.entry_context.get("order_type", "market"))
@@ -364,6 +373,29 @@ def _normalize_binance_symbol(symbol: str) -> str:
     if symbol.endswith("/USDT"):
         return f"{symbol}:USDT"
     return symbol
+
+
+def gateway_symbol_available(*, gateway: ExchangeGateway, symbol: str) -> bool:
+    """Return False when the configured Binance gateway does not list the market."""
+    client = getattr(gateway, "client", None)
+    if client is None:
+        return True
+    normalized = _normalize_binance_symbol(symbol)
+    load_markets = getattr(client, "load_markets", None)
+    if callable(load_markets):
+        try:
+            if not getattr(client, "markets", None):
+                load_markets()
+        except Exception:
+            return True
+    market_fn = getattr(client, "market", None)
+    if not callable(market_fn):
+        return True
+    try:
+        market_fn(normalized)
+    except Exception:
+        return False
+    return True
 
 
 def _binance_market_id(symbol: str) -> str:

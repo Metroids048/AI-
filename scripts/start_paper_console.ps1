@@ -1,7 +1,8 @@
 param(
     [int]$ApiPort = 8000,
     [int]$FrontendPort = 5173,
-    [string]$DatabasePath = ".local_paper_console.db"
+    [string]$DatabasePath = ".local_paper_console.db",
+    [switch]$TradingOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,6 +47,17 @@ function Test-PortOpen($Port) {
     catch {
         return $false
     }
+}
+
+function Show-LogTail($Path, $Lines = 40) {
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-Step "log file missing: $Path"
+        return
+    }
+    Write-Host ""
+    Write-Host "---- tail $Path ----"
+    Get-Content -LiteralPath $Path -Tail $Lines -ErrorAction SilentlyContinue
+    Write-Host "--------------------"
 }
 
 function Stop-ExistingProjectProcess($Port, $ExpectedPattern) {
@@ -172,6 +184,8 @@ $env:BINANCE_LIVE_UNIVERSE_ENABLED = "true"
 $env:BINANCE_LIVE_MARKET_ENABLED = "true"
 $env:BINANCE_LIVE_WS_ENABLED = "true"
 if (-not $env:BINANCE_LIVE_WS_SYMBOLS) { $env:BINANCE_LIVE_WS_SYMBOLS = "top20" }
+if (-not $env:PAPER_RUNTIME_ENABLE_DECISION_VETO) { $env:PAPER_RUNTIME_ENABLE_DECISION_VETO = "true" }
+if (-not $env:LLM_USE_CATALOG_SEEDS_ONLY) { $env:LLM_USE_CATALOG_SEEDS_ONLY = "true" }
 $binanceSpotRestBase = if ($env:BINANCE_SPOT_REST_BASE) { $env:BINANCE_SPOT_REST_BASE } else { "" }
 $binanceUsdmRestBase = if ($env:BINANCE_USDM_REST_BASE) { $env:BINANCE_USDM_REST_BASE } else { "" }
 $binanceSpotWsBase = if ($env:BINANCE_SPOT_WS_BASE) { $env:BINANCE_SPOT_WS_BASE } else { "" }
@@ -203,7 +217,9 @@ if ((-not (Test-Path (Join-Path $Root "node_modules"))) -or $missingNodeModules.
 }
 
 Stop-ExistingProjectProcess $ApiPort "apps.api.main:app"
-Stop-ExistingProjectProcess $FrontendPort "vite"
+if (-not $TradingOnly) {
+    Stop-ExistingProjectProcess $FrontendPort "vite"
+}
 
 Write-Step "starting FastAPI on $ApiUrl"
 $runApiScript = Join-Path $PSScriptRoot "run-api-local.ps1"
@@ -217,20 +233,34 @@ Start-Process -FilePath "powershell.exe" -ArgumentList @(
     "-LogPath", (Join-Path $Logs "api.log")
 ) -WindowStyle Hidden
 
-Write-Step "starting Vite admin console on $FrontendUrl"
-$frontendCommand = @"
+if (-not $TradingOnly) {
+    Write-Step "starting Vite admin console on $FrontendUrl"
+    $frontendCommand = @"
 Set-Location '$Root'
 npm --workspace frontend/admin run dev -- --host 127.0.0.1 --port $FrontendPort *> '$Logs\frontend.log'
 "@
-Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $frontendCommand) -WindowStyle Hidden
+    Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $frontendCommand) -WindowStyle Hidden
+}
 
 Write-Step "waiting for API"
-if (-not (Wait-HttpOk "$ApiUrl/health" 90)) {
+if (-not (Wait-HttpOk "$ApiUrl/health" 120)) {
+    Show-LogTail (Join-Path $Logs "api.log")
     throw "FastAPI did not become ready. See logs/api.log"
+}
+
+if ($TradingOnly) {
+    Write-Host ""
+    Write-Host "Paper trading engine is running (no frontend):"
+    Write-Host "  API:  $ApiUrl"
+    Write-Host "  Logs: $Logs"
+    Write-Host ""
+    Write-Host "Close this window anytime — scheduler keeps running in the background."
+    return
 }
 
 Write-Step "waiting for frontend"
 if (-not (Wait-HttpOk "$FrontendUrl/" 45)) {
+    Show-LogTail (Join-Path $Logs "frontend.log")
     throw "Frontend did not become ready. See logs/frontend.log"
 }
 
