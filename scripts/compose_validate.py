@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -55,6 +56,52 @@ def _runtime_env_example_references(project_root: Path) -> list[str]:
     return offenders
 
 
+def _service_environment_value(compose_file: Path, service_name: str, key: str) -> str | None:
+    active_service: str | None = None
+    in_environment = False
+    for raw_line in compose_file.read_text(encoding="utf-8").splitlines():
+        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
+            continue
+        service_match = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", raw_line)
+        if service_match:
+            active_service = service_match.group(1)
+            in_environment = False
+            continue
+        if active_service != service_name:
+            continue
+        if re.match(r"^    environment:\s*$", raw_line):
+            in_environment = True
+            continue
+        if in_environment and re.match(r"^    [A-Za-z0-9_-]+:", raw_line):
+            in_environment = False
+        if not in_environment:
+            continue
+        setting_match = re.match(rf"^      {re.escape(key)}:\s*(.+?)\s*$", raw_line)
+        if setting_match:
+            return setting_match.group(1).strip().strip('"').strip("'")
+    return None
+
+
+def _service_exists(compose_file: Path, service_name: str) -> bool:
+    service_pattern = re.compile(rf"^  {re.escape(service_name)}:\s*$")
+    return any(service_pattern.match(line) for line in compose_file.read_text(encoding="utf-8").splitlines())
+
+
+def _scheduler_mode_overlay_errors(project_root: Path) -> list[str]:
+    offenders: list[str] = []
+    for file_name in ("docker-compose.paper.yml", "docker-compose.live.yml"):
+        compose_file = project_root / file_name
+        if not compose_file.exists():
+            continue
+        for service_name in ("api", "celery_worker", "celery_beat"):
+            if not _service_exists(compose_file, service_name):
+                continue
+            mode = _service_environment_value(compose_file, service_name, "RUNTIME_SCHEDULER_MODE")
+            if mode != "celery":
+                offenders.append(f"{file_name}:{service_name}")
+    return offenders
+
+
 def validate_compose(
     *,
     project_root: Path,
@@ -82,8 +129,18 @@ def validate_compose(
             exit_code=1,
             status="invalid_env_file",
             message=(
-                "runtime compose env_file must use .env, not .env.example: "
-                + ", ".join(sorted(env_example_references))
+                "runtime compose env_file must use .env, not .env.example: " + ", ".join(sorted(env_example_references))
+            ),
+        )
+
+    scheduler_mode_errors = _scheduler_mode_overlay_errors(project_root)
+    if scheduler_mode_errors:
+        return ComposeValidationResult(
+            exit_code=1,
+            status="invalid_scheduler_mode",
+            message=(
+                "paper/live compose services must set RUNTIME_SCHEDULER_MODE=celery to avoid duplicate schedulers: "
+                + ", ".join(sorted(scheduler_mode_errors))
             ),
         )
 

@@ -153,9 +153,13 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
 
   useEffect(() => {
     refresh();
-    const timer = window.setInterval(refresh, 8000);
+    // When the WS stream is live, reduce polling to a 30s fallback to avoid
+    // duplicating WS pushes (previously polled every 8s regardless of WS
+    // state, wasting bandwidth). When polling-only (WS down), refresh every 8s.
+    const interval = state.streamStatus === "live" ? 30000 : 8000;
+    const timer = window.setInterval(refresh, interval);
     return () => window.clearInterval(timer);
-  }, [refresh]);
+  }, [refresh, state.streamStatus]);
 
   useEffect(() => {
     if (!("WebSocket" in window)) {

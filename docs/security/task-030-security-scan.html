@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>TASK-030 Security Scan Report</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 32px; line-height: 1.5; color: #17202a; }
+      h1, h2 { color: #0b3d5c; }
+      code { background: #f3f5f7; padding: 2px 4px; border-radius: 4px; }
+      li { margin-bottom: 6px; }
+      .pass { color: #087f5b; font-weight: 700; }
+      .warn { color: #a15c00; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <h1>TASK-030 Security Scan Report</h1>
+    <p><strong>Date:</strong> 2026-07-07</p>
+    <p><strong>Scope:</strong> repository-wide local scan for <code>C:\Users\win\Desktop\AI--main</code></p>
+
+    <h2>Summary</h2>
+    <ul>
+      <li><span class="pass">PASS</span> Project dependency audit: <code>pip_audit .</code> found no known vulnerabilities.</li>
+      <li><span class="pass">PASS</span> Frontend dependency audit: <code>npm audit --audit-level=high</code> found 0 vulnerabilities.</li>
+      <li><span class="pass">PASS</span> Source secret scan found no non-empty key/token/password values.</li>
+      <li><span class="pass">FIXED</span> Docker paper/live overlays force <code>RUNTIME_SCHEDULER_MODE=celery</code>.</li>
+      <li><span class="pass">FIXED</span> Binance WS reconnect errors now update live feed status.</li>
+      <li><span class="pass">IMPROVED</span> Validation, Review, Research, and Ops pages now read real APIs and third-party-backed data flows.</li>
+    </ul>
+
+    <h2>Verification</h2>
+    <ul>
+      <li><code>py -3 -m pytest -q</code>: 149 passed, 1 skipped</li>
+      <li><code>py -3 -m ruff check .</code>: passed</li>
+      <li><code>py -3 -m mypy</code>: passed</li>
+      <li><code>npm --workspace frontend/admin run test</code>: 8 passed</li>
+      <li><code>npm --workspace frontend/admin run build</code>: passed on Vite 8.1.3</li>
+      <li><code>py -3 scripts/compose_validate.py</code>: skipped locally because Docker is not on PATH</li>
+    </ul>
+
+    <h2>Residual Items</h2>
+    <ul>
+      <li><span class="warn">Deferred</span> Whole-machine <code>pip_audit</code> still reports global non-project packages: litellm, nltk, torch.</li>
+      <li><span class="warn">Deferred</span> Full repository format check has historical drift outside this change set; changed Python files pass targeted format check.</li>
+      <li><span class="warn">Skipped</span> Docker runtime validation requires Docker on PATH.</li>
+    </ul>
+  </body>
+</html>

@@ -15,6 +15,7 @@ from services.strategy_library import (
     PaperRunRepository,
     ReviewRepository,
     RiskProfileRepository,
+    StrategyRepository,
     ValidationRepository,
 )
 from services.validation.admission import ValidationAdmissionService
@@ -38,6 +39,7 @@ class LiveExecutionService:
         paper_repo: PaperRunRepository,
         review_repo: ReviewRepository,
         gateway: ExchangeGateway | None = None,
+        strategy_repo: StrategyRepository | None = None,
     ) -> None:
         self.data_repo = data_repo
         self.validation_repo = validation_repo
@@ -45,6 +47,7 @@ class LiveExecutionService:
         self.execution_repo = execution_repo
         self.paper_repo = paper_repo
         self.review_repo = review_repo
+        self.strategy_repo = strategy_repo
         self.gateway = gateway or NullExchangeGateway()
         self.gatekeeper = ExecutionGatekeeperService(
             data_repo=data_repo,
@@ -93,6 +96,13 @@ class LiveExecutionService:
             last_gateway_update_at=datetime.now(UTC),
         )
         assert updated is not None
+        # Write back strategy-level live_status — closes the state-machine gap
+        # where live_status was defined on the Strategy table but never updated.
+        if self.strategy_repo is not None and updated.strategy_id:
+            self.strategy_repo.update_lifecycle_status(
+                updated.strategy_id,
+                live_status="running",
+            )
         return updated
 
     def cancel_live_order(self, *, live_run_id: str, order_execution_id: str) -> OrderExecution:

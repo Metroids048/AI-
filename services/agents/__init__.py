@@ -3,6 +3,9 @@
 from .llm_runtime import (
     AnthropicStructuredLLMRuntime,
     ConfiguredStructuredLLMRuntime,
+    FallbackChainStructuredLLMRuntime,
+    LLMProviderUnavailable,
+    OpenAICompatibleStructuredLLMRuntime,
     StructuredLLMRuntime,
     UnavailableLLMRuntime,
 )
@@ -12,6 +15,9 @@ __all__ = [
     "AgentTaskService",
     "AnthropicStructuredLLMRuntime",
     "ConfiguredStructuredLLMRuntime",
+    "FallbackChainStructuredLLMRuntime",
+    "LLMProviderUnavailable",
+    "OpenAICompatibleStructuredLLMRuntime",
     "StructuredLLMRuntime",
     "UnavailableLLMRuntime",
 ]

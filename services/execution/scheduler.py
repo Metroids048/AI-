@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any
 
-from apps.api.config import settings
+from shared.config import settings
 
 Runner = Callable[[], Any]
 
@@ -207,11 +207,15 @@ class RuntimeScheduler:
                 on_close=session.close,
             )
 
+        async def report_reconnect_error(exc: Exception) -> None:
+            await live_feed_bus.set_error(symbol=symbol, timeframe=timeframe, error=str(exc))
+
         await run_live_collector_forever(
             collector_factory=collector_factory,
             symbol=symbol,
             perp_symbol=spot_to_usdm_perp_symbol(symbol),
             timeframe=timeframe,
+            reconnect_error_handler=report_reconnect_error,
         )
 
 

@@ -2,10 +2,12 @@ services:
   api:
     environment:
       APP_ENV: paper
+      RUNTIME_SCHEDULER_MODE: celery
 
   celery_worker:
     environment:
       APP_ENV: paper
+      RUNTIME_SCHEDULER_MODE: celery
     command: >
       sh -c "pip install -e . &&
       celery -A apps.api.celery_app:celery_app worker --loglevel=info -Q default,backtest_queue,paper_queue"
@@ -13,6 +15,7 @@ services:
   celery_beat:
     environment:
       APP_ENV: paper
+      RUNTIME_SCHEDULER_MODE: celery
 
   freqtrade:
     environment:

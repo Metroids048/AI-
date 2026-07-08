@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from apps.api.config import settings
+from shared.config import settings
 from services.data.repository import DataRepository
 from shared.models import RiskEvent, RiskEventType, RiskSeverity
 

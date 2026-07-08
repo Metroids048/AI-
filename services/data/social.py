@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from apps.api.config import settings
+from shared.config import settings
 from services.data.news import NewsIngestionService
 
 

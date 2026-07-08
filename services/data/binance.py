@@ -748,18 +748,55 @@ async def run_live_collector_forever(
     symbol: str = "BTC/USDT",
     perp_symbol: str = "BTC/USDT:USDT",
     timeframe: str = "1m",
+    reconnect_error_handler: Callable[[Exception], Awaitable[None]] | None = None,
+    reconnect_delay_seconds: float = 5.0,
+    max_reconnect_delay_seconds: float = 60.0,
+    backoff_factor: float = 1.5,
 ) -> None:
-    """Run first-tranche public WS collectors with conservative restart delay."""
+    """Run public WS collectors with exponential-backoff reconnect and state recovery.
+
+    On disconnect the delay grows exponentially (capped at
+    ``max_reconnect_delay_seconds``) so that a prolonged outage does not
+    hammer the exchange. A successful connection resets the backoff. Each
+    reconnect creates a fresh collector so internal buffers/state are rebuilt
+    from scratch — this is the state-recovery mechanism for 7×24 operation.
+    """
+
+    from shared.logging import get_logger
+
+    _reconnect_logger = get_logger(__name__)
+    current_delay = reconnect_delay_seconds
+    attempt = 0
 
     while True:
         collector = collector_factory()
         try:
+            attempt += 1
+            _reconnect_logger.info(
+                "WS collector starting",
+                extra={"symbol": symbol, "perp_symbol": perp_symbol, "attempt": attempt},
+            )
             await asyncio.gather(
                 collector.consume_kline_stream(symbol=symbol, timeframe=timeframe),
                 collector.consume_kline_stream(symbol=perp_symbol, timeframe=timeframe),
                 collector.consume_mark_price_stream(symbol=perp_symbol),
             )
-        except Exception:
-            await asyncio.sleep(5)
+            # Graceful close — reset backoff for the next connection.
+            current_delay = reconnect_delay_seconds
+        except Exception as exc:
+            if reconnect_error_handler is not None:
+                await reconnect_error_handler(exc)
+            _reconnect_logger.warning(
+                "WS collector disconnected, reconnecting",
+                extra={
+                    "symbol": symbol,
+                    "attempt": attempt,
+                    "delay_seconds": current_delay,
+                    "error": str(exc),
+                },
+            )
+            await asyncio.sleep(max(current_delay, 0.0))
+            # Exponential backoff with cap — prevents exchange hammering.
+            current_delay = min(current_delay * backoff_factor, max_reconnect_delay_seconds)
         finally:
             collector.close()

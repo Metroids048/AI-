@@ -15,6 +15,7 @@ from services.strategy_library import (
     ValidationRepository,
 )
 from services.validation.admission import ValidationAdmissionService
+from shared.config import settings
 from shared.models import (
     ExecutionOrderRequest,
     FailureRecord,
@@ -24,9 +25,13 @@ from shared.models import (
     RiskProfile,
 )
 
+from .kill_switch import KillSwitch, get_kill_switch
 from .paper import PaperOrchestrationService
 
-DEFAULT_FRESHNESS_DELAY = timedelta(hours=2)
+
+def _freshness_delay() -> timedelta:
+    """Resolve the order-freshness threshold from settings (previously hardcoded to 2h)."""
+    return timedelta(seconds=settings.execution_freshness_delay_seconds)
 
 
 class ExecutionGatekeeperService:
@@ -42,6 +47,7 @@ class ExecutionGatekeeperService:
         execution_repo: ExecutionRepository,
         paper_repo: PaperRunRepository,
         review_repo: ReviewRepository | None = None,
+        kill_switch: KillSwitch | None = None,
     ) -> None:
         self.data_repo = data_repo
         self.validation_repo = validation_repo
@@ -50,6 +56,7 @@ class ExecutionGatekeeperService:
         self.execution_repo = execution_repo
         self.paper_repo = paper_repo
         self.review_repo = review_repo
+        self.kill_switch = kill_switch or get_kill_switch()
         self.paper_service = PaperOrchestrationService()
         self.validation_admission = ValidationAdmissionService()
 
@@ -94,6 +101,10 @@ class ExecutionGatekeeperService:
 
     def submit_order(self, request: ExecutionOrderRequest) -> OrderExecution:
         rejection_reasons: list[str] = []
+        # Kill switch — global trading halt. When triggered, ALL new orders are
+        # rejected immediately regardless of validation/risk state.
+        if self.kill_switch.is_triggered():
+            rejection_reasons.append("kill_switch_active")
         close_only_mode = bool(request.entry_context.get("close_only_mode", False))
         stoploss_present = bool(request.stoploss_plan)
         if not stoploss_present and not close_only_mode:
@@ -131,7 +142,7 @@ class ExecutionGatekeeperService:
             symbol=request.symbol,
             timeframe=timeframe,
             reference_time=reference_time,
-            max_delay=DEFAULT_FRESHNESS_DELAY,
+            max_delay=_freshness_delay(),
         )
         if not freshness["is_fresh"]:
             rejection_reasons.append("data_not_fresh")
@@ -203,6 +214,15 @@ class ExecutionGatekeeperService:
             rejection_reasons.append("drawdown_limit_breached")
         if risk_state.consecutive_losses >= profile.consecutive_loss_limit:
             rejection_reasons.append("consecutive_loss_limit_breached")
+        # Martingale guard (AGENTS.md §5: Martingale strategies are forbidden).
+        # If the account is in a losing streak and this order's notional exceeds
+        # 2× the existing symbol exposure, treat it as a Martingale attempt.
+        if (
+            risk_state.consecutive_losses > 0
+            and risk_state.symbol_exposure > 0
+            and requested_fraction > risk_state.symbol_exposure * 2
+        ):
+            rejection_reasons.append("martingale_detected")
         if risk_state.api_failures_window >= profile.api_failure_limit:
             rejection_reasons.append("api_failure_limit_breached")
         return rejection_reasons

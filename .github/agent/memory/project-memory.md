@@ -1,5 +1,14 @@
 # Project Memory
 
+## Protective exits, free LLM fallback, and Binance Testnet mirror (TASK-032, 2026-07-08)
+
+- `PaperRuntimeService` now checks protective stoploss/takeprofit levels before no-trade/opposite-signal handling. It resolves the latest filled non-close entry order, uses Kline high/low crossing rather than close-only checks, fills at the protective trigger price, prioritizes stoploss when both protective levels are touched in the same bar, and records stoploss outcomes through Review `FailureRecord`.
+- `takeprofit_rules.trail_after_r` is now consumed for Paper runtime positions. When floating profit reaches the configured R multiple, the runtime ratchets stoploss to entry in `PaperRun.paper_metrics_summary.protective_trailing`; the stop only tightens and never loosens.
+- Paper automatic cycles can optionally mirror local fills to the configured Binance USDT perpetual gateway when `PaperRun.execution_profile.mirror_to_gateway=true`. Mirroring is explicit per PaperRun, local Paper fill/position updates happen first, and gateway failures write `gateway_mirror_failed` failure records without rolling back local state.
+- The admin trading console exposes a Testnet mirror toggle backed by `PATCH /api/v1/execution/paper-runs/{id}/execution-profile`. Default behavior remains local Paper-only until the operator explicitly enables mirroring.
+- Agent LLM runtime now supports Anthropic first, then OpenRouter free models, then GitHub Models free models through an OpenAI-compatible structured JSON runtime and `FallbackChainStructuredLLMRuntime`. `GITHUB_MODELS_TOKEN` is independent from `GITHUB_TOKEN`; model overrides are optional comma-separated settings, otherwise runtime catalog discovery with short cache and static seed fallback is used.
+- Verified: targeted Paper/LLM/API tests passed; full `py -3 -m pytest -q` passed (`162 passed, 1 skipped`); Ruff, Ruff format check on changed Python files, mypy, frontend Vitest, frontend build, npm audit, pip-audit, and `git diff --check` passed. Compose validation remained skipped locally because Docker is not on PATH.
+
 ## Real-time trading console + multi-screen split (TASK-031, 2026-07-07)
 
 - The Paper trading console's "not real-time" complaint had a concrete root cause chain, not a missing feature: `binance_live_universe_enabled` / `binance_live_market_enabled` / `binance_live_ws_enabled` in `apps/api/config.py` defaulted to `False`, so `/market/exchange-stream` was silently degrading to 2s REST polling dressed up as WS frames. All three now default `True`; `tests/conftest.py` gained an `autouse` fixture that forces them back to `False` during tests so the suite never makes real outbound Binance calls.
@@ -10,13 +19,23 @@
 - `OpsPanels.jsx`'s `FeedPanel` is now exported and reused directly by `OpsConsole.jsx`/`ReviewCenter.jsx`; the old `OpsReviewPanel` wrapper (and the now-dead `newsItems`/`macroEvents`/`reviews`/`notifications` fetches + state fields in `useConsoleData.js`) were deleted once Grep confirmed zero remaining callers, removing four redundant REST calls from the trading page's 8-second poll cycle.
 - Verification: `py -3 -m pytest tests/ -q` -> 151 passed, 1 skipped; `npm --workspace frontend/admin run test -- --run` -> 8 passed; `npm --workspace frontend/admin run build` passed. Manual browser smoke (symbol/timeframe switching, WS reconnect, responsive breakpoints) was not performed this session — only automated tests and build were run.
 
-## One-click startup dependency self-heal (TASK-030, 2026-07-07)
+## One-click startup dependency self-heal (TASK-030 startup, 2026-07-07)
 
 - The local Paper console startup failure was caused by `frontend/admin/src/router.jsx` importing `@tanstack/react-query` while the workspace `node_modules` did not contain the package, even though `frontend/admin/package.json` and `package-lock.json` already declared it.
 - `scripts/start_paper_console.ps1` now checks for key frontend workspace modules (`@tanstack/react-query`, `lightweight-charts`, `react-router-dom`, `vite`, `vitest`) instead of only checking whether `node_modules` exists. If any are missing, one-click startup runs `npm install` before launching FastAPI and Vite.
 - This is an Ops/startup-path fix for the local Paper/Testnet console. It does not change Strategy, Validation, Execution, Risk, or Review logic.
 - Verification evidence: `npm --workspace frontend/admin run build` passed; `npm --workspace frontend/admin ls @tanstack/react-query` resolved `@tanstack/react-query@5.101.2`; `.\一键启动.bat` started API `http://127.0.0.1:8000` and frontend `http://127.0.0.1:5173`; API `/health` returned ok and frontend `/` returned 200.
 - GitHub branch check: local `main`, `origin/main`, and `origin/HEAD` all resolve to `9237b0647174156511ddb138fe76d6fad194d1bb`; the extra remote branches are Dependabot dependency-update branches, not the active platform trunk.
+
+## TASK-030 security closure, scheduler/feed fixes, and third-party-backed frontend pages (2026-07-07)
+
+- Python and frontend dependency audit baselines were tightened. Dev dependencies now require pytest 9+, pytest-asyncio 1.4+, pytest-cov 7.1+, and runtime constraints include current safe lower bounds for FastAPI/Starlette, aiohttp, cryptography, pydantic-settings, PyJWT, and python-multipart. Frontend admin now uses Vite 8.1.3 and Vitest 4.1.10 with `npm audit --audit-level=high` as a hard CI gate.
+- Docker paper/live overlays now explicitly set `RUNTIME_SCHEDULER_MODE=celery` on `api`, `celery_worker`, and `celery_beat`; `scripts/compose_validate.py` rejects missing paper/live scheduler overrides to prevent duplicate in-process + Celery Beat runtime cycles.
+- Binance WS collector restart exceptions now call a reconnect error handler wired by `RuntimeScheduler` into `LiveFeedBus.set_error(...)`, so operator surfaces can see `reconnecting` and `last_error` instead of silent Kline stalls.
+- The remaining placeholder frontend entries were replaced with data-backed pages: Validation reads backtests/optimizations/hypotheses plus Binance funding signal; Review reads reviews/failures/decision memory/news inputs; Research reads GitHub/open-source research sources, strategy ideas, news, and macro events; Ops reads dependency health, trading scheduler status, Agent tasks, notification outbox, and exchange capabilities.
+- `/api/v1/market/news` and `/api/v1/market/macro-events` now support `refresh=true` read-through ingestion using the existing RSS/SEC/news and ForexFactory macro services. Fetch failures fail soft through `refresh_error` while persisted data remains available.
+- Security scan artifacts were written to `docs/security/task-030-security-scan.md` and `.html`. Project-level `pip_audit .` and `npm audit` are clean; whole-machine pip-audit still reports non-project global packages (`litellm`, `nltk`, `torch`) and is intentionally not treated as this repo's dependency graph.
+- Current verification baseline: `py -3 -m pytest -q` -> 149 passed / 1 skipped; Ruff lint passed; mypy passed; changed-file Ruff format passed; admin Vitest passed; admin Vite 8 build passed; npm audit passed; project pip-audit passed. Full repo format check still has historical drift outside this change set; compose validation remains skipped locally because Docker is not on PATH.
 
 ## Trading core scheduler + Binance WS feed bus (TASK-029, 2026-07-07)
 

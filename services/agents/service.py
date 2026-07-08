@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 
-from apps.api.config import settings
+from shared.config import settings
 from research_source.open_source_strategy_library import OpenSourceStrategyExtractor, OpenSourceStrategyLibrary
 from research_source.worldquant_adapter import LocalAlphaScanner
 from services.agents.llm_runtime import StructuredLLMRuntime, UnavailableLLMRuntime
@@ -40,6 +41,30 @@ class AgentTaskService:
         self.alpha_scanner = LocalAlphaScanner()
         self.open_source_library = OpenSourceStrategyLibrary()
         self.open_source_extractor = OpenSourceStrategyExtractor()
+        # Executor registry — replaces the legacy if/elif dispatch chain.
+        # New agent executors are registered via register_executor() without
+        # modifying _execute(). Keys are (agent_type, task_type) tuples.
+        self._executors: dict[tuple[str, str], Callable[[AgentTask], dict]] = {}
+        self._register_default_executors()
+
+    def register_executor(
+        self, agent_type: str, task_type: str, handler: Callable[[AgentTask], dict]
+    ) -> None:
+        """Register a new agent-task executor (hot-pluggable).
+
+        This is the extension point for Coding/Backtest/Optimization/Risk agents
+        that currently have no executor. External modules can register handlers
+        without modifying this service.
+        """
+        self._executors[(agent_type, task_type)] = handler
+
+    def _register_default_executors(self) -> None:
+        self._executors[("research_agent", "scan_local_alpha")] = self._handle_scan_local_alpha
+        self._executors[("research_agent", "import_open_source_sources")] = self._handle_import_open_source
+        self._executors[("research_agent", "extract_open_source_strategy_ideas")] = self._handle_extract_open_source_ideas
+        self._executors[("strategy_agent", "materialize_seed_strategy_drafts")] = self._handle_materialize_drafts
+        self._executors[("decision_veto_agent", "pre_execution_veto")] = self._handle_deterministic_veto
+        self._executors[("review_agent", "summarize_failures")] = self._handle_summarize_failures
 
     def list_tasks(self) -> list[AgentTask]:
         return self.agent_repo.list_tasks()
@@ -79,155 +104,170 @@ class AgentTaskService:
         )
 
     def _execute(self, task: AgentTask) -> dict:
-        if task.agent_type == "research_agent" and task.task_type == "scan_local_alpha":
-            root_path = task.input_payload.get("alpha_root") or settings.worldquant_alpha_local_path
-            if not root_path:
-                return {
-                    "executor_registered": True,
-                    "completed": False,
-                    "task_status": "failed",
-                    "message": "alpha_root is required",
-                    "output_ref": "strategy_ideas:0",
-                }
-            ideas = self.alpha_scanner.scan(root_path, limit=int(task.input_payload.get("limit", 10)))
-            persisted_ids: list[str] = []
-            if task.input_payload.get("persist_ideas", True):
-                for idea in ideas:
-                    created = self.strategy_repo.create_idea(idea)
-                    if created.idea_id is not None:
-                        persisted_ids.append(created.idea_id)
-                        self._record_alpha_rejection_if_needed(created)
-            return {
-                "executor_registered": True,
-                "alpha_root": root_path,
-                "idea_count": len(ideas),
-                "persisted_idea_ids": persisted_ids,
-                "ideas": [idea.model_dump(mode="json") for idea in ideas],
-                "output_ref": f"strategy_ideas:{len(persisted_ids)}",
-            }
-
-        if task.agent_type == "research_agent" and task.task_type == "import_open_source_sources":
-            import_result = self.open_source_library.import_sources(
-                source_ids=list(task.input_payload.get("source_ids", [])),
-                refresh_assets=bool(task.input_payload.get("refresh_assets", True)),
-                fetch_remote=bool(task.input_payload.get("fetch_remote", False)),
-            )
-            return {
-                "executor_registered": True,
-                "imported_count": len(import_result.imported),
-                "failed_count": len(import_result.failed),
-                "asset_count": len(import_result.imported_assets),
-                "failed_asset_count": len(import_result.failed_assets),
-                "imported_source_ids": [item.source_id for item in import_result.imported],
-                "failed_source_ids": [item.source_id for item in import_result.failed],
-                "imported_assets": [item.model_dump(mode="json") for item in import_result.imported_assets],
-                "failed_assets": [item.model_dump(mode="json") for item in import_result.failed_assets],
-                "output_ref": f"open_source_sources:{len(import_result.imported)}",
-            }
-
-        if task.agent_type == "research_agent" and task.task_type == "extract_open_source_strategy_ideas":
-            source_ids = list(task.input_payload.get("source_ids", []))
-            max_ideas_per_source = task.input_payload.get("max_ideas_per_source")
-            persist_ideas = bool(task.input_payload.get("persist_ideas", True))
-            manifests = (
-                [source for source in self.open_source_library.list_sources() if source.source_id in set(source_ids)]
-                if source_ids
-                else self.open_source_library.list_sources()
-            )
-            open_source_ideas: list[StrategyIdea] = []
-            open_source_persisted_ids: list[str] = []
-            for manifest in manifests:
-                open_source_ideas.extend(
-                    self.open_source_extractor.extract_ideas(
-                        manifest,
-                        max_ideas=int(max_ideas_per_source) if max_ideas_per_source is not None else None,
-                    )
-                )
-            if persist_ideas:
-                for idea in open_source_ideas:
-                    created = self.strategy_repo.create_idea(idea)
-                    if created.idea_id is not None:
-                        open_source_persisted_ids.append(created.idea_id)
-            return {
-                "executor_registered": True,
-                "source_count": len(manifests),
-                "idea_count": len(open_source_ideas),
-                "persisted_idea_ids": open_source_persisted_ids,
-                "ideas": [idea.model_dump(mode="json") for idea in open_source_ideas],
-                "output_ref": f"open_source_strategy_ideas:{len(open_source_persisted_ids)}",
-            }
-
-        if task.agent_type == "strategy_agent" and task.task_type == "materialize_seed_strategy_drafts":
-            requested_ids = set(task.input_payload.get("idea_ids", []))
-            seed_ideas = [
-                idea
-                for idea in self.strategy_repo.list_ideas()
-                if (not requested_ids or idea.idea_id in requested_ids)
-                and idea.source.startswith("open_source:")
-                and idea.intake_bucket == "rule_candidate"
-            ]
-            created_drafts: list[StrategyDraft] = []
-            for idea in seed_ideas:
-                created_drafts.append(self.strategy_repo.create_draft(_draft_from_open_source_idea(idea)))
-            return {
-                "executor_registered": True,
-                "idea_count": len(seed_ideas),
-                "draft_count": len(created_drafts),
-                "draft_ids": [draft.draft_id for draft in created_drafts if draft.draft_id is not None],
-                "output_ref": f"strategy_drafts:{len(created_drafts)}",
-            }
-
-        if task.agent_type == "decision_veto_agent" and task.task_type == "pre_execution_veto":
-            risk_events = task.input_payload.get("risk_events", [])
-            high_risk_events = [
-                event for event in risk_events if str(event.get("severity", "")).lower() in {"high", "critical"}
-            ]
-            forced_reason = task.input_payload.get("forced_veto_reason")
-            veto_result = DecisionVetoResult(
-                veto=bool(high_risk_events or forced_reason),
-                veto_reason=forced_reason
-                or (
-                    "high severity risk event present"
-                    if high_risk_events
-                    else "no blocking risk evidence in structured payload"
-                ),
-                agent_task_ref=task.agent_task_id,
-            )
-            return {
-                "executor_registered": True,
-                "completed": True,
-                "executor_name": "deterministic_decision_veto",
-                "veto_result": veto_result.model_dump(mode="json"),
-                "risk_event_count": len(risk_events),
-                "high_risk_event_count": len(high_risk_events),
-                "output_ref": f"decision_veto:{task.agent_task_id}",
-            }
-
-        if task.agent_type in {"news_agent", "twitter_agent", "telegram_agent"} and task.task_type == "classify_event":
+        # LLM-backed tasks with multi-agent routing (classify_event spans
+        # news_agent / twitter_agent / telegram_agent, so they cannot live in
+        # the (agent_type, task_type) registry without duplication).
+        if task.task_type == "classify_event" and task.agent_type in {
+            "news_agent",
+            "twitter_agent",
+            "telegram_agent",
+        }:
             return self._execute_llm_classification(task)
-
         if task.agent_type == "decision_veto_agent" and task.task_type == "pre_execution_veto_llm":
             return self._execute_llm_veto(task)
+        # Registry dispatch — O(1) lookup instead of an if/elif chain.
+        handler = self._executors.get((task.agent_type, task.task_type))
+        if handler is None:
+            return {
+                "executor_registered": False,
+                "completed": False,
+                "message": "task recorded but no executor is registered yet",
+                "output_ref": None,
+            }
+        return handler(task)
 
-        if task.agent_type == "review_agent" and task.task_type == "summarize_failures":
-            failures = task.input_payload.get("failures", [])
-            failure_types = sorted({str(item.get("failure_type", "unknown")) for item in failures})
+    # ------------------------------------------------------------------ #
+    # Registered executors — each was a branch of the legacy _execute()   #
+    # if/elif chain. Extracted as methods so new executors can be added   #
+    # via register_executor() without touching dispatch logic.            #
+    # ------------------------------------------------------------------ #
+
+    def _handle_scan_local_alpha(self, task: AgentTask) -> dict:
+        root_path = task.input_payload.get("alpha_root") or settings.worldquant_alpha_local_path
+        if not root_path:
             return {
                 "executor_registered": True,
-                "failure_count": len(failures),
-                "failure_patterns": failure_types,
-                "recommendations": [
-                    "review repeated failure patterns before changing strategy parameters",
-                    "do not promote strategies without validation evidence",
-                ],
-                "output_ref": f"review_summary:{task.agent_task_id}",
+                "completed": False,
+                "task_status": "failed",
+                "message": "alpha_root is required",
+                "output_ref": "strategy_ideas:0",
             }
-
+        ideas = self.alpha_scanner.scan(root_path, limit=int(task.input_payload.get("limit", 10)))
+        persisted_ids: list[str] = []
+        if task.input_payload.get("persist_ideas", True):
+            for idea in ideas:
+                created = self.strategy_repo.create_idea(idea)
+                if created.idea_id is not None:
+                    persisted_ids.append(created.idea_id)
+                    self._record_alpha_rejection_if_needed(created)
         return {
-            "executor_registered": False,
-            "completed": False,
-            "message": "task recorded but no executor is registered yet",
-            "output_ref": None,
+            "executor_registered": True,
+            "alpha_root": root_path,
+            "idea_count": len(ideas),
+            "persisted_idea_ids": persisted_ids,
+            "ideas": [idea.model_dump(mode="json") for idea in ideas],
+            "output_ref": f"strategy_ideas:{len(persisted_ids)}",
+        }
+
+    def _handle_import_open_source(self, task: AgentTask) -> dict:
+        import_result = self.open_source_library.import_sources(
+            source_ids=list(task.input_payload.get("source_ids", [])),
+            refresh_assets=bool(task.input_payload.get("refresh_assets", True)),
+            fetch_remote=bool(task.input_payload.get("fetch_remote", False)),
+        )
+        return {
+            "executor_registered": True,
+            "imported_count": len(import_result.imported),
+            "failed_count": len(import_result.failed),
+            "asset_count": len(import_result.imported_assets),
+            "failed_asset_count": len(import_result.failed_assets),
+            "imported_source_ids": [item.source_id for item in import_result.imported],
+            "failed_source_ids": [item.source_id for item in import_result.failed],
+            "imported_assets": [item.model_dump(mode="json") for item in import_result.imported_assets],
+            "failed_assets": [item.model_dump(mode="json") for item in import_result.failed_assets],
+            "output_ref": f"open_source_sources:{len(import_result.imported)}",
+        }
+
+    def _handle_extract_open_source_ideas(self, task: AgentTask) -> dict:
+        source_ids = list(task.input_payload.get("source_ids", []))
+        max_ideas_per_source = task.input_payload.get("max_ideas_per_source")
+        persist_ideas = bool(task.input_payload.get("persist_ideas", True))
+        manifests = (
+            [source for source in self.open_source_library.list_sources() if source.source_id in set(source_ids)]
+            if source_ids
+            else self.open_source_library.list_sources()
+        )
+        open_source_ideas: list[StrategyIdea] = []
+        open_source_persisted_ids: list[str] = []
+        for manifest in manifests:
+            open_source_ideas.extend(
+                self.open_source_extractor.extract_ideas(
+                    manifest,
+                    max_ideas=int(max_ideas_per_source) if max_ideas_per_source is not None else None,
+                )
+            )
+        if persist_ideas:
+            for idea in open_source_ideas:
+                created = self.strategy_repo.create_idea(idea)
+                if created.idea_id is not None:
+                    open_source_persisted_ids.append(created.idea_id)
+        return {
+            "executor_registered": True,
+            "source_count": len(manifests),
+            "idea_count": len(open_source_ideas),
+            "persisted_idea_ids": open_source_persisted_ids,
+            "ideas": [idea.model_dump(mode="json") for idea in open_source_ideas],
+            "output_ref": f"open_source_strategy_ideas:{len(open_source_persisted_ids)}",
+        }
+
+    def _handle_materialize_drafts(self, task: AgentTask) -> dict:
+        requested_ids = set(task.input_payload.get("idea_ids", []))
+        seed_ideas = [
+            idea
+            for idea in self.strategy_repo.list_ideas()
+            if (not requested_ids or idea.idea_id in requested_ids)
+            and idea.source.startswith("open_source:")
+            and idea.intake_bucket == "rule_candidate"
+        ]
+        created_drafts: list[StrategyDraft] = []
+        for idea in seed_ideas:
+            created_drafts.append(self.strategy_repo.create_draft(_draft_from_open_source_idea(idea)))
+        return {
+            "executor_registered": True,
+            "idea_count": len(seed_ideas),
+            "draft_count": len(created_drafts),
+            "draft_ids": [draft.draft_id for draft in created_drafts if draft.draft_id is not None],
+            "output_ref": f"strategy_drafts:{len(created_drafts)}",
+        }
+
+    def _handle_deterministic_veto(self, task: AgentTask) -> dict:
+        risk_events = task.input_payload.get("risk_events", [])
+        high_risk_events = [
+            event for event in risk_events if str(event.get("severity", "")).lower() in {"high", "critical"}
+        ]
+        forced_reason = task.input_payload.get("forced_veto_reason")
+        veto_result = DecisionVetoResult(
+            veto=bool(high_risk_events or forced_reason),
+            veto_reason=forced_reason
+            or (
+                "high severity risk event present"
+                if high_risk_events
+                else "no blocking risk evidence in structured payload"
+            ),
+            agent_task_ref=task.agent_task_id,
+        )
+        return {
+            "executor_registered": True,
+            "completed": True,
+            "executor_name": "deterministic_decision_veto",
+            "veto_result": veto_result.model_dump(mode="json"),
+            "risk_event_count": len(risk_events),
+            "high_risk_event_count": len(high_risk_events),
+            "output_ref": f"decision_veto:{task.agent_task_id}",
+        }
+
+    def _handle_summarize_failures(self, task: AgentTask) -> dict:
+        failures = task.input_payload.get("failures", [])
+        failure_types = sorted({str(item.get("failure_type", "unknown")) for item in failures})
+        return {
+            "executor_registered": True,
+            "failure_count": len(failures),
+            "failure_patterns": failure_types,
+            "recommendations": [
+                "review repeated failure patterns before changing strategy parameters",
+                "do not promote strategies without validation evidence",
+            ],
+            "output_ref": f"review_summary:{task.agent_task_id}",
         }
 
     def _execute_llm_classification(self, task: AgentTask) -> dict:

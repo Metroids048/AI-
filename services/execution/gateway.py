@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from apps.api.config import settings
+from shared.config import settings
 from shared.models import ExchangeAccountSnapshot, ExchangeGatewayCapability, ExecutionOrderRequest
 
 
@@ -93,6 +93,8 @@ class BinanceUsdtPerpetualGateway:
         side = "buy" if str(order_request.direction).lower() == "long" else "sell"
         order_type = str(order_request.entry_context.get("order_type", "market"))
         params: dict[str, Any] = {"positionSide": "BOTH"}
+        if bool(order_request.entry_context.get("close_only_mode") or order_request.entry_context.get("reduce_only")):
+            params["reduceOnly"] = True
         if "price" in order_request.stoploss_plan:
             params["stopLoss"] = {"triggerPrice": order_request.stoploss_plan["price"]}
         if "price" in order_request.takeprofit_plan:

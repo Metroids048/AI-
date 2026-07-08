@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
+from services.data.binance import run_live_collector_forever
 from services.data.live_feed_bus import LiveFeedBus
 from shared.models import OHLCVBar
 
@@ -59,3 +61,43 @@ async def test_live_feed_bus_records_reconnect_errors() -> None:
     status = bus.status(symbol="BTC/USDT", timeframe="1m")
     assert status["status"] == "reconnecting"
     assert status["last_error"] == "network down"
+
+
+@pytest.mark.asyncio
+async def test_live_collector_restart_path_reports_bus_error() -> None:
+    bus = LiveFeedBus()
+    error_seen = asyncio.Event()
+    closed = {"value": False}
+
+    class FailingCollector:
+        async def consume_kline_stream(self, *, symbol: str, timeframe: str) -> None:
+            raise RuntimeError(f"stream down for {symbol}:{timeframe}")
+
+        async def consume_mark_price_stream(self, *, symbol: str) -> None:
+            await asyncio.sleep(60)
+
+        def close(self) -> None:
+            closed["value"] = True
+
+    async def report_error(exc: Exception) -> None:
+        await bus.set_error(symbol="BTC/USDT", timeframe="1m", error=str(exc))
+        error_seen.set()
+
+    task = asyncio.create_task(
+        run_live_collector_forever(
+            collector_factory=FailingCollector,
+            symbol="BTC/USDT",
+            perp_symbol="BTC/USDT:USDT",
+            timeframe="1m",
+            reconnect_error_handler=report_error,
+            reconnect_delay_seconds=0.01,
+        )
+    )
+    await asyncio.wait_for(error_seen.wait(), timeout=1)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+    status = bus.status(symbol="BTC/USDT", timeframe="1m")
+    assert status["status"] == "reconnecting"
+    assert "stream down" in status["last_error"]
+    assert closed["value"] is True

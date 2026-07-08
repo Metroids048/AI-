@@ -142,4 +142,24 @@ class CarryBacktestApplicationService:
                 },
             }
         )
-        return self.validation_repo.create_backtest_run(enriched_run)
+        persisted = self.validation_repo.create_backtest_run(enriched_run)
+        # Write back the strategy lifecycle status — closes the state-machine
+        # gap where backtest_status was defined on the Strategy table but never
+        # updated, leaving it stuck at "not_started".
+        if persisted.eligibility_result is not None:
+            elig = persisted.eligibility_result
+            # eligibility_result may be a dict (JSON column) or a GateDecision
+            # pydantic model depending on the persistence path.
+            passed = elig.get("passed") if isinstance(elig, dict) else getattr(elig, "passed", None)
+            backtest_status = "passed" if passed else "failed"
+        else:
+            backtest_status = "completed" if persisted.run_status == "completed" else "failed"
+        try:
+            self.strategy_repo.update_lifecycle_status(
+                request.strategy_id,
+                backtest_status=backtest_status,
+            )
+        except Exception:
+            # Lifecycle writeback must not break the backtest result path.
+            pass
+        return persisted

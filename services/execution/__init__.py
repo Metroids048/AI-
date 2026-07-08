@@ -1,7 +1,8 @@
 """Execution layer package."""
 
-from .gatekeeper import DEFAULT_FRESHNESS_DELAY, ExecutionGatekeeperService
+from .gatekeeper import ExecutionGatekeeperService
 from .gateway import BinanceUsdtPerpetualGateway, ExchangeGateway, NullExchangeGateway, configured_gateways
+from .kill_switch import KillSwitch, get_kill_switch
 from .live import LiveExecutionService
 from .manual import ManualTradingService
 from .paper import PAPER_PRIORITY_SYMBOLS, PaperOrchestrationService
@@ -13,8 +14,9 @@ __all__ = [
     "ExchangeGateway",
     "NullExchangeGateway",
     "configured_gateways",
-    "DEFAULT_FRESHNESS_DELAY",
     "ExecutionGatekeeperService",
+    "KillSwitch",
+    "get_kill_switch",
     "LiveExecutionService",
     "ManualTradingService",
     "PAPER_PRIORITY_SYMBOLS",

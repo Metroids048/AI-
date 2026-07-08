@@ -220,6 +220,57 @@ def test_exchange_websocket_stream_sends_initial_terminal_snapshot(api_client, d
     assert message["payload"]["feed_status"]["source"] == "rest_polling"
 
 
+def test_market_news_and_macro_refresh_pull_third_party_sources(api_client, db_session, monkeypatch) -> None:
+    from apps.api.routers import market as market_router
+
+    class _FakeNewsIngestionService:
+        def __init__(self, **kwargs):
+            self.data_repo = kwargs["data_repo"]
+
+        def poll_configured_feeds(self):
+            self.data_repo.store_news_item(
+                {
+                    "id": "news-refresh",
+                    "source": "coindesk",
+                    "title": "BTC ETF flow update",
+                    "url": "https://example.com/news-refresh",
+                    "published_at": datetime.now(UTC),
+                    "relevance_status": "captured",
+                }
+            )
+            return {"captured": 1, "risk_events": 0, "disabled_sources": []}
+
+    class _FakeMacroCalendarService:
+        def __init__(self, *, data_repo):
+            self.data_repo = data_repo
+
+        def poll_configured_sources(self):
+            self.data_repo.store_macro_event(
+                {
+                    "id": "macro-refresh",
+                    "event_name": "FOMC rate decision",
+                    "source": "forexfactory",
+                    "impact": "high",
+                    "scheduled_at": datetime.now(UTC),
+                    "affected_symbols": ["BTC/USDT"],
+                }
+            )
+            return {"captured": 1, "risk_events": 0, "disabled": False}
+
+    monkeypatch.setattr(market_router, "NewsIngestionService", _FakeNewsIngestionService)
+    monkeypatch.setattr(market_router, "MacroCalendarService", _FakeMacroCalendarService)
+
+    news = api_client.get("/api/v1/market/news", params={"refresh": "true", "limit": 5})
+    macro = api_client.get("/api/v1/market/macro-events", params={"refresh": "true", "limit": 5})
+
+    assert news.status_code == 200
+    assert news.json()["refresh"]["captured"] == 1
+    assert news.json()["items"][0]["source"] == "coindesk"
+    assert macro.status_code == 200
+    assert macro.json()["refresh"]["captured"] == 1
+    assert macro.json()["items"][0]["source"] == "forexfactory"
+
+
 def test_console_overview_aggregates_execution_and_risk_state(api_client, db_session) -> None:
     now = datetime.now(UTC).replace(microsecond=0)
     data_repo = DataRepository(db_session)

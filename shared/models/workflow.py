@@ -9,7 +9,7 @@ from pydantic import Field, model_validator
 
 from .backtest import BacktestReport, GateDecision
 from .base import PlatformModel
-from .enums import Exchange, TradeSide
+from .enums import Exchange, OrderType, TradeSide
 from .signal import DecisionVetoResult
 
 
@@ -249,7 +249,7 @@ class ManualOrderRequest(PlatformModel):
     quantity: float = Field(gt=0)
     reference_price: float = Field(gt=0)
     leverage: float = Field(default=1.0, ge=1)
-    order_type: str = "market"
+    order_type: OrderType = OrderType.MARKET
     limit_price: float | None = None
     time_in_force: str = "GTC"
     timeframe: str = "1h"

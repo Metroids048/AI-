@@ -1,5 +1,19 @@
 # Decisions Log
 
+## ADR-040: Paper runtime enforces protective exits, optional Testnet mirroring, and free-model LLM fallback
+- Date: 2026-07-08
+- Status: accepted
+- Context: Paper signal generation already produced stoploss/takeprofit plans, strategy defaults already included `trail_after_r`, and the Binance USDT perpetual gateway already existed, but the automatic Paper runtime neither consumed protective levels nor mirrored automatic fills to Binance Testnet. LLM routing also failed closed unless Anthropic credentials were configured, despite the product needing low-cost/free model classification and veto while preserving fail-closed behavior.
+- Decision: Enable protective stoploss/takeprofit checks directly in `PaperRuntimeService` for all existing Paper positions before signal/no-trade handling. Resolve protective levels from the latest filled non-close entry order, use intrabar high/low crossing, fill at trigger price, and prioritize stoploss when both levels are crossed. Consume `trail_after_r` by ratcheting stoploss to entry in `PaperRun.paper_metrics_summary`. Add optional per-PaperRun `execution_profile.mirror_to_gateway` so local Paper fills can be mirrored to the configured Binance Testnet gateway only after explicit operator enablement. Add an OpenAI-compatible structured LLM runtime plus fallback chain so Anthropic is tried first when configured, then OpenRouter free models, then GitHub Models using a dedicated `GITHUB_MODELS_TOKEN`.
+- Consequences: Protective risk control now applies immediately to Paper runtime positions and writes Review evidence. Testnet mirroring is observable and recoverable but cannot roll back local Paper state. LLM unavailability or exhausted fallback candidates still fails closed through existing AgentTask handling; no Agent gains authority to emit orders or bypass Gatekeeper.
+
+## ADR-039: Docker schedulers use Celery, local Paper keeps in-process, and third-party data refresh stays fail-soft
+- Date: 2026-07-07
+- Status: accepted
+- Context: TASK-029 made local Paper operation practical with an in-process scheduler and a shared Binance WS feed bus, but Docker paper/live overlays could still inherit `.env.example`'s `RUNTIME_SCHEDULER_MODE=inprocess`, creating duplicate scheduling beside Celery Beat. The frontend also still had platform entries that were honest placeholders and did not visibly consume third-party-backed research/news/macro/ops data.
+- Decision: Keep `RUNTIME_SCHEDULER_MODE=inprocess` for local one-click Paper only, and force `RUNTIME_SCHEDULER_MODE=celery` in paper/live Docker overlays for API, worker, and beat services. Add compose validation to reject missing paper/live scheduler overrides. Wire Binance WS reconnect exceptions into `LiveFeedBus` status. Replace Validation/Review/Research/Ops placeholders with real API-backed pages. Add `refresh=true` read-through to news and macro endpoints using existing third-party ingestion services, with external fetch failures returned as `refresh_error` instead of failing the page.
+- Consequences: Local operators retain the Redis-free Paper console, while Docker deployments avoid duplicate periodic execution. Frontend pages now reflect the actual research loop inputs and third-party seams without adding a seventh layer or direct frontend-to-provider calls. News/macro refresh remains conservative and fail-soft, so third-party outages do not hide persisted data or bypass risk controls.
+
 ## ADR-038: Local Paper runtime uses in-process scheduling and a shared Binance WS feed bus
 - Date: 2026-07-07
 - Status: accepted

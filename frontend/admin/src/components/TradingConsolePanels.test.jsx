@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -129,6 +129,24 @@ describe("Trading console panels", () => {
 
     expect(screen.getByText("实时行情已连接")).toBeInTheDocument();
     expect(onRunCycle).toHaveBeenCalledOnce();
+  });
+
+  it("exposes the explicit Binance Testnet mirror toggle", () => {
+    const onMirrorToggle = vi.fn();
+    const view = render(
+      <RuntimeControlPanel
+        streamStatus="live"
+        mirrorToGateway={false}
+        onMirrorToggle={onMirrorToggle}
+        onRunCycle={vi.fn()}
+      />,
+    );
+
+    const panel = within(view.container);
+    fireEvent.click(panel.getByRole("button", { name: "开启 Testnet 镜像" }));
+
+    expect(panel.getByText("本地 Paper 成交优先；开启后才额外镜像到 Binance Futures Testnet。")).toBeInTheDocument();
+    expect(onMirrorToggle).toHaveBeenCalledWith(true);
   });
 
   it("renders automatic engine scheduler status", () => {

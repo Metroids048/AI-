@@ -10,7 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from apps.api.config import settings
+from shared.config import settings
 from services.strategy_library.models import Base
 
 
@@ -21,7 +21,13 @@ def resolve_database_url() -> str:
 def _engine_kwargs(url: str) -> dict:
     if url.startswith("sqlite"):
         return {"connect_args": {"check_same_thread": False}}
-    return {}
+    # Production-grade connection pool (previously unconfigured → PG default
+    # pool_size=5 caused connection exhaustion under concurrent load).
+    return {
+        "pool_size": settings.db_pool_size,
+        "pool_recycle": settings.db_pool_recycle_seconds,
+        "pool_pre_ping": settings.db_pool_pre_ping,
+    }
 
 
 @lru_cache(maxsize=4)

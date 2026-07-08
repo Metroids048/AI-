@@ -6,14 +6,27 @@ from scripts.compose_validate import build_compose_commands, validate_compose
 
 
 def _project_tree(root: Path) -> None:
-    for name in (
-        "docker-compose.yml",
-        "docker-compose.dev.yml",
-        "docker-compose.test.yml",
-        "docker-compose.paper.yml",
-        "docker-compose.live.yml",
-    ):
+    for name in ("docker-compose.yml", "docker-compose.dev.yml", "docker-compose.test.yml"):
         (root / name).write_text("services: {}\n", encoding="utf-8")
+    for name, env in (("docker-compose.paper.yml", "paper"), ("docker-compose.live.yml", "live")):
+        (root / name).write_text(
+            f"""
+services:
+  api:
+    environment:
+      APP_ENV: {env}
+      RUNTIME_SCHEDULER_MODE: celery
+  celery_worker:
+    environment:
+      APP_ENV: {env}
+      RUNTIME_SCHEDULER_MODE: celery
+  celery_beat:
+    environment:
+      APP_ENV: {env}
+      RUNTIME_SCHEDULER_MODE: celery
+""",
+            encoding="utf-8",
+        )
 
 
 def test_build_compose_commands_covers_all_environments(tmp_path) -> None:
@@ -78,3 +91,35 @@ services:
     assert result.exit_code == 1
     assert result.status == "invalid_env_file"
     assert ".env.example" in result.message
+
+
+def test_validate_compose_rejects_paper_live_api_inprocess_scheduler(tmp_path) -> None:
+    _project_tree(tmp_path)
+    (tmp_path / "docker-compose.paper.yml").write_text(
+        """
+services:
+  api:
+    environment:
+      APP_ENV: paper
+  celery_worker:
+    environment:
+      APP_ENV: paper
+      RUNTIME_SCHEDULER_MODE: celery
+  celery_beat:
+    environment:
+      APP_ENV: paper
+      RUNTIME_SCHEDULER_MODE: celery
+""",
+        encoding="utf-8",
+    )
+
+    result = validate_compose(
+        project_root=tmp_path,
+        require_docker=False,
+        docker_available=lambda: False,
+        runner=lambda _: None,
+    )
+
+    assert result.exit_code == 1
+    assert result.status == "invalid_scheduler_mode"
+    assert "docker-compose.paper.yml:api" in result.message

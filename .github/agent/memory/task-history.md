@@ -20,6 +20,16 @@
 - **Verification**: `npm install` installed the missing frontend packages; `npm --workspace frontend/admin run build` passed; `npm --workspace frontend/admin ls @tanstack/react-query` resolved `@tanstack/react-query@5.101.2`; `.\一键启动.bat` successfully started FastAPI and Vite; API `/health` returned ok and frontend `/` returned HTTP 200.
 - **Notes**: `npm install` still reports the known 5 frontend audit vulnerabilities; no `npm audit fix --force` was run. Local `main`, `origin/main`, and `origin/HEAD` all point to `9237b0647174156511ddb138fe76d6fad194d1bb`; the additional remote branches are Dependabot dependency-update branches.
 
+### [TASK-030] Security closure, Docker scheduler guard, reconnect visibility, and third-party-backed frontend pages
+- **Date**: 2026-07-07
+- **Type**: fix + security + frontend + ops
+- **Summary**: Closed TASK-029 residuals and extended frontend data wiring. Upgraded Python/Node audit baselines, fixed Docker duplicate-scheduler risk with explicit Celery mode and compose validation, wired Binance WS reconnect errors into `LiveFeedBus`, replaced Validation/Review/Research/Ops placeholders with real API-backed pages, and added fail-soft `refresh=true` third-party read-through for news and macro endpoints.
+- **Files changed**: `pyproject.toml`, `.github/workflows/ci.yml`, `docker-compose.{paper,live}.yml`, `scripts/compose_validate.py`, `services/data/binance.py`, `services/execution/scheduler.py`, `apps/api/routers/market.py`, `frontend/admin/**`, targeted tests, and `docs/security/task-030-security-scan.{md,html}`.
+- **Layer mapping**: Data Layer owns third-party news/macro refresh and Binance WS state; Execution Layer owns scheduler mode separation and reconnect observability; Validation/Review/Research/Ops frontend pages expose existing layer data without becoming decision makers; CI/Ops owns supply-chain gates.
+- **Research loop served**: Third-party Data inputs now flow into Review/Research visibility; Validation signals and hypothesis/backtest state are inspectable; Execution scheduler/feed state is visible; failures still route through Review memory rather than bypassing risk controls.
+- **Verification**: `py -3 -m pytest -q` -> 149 passed, 1 skipped; `py -3 -m ruff check .` passed; `py -3 -m mypy` passed; changed-file Ruff format check passed; admin Vitest passed; admin build on Vite 8.1.3 passed; `npm audit --audit-level=high` passed; `py -3 -m pip_audit . --progress-spinner off --timeout 30` passed; `py -3 scripts/compose_validate.py` skipped because Docker is not on PATH.
+- **Notes**: Whole-machine `pip_audit` still reports non-project global packages (`litellm`, `nltk`, `torch`); these are outside this repo's dependency graph and were not upgraded/removed. Full repo format check still reports historical formatting drift in files outside this change set.
+
 ### [TASK-029] Trading core scheduler, live feed bus, and platform console refactor
 - **Date**: 2026-07-07
 - **Type**: feat + refactor + frontend + ops + docs
@@ -80,6 +90,16 @@
 - **Research loop served**: Keeps `Validation -> Paper -> Live` progression safe by default, ensuring exchange connectivity starts from testnet/sandbox instead of direct real-account login credentials.
 - **Verification**: `C:\Users\Windows11\AppData\Local\Programs\Python\Python312\python.exe -m pytest -q tests/services/test_binance_gateway.py tests/services/test_exchange_gateway.py tests/api/test_execution_runtime_api.py` -> 5 passed; `...python.exe -m ruff check apps/api/config.py services/execution/gateway.py tests/services/test_binance_gateway.py` passed; `...python.exe -m mypy apps/api/config.py services/execution/gateway.py` passed.
 - **Notes**: In this restricted follow-up environment, `py -3` was unavailable, so verification used the explicit Python 3.12 interpreter path.
+
+### [TASK-032] Protective exits, free LLM fallback, and Binance Testnet mirror
+- **Date**: 2026-07-08
+- **Type**: feat + refactor + verification
+- **Summary**: Implemented the pasted plan for stoploss/takeprofit automatic closing, `trail_after_r` trailing-stop ratchet, free-model LLM fallback routing, and explicit Binance Futures Testnet mirroring for automatic Paper runtime fills.
+- **Files changed**: `services/execution/paper_runtime.py`, `services/strategy_library/repository.py`, `services/agents/llm_runtime.py`, `services/execution/decision_pipeline.py`, `services/data/news.py`, `apps/api/{config.py,routers/runs.py}`, `frontend/admin/src/{pages/PaperConsole.jsx,components/TradingConsolePanels.jsx}`, `.env.example`, targeted tests, and memory files.
+- **Layer mapping**: Protective exits and gateway mirroring belong to Execution Layer / Risk Engine; `FailureRecord`/iteration writeback belongs to Review Layer; OpenRouter/GitHub Models runtime belongs to AI Agent Layer; the explicit PaperRun mirror switch supports Validation Layer's real-market Paper/Testnet observation without bypassing Gatekeeper.
+- **Research loop served**: `Strategy rules -> Paper signal -> Gatekeeper -> Paper fill -> protective close / Testnet mirror -> FailureRecord or iteration_history -> Review reuse` is now auditable, while LLM classification/veto can use free providers and still fail closed.
+- **Verification**: Targeted Paper/LLM/API tests passed (`13 passed`); full `py -3 -m pytest -q` passed (`162 passed, 1 skipped`); `py -3 -m ruff check .`, changed-file `ruff format --check`, `py -3 -m mypy`, admin Vitest (`9 passed`), admin build, `npm audit --audit-level=high`, `py -3 -m pip_audit . --timeout 60`, and `git diff --check` passed. `scripts/compose_validate.py` skipped because Docker is not on PATH.
+- **Notes**: No user secrets were written to tracked files. Real private Binance Testnet order appearance still requires operator-provided local `.env` credentials and a live service run with `mirror_to_gateway=true`.
 
 ### [TASK-022] Complete strict promotion evidence, live runtime APIs, and online agent/gateway boundaries
 - **Date**: 2026-07-04

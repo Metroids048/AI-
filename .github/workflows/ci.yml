@@ -32,13 +32,13 @@ jobs:
         run: pytest -q -m "not integration"
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "20.19.0"
       - name: Install frontend dependencies
         run: npm ci
       - name: Frontend tests
         run: npm --workspace frontend/admin run test
       - name: Frontend dependency audit report
-        run: npm audit --audit-level=high || true
+        run: npm audit --audit-level=high
       - name: Frontend build
         run: npm run admin:build
 

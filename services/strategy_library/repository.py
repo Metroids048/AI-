@@ -680,6 +680,50 @@ class StrategyRepository:
         ]
         row.updated_at = _utcnow()
 
+    def update_lifecycle_status(
+        self,
+        strategy_id: str,
+        *,
+        backtest_status: str | None = None,
+        paper_status: str | None = None,
+        live_status: str | None = None,
+    ) -> StrategyContract | None:
+        """Update the lifecycle status fields on the Strategy table.
+
+        This is the single write-path for ``backtest_status`` /
+        ``paper_status`` / ``live_status``. Previously these fields were
+        defined on the ORM but never written back, leaving the strategy state
+        machine stuck at ``not_started`` and breaking the
+        research→validation→execution→review closed loop.
+        """
+        row = self.session.get(models.Strategy, strategy_id)
+        if row is None:
+            return None
+        if backtest_status is not None:
+            row.backtest_status = backtest_status
+        if paper_status is not None:
+            row.paper_status = paper_status
+        if live_status is not None:
+            row.live_status = live_status
+        row.updated_at = _utcnow()
+        self.session.commit()
+        self.session.refresh(row)
+        return _strategy_from_orm(row)
+
+    def append_iteration_event(self, strategy_id: str, event: dict) -> None:
+        row = self.session.get(models.Strategy, strategy_id)
+        if row is None:
+            return
+        row.iteration_history = [
+            *row.iteration_history,
+            {
+                "recorded_at": _utcnow().isoformat(),
+                **_jsonable(event),
+            },
+        ]
+        row.updated_at = _utcnow()
+        self.session.commit()
+
     def delete_strategy(self, strategy_id: str) -> bool:
         row = self.session.get(models.Strategy, strategy_id)
         if row is None:
@@ -1296,6 +1340,25 @@ class ExecutionRepository:
 
     def get_order(self, order_execution_id: str) -> OrderExecution | None:
         row = self.session.get(models.OrderExecution, order_execution_id)
+        return _order_execution_from_orm(row) if row else None
+
+    def find_latest_filled_entry_order(self, *, run_type: str, run_id: str, symbol: str) -> OrderExecution | None:
+        query = (
+            self.session.query(models.OrderExecution)
+            .filter(
+                models.OrderExecution.symbol == symbol,
+                models.OrderExecution.execution_status == "filled",
+                models.OrderExecution.close_only_mode.is_(False),
+            )
+            .order_by(models.OrderExecution.created_at.desc())
+        )
+        if run_type == "paper":
+            query = query.filter(models.OrderExecution.paper_run_id == run_id)
+        elif run_type == "live":
+            query = query.filter(models.OrderExecution.live_run_id == run_id)
+        else:
+            return None
+        row = query.first()
         return _order_execution_from_orm(row) if row else None
 
     def update_order(self, order_execution_id: str, **fields) -> OrderExecution | None:

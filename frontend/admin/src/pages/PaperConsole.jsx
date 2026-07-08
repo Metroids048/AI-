@@ -30,6 +30,11 @@ export function PaperConsole() {
   const [actionMessage, setActionMessage] = useState("");
   const data = useConsoleData(symbol, perpSymbol, timeframe);
   const mode = "paper";
+  const latestPaperRun = useMemo(
+    () => (Array.isArray(data.overview?.paper_runs) ? data.overview.paper_runs.at(-1) : null),
+    [data.overview?.paper_runs],
+  );
+  const mirrorToGateway = Boolean(latestPaperRun?.execution_profile?.mirror_to_gateway);
   const latestPosition = useMemo(
     () => (data.overview?.positions ?? []).find((position) => position.symbol === symbol && Math.abs(Number(position.quantity)) > 0),
     [data.overview?.positions, symbol],
@@ -73,6 +78,16 @@ export function PaperConsole() {
           body: JSON.stringify({ symbols: [symbol], max_symbols: 1, timeframe, enable_decision_veto: true }),
         });
         setActionMessage(`自动 cycle 已执行：${result.paper_runs} 个 PaperRun。`);
+      }
+      if (type === "toggleGatewayMirror") {
+        if (!latestPaperRun?.paper_run_id) {
+          throw new Error("没有可配置的 PaperRun");
+        }
+        await request(`/api/v1/execution/paper-runs/${latestPaperRun.paper_run_id}/execution-profile`, {
+          method: "PATCH",
+          body: JSON.stringify({ mirror_to_gateway: Boolean(payload.enabled) }),
+        });
+        setActionMessage(payload.enabled ? "Testnet 镜像下单已开启。" : "Testnet 镜像下单已关闭。");
       }
       if (type === "carryBacktest") {
         const now = new Date();
@@ -157,6 +172,8 @@ export function PaperConsole() {
         <RuntimeControlPanel
           streamStatus={data.streamStatus}
           tradingStatus={data.tradingStatus}
+          mirrorToGateway={mirrorToGateway}
+          onMirrorToggle={(enabled) => handleAction("toggleGatewayMirror", { enabled })}
           onRunCycle={() => handleAction("runAllCycles")}
         />
         <FundingPanel

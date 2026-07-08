@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from services.validation.policy import ValidationPolicy, default_policy
 from shared.models import (
     BacktestReport,
     BacktestRun,
@@ -15,6 +16,11 @@ from shared.models import (
 class ValidationAdmissionService:
     """Evaluate whether a backtest has enough evidence for Paper/Live promotion."""
 
+    def __init__(self, policy: ValidationPolicy | None = None) -> None:
+        # Thresholds are injected rather than hardcoded so they can be tuned
+        # via environment variables without code changes.
+        self.policy = policy or default_policy
+
     def assess_backtest(
         self,
         *,
@@ -23,13 +29,13 @@ class ValidationAdmissionService:
     ) -> GateDecision:
         failed_thresholds: list[str] = []
         gate_sharpe = report.deflated_sharpe if report.deflated_sharpe is not None else report.sharpe
-        if gate_sharpe < 1.0:
+        if gate_sharpe < self.policy.min_sharpe:
             failed_thresholds.append("min_deflated_sharpe" if report.deflated_sharpe is not None else "min_sharpe")
-        if report.profit_factor < 1.3:
+        if report.profit_factor < self.policy.min_profit_factor:
             failed_thresholds.append("min_profit_factor")
-        if report.max_drawdown > 0.25:
+        if report.max_drawdown > self.policy.max_drawdown:
             failed_thresholds.append("max_drawdown")
-        if report.expectancy <= 0:
+        if report.expectancy <= self.policy.min_expectancy:
             failed_thresholds.append("min_expectancy")
 
         if hypothesis is None or not report.hypothesis_id:

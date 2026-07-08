@@ -17,6 +17,7 @@ from .metrics import (
     sharpe_confidence,
     win_rate,
 )
+from .policy import default_policy
 
 
 class CarryBacktestService:
@@ -112,20 +113,20 @@ class CarryBacktestService:
 
         failed_thresholds: list[str] = []
         gate_sharpe = metrics.deflated_sharpe if metrics.deflated_sharpe is not None else metrics.sharpe
-        if gate_sharpe < 1.0:
+        if gate_sharpe < default_policy.min_sharpe:
             failed_thresholds.append("min_sharpe")
-        if metrics.profit_factor < 1.3:
+        if metrics.profit_factor < default_policy.min_profit_factor:
             failed_thresholds.append("min_profit_factor")
-        if metrics.max_drawdown > 0.25:
+        if metrics.max_drawdown > default_policy.max_drawdown:
             failed_thresholds.append("max_drawdown")
-        if metrics.expectancy <= 0:
+        if metrics.expectancy <= default_policy.min_expectancy:
             failed_thresholds.append("min_expectancy")
 
         has_positive_small_sample = (
             0 < total_trades < 3
             and metrics.expectancy > 0
-            and metrics.profit_factor >= 1.3
-            and metrics.max_drawdown <= 0.25
+            and metrics.profit_factor >= default_policy.min_profit_factor
+            and metrics.max_drawdown <= default_policy.max_drawdown
         )
 
         if failed_thresholds and has_positive_small_sample:
@@ -137,10 +138,10 @@ class CarryBacktestService:
                 failed_thresholds=["insufficient_sample"],
                 deflated_sharpe_applied=True,
                 thresholds_applied={
-                    "min_sharpe": 1.0,
-                    "min_profit_factor": 1.3,
-                    "max_drawdown": 0.25,
-                    "min_expectancy": 0.0,
+                    "min_sharpe": default_policy.min_sharpe,
+                    "min_profit_factor": default_policy.min_profit_factor,
+                    "max_drawdown": default_policy.max_drawdown,
+                    "min_expectancy": default_policy.min_expectancy,
                     "min_full_validation_trades": 3,
                     "dsr_probability": dsr_probability,
                 },
@@ -154,10 +155,10 @@ class CarryBacktestService:
                 failed_thresholds=failed_thresholds,
                 deflated_sharpe_applied=False,
                 thresholds_applied={
-                    "min_sharpe": 1.0,
-                    "min_profit_factor": 1.3,
-                    "max_drawdown": 0.25,
-                    "min_expectancy": 0.0,
+                    "min_sharpe": default_policy.min_sharpe,
+                    "min_profit_factor": default_policy.min_profit_factor,
+                    "max_drawdown": default_policy.max_drawdown,
+                    "min_expectancy": default_policy.min_expectancy,
                     "dsr_probability": dsr_probability,
                 },
             )
@@ -169,10 +170,10 @@ class CarryBacktestService:
                 reason="deflated sharpe applied; stress/OOS still pending",
                 deflated_sharpe_applied=True,
                 thresholds_applied={
-                    "min_sharpe": 1.0,
-                    "min_profit_factor": 1.3,
-                    "max_drawdown": 0.25,
-                    "min_expectancy": 0.0,
+                    "min_sharpe": default_policy.min_sharpe,
+                    "min_profit_factor": default_policy.min_profit_factor,
+                    "max_drawdown": default_policy.max_drawdown,
+                    "min_expectancy": default_policy.min_expectancy,
                     "dsr_probability": dsr_probability,
                 },
             )

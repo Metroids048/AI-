@@ -273,7 +273,7 @@ export function FundingPanel({ signal, onBacktest }) {
   );
 }
 
-export function RuntimeControlPanel({ streamStatus, tradingStatus, onRunCycle }) {
+export function RuntimeControlPanel({ streamStatus, tradingStatus, mirrorToGateway = false, onMirrorToggle, onRunCycle }) {
   const streamLabel = streamStatus === "live" ? "实时行情已连接" : streamStatus === "connecting" ? "行情连接中" : "REST 轮询";
   return (
     <section className="exchange-panel runtime-control-panel">
@@ -283,8 +283,11 @@ export function RuntimeControlPanel({ streamStatus, tradingStatus, onRunCycle })
         <span>行情流</span>
         <strong>{streamLabel}</strong>
       </div>
+      <button type="button" className={mirrorToGateway ? "active" : ""} onClick={() => onMirrorToggle?.(!mirrorToGateway)}>
+        {mirrorToGateway ? "关闭 Testnet 镜像" : "开启 Testnet 镜像"}
+      </button>
       <button type="button" onClick={onRunCycle}>运行一次自动开平仓 cycle</button>
-      <p className="ticket-note">只扫描 running PaperRun；订单仍经过 Validation、Gatekeeper、Risk、Review 审计。</p>
+      <p className="ticket-note">本地 Paper 成交优先；开启后才额外镜像到 Binance Futures Testnet。</p>
     </section>
   );
 }

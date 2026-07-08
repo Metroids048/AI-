@@ -173,6 +173,21 @@ def test_paper_runtime_auto_cycle_all_runs_running_paper_runs(api_client, db_ses
     assert body["results"][0]["opened_positions"] == 1
 
 
+def test_paper_run_execution_profile_patch_preserves_existing_keys(api_client, db_session) -> None:
+    _, paper_run_id = _create_validated_paper_run(api_client, db_session)
+
+    profile_resp = api_client.patch(
+        f"/api/v1/execution/paper-runs/{paper_run_id}/execution-profile",
+        json={"mirror_to_gateway": True},
+    )
+
+    assert profile_resp.status_code == 200
+    profile = profile_resp.json()["execution_profile"]
+    assert profile["mirror_to_gateway"] is True
+    assert profile["account_equity"] == 10_000
+    assert profile["equity_peak"] == 10_000
+
+
 def test_paper_runtime_auto_cycle_closes_position_on_opposite_signal(api_client, db_session) -> None:
     _, paper_run_id = _create_validated_paper_run(api_client, db_session)
     start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=2)

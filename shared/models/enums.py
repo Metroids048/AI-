@@ -125,6 +125,18 @@ class TradeSide(StrEnum):
     SHORT = "short"
 
 
+class OrderType(StrEnum):
+    """Order types supported by the execution layer.
+
+    ``CONDITIONAL`` covers stop-limit, trailing-stop, and OCO orders — the
+    specific trigger logic lives in ``trigger_rules`` on the order request.
+    """
+
+    MARKET = "market"
+    LIMIT = "limit"
+    CONDITIONAL = "conditional"
+
+
 class EnsembleStatus(StrEnum):
     """SignalEnsemble lifecycle (domain doc §3.5a)."""
 

@@ -10,8 +10,19 @@ from typing import Any
 
 import httpx
 
-from apps.api.config import settings
-from services.agents import AgentTaskService, ConfiguredStructuredLLMRuntime, UnavailableLLMRuntime
+from shared.config import settings
+from services.agents import (
+    AgentTaskService,
+    ConfiguredStructuredLLMRuntime,
+    FallbackChainStructuredLLMRuntime,
+    OpenAICompatibleStructuredLLMRuntime,
+    UnavailableLLMRuntime,
+)
+from services.agents.llm_runtime import (
+    discover_github_models_free_models,
+    discover_openrouter_free_models,
+    parse_model_override,
+)
 from services.data.repository import DataRepository
 from services.strategy_library import AgentTaskRepository, ReviewRepository, StrategyRepository
 from shared.models import AgentTaskRequest, RiskEvent, RiskEventType, RiskSeverity
@@ -208,12 +219,47 @@ def _normalize_severity(value: object) -> RiskSeverity:
 
 
 def _configured_llm_runtime():
-    if not settings.claude_api_key:
+    runtimes = []
+    if settings.claude_api_key:
+        runtimes.append(
+            ConfiguredStructuredLLMRuntime(
+                anthropic_api_key=settings.claude_api_key,
+                default_model=settings.claude_model,
+                anthropic_base_url=settings.anthropic_api_base_url,
+                provider_by_agent={},
+                model_by_agent={},
+            )
+        )
+    if settings.openrouter_api_key:
+        models = parse_model_override(settings.openrouter_free_models) or discover_openrouter_free_models(
+            api_key=settings.openrouter_api_key,
+            cache_seconds=settings.llm_free_model_catalog_cache_seconds,
+        )
+        runtimes.extend(
+            OpenAICompatibleStructuredLLMRuntime(
+                api_key=settings.openrouter_api_key,
+                model=model,
+                base_url="https://openrouter.ai/api/v1",
+                provider_label="openrouter",
+            )
+            for model in models
+        )
+    if settings.github_models_token:
+        models = parse_model_override(settings.github_models_free_models) or discover_github_models_free_models(
+            token=settings.github_models_token,
+            cache_seconds=settings.llm_free_model_catalog_cache_seconds,
+        )
+        runtimes.extend(
+            OpenAICompatibleStructuredLLMRuntime(
+                api_key=settings.github_models_token,
+                model=model,
+                base_url="https://models.inference.ai.azure.com",
+                provider_label="github_models",
+            )
+            for model in models
+        )
+    if not runtimes:
         return UnavailableLLMRuntime()
-    return ConfiguredStructuredLLMRuntime(
-        anthropic_api_key=settings.claude_api_key,
-        default_model=settings.claude_model,
-        anthropic_base_url=settings.anthropic_api_base_url,
-        provider_by_agent={},
-        model_by_agent={},
-    )
+    if len(runtimes) == 1:
+        return runtimes[0]
+    return FallbackChainStructuredLLMRuntime(runtimes)

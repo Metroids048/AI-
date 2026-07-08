@@ -107,6 +107,7 @@ def _paper_runtime_service(db: Session) -> PaperRuntimeService:
         review_repo=ReviewRepository(db),
         notification_repo=NotificationRepository(db),
         gatekeeper=_gatekeeper(db),
+        gateway=configured_gateways()[0],
     )
 
 
@@ -299,6 +300,24 @@ def update_paper_run_status(
     db: Session = Depends(get_db_session),
 ) -> PaperRun:
     updated = _paper_repo(db).update_paper_run_status(paper_run_id, body.paper_status)
+    if updated is None:
+        raise not_found("paper_run", paper_run_id)
+    return updated
+
+
+@router.patch("/paper-runs/{paper_run_id}/execution-profile", response_model=PaperRun)
+def update_paper_run_execution_profile(
+    paper_run_id: str,
+    body: dict[str, object],
+    db: Session = Depends(get_db_session),
+) -> PaperRun:
+    run = _paper_repo(db).get_paper_run(paper_run_id)
+    if run is None:
+        raise not_found("paper_run", paper_run_id)
+    updated = _paper_repo(db).update_paper_run(
+        paper_run_id,
+        execution_profile={**run.execution_profile, **body},
+    )
     if updated is None:
         raise not_found("paper_run", paper_run_id)
     return updated

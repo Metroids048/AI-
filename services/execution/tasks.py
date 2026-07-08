@@ -7,6 +7,7 @@ from celery import shared_task
 from services.data import DataRepository
 from services.database import get_session_factory
 from services.execution.gatekeeper import ExecutionGatekeeperService
+from services.execution.gateway import configured_gateways
 from services.execution.paper import PaperOrchestrationService
 from services.execution.paper_runtime import PaperRuntimeService
 from services.strategy_library import (
@@ -57,6 +58,7 @@ def run_paper_runtime_cycle(paper_run_id: str, request_payload: dict | None = No
                 paper_repo=PaperRunRepository(session),
                 review_repo=ReviewRepository(session),
             ),
+            gateway=configured_gateways()[0],
         )
         result = runtime.run_cycle(
             paper_run_id=paper_run_id,

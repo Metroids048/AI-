@@ -24,7 +24,10 @@ from services.data.binance import (
     stream_symbol,
 )
 from services.data.capabilities import list_exchange_capabilities
+from services.data.macro_calendar import MacroCalendarService
+from services.data.news import NewsIngestionService
 from services.database import get_db_session, get_session_factory
+from services.strategy_library import AgentTaskRepository, ReviewRepository, StrategyRepository
 from shared.models import (
     CollectionResponse,
     ExchangeCapability,
@@ -454,16 +457,39 @@ def _int_or_none(value: Any) -> int | None:
 @router.get("/news", response_model=dict)
 def list_news_items(
     limit: int = Query(default=50, ge=1, le=200),
+    refresh: bool = Query(default=False),
     db: Session = Depends(get_db_session),
 ) -> dict:
-    items = DataRepository(db).list_news_items(limit=limit)
-    return {"items": items, "total": len(items)}
+    repo = DataRepository(db)
+    refresh_summary = None
+    refresh_error = None
+    if refresh:
+        try:
+            refresh_summary = NewsIngestionService(
+                data_repo=repo,
+                agent_repo=AgentTaskRepository(db),
+                strategy_repo=StrategyRepository(db),
+                review_repo=ReviewRepository(db),
+            ).poll_configured_feeds()
+        except Exception as exc:  # pragma: no cover - depends on third-party network
+            refresh_error = str(exc)
+    items = repo.list_news_items(limit=limit)
+    return {"items": items, "total": len(items), "refresh": refresh_summary, "refresh_error": refresh_error}
 
 
 @router.get("/macro-events", response_model=dict)
 def list_macro_events(
     limit: int = Query(default=50, ge=1, le=200),
+    refresh: bool = Query(default=False),
     db: Session = Depends(get_db_session),
 ) -> dict:
-    items = DataRepository(db).list_macro_events(limit=limit)
-    return {"items": items, "total": len(items)}
+    repo = DataRepository(db)
+    refresh_summary = None
+    refresh_error = None
+    if refresh:
+        try:
+            refresh_summary = MacroCalendarService(data_repo=repo).poll_configured_sources()
+        except Exception as exc:  # pragma: no cover - depends on third-party network
+            refresh_error = str(exc)
+    items = repo.list_macro_events(limit=limit)
+    return {"items": items, "total": len(items), "refresh": refresh_summary, "refresh_error": refresh_error}

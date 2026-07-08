@@ -43,6 +43,13 @@ celery_app.conf.task_routes = {
     "services.review.tasks.generate_daily_review": {"queue": "ops_queue"},
 }
 celery_app.conf.timezone = "UTC"
+# Worker tuning (previously unconfigured → tasks could block workers
+# indefinitely with no timeout protection).
+celery_app.conf.worker_concurrency = settings.celery_worker_concurrency
+celery_app.conf.task_time_limit = settings.celery_task_time_limit_seconds
+celery_app.conf.task_soft_time_limit = settings.celery_task_soft_time_limit_seconds
+celery_app.conf.worker_prefetch_count = settings.celery_worker_prefetch_count
+celery_app.conf.broker_connection_retry_on_startup = True
 celery_app.conf.beat_schedule = {
     "paper-runtime-cycle-every-5-minutes": {
         "task": "services.execution.tasks.run_all_paper_runtime_cycles",
