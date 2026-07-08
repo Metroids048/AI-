@@ -105,3 +105,12 @@ def db_session() -> Generator[Session, None, None]:
 def _skip_integration_without_db(request: pytest.FixtureRequest) -> None:
     if request.node.get_closest_marker("integration") and not os.getenv("POSTGRES_URL"):
         pytest.skip("integration test requires POSTGRES_URL")
+
+
+@pytest.fixture(autouse=True)
+def _disable_live_binance_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.api.config import settings
+
+    monkeypatch.setattr(settings, "binance_live_ws_enabled", False)
+    monkeypatch.setattr(settings, "binance_live_market_enabled", False)
+    monkeypatch.setattr(settings, "binance_live_universe_enabled", False)

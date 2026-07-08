@@ -252,10 +252,23 @@ class ManualOrderRequest(PlatformModel):
     order_type: str = "market"
     limit_price: float | None = None
     time_in_force: str = "GTC"
+    timeframe: str = "1h"
     stoploss_price: float | None = None
     takeprofit_price: float | None = None
     account_equity: float = Field(default=10_000.0, gt=0)
     idempotency_key: str | None = None
+
+
+class ManualTradingContext(PlatformModel):
+    """Paper-only audit evidence used by the exchange-style manual ticket."""
+
+    mode: str = "paper"
+    context_key: str = "manual_paper_sandbox"
+    strategy_id: str
+    validation_backtest_run_id: str
+    paper_run_id: str | None = None
+    evidence_status: str = "ready"
+    warning: str = "Paper-only sandbox evidence; not eligible for Testnet or Live promotion."
 
 
 class ClosePositionRequest(PlatformModel):
@@ -268,6 +281,7 @@ class ClosePositionRequest(PlatformModel):
     paper_run_id: str | None = None
     symbol: str
     reference_price: float = Field(gt=0)
+    timeframe: str = "1h"
     account_equity: float = Field(default=10_000.0, gt=0)
     idempotency_key: str | None = None
 

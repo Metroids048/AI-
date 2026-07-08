@@ -20,6 +20,7 @@ from services.execution import (
     PaperSignalGenerator,
     configured_gateways,
 )
+from services.execution.manual_context import ManualTradingContextService
 from services.execution.scheduler import runtime_scheduler_status
 from services.strategy_library import (
     AgentTaskRepository,
@@ -45,6 +46,7 @@ from shared.models import (
     LiveRun,
     LiveRunRequest,
     ManualOrderRequest,
+    ManualTradingContext,
     OrderExecution,
     PaperRun,
     PaperRunRequest,
@@ -116,6 +118,14 @@ def _manual_trading_service(db: Session) -> ManualTradingService:
     )
 
 
+def _manual_context_service(db: Session) -> ManualTradingContextService:
+    return ManualTradingContextService(
+        strategy_repo=StrategyRepository(db),
+        validation_repo=ValidationRepository(db),
+        paper_repo=PaperRunRepository(db),
+    )
+
+
 @router.get("/paper-runs", response_model=CollectionResponse[PaperRun])
 def list_paper_runs(db: Session = Depends(get_db_session)) -> CollectionResponse[PaperRun]:
     return collection_response(_paper_repo(db).list_paper_runs())
@@ -145,6 +155,29 @@ def get_trading_status() -> TradingRuntimeStatus:
         live_feed_status=live_feed_bus.status(),
         notes=notes,
     )
+
+
+@router.get("/manual-trading-context", response_model=ManualTradingContext)
+def get_manual_trading_context(
+    mode: str = "paper",
+    db: Session = Depends(get_db_session),
+) -> ManualTradingContext:
+    try:
+        return _manual_context_service(db).get_or_create(mode=mode)
+    except ValueError as exc:
+        raise api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="manual_context_rejected",
+            message=str(exc),
+        ) from exc
+
+
+@router.post("/manual-trading-context", response_model=ManualTradingContext, status_code=status.HTTP_201_CREATED)
+def create_manual_trading_context(
+    mode: str = "paper",
+    db: Session = Depends(get_db_session),
+) -> ManualTradingContext:
+    return get_manual_trading_context(mode=mode, db=db)
 
 
 @router.post("/manual-orders", response_model=OrderExecution, status_code=status.HTTP_201_CREATED)

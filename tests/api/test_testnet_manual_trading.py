@@ -137,6 +137,92 @@ def test_trading_status_api_never_returns_secret_material(api_client) -> None:
     assert "api_key" not in str(body).lower()
 
 
+def test_manual_trading_context_is_paper_only_and_reused(api_client) -> None:
+    first = api_client.get("/api/v1/execution/manual-trading-context", params={"mode": "paper"})
+    second = api_client.post("/api/v1/execution/manual-trading-context", params={"mode": "paper"})
+    rejected = api_client.get("/api/v1/execution/manual-trading-context", params={"mode": "testnet"})
+
+    assert first.status_code == 200
+    assert second.status_code == 201
+    assert rejected.status_code == 400
+    first_body = first.json()
+    second_body = second.json()
+    assert first_body["context_key"] == "manual_paper_sandbox"
+    assert first_body["strategy_id"] == second_body["strategy_id"]
+    assert first_body["validation_backtest_run_id"] == second_body["validation_backtest_run_id"]
+    assert first_body["paper_run_id"] == second_body["paper_run_id"]
+    assert "Paper-only" in first_body["warning"]
+
+
+def test_manual_paper_order_uses_auto_context(api_client, db_session) -> None:
+    context = api_client.get("/api/v1/execution/manual-trading-context").json()
+    _store_fresh_bar(db_session, symbol="ETH/USDT", close=Decimal("3200"))
+
+    response = api_client.post(
+        "/api/v1/execution/manual-orders",
+        json={
+            "mode": "paper",
+            "strategy_id": context["strategy_id"],
+            "validation_backtest_run_id": context["validation_backtest_run_id"],
+            "paper_run_id": context["paper_run_id"],
+            "symbol": "ETH/USDT",
+            "direction": "long",
+            "quantity": 0.1,
+            "reference_price": 3200,
+            "leverage": 1,
+            "timeframe": "1h",
+            "stoploss_price": 3168,
+            "takeprofit_price": 3264,
+            "account_equity": 10000,
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["execution_status"] == "filled"
+    assert response.json()["gateway_name"] == "paper_manual"
+
+
+def test_manual_paper_reopen_after_close_counts_only_current_positions(api_client, db_session) -> None:
+    context = api_client.get("/api/v1/execution/manual-trading-context").json()
+    _store_fresh_bar(db_session, symbol="ETH/USDT", close=Decimal("3200"))
+    body = {
+        "mode": "paper",
+        "strategy_id": context["strategy_id"],
+        "validation_backtest_run_id": context["validation_backtest_run_id"],
+        "paper_run_id": context["paper_run_id"],
+        "symbol": "ETH/USDT",
+        "direction": "long",
+        "quantity": 0.1,
+        "reference_price": 3200,
+        "leverage": 1,
+        "timeframe": "1h",
+        "stoploss_price": 3168,
+        "takeprofit_price": 3264,
+        "account_equity": 10000,
+    }
+
+    first = api_client.post("/api/v1/execution/manual-orders", json=body)
+    close = api_client.post(
+        "/api/v1/execution/close-position",
+        json={
+            "mode": "paper",
+            "strategy_id": context["strategy_id"],
+            "validation_backtest_run_id": context["validation_backtest_run_id"],
+            "paper_run_id": context["paper_run_id"],
+            "symbol": "ETH/USDT",
+            "reference_price": 3200,
+            "timeframe": "1h",
+            "account_equity": 10000,
+        },
+    )
+    second = api_client.post("/api/v1/execution/manual-orders", json=body)
+
+    assert first.status_code == 201
+    assert close.status_code == 201
+    assert second.status_code == 201
+    assert second.json()["execution_status"] == "filled"
+
+
 def test_manual_paper_order_fills_and_creates_position(api_client, db_session) -> None:
     strategy_id, backtest_run_id = _create_validated_strategy(api_client, db_session)
     _store_fresh_bar(db_session)

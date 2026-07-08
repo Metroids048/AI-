@@ -260,6 +260,27 @@ h2 {
   background: #2a2114;
 }
 
+.timeframe-tabs,
+.ticket-type-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.timeframe-tabs button,
+.ticket-type-tabs button {
+  min-width: 48px;
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.timeframe-tabs .active,
+.ticket-type-tabs .active {
+  border-color: rgba(22, 199, 132, 0.85);
+  background: #10241d;
+  color: #f5f7fa;
+}
+
 .exchange-panel {
   border: 1px solid #202a35;
   background: #0d141b;
@@ -313,7 +334,7 @@ h2 {
 
 .market-header {
   display: grid;
-  grid-template-columns: minmax(190px, 0.45fr) minmax(300px, 0.75fr) minmax(520px, 1.65fr);
+  grid-template-columns: minmax(220px, 0.45fr) minmax(320px, 0.65fr) minmax(520px, 1.75fr);
   gap: 10px;
   align-items: center;
 }
@@ -378,17 +399,19 @@ h2 {
 
 .terminal-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 0.75fr) minmax(560px, 1.75fr) minmax(280px, 0.85fr);
+  grid-template-columns: minmax(210px, 0.58fr) minmax(520px, 1.65fr) minmax(250px, 0.72fr) minmax(280px, 0.82fr);
   gap: 10px;
   align-items: stretch;
 }
 
-.left-rail,
-.right-rail,
-.center-stack {
+.market-rail,
+.book-rail,
+.chart-rail,
+.ticket-rail {
   display: grid;
   gap: 10px;
   align-content: start;
+  min-width: 0;
 }
 
 .execution-grid,
@@ -401,6 +424,11 @@ h2 {
 
 .records-grid {
   grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
+}
+
+.compact-records {
+  margin-top: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .kline-panel {
@@ -560,6 +588,32 @@ h2 {
   font-size: 12px;
 }
 
+.evidence-details {
+  margin-top: 8px;
+  border-top: 1px solid #202a35;
+  padding-top: 8px;
+  color: #9aa7b6;
+  font-size: 12px;
+}
+
+.evidence-details summary {
+  cursor: pointer;
+  color: #d8dee9;
+}
+
+.evidence-details dl {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 5px 8px;
+  margin: 8px 0 0;
+}
+
+.evidence-details dt,
+.evidence-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .funding-metrics {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -657,6 +711,22 @@ h2 {
   .mode-banner,
   .quote-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .terminal-grid .chart-rail {
+    order: 1;
+  }
+
+  .terminal-grid .ticket-rail {
+    order: 2;
+  }
+
+  .terminal-grid .market-rail {
+    order: 3;
+  }
+
+  .terminal-grid .book-rail {
+    order: 4;
   }
 }
 

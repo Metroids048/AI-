@@ -1,13 +1,31 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
 import { request } from "../api/client";
-import { asArray, formatNumber, formatTime } from "../utils/format";
+import { RiskEventFeed } from "../components/RuntimePanels";
+import { asArray, formatNumber } from "../utils/format";
 
 export function RiskConsole() {
+  const queryClient = useQueryClient();
+  const [actionMessage, setActionMessage] = useState("");
   const profiles = useQuery({ queryKey: ["risk-profiles"], queryFn: () => request("/api/v1/risk/profiles"), staleTime: 15000 });
   const events = useQuery({ queryKey: ["risk-events"], queryFn: () => request("/api/v1/risk/events?active_only=false"), refetchInterval: 10000 });
   const profileRows = asArray(profiles.data?.items);
   const eventRows = asArray(events.data?.items);
+
+  const handleResolve = async (riskEventId, resolutionStatus) => {
+    if (!riskEventId) return;
+    try {
+      await request(`/api/v1/risk/events/${riskEventId}/resolution`, {
+        method: "PATCH",
+        body: JSON.stringify({ resolution_status: resolutionStatus }),
+      });
+      setActionMessage(resolutionStatus === "resolved" ? "风控事件已恢复。" : "风控事件已确认。");
+      await queryClient.invalidateQueries({ queryKey: ["risk-events"] });
+    } catch (err) {
+      setActionMessage(`风控事件操作失败：${err.message}`);
+    }
+  };
 
   return (
     <main className="app-shell page-shell">
@@ -15,6 +33,7 @@ export function RiskConsole() {
         <p className="eyebrow">Risk Layer</p>
         <h1>风控控制台</h1>
       </header>
+      {actionMessage ? <div className="action-line">{actionMessage}</div> : null}
       <section className="records-grid">
         <div className="exchange-panel table-panel">
           <div className="panel-title"><h2>RiskProfile</h2><span>{profileRows.length}</span></div>
@@ -41,31 +60,7 @@ export function RiskConsole() {
             </tbody>
           </table>
         </div>
-        <div className="exchange-panel table-panel">
-          <div className="panel-title"><h2>风险事件流</h2><span>{eventRows.length}</span></div>
-          <table>
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>等级</th>
-                <th>类型</th>
-                <th>状态</th>
-                <th>说明</th>
-              </tr>
-            </thead>
-            <tbody>
-              {eventRows.length ? eventRows.map((item) => (
-                <tr key={item.risk_event_id ?? item.description}>
-                  <td>{formatTime(item.occurred_at)}</td>
-                  <td>{item.severity}</td>
-                  <td>{item.event_type}</td>
-                  <td>{item.resolution_status}</td>
-                  <td>{item.description}</td>
-                </tr>
-              )) : <tr><td colSpan="5">暂无风险事件</td></tr>}
-            </tbody>
-          </table>
-        </div>
+        <RiskEventFeed events={eventRows} onResolve={handleResolve} />
       </section>
     </main>
   );

@@ -92,8 +92,27 @@ $env:BINANCE_LIVE_MARKET_ENABLED = "true"
 $env:BINANCE_LIVE_WS_ENABLED = "true"
 py -3 -c "from services.database import create_relational_schema, get_engine, reset_database_caches; from services.data.repository import create_timeseries_schema; reset_database_caches(); create_relational_schema(); create_timeseries_schema(get_engine()); print('schema ready')"
 
-if (-not (Test-Path (Join-Path $Root "node_modules"))) {
-    Write-Step "installing frontend workspace dependencies"
+$requiredNodeModules = @(
+    "node_modules\@tanstack\react-query",
+    "node_modules\lightweight-charts",
+    "node_modules\react-router-dom",
+    "node_modules\vite",
+    "node_modules\vitest"
+)
+$missingNodeModules = @()
+foreach ($modulePath in $requiredNodeModules) {
+    if (-not (Test-Path (Join-Path $Root $modulePath))) {
+        $missingNodeModules += $modulePath
+    }
+}
+
+if ((-not (Test-Path (Join-Path $Root "node_modules"))) -or $missingNodeModules.Count -gt 0) {
+    if ($missingNodeModules.Count -gt 0) {
+        Write-Step "installing frontend workspace dependencies; missing: $($missingNodeModules -join ', ')"
+    }
+    else {
+        Write-Step "installing frontend workspace dependencies"
+    }
     npm install
 }
 

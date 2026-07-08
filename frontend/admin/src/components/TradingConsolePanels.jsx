@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { asArray, formatNumber, formatPercent, formatTime } from "../utils/format";
+import { asArray, formatClock, formatNumber, formatPercent, formatTime } from "../utils/format";
 
 export function ModeBanner({ status }) {
   const modeLabel = status?.mode === "testnet" ? "Binance Futures Testnet" : "Paper 模拟盘";
@@ -9,26 +9,11 @@ export function ModeBanner({ status }) {
   const gatewayLabel = status?.gateway_available ? "网关可用" : "网关待配置";
   return (
     <section className="mode-banner">
-      <div>
-        <span>当前模式</span>
-        <strong>{modeLabel}</strong>
-      </div>
-      <div>
-        <span>环境</span>
-        <strong>{status?.app_env ?? "development"}</strong>
-      </div>
-      <div>
-        <span>安全边界</span>
-        <strong>{testnetLabel}</strong>
-      </div>
-      <div>
-        <span>真实交易</span>
-        <strong>{liveLabel}</strong>
-      </div>
-      <div>
-        <span>交易网关</span>
-        <strong>{gatewayLabel}</strong>
-      </div>
+      <div><span>当前模式</span><strong>{modeLabel}</strong></div>
+      <div><span>环境</span><strong>{status?.app_env ?? "development"}</strong></div>
+      <div><span>安全边界</span><strong>{testnetLabel}</strong></div>
+      <div><span>真实交易</span><strong>{liveLabel}</strong></div>
+      <div><span>交易网关</span><strong>{gatewayLabel}</strong></div>
     </section>
   );
 }
@@ -37,11 +22,11 @@ export function MarketList({ universe, selectedSymbol, onSelect }) {
   const rows = asArray(universe);
   return (
     <section className="exchange-panel market-list-panel">
-      <PanelTitle title="市场" meta="USDT 永续 Top20" />
+      <PanelTitle title="市场" meta="USDT 永续" />
       <div className="market-list-header">
         <span>交易对</span>
-        <span>最新价</span>
-        <span>24h 涨跌</span>
+        <span>价格</span>
+        <span>24h</span>
       </div>
       <div className="market-list">
         {rows.length ? (
@@ -69,13 +54,13 @@ export function MarketList({ universe, selectedSymbol, onSelect }) {
 }
 
 export function OrderBookPanel({ orderBook, snapshot }) {
-  const bids = asArray(orderBook?.bids).slice(0, 12);
-  const asks = asArray(orderBook?.asks).slice(0, 12).reverse();
+  const bids = asArray(orderBook?.bids).slice(0, 13);
+  const asks = asArray(orderBook?.asks).slice(0, 13).reverse();
   const mid = Number(snapshot?.perp_last_price ?? snapshot?.spot_last_price ?? 0);
-  const source = orderBook?.source === "binance_public_rest" ? "Binance 实时深度" : "等待实时深度";
+  const source = sourceLabel(orderBook?.source);
   return (
     <section className="exchange-panel orderbook-panel">
-      <PanelTitle title="订单簿" meta={source} />
+      <PanelTitle title="盘口" meta={source} />
       <BookHeader />
       <div className="book-side asks">
         {asks.length ? asks.map((row) => <BookRow key={`ask-${row.price}`} row={row} side="ask" />) : <div className="empty-list">暂无卖盘</div>}
@@ -92,8 +77,8 @@ export function OrderBookPanel({ orderBook, snapshot }) {
 }
 
 export function RecentTradesPanel({ trades, symbol }) {
-  const rows = asArray(trades?.trades).slice(0, 18);
-  const source = trades?.source === "binance_public_rest" ? "Binance 实时成交" : symbol;
+  const rows = asArray(trades?.trades).slice(0, 24);
+  const source = trades?.source ? sourceLabel(trades.source) : symbol;
   return (
     <section className="exchange-panel trades-panel">
       <PanelTitle title="最新成交" meta={source} />
@@ -107,7 +92,7 @@ export function RecentTradesPanel({ trades, symbol }) {
           <div className="compact-table-row three" key={trade.trade_id ?? `${trade.trade_time}-${index}`}>
             <span className={trade.side === "sell" ? "negative" : "positive"}>{formatNumber(trade.price)}</span>
             <span>{formatNumber(trade.quantity, 5)}</span>
-            <span>{formatTime(trade.trade_time)}</span>
+            <span>{formatClock(trade.trade_time)}</span>
           </div>
         ))
       ) : (
@@ -117,90 +102,108 @@ export function RecentTradesPanel({ trades, symbol }) {
   );
 }
 
-export function TradingTicket({ symbol, mode, latestPosition, onAction }) {
-  const [strategyId, setStrategyId] = useState("");
-  const [backtestId, setBacktestId] = useState("");
+export function TradingTicket({ symbol, timeframe, mode, manualContext, latestPosition, latestPrice, onAction }) {
   const [quantity, setQuantity] = useState("0.01");
-  const [price, setPrice] = useState("61000");
+  const [leverage, setLeverage] = useState("1");
   const [orderType, setOrderType] = useState("market");
   const [limitPrice, setLimitPrice] = useState("");
   const [stoploss, setStoploss] = useState("");
   const [takeprofit, setTakeprofit] = useState("");
-  const [leverage, setLeverage] = useState("1");
-  const missingEvidence = !strategyId.trim() || !backtestId.trim();
-  const missingLimit = orderType === "limit" && !limitPrice.trim();
-  const openDisabled = missingEvidence || !stoploss.trim() || missingLimit;
-  const closeDisabled = missingEvidence || !latestPosition;
-  const validationHint = missingEvidence
-    ? "请先填写已通过验证的 Strategy ID 和 Backtest ID"
-    : missingLimit
-      ? "限价单必须填写限价"
-    : !stoploss.trim()
-      ? "开仓必须填写止损价"
-      : "订单会进入统一风控和审计链路";
+  const [customStops, setCustomStops] = useState(false);
+  const referencePrice = Number(latestPrice);
+  const notional = Number(quantity) * (Number(limitPrice) || referencePrice || 0);
+  const missingLimit = orderType === "limit" && !Number(limitPrice);
+  const missingContext = !manualContext?.strategy_id || !manualContext?.validation_backtest_run_id;
+  const missingPrice = !Number.isFinite(referencePrice) || referencePrice <= 0;
+  const openDisabled = missingContext || missingPrice || !Number(quantity) || missingLimit || (!Number(stoploss) && customStops);
+  const closeDisabled = missingContext || !latestPosition;
 
-  const commonPayload = () => ({
-    mode,
-    strategy_id: strategyId.trim(),
-    validation_backtest_run_id: backtestId.trim(),
-    symbol,
-    quantity: Number(quantity),
-    reference_price: Number(price),
-    leverage: Number(leverage),
-    order_type: orderType,
-    limit_price: orderType === "limit" && limitPrice ? Number(limitPrice) : undefined,
-    time_in_force: "GTC",
-    stoploss_price: stoploss ? Number(stoploss) : undefined,
-    takeprofit_price: takeprofit ? Number(takeprofit) : undefined,
-    account_equity: 10000,
-  });
+  useEffect(() => {
+    if (!Number.isFinite(referencePrice) || referencePrice <= 0) return;
+    setLimitPrice(String(referencePrice.toFixed(2)));
+    if (!customStops) {
+      setStoploss(String((referencePrice * 0.99).toFixed(2)));
+      setTakeprofit(String((referencePrice * 1.02).toFixed(2)));
+    }
+  }, [referencePrice, symbol]);
+
+  const buildPayload = (direction) => {
+    const price = orderType === "limit" ? Number(limitPrice) : referencePrice;
+    const defaultStop = direction === "long" ? price * 0.99 : price * 1.01;
+    const defaultTake = direction === "long" ? price * 1.02 : price * 0.98;
+    return {
+      mode,
+      strategy_id: manualContext.strategy_id,
+      validation_backtest_run_id: manualContext.validation_backtest_run_id,
+      paper_run_id: manualContext.paper_run_id,
+      symbol,
+      direction,
+      quantity: Number(quantity),
+      reference_price: price,
+      leverage: Number(leverage),
+      order_type: orderType,
+      limit_price: orderType === "limit" ? Number(limitPrice) : undefined,
+      time_in_force: "GTC",
+      timeframe,
+      stoploss_price: Number(stoploss) || Number(defaultStop.toFixed(2)),
+      takeprofit_price: Number(takeprofit) || Number(defaultTake.toFixed(2)),
+      account_equity: 10000,
+    };
+  };
+
   return (
     <section className="exchange-panel trading-ticket">
       <PanelTitle title="下单" meta={mode === "testnet" ? "Testnet" : "Paper"} />
+      <div className="ticket-type-tabs">
+        {["market", "limit"].map((item) => (
+          <button key={item} type="button" className={orderType === item ? "active" : ""} onClick={() => setOrderType(item)}>
+            {item === "market" ? "市价" : "限价"}
+          </button>
+        ))}
+      </div>
       <div className="ticket-grid">
-        <label>
-          Strategy ID
-          <input value={strategyId} onChange={(event) => setStrategyId(event.target.value)} placeholder="validated strategy" />
-        </label>
-        <label>
-          Backtest ID
-          <input value={backtestId} onChange={(event) => setBacktestId(event.target.value)} placeholder="validation evidence" />
-        </label>
         <label>
           数量
           <input value={quantity} onChange={(event) => setQuantity(event.target.value)} inputMode="decimal" />
         </label>
         <label>
-          参考价
-          <input value={price} onChange={(event) => setPrice(event.target.value)} inputMode="decimal" />
-        </label>
-        <label>
-          订单类型
-          <select value={orderType} onChange={(event) => setOrderType(event.target.value)}>
-            <option value="market">市价</option>
-            <option value="limit">限价</option>
-          </select>
+          估算 USDT
+          <input value={formatNumber(notional, 2)} readOnly />
         </label>
         <label>
           限价
-          <input
-            value={limitPrice}
-            onChange={(event) => setLimitPrice(event.target.value)}
-            inputMode="decimal"
-            disabled={orderType !== "limit"}
-          />
-        </label>
-        <label>
-          止损价
-          <input value={stoploss} onChange={(event) => setStoploss(event.target.value)} inputMode="decimal" placeholder="必填" />
-        </label>
-        <label>
-          止盈价
-          <input value={takeprofit} onChange={(event) => setTakeprofit(event.target.value)} inputMode="decimal" />
+          <input value={limitPrice} onChange={(event) => setLimitPrice(event.target.value)} inputMode="decimal" disabled={orderType !== "limit"} />
         </label>
         <label>
           杠杆
           <input value={leverage} onChange={(event) => setLeverage(event.target.value)} inputMode="decimal" />
+        </label>
+        <label>
+          止损
+          <input
+            value={stoploss}
+            onChange={(event) => {
+              setCustomStops(true);
+              setStoploss(event.target.value);
+            }}
+            inputMode="decimal"
+            placeholder="开仓必填"
+          />
+        </label>
+        <label>
+          止盈
+          <input
+            value={takeprofit}
+            onChange={(event) => {
+              setCustomStops(true);
+              setTakeprofit(event.target.value);
+            }}
+            inputMode="decimal"
+          />
+        </label>
+        <label>
+          当前价
+          <input value={formatNumber(referencePrice)} readOnly />
         </label>
         <label>
           TIF
@@ -208,33 +211,44 @@ export function TradingTicket({ symbol, mode, latestPosition, onAction }) {
         </label>
       </div>
       <div className="ticket-actions">
-        <button type="button" className="buy" disabled={openDisabled} onClick={() => onAction("manualOrder", { ...commonPayload(), direction: "long" })}>
+        <button type="button" className="buy" disabled={openDisabled} onClick={() => onAction("manualOrder", buildPayload("long"))}>
           开多
         </button>
-        <button type="button" className="sell" disabled={openDisabled} onClick={() => onAction("manualOrder", { ...commonPayload(), direction: "short" })}>
+        <button type="button" className="sell" disabled={openDisabled} onClick={() => onAction("manualOrder", buildPayload("short"))}>
           开空
         </button>
         <button
           type="button"
+          disabled={closeDisabled}
           onClick={() =>
             onAction("closePosition", {
               mode,
-              strategy_id: strategyId.trim(),
-              validation_backtest_run_id: backtestId.trim(),
+              strategy_id: manualContext.strategy_id,
+              validation_backtest_run_id: manualContext.validation_backtest_run_id,
+              paper_run_id: manualContext.paper_run_id,
               symbol,
-              reference_price: Number(price),
+              reference_price: referencePrice,
+              timeframe,
               account_equity: 10000,
             })
           }
-          disabled={closeDisabled}
         >
           平仓
         </button>
-        <button type="button" disabled={!strategyId.trim()} onClick={() => onAction("adjustLeverage", { mode, strategy_id: strategyId.trim(), symbol, leverage: Number(leverage) })}>
-          调整杠杆
+        <button type="button" disabled={missingContext} onClick={() => onAction("adjustLeverage", { mode, strategy_id: manualContext.strategy_id, symbol, leverage: Number(leverage) })}>
+          调杠杆
         </button>
       </div>
-      <p className="ticket-note">{validationHint}</p>
+      <p className="ticket-note">{ticketHint({ missingContext, missingLimit, customStops, stoploss })}</p>
+      <details className="evidence-details">
+        <summary>风控证据 / 高级</summary>
+        <dl>
+          <dt>Strategy</dt><dd>{manualContext?.strategy_id ?? "--"}</dd>
+          <dt>Backtest</dt><dd>{manualContext?.validation_backtest_run_id ?? "--"}</dd>
+          <dt>PaperRun</dt><dd>{manualContext?.paper_run_id ?? "--"}</dd>
+          <dt>说明</dt><dd>{manualContext?.warning ?? "Paper-only sandbox evidence"}</dd>
+        </dl>
+      </details>
     </section>
   );
 }
@@ -248,18 +262,10 @@ export function FundingPanel({ signal, onBacktest }) {
         <MetricLine label="Funding" value={formatPercent(signal?.funding_rate)} />
         <MetricLine label="Funding bps" value={`${formatNumber(signal?.funding_bps, 2)} bps`} />
         <MetricLine label="Basis" value={`${formatNumber(signal?.basis_bps, 2)} bps`} />
-        <MetricLine
-          label="净边际"
-          value={`${formatNumber(signal?.estimated_net_edge_bps, 2)} bps`}
-          tone={signal?.should_enter_paper ? "positive" : "negative"}
-        />
+        <MetricLine label="净边际" value={`${formatNumber(signal?.estimated_net_edge_bps, 2)} bps`} tone={signal?.should_enter_paper ? "positive" : "negative"} />
       </div>
       <div className="rejection-list">
-        {asArray(signal?.rejection_reasons).length ? (
-          signal.rejection_reasons.map((item) => <span key={item}>{item}</span>)
-        ) : (
-          <span>规则通过</span>
-        )}
+        {asArray(signal?.rejection_reasons).length ? signal.rejection_reasons.map((item) => <span key={item}>{item}</span>) : <span>规则通过</span>}
       </div>
       <button type="button" onClick={onBacktest}>触发 Carry 回测</button>
       <p>{template.core_thesis ?? "使用现货/永续对冲，扣除手续费、滑点和基差风险后再进入 Paper。"}</p>
@@ -268,7 +274,7 @@ export function FundingPanel({ signal, onBacktest }) {
 }
 
 export function RuntimeControlPanel({ streamStatus, tradingStatus, onRunCycle }) {
-  const streamLabel = streamStatus === "live" ? "实时 K线已连接" : streamStatus === "connecting" ? "K线连接中" : "K线轮询/REST";
+  const streamLabel = streamStatus === "live" ? "实时行情已连接" : streamStatus === "connecting" ? "行情连接中" : "REST 轮询";
   return (
     <section className="exchange-panel runtime-control-panel">
       <PanelTitle title="自动交易" meta="7x24 Paper Cycle" />
@@ -278,7 +284,7 @@ export function RuntimeControlPanel({ streamStatus, tradingStatus, onRunCycle })
         <strong>{streamLabel}</strong>
       </div>
       <button type="button" onClick={onRunCycle}>运行一次自动开平仓 cycle</button>
-      <p className="ticket-note">只扫描 running PaperRun；每个订单仍经过 Validation、Gatekeeper、Risk、Review 审计。</p>
+      <p className="ticket-note">只扫描 running PaperRun；订单仍经过 Validation、Gatekeeper、Risk、Review 审计。</p>
     </section>
   );
 }
@@ -286,29 +292,22 @@ export function RuntimeControlPanel({ streamStatus, tradingStatus, onRunCycle })
 export function AutoEngineStatusBadge({ status }) {
   const running = Boolean(status?.scheduler_running);
   const eta = status?.next_cycle_eta_seconds;
-  const etaLabel = Number.isFinite(Number(eta)) ? ` · 下次执行 ${formatEta(Number(eta))}` : "";
-  const error = status?.scheduler_error ? ` · ${status.scheduler_error}` : "";
+  const etaLabel = Number.isFinite(Number(eta)) ? ` / 下次 ${formatEta(Number(eta))}` : "";
+  const error = status?.scheduler_error ? ` / ${status.scheduler_error}` : "";
   return (
     <div className={`auto-engine-badge ${running ? "positive" : "neutral"}`}>
-      <span>{running ? "● 自动运行中" : "○ 自动引擎停止"}</span>
+      <span>{running ? "自动运行中" : "自动引擎停止"}</span>
       <strong>{status?.scheduler_mode ?? "disabled"}{running ? etaLabel : ""}</strong>
       {error ? <em>{error}</em> : null}
     </div>
   );
 }
 
-function formatEta(seconds) {
-  const safe = Math.max(0, Math.floor(seconds));
-  const minutes = String(Math.floor(safe / 60)).padStart(2, "0");
-  const rest = String(safe % 60).padStart(2, "0");
-  return `${minutes}:${rest}`;
-}
-
 export function OrdersTable({ orders, onCancel }) {
   const rows = asArray(orders);
   return (
     <section className="exchange-panel table-panel">
-      <PanelTitle title="当前委托 / 历史订单" meta={`${rows.length}`} />
+      <PanelTitle title="订单" meta={`${rows.length}`} />
       <table>
         <thead>
           <tr>
@@ -321,7 +320,7 @@ export function OrdersTable({ orders, onCancel }) {
             <th>止盈</th>
             <th>状态</th>
             <th>网关</th>
-            <th>拒绝原因</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -338,12 +337,7 @@ export function OrdersTable({ orders, onCancel }) {
                 <td>{order.execution_status}</td>
                 <td>{order.gateway_name ?? "-"}</td>
                 <td>
-                  {order.rejection_reason ?? "-"}
-                  {canCancel(order) ? (
-                    <button type="button" className="table-action" onClick={() => onCancel(order)}>
-                      撤单
-                    </button>
-                  ) : null}
+                  {canCancel(order) ? <button type="button" className="table-action" onClick={() => onCancel(order)}>撤单</button> : (order.rejection_reason ?? "-")}
                 </td>
               </tr>
             ))
@@ -354,10 +348,6 @@ export function OrdersTable({ orders, onCancel }) {
       </table>
     </section>
   );
-}
-
-function canCancel(order) {
-  return !["filled", "cancelled", "rejected"].includes(order.execution_status);
 }
 
 export function PositionsTable({ positions }) {
@@ -419,7 +409,7 @@ function BookHeader() {
 }
 
 function BookRow({ row, side }) {
-  const depth = useMemo(() => Math.min(1, Number(row.total ?? 0) / Math.max(Number(row.quantity ?? 1) * 12, 1)), [row]);
+  const depth = useMemo(() => Math.min(1, Number(row.total ?? 0) / Math.max(Number(row.quantity ?? 1) * 14, 1)), [row]);
   return (
     <div className="book-row">
       <span className={side === "ask" ? "negative" : "positive"}>{formatNumber(row.price)}</span>
@@ -437,4 +427,29 @@ function MetricLine({ label, value, tone = "neutral" }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function sourceLabel(source) {
+  if (source === "binance_public_ws") return "Binance WS";
+  if (source === "binance_public_rest") return "Binance REST";
+  if (source === "binance_public_rest_error") return "REST 异常";
+  return "等待行情";
+}
+
+function ticketHint({ missingContext, missingLimit, customStops, stoploss }) {
+  if (missingContext) return "正在绑定 Paper-only 风控证据。";
+  if (!Number.isFinite(Number(stoploss)) && customStops) return "开仓必须填写止损。";
+  if (missingLimit) return "限价单需要填写限价。";
+  return "开仓会进入统一 Gatekeeper；没有止损会被拒绝。";
+}
+
+function canCancel(order) {
+  return !["filled", "cancelled", "rejected"].includes(order.execution_status);
+}
+
+function formatEta(seconds) {
+  const safe = Math.max(0, Math.floor(seconds));
+  const minutes = String(Math.floor(safe / 60)).padStart(2, "0");
+  const rest = String(safe % 60).padStart(2, "0");
+  return `${minutes}:${rest}`;
 }

@@ -1,5 +1,25 @@
 # Task History
 
+### [TASK-031] Real-time trading console + multi-screen split
+- **Date**: 2026-07-07
+- **Type**: fix + refactor + frontend
+- **Summary**: Addressed the user complaint that the Paper trading console was not actually real-time and crammed everything into one screen. Turned on the three Binance live-data feature flags that were defaulting to `False` (universe/market/WS), added an autouse pytest fixture to force them back off during tests, stopped `useConsoleData.js` from forcing a full chart rebuild on every 8s poll tick while the WS stream is live (klines now flow through the WS `kline` event's incremental `update()` only), added exponential-backoff WS reconnect on `onclose`/`onerror`, reordered the trading page's CSS grid so the order ticket is reachable within one screen below the 1280px breakpoint, and migrated non-core-trading panels (risk events, news/macro/notifications, review reports) out of `PaperConsole.jsx` into the already-scaffolded `/risk`, `/ops`, `/review` routes (`RiskConsole.jsx`, `OpsConsole.jsx`, `ReviewCenter.jsx`), replacing their placeholder content with real `useQuery`-backed panels reusing `FeedPanel` (newly exported from `OpsPanels.jsx`) and `RiskEventFeed`.
+- **Files changed**: `apps/api/config.py`, `tests/conftest.py`, `frontend/admin/src/hooks/useConsoleData.js`, `frontend/admin/src/pages/{PaperConsole,RiskConsole,OpsConsole,ReviewCenter}.jsx`, `frontend/admin/src/components/OpsPanels.jsx`, `frontend/admin/src/styles.css`, `.github/agent/memory/project-memory.md`, `.github/agent/memory/task-history.md`.
+- **Layer mapping**: Data Layer owns the live-data config flags governing Binance REST/WS sourcing; Execution Layer's operator-facing frontend owns the trading console layout, real-time chart update logic, and the risk/ops/review console pages. No Strategy, Validation, or Execution decision/order logic changed.
+- **Research loop served**: Keeps the Paper-mode operator console (`Data -> Validation/Paper -> Execution Gatekeeper -> Review`) genuinely inspectable in real time, and separates the trading-decision surface from ops/risk/review surfaces so each can be reviewed on its own screen without diluting the trading view.
+- **Verification**: `py -3 -m pytest tests/ -q` -> 151 passed, 1 skipped; `npm --workspace frontend/admin run test -- --run` -> 3 files / 8 tests passed; `npm --workspace frontend/admin run build` -> succeeded (102 modules transformed, no errors). Manual browser smoke of symbol/timeframe switching and WS reconnect was not performed this session.
+- **Notes**: Deliberate deviation from the original plan text — `RuntimeControlPanel`/`DecisionDebugPanel` were kept on `/trading` (inside an always-visible `execution-grid`, not an accordion) instead of moving to `/ops`, because both are scoped to the currently-selected symbol/timeframe rather than global ops state. `OpsReviewPanel` and the now-unused `newsItems`/`macroEvents`/`reviews`/`notifications` fetch/state fields in `useConsoleData.js` were deleted after confirming zero remaining callers via Grep.
+
+### [TASK-030] Fix one-click startup dependency self-heal
+- **Date**: 2026-07-07
+- **Type**: fix + ops
+- **Summary**: Repaired the local one-click Paper console startup path after Vite failed to resolve `@tanstack/react-query` from `frontend/admin/src/router.jsx`. The package was already declared in the frontend workspace and lockfile, but the existing startup script skipped `npm install` whenever root `node_modules` existed, leaving newly added dependencies absent.
+- **Files changed**: `scripts/start_paper_console.ps1`, `.github/agent/memory/project-memory.md`, `.github/agent/memory/task-history.md`
+- **Layer mapping**: Ops/startup tooling only. No Strategy, Validation, Execution, Risk, Review, or trading-decision behavior changed.
+- **Research loop served**: Keeps the local Paper/Testnet operator console launchable so the existing `Data -> Validation/Paper -> Execution Gatekeeper -> Review` workflow can be inspected without bypassing platform gates.
+- **Verification**: `npm install` installed the missing frontend packages; `npm --workspace frontend/admin run build` passed; `npm --workspace frontend/admin ls @tanstack/react-query` resolved `@tanstack/react-query@5.101.2`; `.\一键启动.bat` successfully started FastAPI and Vite; API `/health` returned ok and frontend `/` returned HTTP 200.
+- **Notes**: `npm install` still reports the known 5 frontend audit vulnerabilities; no `npm audit fix --force` was run. Local `main`, `origin/main`, and `origin/HEAD` all point to `9237b0647174156511ddb138fe76d6fad194d1bb`; the additional remote branches are Dependabot dependency-update branches.
+
 ### [TASK-029] Trading core scheduler, live feed bus, and platform console refactor
 - **Date**: 2026-07-07
 - **Type**: feat + refactor + frontend + ops + docs

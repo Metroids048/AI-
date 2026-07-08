@@ -185,26 +185,41 @@ def normalize_funding_rate_history(*, rows: Iterable[Mapping], symbol: str) -> l
     return extras
 
 
+def normalize_ws_kline_event_with_status(
+    payload: Mapping[str, Any], *, symbol: str, timeframe: str, exchange: str = "binance"
+) -> tuple[OHLCVBar, bool] | None:
+    """Normalize a Binance WS kline event and expose whether the candle closed."""
+
+    event = payload.get("data") if "data" in payload else payload
+    kline = event.get("k") if isinstance(event, Mapping) else None
+    if not isinstance(kline, Mapping):
+        return None
+    return (
+        OHLCVBar(
+            symbol=symbol,
+            exchange=Exchange(exchange),
+            timeframe=Timeframe(timeframe),
+            time=_from_millis(kline["t"]),
+            open=Decimal(str(kline["o"])),
+            high=Decimal(str(kline["h"])),
+            low=Decimal(str(kline["l"])),
+            close=Decimal(str(kline["c"])),
+            volume=Decimal(str(kline["v"])),
+        ),
+        bool(kline.get("x")),
+    )
+
+
 def normalize_ws_kline_event(
     payload: Mapping[str, Any], *, symbol: str, timeframe: str, exchange: str = "binance"
 ) -> OHLCVBar | None:
     """Normalize a Binance WS kline event, ignoring in-progress candles."""
 
-    event = payload.get("data") if "data" in payload else payload
-    kline = event.get("k") if isinstance(event, Mapping) else None
-    if not isinstance(kline, Mapping) or not kline.get("x"):
+    normalized = normalize_ws_kline_event_with_status(payload, symbol=symbol, timeframe=timeframe, exchange=exchange)
+    if normalized is None:
         return None
-    return OHLCVBar(
-        symbol=symbol,
-        exchange=Exchange(exchange),
-        timeframe=Timeframe(timeframe),
-        time=_from_millis(kline["t"]),
-        open=Decimal(str(kline["o"])),
-        high=Decimal(str(kline["h"])),
-        low=Decimal(str(kline["l"])),
-        close=Decimal(str(kline["c"])),
-        volume=Decimal(str(kline["v"])),
-    )
+    bar, closed = normalized
+    return bar if closed else None
 
 
 def normalize_ws_mark_price_event(payload: Mapping[str, Any], *, symbol: str) -> MarketExtras | None:

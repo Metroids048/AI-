@@ -23,6 +23,54 @@ from shared.models import (
 )
 
 
+def test_exchange_stream_event_builders_handle_realtime_payloads() -> None:
+    from apps.api.routers.market import _exchange_stream_event_from_binance_payload
+
+    kline = _exchange_stream_event_from_binance_payload(
+        {
+            "data": {
+                "e": "kline",
+                "k": {
+                    "t": 1711929600000,
+                    "o": "61000",
+                    "h": "61200",
+                    "l": "60900",
+                    "c": "61100",
+                    "v": "10",
+                    "x": False,
+                },
+            }
+        },
+        symbol="BTC/USDT",
+        perp_symbol="BTC/USDT:USDT",
+        timeframe="1m",
+    )
+    book = _exchange_stream_event_from_binance_payload(
+        {"data": {"lastUpdateId": 123, "bids": [["61000", "0.1"]], "asks": [["61010", "0.2"]]}},
+        symbol="BTC/USDT",
+        perp_symbol="BTC/USDT:USDT",
+        timeframe="1m",
+    )
+    trade = _exchange_stream_event_from_binance_payload(
+        {"data": {"e": "trade", "t": 1, "p": "61005", "q": "0.01", "T": 1711929600000, "m": False}},
+        symbol="BTC/USDT",
+        perp_symbol="BTC/USDT:USDT",
+        timeframe="1m",
+    )
+
+    assert kline is not None
+    assert kline["event"] == "kline"
+    assert kline["payload"]["closed"] is False
+    assert kline["payload"]["close"] == "61100"
+    assert book is not None
+    assert book["event"] == "order_book"
+    assert book["payload"]["source"] == "binance_public_ws"
+    assert book["payload"]["bids"][0]["total"] == "0.1"
+    assert trade is not None
+    assert trade["event"] == "trade"
+    assert trade["payload"]["side"] == "buy"
+
+
 def _bar(symbol: str, at: datetime, close: str) -> dict:
     return {
         "symbol": symbol,
@@ -148,6 +196,28 @@ def test_market_ohlcv_websocket_stream_sends_persisted_snapshot(api_client, db_s
     assert message["feed_status"]["status"] in {"idle", "live", "reconnecting"}
     assert message["payload"]["data_status"] == "ok"
     assert message["payload"]["candles"][0]["close"] == "42100"
+
+
+def test_exchange_websocket_stream_sends_initial_terminal_snapshot(api_client, db_session) -> None:
+    now = datetime.now(UTC).replace(microsecond=0)
+    DataRepository(db_session).store_ohlcv_bars(
+        [
+            _bar("BTC/USDT", now, "42100"),
+            _bar("BTC/USDT:USDT", now, "42150"),
+        ]
+    )
+
+    with api_client.websocket_connect(
+        f"/api/v1/market/exchange-stream?symbol=BTC/USDT&perp_symbol=BTC/USDT:USDT&timeframe=1h&limit=5&token={settings.admin_api_token}"
+    ) as websocket:
+        message = websocket.receive_json()
+
+    assert message["event"] == "exchange_snapshot"
+    assert message["payload"]["symbol"] == "BTC/USDT"
+    assert message["payload"]["perp_symbol"] == "BTC/USDT:USDT"
+    assert message["payload"]["ohlcv"]["data_status"] == "ok"
+    assert message["payload"]["ohlcv"]["candles"][0]["close"] == "42100"
+    assert message["payload"]["feed_status"]["source"] == "rest_polling"
 
 
 def test_console_overview_aggregates_execution_and_risk_state(api_client, db_session) -> None:

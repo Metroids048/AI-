@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { request } from "../api/client";
 import { AppShell } from "../components/Common";
 import { KlinePanel, MarketHeader } from "../components/MarketPanels";
-import { OpsReviewPanel } from "../components/OpsPanels";
-import { DecisionDebugPanel, RiskEventFeed } from "../components/RuntimePanels";
+import { DecisionDebugPanel } from "../components/RuntimePanels";
 import {
   FundingPanel,
   MarketList,
@@ -20,22 +20,32 @@ import { useConsoleData } from "../hooks/useConsoleData";
 
 const DEFAULT_SYMBOL = "BTC/USDT";
 const DEFAULT_PERP = "BTC/USDT:USDT";
+const DEFAULT_TIMEFRAME = "1m";
 
 export function PaperConsole() {
-  const [symbol, setSymbol] = useState(DEFAULT_SYMBOL);
-  const [perpSymbol, setPerpSymbol] = useState(DEFAULT_PERP);
-  const [timeframe, setTimeframe] = useState("1h");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const symbol = searchParams.get("symbol") || DEFAULT_SYMBOL;
+  const perpSymbol = searchParams.get("perp_symbol") || DEFAULT_PERP;
+  const timeframe = searchParams.get("timeframe") || DEFAULT_TIMEFRAME;
   const [actionMessage, setActionMessage] = useState("");
   const data = useConsoleData(symbol, perpSymbol, timeframe);
-  const mode = data.tradingStatus?.mode ?? "paper";
+  const mode = "paper";
   const latestPosition = useMemo(
     () => (data.overview?.positions ?? []).find((position) => position.symbol === symbol && Math.abs(Number(position.quantity)) > 0),
     [data.overview?.positions, symbol],
   );
+  const latestPrice = Number(data.snapshot?.perp_last_price ?? data.snapshot?.spot_last_price ?? data.latestKline?.close ?? 0);
+
+  const updateSelection = (next) => {
+    const params = new URLSearchParams(searchParams);
+    if (next.symbol) params.set("symbol", next.symbol);
+    if (next.perp_symbol) params.set("perp_symbol", next.perp_symbol);
+    if (next.timeframe) params.set("timeframe", next.timeframe);
+    setSearchParams(params, { replace: false });
+  };
 
   const handleSelectSymbol = (nextSymbol, nextPerpSymbol) => {
-    setSymbol(nextSymbol);
-    setPerpSymbol(nextPerpSymbol);
+    updateSelection({ symbol: nextSymbol, perp_symbol: nextPerpSymbol || `${nextSymbol}:USDT` });
   };
 
   const handleAction = async (type, payload = {}) => {
@@ -43,11 +53,11 @@ export function PaperConsole() {
     try {
       if (type === "manualOrder") {
         await request("/api/v1/execution/manual-orders", { method: "POST", body: JSON.stringify(payload) });
-        setActionMessage("手动订单已通过风控并写入审计。");
+        setActionMessage("Paper 订单已通过风控并写入审计。");
       }
       if (type === "closePosition") {
         await request("/api/v1/execution/close-position", { method: "POST", body: JSON.stringify(payload) });
-        setActionMessage("平仓请求已按 close-only / reduce-only 处理。");
+        setActionMessage("平仓请求已按 close-only 处理。");
       }
       if (type === "adjustLeverage") {
         await request("/api/v1/execution/adjust-leverage", { method: "POST", body: JSON.stringify(payload) });
@@ -86,20 +96,6 @@ export function PaperConsole() {
     }
   };
 
-  const handleResolveRisk = async (riskEventId, resolutionStatus) => {
-    if (!riskEventId) return;
-    try {
-      await request(`/api/v1/risk/events/${riskEventId}/resolution`, {
-        method: "PATCH",
-        body: JSON.stringify({ resolution_status: resolutionStatus }),
-      });
-      setActionMessage(resolutionStatus === "resolved" ? "风险事件已恢复。" : "风险事件已确认。");
-      await data.refresh();
-    } catch (err) {
-      setActionMessage(`风险事件操作失败：${err.message}`);
-    }
-  };
-
   return (
     <AppShell
       overview={data.overview}
@@ -114,48 +110,61 @@ export function PaperConsole() {
       <MarketHeader
         snapshot={data.snapshot}
         symbol={symbol}
-        setSymbol={setSymbol}
         perpSymbol={perpSymbol}
-        setPerpSymbol={setPerpSymbol}
         timeframe={timeframe}
-        setTimeframe={setTimeframe}
+        feedStatus={data.feedStatus}
+        onTimeframeChange={(nextTimeframe) => updateSelection({ timeframe: nextTimeframe })}
       />
       <section className="terminal-grid">
-        <div className="left-rail">
-          <OrderBookPanel orderBook={data.orderBook} snapshot={data.snapshot} />
-        </div>
-        <div className="center-stack">
-          <KlinePanel candles={data.candles} orders={data.overview?.orders} timeframe={timeframe} streamStatus={data.streamStatus} />
-          <TradingTicket symbol={symbol} mode={mode} latestPosition={latestPosition} onAction={handleAction} />
-        </div>
-        <div className="right-rail">
+        <div className="market-rail">
           <MarketList universe={data.universe} selectedSymbol={symbol} onSelect={handleSelectSymbol} />
-          <RecentTradesPanel trades={data.trades} symbol={symbol} />
+        </div>
+        <div className="chart-rail">
+          <KlinePanel
+            candles={data.candles}
+            latestKline={data.latestKline}
+            snapshotVersion={data.candleSnapshotVersion}
+            orders={data.overview?.orders}
+            symbol={symbol}
+            timeframe={timeframe}
+            streamStatus={data.streamStatus}
+          />
+          <section className="records-grid compact-records">
+            <PositionsTable positions={data.overview?.positions} />
+            <OrdersTable
+              orders={data.overview?.orders}
+              onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })}
+            />
+          </section>
+        </div>
+        <div className="book-rail">
+          <OrderBookPanel orderBook={data.orderBook} snapshot={data.snapshot} />
+          <RecentTradesPanel trades={data.trades} symbol={perpSymbol} />
+        </div>
+        <div className="ticket-rail">
+          <TradingTicket
+            symbol={symbol}
+            timeframe={timeframe}
+            mode={mode}
+            manualContext={data.manualContext}
+            latestPosition={latestPosition}
+            latestPrice={latestPrice}
+            onAction={handleAction}
+          />
         </div>
       </section>
       <section className="execution-grid">
-        <FundingPanel signal={data.fundingSignal} onBacktest={() => handleAction("carryBacktest", { strategy_id: "" })} />
         <RuntimeControlPanel
           streamStatus={data.streamStatus}
           tradingStatus={data.tradingStatus}
           onRunCycle={() => handleAction("runAllCycles")}
         />
-        <DecisionDebugPanel decisionTrace={data.decisionTrace} />
-        <RiskEventFeed events={data.overview?.risk_events} onResolve={handleResolveRisk} />
-      </section>
-      <section className="records-grid">
-        <OrdersTable
-          orders={data.overview?.orders}
-          onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })}
+        <FundingPanel
+          signal={data.fundingSignal}
+          onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })}
         />
-        <PositionsTable positions={data.overview?.positions} />
+        <DecisionDebugPanel decisionTrace={data.decisionTrace} />
       </section>
-      <OpsReviewPanel
-        newsItems={data.newsItems}
-        macroEvents={data.macroEvents}
-        reviews={data.reviews}
-        notifications={data.notifications}
-      />
     </AppShell>
   );
 }

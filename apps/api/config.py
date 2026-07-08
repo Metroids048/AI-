@@ -41,9 +41,9 @@ class Settings(BaseSettings):
     binance_use_testnet: bool = True
     live_trading_enabled: bool = False
     default_exchange: str = "binance"
-    binance_live_universe_enabled: bool = False
-    binance_live_market_enabled: bool = False
-    binance_live_ws_enabled: bool = False
+    binance_live_universe_enabled: bool = True
+    binance_live_market_enabled: bool = True
+    binance_live_ws_enabled: bool = True
     binance_live_ws_symbols: str = "BTC/USDT"
     binance_live_ws_timeframe: str = "1m"
 

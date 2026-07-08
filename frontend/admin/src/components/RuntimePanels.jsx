@@ -5,7 +5,7 @@ export function RiskEventFeed({ events, onResolve }) {
   return (
     <section className="exchange-panel risk-panel">
       <div className="panel-title">
-        <h2>风险事件</h2>
+        <h2>风控事件</h2>
         <span>{rows.length}</span>
       </div>
       <div className="risk-list">
@@ -29,7 +29,7 @@ export function RiskEventFeed({ events, onResolve }) {
             </article>
           ))
         ) : (
-          <div className="empty-list">暂无活跃风险事件</div>
+          <div className="empty-list">暂无活跃风控事件</div>
         )}
       </div>
     </section>

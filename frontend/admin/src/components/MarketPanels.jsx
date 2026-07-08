@@ -6,80 +6,71 @@ import { Metric } from "./Common";
 
 export const TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"];
 
-export function MarketHeader({ snapshot, symbol, setSymbol, perpSymbol, setPerpSymbol, timeframe, setTimeframe }) {
+export function MarketHeader({ snapshot, symbol, perpSymbol, timeframe, onTimeframeChange, feedStatus }) {
   const freshness = snapshot?.data_freshness ?? {};
   const delay =
     freshness.delay_seconds === null || freshness.delay_seconds === undefined
-      ? "缺失"
-      : `${Math.round(freshness.delay_seconds / 60)} 分钟`;
+      ? "--"
+      : `${Math.round(Number(freshness.delay_seconds) / 60)} 分钟`;
+  const feedLabel =
+    feedStatus?.status === "live"
+      ? "Binance WS"
+      : feedStatus?.status === "rest_polling"
+        ? "REST 轮询"
+        : "连接中";
 
   return (
     <section className="market-header exchange-panel">
       <div className="symbol-block">
-        <strong>{symbol}</strong>
-        <span>Binance / USDT 永续研究链路</span>
+        <strong>{perpSymbol}</strong>
+        <span>{symbol} / Binance USDT 永续 Paper</span>
       </div>
-      <div className="field-grid">
-        <label>
-          Spot
-          <input value={symbol} onChange={(event) => setSymbol(event.target.value)} />
-        </label>
-        <label>
-          Perp
-          <input value={perpSymbol} onChange={(event) => setPerpSymbol(event.target.value)} />
-        </label>
-        <label>
-          周期
-          <select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}>
-            {TIMEFRAMES.map((item) => (
-              <option key={item}>{item}</option>
-            ))}
-          </select>
-        </label>
+      <div className="timeframe-tabs" role="group" aria-label="K线周期">
+        {TIMEFRAMES.map((item) => (
+          <button
+            key={item}
+            type="button"
+            className={item === timeframe ? "active" : ""}
+            onClick={() => onTimeframeChange(item)}
+          >
+            {item}
+          </button>
+        ))}
       </div>
       <div className="quote-grid">
-        <Metric label="Spot 最新价" value={formatNumber(snapshot?.spot_last_price)} />
-        <Metric label="Perp 最新价" value={formatNumber(snapshot?.perp_last_price)} />
+        <Metric label="现货价格" value={formatNumber(snapshot?.spot_last_price)} />
+        <Metric label="永续价格" value={formatNumber(snapshot?.perp_last_price)} />
         <Metric label="基差" value={`${formatNumber(snapshot?.basis_bps, 2)} bps`} />
         <Metric label="资金费率" value={formatPercent(snapshot?.funding_rate)} />
-        <Metric label="下一次 Funding" value={formatTime(snapshot?.next_funding_at)} />
-        <Metric label="数据延迟" value={delay} />
+        <Metric label="下次 Funding" value={formatTime(snapshot?.next_funding_at)} />
+        <Metric label="行情源" value={`${feedLabel} / ${delay}`} />
       </div>
     </section>
   );
 }
 
-export function KlinePanel({ candles, orders, timeframe, streamStatus }) {
+export function KlinePanel({ candles, latestKline, snapshotVersion, orders, symbol, timeframe, streamStatus }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
   const priceLinesRef = useRef([]);
-  const chartData = useMemo(
-    () =>
-      (candles ?? [])
-        .map((item) => ({
-          time: Math.floor(new Date(item.time ?? item.timestamp).getTime() / 1000),
-          open: Number(item.open),
-          high: Number(item.high),
-          low: Number(item.low),
-          close: Number(item.close),
-        }))
-        .filter((item) => Number.isFinite(item.time) && Number.isFinite(item.close)),
-    [candles],
-  );
+  const initializedRef = useRef(false);
+  const chartData = useMemo(() => normalizeCandles(candles), [candles]);
+  const latestPoint = useMemo(() => normalizeCandle(latestKline), [latestKline]);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return undefined;
     const chart = createChart(container, {
       autoSize: true,
-      layout: { background: { color: "#0b1118" }, textColor: "#9aa7b6" },
+      layout: { background: { color: "#080d12" }, textColor: "#9aa7b6" },
       grid: {
-        vertLines: { color: "rgba(148, 163, 184, 0.10)" },
-        horzLines: { color: "rgba(148, 163, 184, 0.10)" },
+        vertLines: { color: "rgba(148, 163, 184, 0.08)" },
+        horzLines: { color: "rgba(148, 163, 184, 0.08)" },
       },
-      rightPriceScale: { borderColor: "rgba(148, 163, 184, 0.24)" },
-      timeScale: { borderColor: "rgba(148, 163, 184, 0.24)" },
+      rightPriceScale: { borderColor: "rgba(148, 163, 184, 0.20)" },
+      timeScale: { borderColor: "rgba(148, 163, 184, 0.20)" },
+      crosshair: { mode: 0 },
     });
     const series = chart.addSeries(CandlestickSeries, {
       upColor: "#16c784",
@@ -100,14 +91,21 @@ export function KlinePanel({ candles, orders, timeframe, streamStatus }) {
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      initializedRef.current = false;
     };
   }, []);
 
   useEffect(() => {
     if (!seriesRef.current || !chartRef.current) return;
     seriesRef.current.setData(chartData);
+    initializedRef.current = true;
     if (chartData.length) chartRef.current.timeScale().fitContent();
-  }, [chartData]);
+  }, [snapshotVersion]);
+
+  useEffect(() => {
+    if (!seriesRef.current || !latestPoint || !initializedRef.current) return;
+    seriesRef.current.update(latestPoint);
+  }, [latestPoint]);
 
   useEffect(() => {
     if (!seriesRef.current) return;
@@ -118,20 +116,20 @@ export function KlinePanel({ candles, orders, timeframe, streamStatus }) {
   }, [orders]);
 
   const rejectedOrders = (orders ?? []).filter((order) => order.execution_status === "rejected");
-  const streamLabel = streamStatus === "live" ? "实时连接" : streamStatus === "connecting" ? "连接中" : "REST 轮询";
+  const streamLabel = streamStatus === "live" ? "实时" : streamStatus === "connecting" ? "连接中" : "REST 轮询";
   return (
     <section className="exchange-panel kline-panel">
       <div className="panel-title">
-        <h2>K线图表</h2>
+        <h2>{symbol} K线</h2>
         <span>{timeframe} / {streamLabel}</span>
       </div>
       <div className="chart-box" ref={containerRef}>
         {!chartData.length ? <div className="empty-overlay">暂无 K 线数据</div> : null}
       </div>
       <div className="marker-strip">
-        <span>Funding 标记：market_extras</span>
-        <span>拒绝信号：{rejectedOrders.length}</span>
-        <span>成交标记：Paper/Testnet 审计</span>
+        <span>当前蜡烛：实时 update</span>
+        <span>拒单：{rejectedOrders.length}</span>
+        <span>SL/TP：审计价格线</span>
       </div>
     </section>
   );
@@ -164,4 +162,22 @@ export function buildRiskPriceLines(orders) {
     }
   }
   return lines;
+}
+
+function normalizeCandles(candles) {
+  return (candles ?? []).map(normalizeCandle).filter(Boolean);
+}
+
+function normalizeCandle(item) {
+  if (!item) return null;
+  const timestamp = item.time ?? item.timestamp;
+  const point = {
+    time: Math.floor(new Date(timestamp).getTime() / 1000),
+    open: Number(item.open),
+    high: Number(item.high),
+    low: Number(item.low),
+    close: Number(item.close),
+  };
+  if (!Number.isFinite(point.time) || !Number.isFinite(point.close)) return null;
+  return point;
 }

@@ -12,6 +12,13 @@ import {
   TradingTicket,
 } from "./TradingConsolePanels";
 
+const manualContext = {
+  strategy_id: "strategy-manual",
+  validation_backtest_run_id: "backtest-manual",
+  paper_run_id: "paper-manual",
+  warning: "Paper-only sandbox evidence; not eligible for Testnet or Live promotion.",
+};
+
 describe("Trading console panels", () => {
   it("renders Paper/Testnet runtime mode without exposing secrets", () => {
     render(
@@ -48,35 +55,43 @@ describe("Trading console panels", () => {
     fireEvent.click(screen.getByRole("button", { name: /ETH\/USDT/ }));
 
     expect(onSelect).toHaveBeenCalledWith("ETH/USDT", "ETH/USDT:USDT");
-    expect(screen.getByText("24h 涨跌")).toBeInTheDocument();
+    expect(screen.getByText("24h")).toBeInTheDocument();
   });
 
-  it("requires validation evidence and stoploss before open orders", () => {
+  it("uses automatic Paper evidence and stoploss before open orders", () => {
     const onAction = vi.fn();
     render(
       <TradingTicket
         symbol="BTC/USDT"
+        timeframe="1m"
         mode="paper"
+        manualContext={manualContext}
+        latestPrice={61000}
         latestPosition={{ symbol: "BTC/USDT", quantity: 0.01 }}
         onAction={onAction}
       />,
     );
 
-    expect(screen.getByRole("button", { name: "开多" })).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Strategy ID"), { target: { value: "strategy-1" } });
-    fireEvent.change(screen.getByLabelText("Backtest ID"), { target: { value: "backtest-1" } });
     fireEvent.change(screen.getByLabelText("数量"), { target: { value: "0.02" } });
-    fireEvent.change(screen.getByLabelText("订单类型"), { target: { value: "limit" } });
+    fireEvent.click(screen.getByRole("button", { name: "限价" }));
     fireEvent.change(screen.getByLabelText("限价"), { target: { value: "60000" } });
-    fireEvent.change(screen.getByLabelText("止损价"), { target: { value: "59000" } });
+    fireEvent.change(screen.getByLabelText("止损"), { target: { value: "59000" } });
     fireEvent.click(screen.getByRole("button", { name: "开多" }));
     fireEvent.click(screen.getByRole("button", { name: "开空" }));
     fireEvent.click(screen.getByRole("button", { name: "平仓" }));
-    fireEvent.click(screen.getByRole("button", { name: "调整杠杆" }));
+    fireEvent.click(screen.getByRole("button", { name: "调杠杆" }));
 
     expect(onAction).toHaveBeenCalledWith(
       "manualOrder",
-      expect.objectContaining({ direction: "long", order_type: "limit", limit_price: 60000, time_in_force: "GTC" }),
+      expect.objectContaining({
+        direction: "long",
+        order_type: "limit",
+        limit_price: 60000,
+        time_in_force: "GTC",
+        strategy_id: "strategy-manual",
+        validation_backtest_run_id: "backtest-manual",
+        timeframe: "1m",
+      }),
     );
     expect(onAction).toHaveBeenCalledWith("manualOrder", expect.objectContaining({ direction: "short" }));
     expect(onAction).toHaveBeenCalledWith("closePosition", expect.objectContaining({ symbol: "BTC/USDT" }));
@@ -89,22 +104,21 @@ describe("Trading console panels", () => {
         <OrderBookPanel
           snapshot={{ spot_last_price: "61000" }}
           orderBook={{
-            source: "binance_public_rest",
+            source: "binance_public_ws",
             bids: [{ price: "61000", quantity: "0.1", total: "0.1" }],
             asks: [{ price: "61010", quantity: "0.2", total: "0.2" }],
           }}
         />
         <RecentTradesPanel
-          symbol="BTC/USDT"
-          trades={{ source: "binance_public_rest", trades: [{ trade_id: "1", price: "61000", quantity: "0.01", side: "buy" }] }}
+          symbol="BTC/USDT:USDT"
+          trades={{ source: "binance_public_ws", trades: [{ trade_id: "1", price: "61000", quantity: "0.01", side: "buy" }] }}
         />
       </>,
     );
 
-    expect(screen.getByText("订单簿")).toBeInTheDocument();
-    expect(screen.getByText("Binance 实时深度")).toBeInTheDocument();
+    expect(screen.getByText("盘口")).toBeInTheDocument();
+    expect(screen.getAllByText("Binance WS")).toHaveLength(2);
     expect(screen.getByText("最新成交")).toBeInTheDocument();
-    expect(screen.getByText("Binance 实时成交")).toBeInTheDocument();
   });
 
   it("runs the automatic paper cycle from the console control", () => {
@@ -113,14 +127,14 @@ describe("Trading console panels", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "运行一次自动开平仓 cycle" }));
 
-    expect(screen.getByText("实时 K线已连接")).toBeInTheDocument();
+    expect(screen.getByText("实时行情已连接")).toBeInTheDocument();
     expect(onRunCycle).toHaveBeenCalledOnce();
   });
 
   it("renders automatic engine scheduler status", () => {
     render(<AutoEngineStatusBadge status={{ scheduler_running: true, scheduler_mode: "inprocess", next_cycle_eta_seconds: 42 }} />);
 
-    expect(screen.getByText("● 自动运行中")).toBeInTheDocument();
-    expect(screen.getByText("inprocess · 下次执行 00:42")).toBeInTheDocument();
+    expect(screen.getByText("自动运行中")).toBeInTheDocument();
+    expect(screen.getByText("inprocess / 下次 00:42")).toBeInTheDocument();
   });
 });

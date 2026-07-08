@@ -76,7 +76,7 @@ class ManualTradingService:
                 "requested_notional": abs(position.quantity) * request.reference_price,
                 "close_only_mode": True,
                 "manual_order_mode": request.mode,
-                "timeframe": "1h",
+                "timeframe": request.timeframe,
             },
             stoploss_plan={},
             risk_state=ExecutionRiskState(
@@ -171,6 +171,8 @@ class ManualTradingService:
 
     def _order_request_from_manual(self, request: ManualOrderRequest) -> ExecutionOrderRequest:
         requested_notional = request.quantity * request.reference_price
+        run_type = "paper" if request.mode == "paper" else "live"
+        run_id = request.paper_run_id or request.live_run_id or "manual"
         return ExecutionOrderRequest(
             strategy_id=request.strategy_id,
             version_id=request.version_id,
@@ -189,14 +191,14 @@ class ManualTradingService:
                 "requested_notional": requested_notional,
                 "requested_leverage": request.leverage,
                 "manual_order_mode": request.mode,
-                "timeframe": "1h",
+                "timeframe": request.timeframe,
             },
             stoploss_plan=({"price": request.stoploss_price} if request.stoploss_price is not None else {}),
             takeprofit_plan=({"price": request.takeprofit_price} if request.takeprofit_price is not None else {}),
             risk_state=ExecutionRiskState(
                 account_equity=request.account_equity,
                 equity_peak=request.account_equity,
-                open_positions=len(self.execution_repo.list_positions()),
+                open_positions=self._open_position_count(run_type=run_type, run_id=run_id),
                 requested_notional=requested_notional,
                 requested_leverage=request.leverage,
             ),
@@ -255,3 +257,10 @@ class ManualTradingService:
             if position.symbol == symbol and abs(position.quantity) > 0:
                 return position
         return None
+
+    def _open_position_count(self, *, run_type: str, run_id: str) -> int:
+        return sum(
+            1
+            for position in self.execution_repo.list_latest_positions_for_run(run_type=run_type, run_id=run_id)
+            if abs(position.quantity) > 0
+        )
