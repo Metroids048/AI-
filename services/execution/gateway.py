@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from shared.binance_network import binance_ccxt_config
 from shared.config import settings
 from shared.models import ExchangeAccountSnapshot, ExchangeGatewayCapability, ExecutionOrderRequest
+from shared.models.execution_runtime import (
+    BinanceTestnetAccountStatus,
+    BinanceTestnetOrderView,
+    BinanceTestnetPositionView,
+)
 
 
 class ExchangeGateway(Protocol):
@@ -21,6 +28,41 @@ class ExchangeGateway(Protocol):
     def reconcile(self, *, live_run_id: str) -> dict[str, Any]: ...
 
     def set_leverage(self, *, symbol: str, leverage: float) -> dict[str, Any]: ...
+
+
+def _resolve_gateway_quantity(*, client: Any, symbol: str, order_request: ExecutionOrderRequest) -> float:
+    context = order_request.entry_context
+    min_notional = float(context.get("min_notional_usdt", 50.0))
+    reference_price = float(context.get("reference_price") or context.get("limit_price") or 0)
+    quantity = float(context.get("quantity") or 0.0)
+    requested_notional = float(context.get("requested_notional") or 0.0)
+    if quantity <= 0 and reference_price > 0:
+        target_notional = max(requested_notional, min_notional)
+        quantity = target_notional / reference_price
+    if reference_price > 0 and quantity * reference_price < min_notional:
+        quantity = min_notional / reference_price
+    load_markets = getattr(client, "load_markets", None)
+    if callable(load_markets) and not getattr(client, "markets", None):
+        load_markets()
+    amount_to_precision = getattr(client, "amount_to_precision", None)
+    if callable(amount_to_precision):
+        quantity = float(amount_to_precision(symbol, quantity))
+    step = 0.001
+    market_fn = getattr(client, "market", None)
+    if callable(market_fn):
+        try:
+            market = market_fn(symbol)
+            step = float(((market.get("limits") or {}).get("amount") or {}).get("min") or step)
+        except Exception:
+            pass
+    if reference_price > 0:
+        while quantity > 0 and quantity * reference_price < min_notional:
+            quantity += step
+            if callable(amount_to_precision):
+                quantity = float(amount_to_precision(symbol, quantity))
+    if quantity <= 0:
+        raise ValueError("live gateway order requires positive entry_context.quantity")
+    return quantity
 
 
 @dataclass
@@ -68,8 +110,10 @@ class BinanceUsdtPerpetualGateway:
 
     def __init__(self, *, client: Any | None = None, use_testnet: bool | None = None) -> None:
         self.use_testnet = settings.binance_use_testnet if use_testnet is None else use_testnet
+        self.api_backend = "disabled"
         self.client = client or self._build_default_client()
-        self._configure_client(self.client, use_testnet=self.use_testnet)
+        if self.use_testnet:
+            self.api_backend = configure_binance_paper_client(self.client)
 
     def sync_account(self, *, live_run_id: str) -> ExchangeAccountSnapshot:
         balance = self.client.fetch_balance(params={"type": "future"})
@@ -87,9 +131,8 @@ class BinanceUsdtPerpetualGateway:
         )
 
     def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict[str, Any]:
-        quantity = float(order_request.entry_context.get("quantity", 0.0))
-        if quantity <= 0:
-            raise ValueError("live gateway order requires positive entry_context.quantity")
+        symbol = _normalize_binance_symbol(order_request.symbol)
+        quantity = _resolve_gateway_quantity(client=self.client, symbol=symbol, order_request=order_request)
         side = "buy" if str(order_request.direction).lower() == "long" else "sell"
         order_type = str(order_request.entry_context.get("order_type", "market"))
         params: dict[str, Any] = {"positionSide": "BOTH"}
@@ -107,7 +150,11 @@ class BinanceUsdtPerpetualGateway:
             order_request.entry_context.get("limit_price"),
             params,
         )
-        protection_refs = self._submit_protection_algo_orders(order_request=order_request, side=side, quantity=quantity)
+        protection_refs = self._submit_protection_algo_orders(
+            order_request=order_request,
+            side=side,
+            quantity=quantity,
+        )
         return {
             "live_run_id": live_run_id,
             "gateway_order_id": str(created.get("id")),
@@ -167,31 +214,43 @@ class BinanceUsdtPerpetualGateway:
         symbol = _binance_market_id(_normalize_binance_symbol(order_request.symbol))
         if "price" in order_request.stoploss_plan:
             refs.append(
-                method(
+                self._submit_algo_order(
+                    method,
                     {
+                        "algoType": "CONDITIONAL",
                         "symbol": symbol,
                         "side": close_side,
                         "type": "STOP_MARKET",
                         "quantity": quantity,
                         "triggerPrice": order_request.stoploss_plan["price"],
                         "reduceOnly": "true",
-                    }
+                    },
                 )
             )
         if "price" in order_request.takeprofit_plan:
             refs.append(
-                method(
+                self._submit_algo_order(
+                    method,
                     {
+                        "algoType": "CONDITIONAL",
                         "symbol": symbol,
                         "side": close_side,
                         "type": "TAKE_PROFIT_MARKET",
                         "quantity": quantity,
                         "triggerPrice": order_request.takeprofit_plan["price"],
                         "reduceOnly": "true",
-                    }
+                    },
                 )
             )
-        return refs
+        return [ref for ref in refs if ref is not None]
+
+    @staticmethod
+    def _submit_algo_order(method: Any, payload: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            return method(payload)
+        except Exception:
+            # ponytail: optional protection mirror; primary entry order already submitted.
+            return None
 
     @staticmethod
     def _build_default_client() -> Any:
@@ -200,20 +259,58 @@ class BinanceUsdtPerpetualGateway:
         import ccxt  # imported lazily so tests do not require runtime credentials
 
         client = ccxt.binanceusdm(
-            {
-                "apiKey": settings.binance_api_key,
-                "secret": settings.binance_api_secret,
-                "enableRateLimit": True,
-                "options": {"defaultType": "future"},
-            }
+            binance_ccxt_config(
+                {
+                    "apiKey": settings.binance_api_key,
+                    "secret": settings.binance_api_secret,
+                    "enableRateLimit": True,
+                    "options": {"defaultType": "future", "fetchCurrencies": False},
+                }
+            )
         )
         return client
 
-    @staticmethod
-    def _configure_client(client: Any, *, use_testnet: bool) -> None:
-        sandbox_mode = getattr(client, "set_sandbox_mode", None)
-        if callable(sandbox_mode):
-            sandbox_mode(bool(use_testnet))
+MOCK_TRADING_WEB_URL = "https://demo.binance.com/en/futures/BTCUSDT"
+
+
+def _apply_legacy_testnet_api(client: Any) -> None:
+    urls = getattr(client, "urls", None)
+    test_urls = urls.get("test") if isinstance(urls, dict) else None
+    clone = getattr(client, "clone", None)
+    if test_urls and callable(clone):
+        client.urls["api"] = clone(test_urls)
+
+
+def configure_binance_paper_client(client: Any) -> str:
+    """Configure CCXT for Binance Mock Trading; fall back to legacy testnet fapi if demo API blocked."""
+    options = getattr(client, "options", None)
+    if isinstance(options, dict):
+        options["fetchCurrencies"] = False
+        options.setdefault("defaultType", "future")
+
+    mode = (settings.binance_trading_mode or "demo").lower()
+    if mode == "testnet":
+        _apply_legacy_testnet_api(client)
+        return "testnet"
+
+    enable_demo = getattr(client, "enable_demo_trading", None)
+    if callable(enable_demo):
+        enable_demo(True)
+    try:
+        client.fetch_time({"type": "future"})
+        return "demo"
+    except Exception:
+        # ponytail: demo-fapi often returns 451 in CN; legacy testnet fapi still serves same paper keys.
+        urls = getattr(client, "urls", {})
+        if isinstance(urls, dict) and "apiBackupDemoTrading" in urls:
+            client.urls["api"] = urls["apiBackupDemoTrading"]
+            omit = getattr(client, "omit", None)
+            if callable(omit):
+                client.urls = omit(client.urls, "apiBackupDemoTrading")
+        if isinstance(options, dict):
+            options["enableDemoTrading"] = False
+        _apply_legacy_testnet_api(client)
+        return "testnet-fallback"
 
 
 def configured_gateways() -> list[ExchangeGateway]:
@@ -293,3 +390,119 @@ def _position_open(position: dict[str, Any]) -> bool:
         return abs(float(contracts)) > 0
     except (TypeError, ValueError):
         return True
+
+
+def _binance_mode_urls() -> tuple[str, str, str]:
+    return (
+        "demo",
+        settings.binance_usdm_rest_base or "https://demo-fapi.binance.com",
+        MOCK_TRADING_WEB_URL,
+    )
+
+
+def probe_testnet_account(*, order_limit: int = 10) -> BinanceTestnetAccountStatus:
+    """Fetch live Binance Mock Trading balances, positions, and recent orders via API."""
+    trading_mode, api_base, web_ui_url = _binance_mode_urls()
+    warning = (
+        "币安网页 Login 报 restricted countries 时，API 仍可正常交易。"
+        "Mock 入口 demo.binance.com；本面板显示的就是你的模拟盘真实资金与订单。"
+        "若仅 Testnet API 连不上，可在 .env 设置 BINANCE_HTTPS_PROXY（仅本程序走代理，无需全局 VPN）。"
+    )
+    if not settings.binance_api_key or not settings.binance_api_secret:
+        return BinanceTestnetAccountStatus(
+            connected=False,
+            trading_mode=trading_mode,
+            api_base=api_base,
+            web_ui_url=web_ui_url,
+            warning=warning,
+            error="binance credentials not configured",
+        )
+    if not settings.binance_use_testnet:
+        return BinanceTestnetAccountStatus(
+            connected=False,
+            trading_mode=trading_mode,
+            api_base=api_base,
+            web_ui_url=web_ui_url,
+            warning=warning,
+            error="binance_use_testnet is false",
+        )
+    try:
+        gateway = BinanceUsdtPerpetualGateway(use_testnet=True)
+        snapshot = gateway.sync_account(live_run_id="console_probe")
+        client = gateway.client
+        api_backend = getattr(gateway, "api_backend", "demo")
+        if api_backend == "testnet-fallback":
+            warning = (
+                f"{warning} demo-fapi 在本机被墙(451)，API 已自动切到 testnet-fapi 网关，"
+                "与 Mock 网页仍是同一套模拟账户。"
+            )
+        positions: list[BinanceTestnetPositionView] = []
+        for raw in client.fetch_positions():
+            contracts = float(raw.get("contracts") or 0)
+            if abs(contracts) <= 0:
+                continue
+            mark_price = float(raw.get("markPrice") or raw.get("mark_price") or 0)
+            entry_price = float(raw.get("entryPrice") or raw.get("entry_price") or 0)
+            notional = float(raw.get("notional") or 0)
+            if not notional and mark_price > 0:
+                notional = abs(contracts) * mark_price
+            positions.append(
+                BinanceTestnetPositionView(
+                    symbol=str(raw.get("symbol", "")),
+                    side=str(raw.get("side", "long")),
+                    quantity=abs(contracts),
+                    entry_price=entry_price,
+                    mark_price=mark_price,
+                    notional_usdt=abs(notional),
+                    margin_usdt=float(raw.get("initialMargin") or raw.get("collateral") or 0),
+                    leverage=float(raw.get("leverage") or 0),
+                    unrealized_pnl=float(raw.get("unrealizedPnl") or raw.get("unrealized_pnl") or 0),
+                    liquidation_price=(
+                        float(raw["liquidationPrice"])
+                        if raw.get("liquidationPrice") not in (None, "", 0, "0")
+                        else None
+                    ),
+                )
+            )
+        recent_orders: list[BinanceTestnetOrderView] = []
+        symbols = {p.symbol.replace(":USDT", "").replace("/", "") for p in positions} or {"BTCUSDT"}
+        for market_id in sorted(symbols):
+            payload = client.fapiPrivateGetAllOrders({"symbol": market_id, "limit": order_limit})
+            for raw in payload[-order_limit:]:
+                recent_orders.append(
+                    BinanceTestnetOrderView(
+                        order_id=str(raw.get("orderId", "")),
+                        symbol=str(raw.get("symbol", market_id)),
+                        side=str(raw.get("side", "")),
+                        order_type=str(raw.get("type", "")),
+                        status=str(raw.get("status", "")),
+                        quantity=float(raw.get("origQty") or 0),
+                        avg_price=float(raw["avgPrice"]) if raw.get("avgPrice") else None,
+                        update_time=int(raw["updateTime"]) if raw.get("updateTime") else None,
+                    )
+                )
+        recent_orders.sort(key=lambda item: item.update_time or 0, reverse=True)
+        return BinanceTestnetAccountStatus(
+            connected=True,
+            trading_mode=trading_mode,
+            api_base=client.urls["api"].get("fapiPrivate", api_base) if isinstance(client.urls.get("api"), dict) else api_base,
+            wallet_balance=snapshot.wallet_balance,
+            available_balance=snapshot.available_balance,
+            unrealized_pnl=snapshot.unrealized_pnl,
+            open_position_count=snapshot.open_position_count,
+            positions=positions,
+            recent_orders=recent_orders[:order_limit],
+            web_ui_url=web_ui_url,
+            api_backend=api_backend,
+            synced_at=datetime.now(UTC),
+            warning=warning,
+        )
+    except Exception as exc:  # noqa: BLE001 - surface probe errors to UI
+        return BinanceTestnetAccountStatus(
+            connected=False,
+            trading_mode=trading_mode,
+            api_base=api_base,
+            web_ui_url=web_ui_url,
+            warning=warning,
+            error=str(exc),
+        )

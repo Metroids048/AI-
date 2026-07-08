@@ -20,6 +20,7 @@ from services.strategy_library import (
     ReviewRepository,
     StrategyRepository,
 )
+from shared.config import settings
 from shared.models import (
     ExecutionOrderRequest,
     FailureRecord,
@@ -202,6 +203,29 @@ class PaperRuntimeService:
                         )
                         order = self.gatekeeper.submit_order(close_order)
                         if order.execution_status == "accepted":
+                            if self._should_execute_on_binance(paper_run):
+                                order = self._ensure_binance_execution(
+                                    paper_run=paper_run,
+                                    order=order,
+                                    order_request=close_order,
+                                    position=current_position,
+                                )
+                                if order.execution_status != "accepted":
+                                    rejected_orders += 1
+                                    actions.append(
+                                        PaperRuntimeAction(
+                                            symbol=symbol,
+                                            action="rejected",
+                                            direction=current_position.side,
+                                            reason=order.rejection_reason,
+                                            order_execution_id=order.order_execution_id,
+                                            reference_price=trigger.price,
+                                            close_only=True,
+                                            idempotency_key=cycle_key,
+                                            decision_trace=decision_trace,
+                                        )
+                                    )
+                                    continue
                             order = self._fill_order(order=order, cycle_time=cycle_time)
                             realized = self._close_position(
                                 paper_run_id=paper_run_id,
@@ -209,7 +233,8 @@ class PaperRuntimeService:
                                 mark_price=trigger.price,
                                 cycle_time=cycle_time,
                             )
-                            self._maybe_mirror_to_gateway(
+                            if not self._should_execute_on_binance(paper_run):
+                                self._maybe_mirror_to_gateway(
                                 paper_run=paper_run,
                                 order=order,
                                 order_request=close_order,
@@ -287,6 +312,29 @@ class PaperRuntimeService:
                     )
                     order = self.gatekeeper.submit_order(close_order)
                     if order.execution_status == "accepted":
+                        if self._should_execute_on_binance(paper_run):
+                            order = self._ensure_binance_execution(
+                                paper_run=paper_run,
+                                order=order,
+                                order_request=close_order,
+                                position=current_position,
+                            )
+                            if order.execution_status != "accepted":
+                                rejected_orders += 1
+                                actions.append(
+                                    PaperRuntimeAction(
+                                        symbol=symbol,
+                                        action="rejected",
+                                        direction=current_position.side,
+                                        reason=order.rejection_reason,
+                                        order_execution_id=order.order_execution_id,
+                                        reference_price=reference_price,
+                                        close_only=True,
+                                        idempotency_key=cycle_key,
+                                        decision_trace=decision_trace,
+                                    )
+                                )
+                                continue
                         order = self._fill_order(order=order, cycle_time=cycle_time)
                         realized = self._close_position(
                             paper_run_id=paper_run_id,
@@ -300,7 +348,8 @@ class PaperRuntimeService:
                         consecutive_losses = consecutive_losses + 1 if realized < 0 else 0
                         closed_positions += 1
                         active_positions.pop(symbol, None)
-                        self._maybe_mirror_to_gateway(
+                        if not self._should_execute_on_binance(paper_run):
+                            self._maybe_mirror_to_gateway(
                             paper_run=paper_run,
                             order=order,
                             order_request=close_order,
@@ -370,13 +419,37 @@ class PaperRuntimeService:
                 )
                 continue
 
+            if self._should_execute_on_binance(paper_run):
+                order = self._ensure_binance_execution(
+                    paper_run=paper_run,
+                    order=order,
+                    order_request=base_order,
+                    position=None,
+                )
+                if order.execution_status != "accepted":
+                    rejected_orders += 1
+                    actions.append(
+                        PaperRuntimeAction(
+                            symbol=symbol,
+                            action="rejected",
+                            direction=base_order.direction,
+                            reason=order.rejection_reason,
+                            order_execution_id=order.order_execution_id,
+                            reference_price=reference_price,
+                            idempotency_key=cycle_key,
+                            decision_trace=decision_trace,
+                        )
+                    )
+                    continue
+
             order = self._fill_order(order=order, cycle_time=cycle_time)
             position = self._open_position(
                 paper_run_id=paper_run_id,
                 order=order,
                 cycle_time=cycle_time,
             )
-            self._maybe_mirror_to_gateway(paper_run=paper_run, order=order, order_request=base_order, position=position)
+            if not self._should_execute_on_binance(paper_run):
+                self._maybe_mirror_to_gateway(paper_run=paper_run, order=order, order_request=base_order, position=position)
             active_positions[symbol] = position
             opened_positions += 1
             actions.append(
@@ -661,6 +734,65 @@ class PaperRuntimeService:
             },
         )
 
+    def _should_execute_on_binance(self, paper_run: PaperRun) -> bool:
+        return (
+            bool(paper_run.execution_profile.get("mirror_to_gateway", False))
+            and settings.binance_auto_execute
+            and self.gateway is not None
+        )
+
+    def _ensure_binance_execution(
+        self,
+        *,
+        paper_run: PaperRun,
+        order: OrderExecution,
+        order_request: ExecutionOrderRequest,
+        position: PositionSnapshot | None,
+    ) -> OrderExecution:
+        if not self._should_execute_on_binance(paper_run):
+            return order
+        try:
+            mirror_request = self._gateway_order_request(order_request=order_request, position=position)
+            gateway_result = self.gateway.submit_order(
+                live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}",
+                order_request=mirror_request,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._record_gateway_mirror_failure(paper_run=paper_run, order=order, exc=exc)
+            return (
+                self.execution_repo.update_order(
+                    order.order_execution_id or "",
+                    lifecycle_history=[
+                        *order.lifecycle_history,
+                        {
+                            "at": datetime.now(UTC).isoformat(),
+                            "status": "gateway_failed",
+                            "event": "binance_auto_execute",
+                            "error": str(exc),
+                        },
+                    ],
+                )
+                or order
+            )
+        return (
+            self.execution_repo.update_order(
+                order.order_execution_id or "",
+                gateway_name=getattr(self.gateway.capability, "gateway_name", "gateway_mirror"),
+                gateway_order_id=gateway_result.get("gateway_order_id"),
+                gateway_status=gateway_result.get("gateway_status", "submitted"),
+                lifecycle_history=[
+                    *order.lifecycle_history,
+                    {
+                        "at": datetime.now(UTC).isoformat(),
+                        "status": gateway_result.get("gateway_status", "submitted"),
+                        "event": "binance_auto_execute",
+                    },
+                ],
+                last_gateway_update_at=datetime.now(UTC),
+            )
+            or order
+        )
+
     def _maybe_mirror_to_gateway(
         self,
         *,
@@ -669,6 +801,8 @@ class PaperRuntimeService:
         order_request: ExecutionOrderRequest,
         position: PositionSnapshot,
     ) -> None:
+        if self._should_execute_on_binance(paper_run):
+            return
         if not bool(paper_run.execution_profile.get("mirror_to_gateway", False)):
             return
         if self.gateway is None:
@@ -699,25 +833,33 @@ class PaperRuntimeService:
         )
 
     @staticmethod
-    def _gateway_mirror_request(
+    def _gateway_order_request(
         *,
         order_request: ExecutionOrderRequest,
-        position: PositionSnapshot,
+        position: PositionSnapshot | None,
     ) -> ExecutionOrderRequest:
         context = dict(order_request.entry_context)
         close_only = bool(context.get("close_only_mode", False))
-        reference_price = float(context.get("reference_price") or position.mark_price or position.entry_price)
-        quantity = abs(position.quantity)
-        if not close_only:
+        reference_price = float(context.get("reference_price") or 0)
+        if position is not None:
+            reference_price = float(
+                context.get("reference_price") or position.mark_price or position.entry_price or reference_price
+            )
+        if close_only and position is not None:
+            quantity = abs(position.quantity)
+            direction = TradeSide.SHORT if position.side == TradeSide.LONG else TradeSide.LONG
+        else:
+            quantity = float(context.get("quantity") or 0)
             requested_notional = float(context.get("requested_notional") or 0.0)
             if quantity <= 0 and reference_price > 0 and requested_notional > 0:
                 quantity = requested_notional / reference_price
+            direction = order_request.direction
+            min_notional = float(context.get("min_notional_usdt", 50.0))
+            if reference_price > 0 and quantity * reference_price < min_notional:
+                quantity = min_notional / reference_price
         context["quantity"] = quantity
         if close_only:
             context["reduce_only"] = True
-            direction = TradeSide.SHORT if position.side == TradeSide.LONG else TradeSide.LONG
-        else:
-            direction = order_request.direction
         return order_request.model_copy(
             update={
                 "direction": direction,
@@ -726,6 +868,13 @@ class PaperRuntimeService:
                 "live_run_id": None,
             }
         )
+
+    def _gateway_mirror_request(
+        *,
+        order_request: ExecutionOrderRequest,
+        position: PositionSnapshot,
+    ) -> ExecutionOrderRequest:
+        return PaperRuntimeService._gateway_order_request(order_request=order_request, position=position)
 
     def _record_gateway_mirror_failure(
         self,
@@ -752,12 +901,13 @@ class PaperRuntimeService:
         )
 
     def _fill_order(self, *, order: OrderExecution, cycle_time: datetime) -> OrderExecution:
+        gateway_name = order.gateway_name or "paper_runtime"
         return (
             self.execution_repo.update_order(
                 order.order_execution_id or "",
                 execution_status="filled",
-                gateway_name="paper_runtime",
-                gateway_status="filled",
+                gateway_name=gateway_name,
+                gateway_status=order.gateway_status or "filled",
                 lifecycle_history=[
                     *order.lifecycle_history,
                     {

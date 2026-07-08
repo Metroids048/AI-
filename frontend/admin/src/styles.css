@@ -389,6 +389,130 @@ h2 {
   font-size: 14px;
 }
 
+.mode-banner-note {
+  grid-column: 1 / -1;
+  border: 1px solid #4a3a1f;
+  background: #1a1408;
+  color: #f0c674;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.panel-warning {
+  color: #f0c674;
+  font-size: 12px;
+  margin: 0 0 8px;
+  line-height: 1.45;
+}
+
+.panel-hint {
+  color: #8c99a6;
+  font-size: 12px;
+  margin: 0 0 8px;
+  line-height: 1.45;
+}
+
+.panel-hint a {
+  color: #58a6ff;
+  word-break: break-all;
+}
+
+.panel-error {
+  color: #ff6b6b;
+  font-size: 12px;
+  margin: 0 0 8px;
+}
+
+.subpanel-title {
+  margin: 10px 0 6px;
+  color: #8c99a6;
+  font-size: 12px;
+}
+
+.compact-table-row.four {
+  display: grid;
+  grid-template-columns: 1.2fr 0.6fr 0.6fr 0.6fr;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid #1a222c;
+}
+
+.binance-sync-hero {
+  border: 1px solid #202a35;
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+
+.binance-sync-hero.ok {
+  border-color: #1f4d2e;
+  background: linear-gradient(180deg, #0f1f16 0%, #0d141b 100%);
+}
+
+.binance-sync-hero.error {
+  border-color: #5c2b2b;
+  background: #1a0f0f;
+}
+
+.binance-sync-hero.loading {
+  background: #0d141b;
+  color: #8c99a6;
+}
+
+.binance-sync-hero-main strong {
+  display: block;
+  color: #3ddc84;
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+
+.binance-sync-hero-main span {
+  color: #d7dee5;
+  font-size: 13px;
+}
+
+.binance-sync-hero-note {
+  margin: 8px 0 0;
+  color: #f0c674;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.binance-sync-hero-note em {
+  color: #ff8a8a;
+  font-style: normal;
+}
+
+.compact-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.compact-table th,
+.compact-table td {
+  border-bottom: 1px solid #2b3644;
+  padding: 6px 4px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.compact-table th {
+  color: #8c99a6;
+  font-weight: 500;
+}
+
+.compact-table td.positive {
+  color: #16c784;
+}
+
+.compact-table td.negative {
+  color: #ea3943;
+}
+
 .market-header {
   display: grid;
   grid-template-columns: minmax(220px, 0.45fr) minmax(320px, 0.65fr) minmax(520px, 1.75fr);

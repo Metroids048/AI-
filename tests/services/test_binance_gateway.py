@@ -6,12 +6,18 @@ from shared.models import ExecutionOrderRequest
 
 class StubCcxtClient:
     def __init__(self) -> None:
-        self.sandbox_mode_calls: list[bool] = []
         self.leverage_calls: list[tuple[int, str]] = []
         self.algo_orders: list[dict] = []
+        self.urls = {
+            "test": {"fapiPrivate": "https://testnet.binancefuture.com/fapi/v1"},
+            "api": {"fapiPrivate": "https://fapi.binance.com/fapi/v1"},
+        }
 
-    def set_sandbox_mode(self, enabled: bool) -> None:
-        self.sandbox_mode_calls.append(enabled)
+    def clone(self, value):  # noqa: ANN001
+        return dict(value)
+
+    def fetch_time(self, params=None):  # noqa: ANN001
+        raise RuntimeError("demo blocked")
 
     def fetch_balance(self, params=None):  # noqa: ANN001
         assert params == {"type": "future"}
@@ -70,9 +76,10 @@ def test_binance_gateway_maps_account_order_cancel_and_reconcile() -> None:
 
     assert snapshot.wallet_balance == 1200.0
     assert snapshot.open_position_count == 1
-    assert client.sandbox_mode_calls == [True]
+    assert client.urls["api"]["fapiPrivate"] == "https://testnet.binancefuture.com/fapi/v1"
     assert submitted["gateway_order_id"] == "binance-order-1"
     assert len(submitted["protection_order_refs"]) == 2
+    assert client.algo_orders[0]["algoType"] == "CONDITIONAL"
     assert client.algo_orders[0]["type"] == "STOP_MARKET"
     assert client.algo_orders[1]["type"] == "TAKE_PROFIT_MARKET"
     assert leverage["gateway_status"] == "acknowledged"

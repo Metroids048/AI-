@@ -13,6 +13,7 @@ from services.strategy_library import (
     ReviewRepository,
     StrategyRepository,
 )
+from shared.config import settings
 from shared.models import (
     DecisionVetoResult,
     ExecutionOrderRequest,
@@ -100,6 +101,7 @@ class PaperSignalGenerator:
             version_id=paper_run.version_id,
             symbol=symbol,
             direction=direction,
+            risk_profile_id=paper_run.execution_profile.get("risk_profile_id"),
             entry_context={
                 "timeframe": timeframe,
                 "paper_signal_source": "paper_signal_generator",
@@ -107,6 +109,9 @@ class PaperSignalGenerator:
                 "reference_price": str(reference_price),
                 "requested_notional": requested_notional,
                 "requested_leverage": requested_leverage,
+                "min_notional_usdt": float(
+                    strategy.rules.position_rules.get("min_notional_usdt", 50.0)
+                ),
                 "decision_pipeline": decision.trace,
                 "decision_reason": decision.reason,
                 "decision_bar_time": decision.bar_time.isoformat() if decision.bar_time else None,
@@ -166,6 +171,7 @@ class PaperSignalGenerator:
             symbol=symbol,
             timeframe=timeframe,
             enable_decision_veto=request.enable_decision_veto,
+            relaxed_signals=settings.paper_runtime_relaxed_signals,
         )
 
     def _risk_prices(

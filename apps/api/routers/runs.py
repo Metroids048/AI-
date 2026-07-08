@@ -20,6 +20,7 @@ from services.execution import (
     PaperSignalGenerator,
     configured_gateways,
 )
+from services.execution.gateway import probe_testnet_account
 from services.execution.manual_context import ManualTradingContextService
 from services.execution.scheduler import runtime_scheduler_status
 from services.strategy_library import (
@@ -36,6 +37,7 @@ from services.strategy_library import (
 from services.validation.admission import ValidationAdmissionService
 from shared.models import (
     AdjustLeverageRequest,
+    BinanceTestnetAccountStatus,
     CancelOrderRequest,
     ClosePositionRequest,
     CollectionResponse,
@@ -156,6 +158,12 @@ def get_trading_status() -> TradingRuntimeStatus:
         live_feed_status=live_feed_bus.status(),
         notes=notes,
     )
+
+
+@router.get("/binance-testnet-account", response_model=BinanceTestnetAccountStatus)
+def get_binance_testnet_account() -> BinanceTestnetAccountStatus:
+    """Live Testnet account probe — use this when Binance web UI is geo-blocked."""
+    return probe_testnet_account()
 
 
 @router.get("/manual-trading-context", response_model=ManualTradingContext)

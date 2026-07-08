@@ -54,7 +54,12 @@ celery_app.conf.beat_schedule = {
     "paper-runtime-cycle-every-5-minutes": {
         "task": "services.execution.tasks.run_all_paper_runtime_cycles",
         "schedule": float(settings.paper_runtime_cycle_seconds),
-        "kwargs": {"request_payload": {"timeframe": "1m", "enable_decision_veto": True}},
+        "kwargs": {
+            "request_payload": {
+                "timeframe": "1m",
+                "enable_decision_veto": settings.paper_runtime_enable_decision_veto,
+            }
+        },
     },
     "market-data-heartbeat-every-minute": {
         "task": "services.data.tasks.market_data_heartbeat",

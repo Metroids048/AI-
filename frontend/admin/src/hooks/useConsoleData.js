@@ -23,6 +23,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     orderBook: null,
     trades: null,
     decisionTrace: null,
+    testnetAccount: null,
     feedStatus: null,
     streamStatus: "connecting",
     error: "",
@@ -144,6 +145,11 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
       { showLoaded: false },
     );
     run(
+      "/api/v1/execution/binance-testnet-account",
+      (current, payload) => ({ ...current, testnetAccount: payload ?? current.testnetAccount }),
+      { showLoaded: false },
+    );
+    run(
       `/api/v1/market/funding-arbitrage-signal?${params.toString()}`,
       (current, payload) => ({ ...current, fundingSignal: payload ?? current.fundingSignal }),
       { showLoaded: false },
@@ -160,6 +166,17 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     const timer = window.setInterval(refresh, interval);
     return () => window.clearInterval(timer);
   }, [refresh, state.streamStatus]);
+
+  useEffect(() => {
+    const pollBinance = () => {
+      request("/api/v1/execution/binance-testnet-account")
+        .then((payload) => setState((current) => ({ ...current, testnetAccount: payload ?? current.testnetAccount })))
+        .catch(() => undefined);
+    };
+    pollBinance();
+    const timer = window.setInterval(pollBinance, 5000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!("WebSocket" in window)) {

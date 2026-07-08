@@ -14,6 +14,150 @@ export function ModeBanner({ status }) {
       <div><span>安全边界</span><strong>{testnetLabel}</strong></div>
       <div><span>真实交易</span><strong>{liveLabel}</strong></div>
       <div><span>交易网关</span><strong>{gatewayLabel}</strong></div>
+      <div className="mode-banner-note">
+        Mock Trading 统一入口：
+        <a href="https://demo.binance.com/en/futures/BTCUSDT" target="_blank" rel="noreferrer">demo.binance.com</a>
+        （testnet 链接会自动跳转到此）。须 Login 登录；订单以本平台「Mock 账户 API 面板」为准。
+      </div>
+    </section>
+  );
+}
+
+export function BinanceSyncHero({ account }) {
+  if (!account) {
+    return (
+      <section className="binance-sync-hero loading">
+        <strong>正在连接币安 Mock 账户 API…</strong>
+      </section>
+    );
+  }
+  if (!account.connected) {
+    return (
+      <section className="binance-sync-hero error">
+        <strong>币安 API 未连接</strong>
+        <span>{account.error || "请检查 .env 中的 BINANCE_API_KEY / SECRET"}</span>
+      </section>
+    );
+  }
+  const latest = asArray(account.recent_orders)[0];
+  const syncedLabel = account.synced_at ? formatTime(account.synced_at) : "刚刚";
+  return (
+    <section className="binance-sync-hero ok">
+      <div className="binance-sync-hero-main">
+        <strong>币安模拟盘 API 已连通 — 与自动下单同一账户</strong>
+        <span>
+          钱包 {formatNumber(account.wallet_balance, 2)} USDT · 可用 {formatNumber(account.available_balance, 2)} ·
+          持仓 {account.open_position_count ?? 0} · 后端 {account.api_backend ?? "demo"} · 同步 {syncedLabel} ·
+          {latest ? `最新 #${latest.order_id} ${latest.side} ${latest.status}` : "暂无最近订单"}
+        </span>
+      </div>
+      <p className="binance-sync-hero-note">
+        自动 cycle 开启镜像后会<strong>先向币安下单</strong>，本面板即你在币安的真实持仓/订单（API 真源）。
+        网页 <em>restricted countries</em> 需全局 VPN 登录 demo.binance.com；登不上也不影响 API 交易与对账。
+      </p>
+    </section>
+  );
+}
+
+export function TestnetAccountPanel({ account }) {
+  if (!account) return null;
+  const positions = asArray(account.positions);
+  const orders = asArray(account.recent_orders);
+  const modeLabel = "Mock Trading (demo.binance.com)";
+  return (
+    <section className="exchange-panel testnet-account-panel">
+      <PanelTitle
+        title={`模拟账户 · ${modeLabel}`}
+        meta={account.connected ? `API 已连接 ${account.api_base}` : "API 未连接"}
+      />
+      {account.warning ? <p className="panel-warning">{account.warning}</p> : null}
+      {account.web_ui_url ? (
+        <p className="panel-hint">
+          对应网页（须登录同一账号）：
+          <a href={account.web_ui_url} target="_blank" rel="noreferrer">{account.web_ui_url}</a>
+        </p>
+      ) : null}
+      {account.error ? <p className="panel-error">{account.error}</p> : null}
+      {account.connected ? (
+        <>
+          <div className="metric-grid compact">
+            <MetricLine label="钱包 USDT" value={formatNumber(account.wallet_balance, 2)} />
+            <MetricLine label="可用 USDT" value={formatNumber(account.available_balance, 2)} />
+            <MetricLine label="未实现盈亏" value={formatNumber(account.unrealized_pnl, 2)} />
+            <MetricLine label="持仓数" value={String(account.open_position_count ?? 0)} />
+          </div>
+          <div className="subpanel-title">持仓（币安 API 真源）</div>
+          {positions.length ? (
+            <table className="compact-table">
+              <thead>
+                <tr>
+                  <th>交易对</th>
+                  <th>方向</th>
+                  <th>数量</th>
+                  <th>开仓价</th>
+                  <th>标记价</th>
+                  <th>名义 USDT</th>
+                  <th>保证金</th>
+                  <th>杠杆</th>
+                  <th>未实现 PnL</th>
+                  <th>强平价</th>
+                </tr>
+              </thead>
+              <tbody>
+                {positions.map((p) => (
+                  <tr key={`${p.symbol}-${p.side}`}>
+                    <td>{p.symbol}</td>
+                    <td>{p.side}</td>
+                    <td>{formatNumber(p.quantity, 4)}</td>
+                    <td>{formatNumber(p.entry_price)}</td>
+                    <td>{formatNumber(p.mark_price)}</td>
+                    <td>{formatNumber(p.notional_usdt, 2)}</td>
+                    <td>{formatNumber(p.margin_usdt, 2)}</td>
+                    <td>{p.leverage ? `${formatNumber(p.leverage, 0)}x` : "-"}</td>
+                    <td className={Number(p.unrealized_pnl) >= 0 ? "positive" : "negative"}>{formatNumber(p.unrealized_pnl, 2)}</td>
+                    <td>{p.liquidation_price ? formatNumber(p.liquidation_price) : "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="empty-list">币安当前无持仓</div>
+          )}
+          <div className="subpanel-title">最近订单（币安 orderId）</div>
+          {orders.length ? (
+            <table className="compact-table">
+              <thead>
+                <tr>
+                  <th>orderId</th>
+                  <th>交易对</th>
+                  <th>方向</th>
+                  <th>类型</th>
+                  <th>状态</th>
+                  <th>数量</th>
+                  <th>均价</th>
+                  <th>更新时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                {orders.slice(0, 12).map((o) => (
+                  <tr key={o.order_id}>
+                    <td>{o.order_id}</td>
+                    <td>{o.symbol}</td>
+                    <td>{o.side}</td>
+                    <td>{o.order_type}</td>
+                    <td>{o.status}</td>
+                    <td>{formatNumber(o.quantity, 4)}</td>
+                    <td>{o.avg_price ? formatNumber(o.avg_price) : "-"}</td>
+                    <td>{o.update_time ? formatClock(new Date(o.update_time)) : "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="empty-list">暂无币安订单</div>
+          )}
+        </>
+      ) : null}
     </section>
   );
 }
@@ -287,7 +431,9 @@ export function RuntimeControlPanel({ streamStatus, tradingStatus, mirrorToGatew
         {mirrorToGateway ? "关闭 Testnet 镜像" : "开启 Testnet 镜像"}
       </button>
       <button type="button" onClick={onRunCycle}>运行一次自动开平仓 cycle</button>
-      <p className="ticket-note">本地 Paper 成交优先；开启后才额外镜像到 Binance Futures Testnet。</p>
+      <p className="ticket-note">
+        开启镜像后：策略信号<strong>先提交币安</strong>（BINANCE_AUTO_EXECUTE），成功才本地成交；下方「Mock 账户」即币安真持仓。
+      </p>
     </section>
   );
 }
@@ -322,6 +468,7 @@ export function OrdersTable({ orders, onCancel }) {
             <th>止损</th>
             <th>止盈</th>
             <th>状态</th>
+            <th>币安 ID</th>
             <th>网关</th>
             <th>操作</th>
           </tr>
@@ -338,6 +485,7 @@ export function OrdersTable({ orders, onCancel }) {
                 <td>{formatNumber(order.stoploss_plan?.price)}</td>
                 <td>{formatNumber(order.takeprofit_plan?.price)}</td>
                 <td>{order.execution_status}</td>
+                <td>{order.gateway_order_id ?? "-"}</td>
                 <td>{order.gateway_name ?? "-"}</td>
                 <td>
                   {canCancel(order) ? <button type="button" className="table-action" onClick={() => onCancel(order)}>撤单</button> : (order.rejection_reason ?? "-")}
@@ -345,7 +493,7 @@ export function OrdersTable({ orders, onCancel }) {
               </tr>
             ))
           ) : (
-            <tr><td colSpan="10">暂无订单</td></tr>
+            <tr><td colSpan="11">暂无订单</td></tr>
           )}
         </tbody>
       </table>

@@ -128,7 +128,10 @@ def test_runtime_trailing_stop_ratchets_to_entry_after_configured_r_multiple(db_
     assert second.actions[0].reference_price == 100.0
 
 
-def test_gateway_mirror_failure_does_not_roll_back_local_fill(db_session) -> None:
+def test_gateway_mirror_failure_does_not_roll_back_local_fill(db_session, monkeypatch) -> None:
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
     gateway = FailingGateway()
     runtime, paper_run = _runtime_with_position(
         db_session,

@@ -180,7 +180,9 @@ class RuntimeScheduler:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=max(self.daily_review_check_seconds, 0.01))
 
     def _live_collector_tasks(self) -> list[asyncio.Task]:
-        symbols = [item.strip() for item in settings.binance_live_ws_symbols.split(",") if item.strip()]
+        from services.data.service import resolve_binance_live_ws_symbols
+
+        symbols = resolve_binance_live_ws_symbols()
         return [
             asyncio.create_task(self._run_live_collector(symbol=symbol, timeframe=settings.binance_live_ws_timeframe))
             for symbol in symbols
@@ -240,13 +242,20 @@ def runtime_scheduler_status() -> RuntimeSchedulerStatus:
 def _default_paper_cycle_runner() -> dict:
     from services.execution.tasks import run_all_paper_runtime_cycles
 
-    return run_all_paper_runtime_cycles.run({"timeframe": "1m", "enable_decision_veto": True})
+    return run_all_paper_runtime_cycles.run(
+        {
+            "timeframe": "1m",
+            "max_symbols": 20,
+            "enable_decision_veto": settings.paper_runtime_enable_decision_veto,
+        }
+    )
 
 
 def _default_heartbeat_runner() -> dict:
+    from services.data.service import DEFAULT_BINANCE_TOP20
     from services.data.tasks import market_data_heartbeat
 
-    return market_data_heartbeat.run(["BTC/USDT"], "1m")
+    return market_data_heartbeat.run(list(DEFAULT_BINANCE_TOP20), "1m")
 
 
 def _default_risk_sweep_runner() -> dict:

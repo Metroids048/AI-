@@ -30,6 +30,7 @@ from apps.api.routers import (
     system,
 )
 from services.execution.scheduler import RuntimeScheduler, set_runtime_scheduler
+from services.execution.bootstrap import bootstrap_local_paper_runtime
 from shared.models import ApiError
 
 
@@ -42,6 +43,7 @@ def _should_start_inprocess_scheduler() -> bool:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     scheduler = None
+    bootstrap_local_paper_runtime()
     if _should_start_inprocess_scheduler():
         scheduler = RuntimeScheduler()
         set_runtime_scheduler(scheduler)

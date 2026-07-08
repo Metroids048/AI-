@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     runtime_scheduler_mode: str = "inprocess"
     runtime_scheduler_autostart: bool = True
     paper_runtime_cycle_seconds: int = 300
+    paper_runtime_enable_decision_veto: bool = True
+    # Local dev: bypass multi-timeframe + meta-label filters so Paper cycles can open test positions.
+    paper_runtime_relaxed_signals: bool = False
+    # When true, auto-cycle submits to Binance before local paper fill (same path as manual testnet).
+    binance_auto_execute: bool = True
     market_data_heartbeat_seconds: int = 60
     market_data_stale_seconds: int = 120
     # Gatekeeper order-freshness threshold (previously hardcoded to 2h).
@@ -71,13 +76,24 @@ class Settings(BaseSettings):
     binance_api_key: str = ""
     binance_api_secret: str = ""
     binance_use_testnet: bool = True
+    # demo = Mock Trading (demo.binance.com, unified web entry)
+    # testnet = legacy fapi host only (auto-fallback when demo API geo-blocked)
+    binance_trading_mode: str = "demo"
     live_trading_enabled: bool = False
     default_exchange: str = "binance"
     binance_live_universe_enabled: bool = True
     binance_live_market_enabled: bool = True
     binance_live_ws_enabled: bool = True
-    binance_live_ws_symbols: str = "BTC/USDT"
+    binance_live_ws_symbols: str = "top20"
     binance_live_ws_timeframe: str = "1m"
+    # App-scoped proxy for Binance only (e.g. http://127.0.0.1:7890). Avoids global VPN.
+    binance_http_proxy: str = ""
+    binance_https_proxy: str = ""
+    # Public market-data endpoints (override for geo-restricted regions).
+    binance_spot_rest_base: str = "https://api.binance.com"
+    binance_usdm_rest_base: str = "https://demo-fapi.binance.com"
+    binance_spot_ws_base: str = "wss://stream.binance.com:9443/ws"
+    binance_usdm_ws_base: str = "wss://fstream.binance.com/ws"
     # Kill switch — global trading halt via Redis flag
     kill_switch_enabled: bool = True
     kill_switch_redis_key: str = "ai_quant:kill_switch"

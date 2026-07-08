@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from services.execution.bootstrap import default_mirror_to_gateway
 from services.strategy_library import PaperRunRepository, StrategyRepository, ValidationRepository
 from shared.models import (
     BacktestEngine,
@@ -125,6 +126,7 @@ class ManualTradingContextService:
                     "manual_context_key": MANUAL_CONTEXT_KEY,
                     "paper_only": True,
                     "live_promotion_allowed": False,
+                    "mirror_to_gateway": default_mirror_to_gateway(),
                 },
                 paper_status="running",
             )

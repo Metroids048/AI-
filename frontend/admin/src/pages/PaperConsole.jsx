@@ -6,6 +6,7 @@ import { AppShell } from "../components/Common";
 import { KlinePanel, MarketHeader } from "../components/MarketPanels";
 import { DecisionDebugPanel } from "../components/RuntimePanels";
 import {
+  BinanceSyncHero,
   FundingPanel,
   MarketList,
   ModeBanner,
@@ -14,6 +15,7 @@ import {
   PositionsTable,
   RecentTradesPanel,
   RuntimeControlPanel,
+  TestnetAccountPanel,
   TradingTicket,
 } from "../components/TradingConsolePanels";
 import { useConsoleData } from "../hooks/useConsoleData";
@@ -122,6 +124,7 @@ export function PaperConsole() {
       {data.loading ? <div className="loading-line">正在加载交易台数据...</div> : null}
       {actionMessage ? <div className="action-line">{actionMessage}</div> : null}
       <ModeBanner status={data.tradingStatus} />
+      <BinanceSyncHero account={data.testnetAccount} />
       <MarketHeader
         snapshot={data.snapshot}
         symbol={symbol}
@@ -169,6 +172,7 @@ export function PaperConsole() {
         </div>
       </section>
       <section className="execution-grid">
+        <TestnetAccountPanel account={data.testnetAccount} />
         <RuntimeControlPanel
           streamStatus={data.streamStatus}
           tradingStatus={data.tradingStatus}

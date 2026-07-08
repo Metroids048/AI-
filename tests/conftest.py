@@ -113,6 +113,9 @@ def _skip_integration_without_db(request: pytest.FixtureRequest) -> None:
 def _disable_live_binance_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     from apps.api.config import settings
 
+    monkeypatch.setattr(settings, "binance_api_key", "")
+    monkeypatch.setattr(settings, "binance_api_secret", "")
+    monkeypatch.setattr(settings, "binance_auto_execute", False)
     monkeypatch.setattr(settings, "binance_live_ws_enabled", False)
     monkeypatch.setattr(settings, "binance_live_market_enabled", False)
     monkeypatch.setattr(settings, "binance_live_universe_enabled", False)

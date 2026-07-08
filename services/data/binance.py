@@ -10,7 +10,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Protocol
 from urllib.parse import urlencode
-from urllib.request import urlopen
+
+from shared.binance_network import binance_urlopen_json
 
 from shared.models import (
     Exchange,
@@ -25,6 +26,8 @@ from shared.models import (
 
 from .repository import DataRepository
 
+from shared.config import settings
+
 STABLE_OR_LEVERAGED_SUFFIXES = (
     "UP/USDT",
     "DOWN/USDT",
@@ -37,6 +40,25 @@ DEFAULT_BACKFILL_LIMIT = 1000
 DEFAULT_FUNDING_LIMIT = 1000
 DEFAULT_OHLCV_BACKFILL_DAYS = 14
 DEFAULT_FUNDING_BACKFILL_DAYS = 30
+
+
+def binance_spot_rest_base() -> str:
+    return settings.binance_spot_rest_base.rstrip("/")
+
+
+def binance_usdm_rest_base() -> str:
+    return settings.binance_usdm_rest_base.rstrip("/")
+
+
+def binance_spot_ws_base() -> str:
+    return settings.binance_spot_ws_base.rstrip("/")
+
+
+def binance_usdm_ws_base() -> str:
+    return settings.binance_usdm_ws_base.rstrip("/")
+
+
+# Backward-compatible aliases; prefer calling binance_*_base() at use sites.
 BINANCE_SPOT_WS_BASE = "wss://stream.binance.com:9443/ws"
 BINANCE_USDM_WS_BASE = "wss://fstream.binance.com/ws"
 BINANCE_SPOT_REST_BASE = "https://api.binance.com"
@@ -136,8 +158,7 @@ def stream_symbol(symbol: str) -> str:
 def fetch_usdm_24h_tickers() -> list[dict[str, Any]]:
     """Fetch Binance USD-M 24h tickers without requiring CCXT."""
 
-    with urlopen(f"{BINANCE_USDM_REST_BASE}/fapi/v1/ticker/24hr", timeout=5) as response:  # noqa: S310
-        payload = json.loads(response.read().decode("utf-8"))
+    payload = binance_urlopen_json(f"{binance_usdm_rest_base()}/fapi/v1/ticker/24hr")
     return payload if isinstance(payload, list) else []
 
 
@@ -262,9 +283,12 @@ class CcxtLikeExchange(Protocol):
 class BinancePublicRestExchange:
     """Minimal Binance public REST adapter used when CCXT is unavailable."""
 
-    def __init__(self, *, market_type: str):
+    def __init__(self, *, market_type: str, base_url: str | None = None):
         self.market_type = market_type
-        self.base_url = BINANCE_USDM_REST_BASE if market_type == "usdm" else BINANCE_SPOT_REST_BASE
+        if base_url is not None:
+            self.base_url = base_url.rstrip("/")
+        else:
+            self.base_url = binance_usdm_rest_base() if market_type == "usdm" else binance_spot_rest_base()
 
     def load_markets(self) -> None:
         return None
@@ -359,8 +383,7 @@ class BinancePublicRestExchange:
 
     def _get(self, path: str, params: Mapping[str, Any]) -> Any:
         query = urlencode({key: value for key, value in params.items() if value is not None})
-        with urlopen(f"{self.base_url}{path}?{query}", timeout=5) as response:  # noqa: S310
-            return json.loads(response.read().decode("utf-8"))
+        return binance_urlopen_json(f"{self.base_url}{path}?{query}")
 
 
 @dataclass
@@ -384,19 +407,17 @@ class BinanceCcxtClient:
     ):
         if spot_exchange is None or usdm_exchange is None:
             try:
-                import ccxt
+                import ccxt  # noqa: F401
             except ImportError:
-                ccxt = None
+                pass
 
-        self.spot_exchange = spot_exchange or (
-            ccxt.binance({"enableRateLimit": True})
-            if ccxt is not None
-            else BinancePublicRestExchange(market_type="spot")
+        self.spot_exchange = spot_exchange or BinancePublicRestExchange(
+            market_type="spot",
+            base_url=binance_spot_rest_base(),
         )
-        self.usdm_exchange = usdm_exchange or (
-            ccxt.binanceusdm({"enableRateLimit": True})
-            if ccxt is not None
-            else BinancePublicRestExchange(market_type="usdm")
+        self.usdm_exchange = usdm_exchange or BinancePublicRestExchange(
+            market_type="usdm",
+            base_url=binance_usdm_rest_base(),
         )
         self._markets_loaded = False
 
@@ -676,11 +697,11 @@ class BinanceLiveMarketCollector:
         self.on_close = on_close
 
     def build_kline_stream_url(self, *, symbol: str, timeframe: str) -> str:
-        base = BINANCE_USDM_WS_BASE if symbol.endswith(":USDT") else BINANCE_SPOT_WS_BASE
+        base = binance_usdm_ws_base() if symbol.endswith(":USDT") else binance_spot_ws_base()
         return f"{base}/{stream_symbol(symbol)}@kline_{timeframe}"
 
     def build_mark_price_stream_url(self, *, symbol: str) -> str:
-        return f"{BINANCE_USDM_WS_BASE}/{stream_symbol(symbol)}@markPrice@1s"
+        return f"{binance_usdm_ws_base()}/{stream_symbol(symbol)}@markPrice@1s"
 
     def persist_kline_payload(self, payload: Mapping[str, Any], *, symbol: str, timeframe: str) -> OHLCVBar | None:
         bar = normalize_ws_kline_event(payload, symbol=symbol, timeframe=timeframe)

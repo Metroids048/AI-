@@ -41,6 +41,49 @@ class TradingRuntimeStatus(PlatformModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class BinanceTestnetPositionView(PlatformModel):
+    symbol: str
+    side: str
+    quantity: float
+    entry_price: float
+    mark_price: float = 0.0
+    notional_usdt: float = 0.0
+    margin_usdt: float = 0.0
+    leverage: float = 0.0
+    unrealized_pnl: float = 0.0
+    liquidation_price: float | None = None
+
+
+class BinanceTestnetOrderView(PlatformModel):
+    order_id: str
+    symbol: str
+    side: str
+    order_type: str
+    status: str
+    quantity: float
+    avg_price: float | None = None
+    update_time: int | None = None
+
+
+class BinanceTestnetAccountStatus(PlatformModel):
+    """Live probe of Binance paper trading via API (not the geo-blocked web UI)."""
+
+    connected: bool = False
+    trading_mode: str = "demo"
+    api_base: str = "https://demo-fapi.binance.com"
+    wallet_balance: float | None = None
+    available_balance: float | None = None
+    unrealized_pnl: float | None = None
+    open_position_count: int = 0
+    positions: list[BinanceTestnetPositionView] = Field(default_factory=list)
+    recent_orders: list[BinanceTestnetOrderView] = Field(default_factory=list)
+    web_ui_url: str = "https://demo.binance.com/en/futures/BTCUSDT"
+    api_backend: str | None = None
+    synced_at: datetime | None = None
+    warning: str | None = None
+    error: str | None = None
+
+
 class ExchangeAccountSnapshot(PlatformModel):
     snapshot_id: str | None = None
     live_run_id: str

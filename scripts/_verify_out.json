@@ -1,0 +1,195 @@
+{
+  "binance_before": {
+    "connected": true,
+    "trading_mode": "demo",
+    "api_base": "https://testnet.binancefuture.com/fapi/v1",
+    "wallet_balance": 5250.73552984,
+    "available_balance": 5247.63795354,
+    "unrealized_pnl": -0.18400793,
+    "open_position_count": 1,
+    "positions": [
+      {
+        "symbol": "BTC/USDT:USDT",
+        "side": "long",
+        "quantity": 0.001,
+        "entry_price": 61852.74726566071,
+        "mark_price": 61665.72780797,
+        "notional_usdt": 61.6657278,
+        "margin_usdt": 3.08328639,
+        "leverage": 0.0,
+        "unrealized_pnl": -0.18701945,
+        "liquidation_price": null
+      }
+    ],
+    "recent_orders": [
+      {
+        "order_id": "20135748281",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61782.9325,
+        "update_time": 1783523160468
+      },
+      {
+        "order_id": "20135544062",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61846.12375,
+        "update_time": 1783523095066
+      },
+      {
+        "order_id": "20134544630",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61816.0,
+        "update_time": 1783522784801
+      },
+      {
+        "order_id": "20133559949",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61907.1,
+        "update_time": 1783522481671
+      },
+      {
+        "order_id": "20133355917",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61812.7,
+        "update_time": 1783522417362
+      }
+    ],
+    "web_ui_url": "https://demo.binance.com/en/futures/BTCUSDT",
+    "api_backend": "testnet-fallback",
+    "synced_at": "2026-07-08T15:57:54.732116Z",
+    "warning": "币安网页 Login 报 restricted countries 时，API 仍可正常交易。Mock 入口 demo.binance.com；本面板显示的就是你的模拟盘真实资金与订单。 demo-fapi 在本机被墙(451)，API 已自动切到 testnet-fapi 网关，与 Mock 网页仍是同一套模拟账户。",
+    "error": null
+  },
+  "cycle": {
+    "paper_run_id": "fdf5a18f-02dc-45cd-8438-9fe0767ce85e",
+    "paper_status": "running",
+    "cycle_time": "2026-07-08T15:58:04.842644Z",
+    "scanned_symbols": [
+      "BTC/USDT"
+    ],
+    "actions": [
+      {
+        "symbol": "BTC/USDT",
+        "action": "open_short",
+        "direction": "short",
+        "reason": null,
+        "order_execution_id": "3d00e3c9-5ffc-4adf-806e-7a6d9dc589ff",
+        "reference_price": 61675.14,
+        "close_only": false,
+        "idempotency_key": "fdf5a18f-02dc-45cd-8438-9fe0767ce85e:BTC/USDT:1m:2026-07-08T15:57:00+00:00",
+        "decision_trace": {
+          "pipeline_status": "funding_arbitrage_bypass",
+          "funding_rate": "0.0001",
+          "perp_symbol": "BTC/USDT:USDT"
+        }
+      }
+    ],
+    "opened_positions": 1,
+    "closed_positions": 0,
+    "rejected_orders": 0,
+    "skipped_symbols": 0,
+    "open_position_symbols": [
+      "BTC/USDT"
+    ],
+    "account_equity": 10000.0
+  },
+  "binance_after": {
+    "connected": true,
+    "trading_mode": "demo",
+    "api_base": "https://testnet.binancefuture.com/fapi/v1",
+    "wallet_balance": 5250.69547048,
+    "available_balance": 5250.38551266,
+    "unrealized_pnl": -0.01859109,
+    "open_position_count": 1,
+    "positions": [
+      {
+        "symbol": "BTC/USDT:USDT",
+        "side": "long",
+        "quantity": 0.0001,
+        "entry_price": 61852.74726566071,
+        "mark_price": 61666.83634058,
+        "notional_usdt": 6.16668363,
+        "margin_usdt": 0.30833419,
+        "leverage": 0.0,
+        "unrealized_pnl": -0.01859109,
+        "liquidation_price": null
+      }
+    ],
+    "recent_orders": [
+      {
+        "order_id": "20146087811",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.0009,
+        "avg_price": 61649.1,
+        "update_time": 1783526286431
+      },
+      {
+        "order_id": "20135748281",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61782.9325,
+        "update_time": 1783523160468
+      },
+      {
+        "order_id": "20135544062",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61846.12375,
+        "update_time": 1783523095066
+      },
+      {
+        "order_id": "20134544630",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61816.0,
+        "update_time": 1783522784801
+      },
+      {
+        "order_id": "20133559949",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61907.1,
+        "update_time": 1783522481671
+      }
+    ],
+    "web_ui_url": "https://demo.binance.com/en/futures/BTCUSDT",
+    "api_backend": "testnet-fallback",
+    "synced_at": "2026-07-08T15:58:21.819026Z",
+    "warning": "币安网页 Login 报 restricted countries 时，API 仍可正常交易。Mock 入口 demo.binance.com；本面板显示的就是你的模拟盘真实资金与订单。 demo-fapi 在本机被墙(451)，API 已自动切到 testnet-fapi 网关，与 Mock 网页仍是同一套模拟账户。",
+    "error": null
+  }
+}

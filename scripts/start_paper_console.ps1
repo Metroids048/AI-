@@ -73,11 +73,91 @@ function Assert-Command($Name, $InstallHint) {
     }
 }
 
+. (Join-Path $PSScriptRoot "load-dotenv.ps1")
+
+function Ensure-LocalEnvFile($RootPath) {
+    $envPath = Join-Path $RootPath ".env"
+    $examplePath = Join-Path $RootPath ".env.example"
+    if (Test-Path -LiteralPath $envPath) {
+        return $envPath
+    }
+    if (-not (Test-Path -LiteralPath $examplePath)) {
+        Write-Step "WARNING: .env missing and .env.example not found; Binance Testnet keys will not load"
+        return $null
+    }
+    Copy-Item -LiteralPath $examplePath -Destination $envPath
+    Write-Step "created .env from .env.example — add BINANCE_API_KEY and BINANCE_API_SECRET, then restart"
+    return $envPath
+}
+
+function Set-GeoFriendlyBinanceEndpointsIfNeeded {
+    $blocked = $false
+    try {
+        $response = Invoke-WebRequest -Uri "https://api.binance.com/api/v3/ping" -TimeoutSec 5 -UseBasicParsing
+        if ($response.StatusCode -eq 451) {
+            $blocked = $true
+        }
+    }
+    catch {
+        $statusCode = $null
+        if ($_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+        if ($statusCode -eq 451) {
+            $blocked = $true
+        }
+    }
+
+    if (-not $blocked) {
+        return
+    }
+
+    Write-Step "Binance mainnet is geo-restricted here; switching to public data endpoints"
+    Write-Step "Tip: set BINANCE_HTTPS_PROXY=http://127.0.0.1:7890 in .env for Testnet API only (no global VPN)"
+    $env:BINANCE_SPOT_REST_BASE = "https://data-api.binance.vision"
+    $env:BINANCE_USDM_REST_BASE = "https://demo-fapi.binance.com"
+    $env:BINANCE_SPOT_WS_BASE = "wss://data-stream.binance.vision/ws"
+    $env:BINANCE_USDM_WS_BASE = "wss://stream.binancefuture.com/ws"
+}
+
 Set-Location $Root
 
 Write-Step "checking local runtimes"
 Assert-Command "py" "Install Python 3.11+ and make the py launcher available."
 Assert-Command "npm.cmd" "Install Node.js/npm before starting the frontend."
+$envPath = Ensure-LocalEnvFile $Root
+if ($envPath) {
+    Import-DotEnv $envPath | Out-Null
+}
+if (-not $env:BINANCE_API_KEY -or -not $env:BINANCE_API_SECRET) {
+    Write-Step "WARNING: BINANCE_API_KEY/SECRET not loaded — local Paper works, Testnet mirror and exchange records will not"
+}
+else {
+    Write-Step "Binance Mock Trading credentials loaded from .env"
+}
+Set-GeoFriendlyBinanceEndpointsIfNeeded
+
+$requiredPythonModules = @(
+    "prometheus_client",
+    "fastapi",
+    "uvicorn",
+    "ccxt"
+)
+$missingPythonModules = @()
+foreach ($moduleName in $requiredPythonModules) {
+    py -3 -c "import $moduleName" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        $missingPythonModules += $moduleName
+    }
+}
+
+if ($missingPythonModules.Count -gt 0) {
+    Write-Step "installing Python project dependencies; missing: $($missingPythonModules -join ', ')"
+    py -3 -m pip install -e .
+    if ($LASTEXITCODE -ne 0) {
+        throw "Python dependency install failed. Run: py -3 -m pip install -e ."
+    }
+}
 
 Write-Step "initializing local Paper database: $DatabasePath"
 $env:POSTGRES_URL = $SqliteUrl
@@ -87,9 +167,15 @@ $env:LIVE_TRADING_ENABLED = "false"
 $env:RUNTIME_SCHEDULER_MODE = "inprocess"
 $env:RUNTIME_SCHEDULER_AUTOSTART = "true"
 $env:PAPER_RUNTIME_CYCLE_SECONDS = "60"
+$env:BINANCE_AUTO_EXECUTE = "true"
 $env:BINANCE_LIVE_UNIVERSE_ENABLED = "true"
 $env:BINANCE_LIVE_MARKET_ENABLED = "true"
 $env:BINANCE_LIVE_WS_ENABLED = "true"
+if (-not $env:BINANCE_LIVE_WS_SYMBOLS) { $env:BINANCE_LIVE_WS_SYMBOLS = "top20" }
+$binanceSpotRestBase = if ($env:BINANCE_SPOT_REST_BASE) { $env:BINANCE_SPOT_REST_BASE } else { "" }
+$binanceUsdmRestBase = if ($env:BINANCE_USDM_REST_BASE) { $env:BINANCE_USDM_REST_BASE } else { "" }
+$binanceSpotWsBase = if ($env:BINANCE_SPOT_WS_BASE) { $env:BINANCE_SPOT_WS_BASE } else { "" }
+$binanceUsdmWsBase = if ($env:BINANCE_USDM_WS_BASE) { $env:BINANCE_USDM_WS_BASE } else { "" }
 py -3 -c "from services.database import create_relational_schema, get_engine, reset_database_caches; from services.data.repository import create_timeseries_schema; reset_database_caches(); create_relational_schema(); create_timeseries_schema(get_engine()); print('schema ready')"
 
 $requiredNodeModules = @(
@@ -120,21 +206,16 @@ Stop-ExistingProjectProcess $ApiPort "apps.api.main:app"
 Stop-ExistingProjectProcess $FrontendPort "vite"
 
 Write-Step "starting FastAPI on $ApiUrl"
-$apiCommand = @"
-`$env:POSTGRES_URL = '$SqliteUrl'
-`$env:APP_ENV = 'development'
-`$env:BINANCE_USE_TESTNET = 'true'
-`$env:LIVE_TRADING_ENABLED = 'false'
-`$env:RUNTIME_SCHEDULER_MODE = 'inprocess'
-`$env:RUNTIME_SCHEDULER_AUTOSTART = 'true'
-`$env:PAPER_RUNTIME_CYCLE_SECONDS = '60'
-`$env:BINANCE_LIVE_UNIVERSE_ENABLED = 'true'
-`$env:BINANCE_LIVE_MARKET_ENABLED = 'true'
-`$env:BINANCE_LIVE_WS_ENABLED = 'true'
-Set-Location '$Root'
-py -3 -m uvicorn apps.api.main:app --host 127.0.0.1 --port $ApiPort *> '$Logs\api.log'
-"@
-Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $apiCommand) -WindowStyle Hidden
+$runApiScript = Join-Path $PSScriptRoot "run-api-local.ps1"
+Start-Process -FilePath "powershell.exe" -ArgumentList @(
+    "-NoProfile",
+    "-ExecutionPolicy", "Bypass",
+    "-File", $runApiScript,
+    "-Root", $Root,
+    "-PostgresUrl", $SqliteUrl,
+    "-Port", $ApiPort,
+    "-LogPath", (Join-Path $Logs "api.log")
+) -WindowStyle Hidden
 
 Write-Step "starting Vite admin console on $FrontendUrl"
 $frontendCommand = @"
@@ -144,7 +225,7 @@ npm --workspace frontend/admin run dev -- --host 127.0.0.1 --port $FrontendPort 
 Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $frontendCommand) -WindowStyle Hidden
 
 Write-Step "waiting for API"
-if (-not (Wait-HttpOk "$ApiUrl/health" 30)) {
+if (-not (Wait-HttpOk "$ApiUrl/health" 90)) {
     throw "FastAPI did not become ready. See logs/api.log"
 }
 
@@ -153,8 +234,8 @@ if (-not (Wait-HttpOk "$FrontendUrl/" 45)) {
     throw "Frontend did not become ready. See logs/frontend.log"
 }
 
-Write-Step "opening browser: $FrontendUrl"
-Start-Process $FrontendUrl
+Write-Step "opening browser: $FrontendUrl/trading"
+Start-Process "$FrontendUrl/trading"
 
 Write-Host ""
 Write-Host "Paper console is running:"

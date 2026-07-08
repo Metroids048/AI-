@@ -104,6 +104,7 @@ class DecisionPipeline:
         symbol: str,
         timeframe: str,
         enable_decision_veto: bool = True,
+        relaxed_signals: bool = False,
     ) -> DecisionPipelineResult:
         bars = self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=timeframe, limit=240)
         latest = bars[-1] if bars else None
@@ -143,7 +144,7 @@ class DecisionPipeline:
             timeframe=timeframe,
             main_signals=signals,
         )
-        if not multi_timeframe["passed"]:
+        if not multi_timeframe["passed"] and not relaxed_signals:
             return self._skipped(
                 reason="multi_timeframe_disagreement",
                 reference_price=reference_price,
@@ -181,7 +182,7 @@ class DecisionPipeline:
         )
         if self.execution_repo is not None:
             meta_label = self.execution_repo.create_meta_label(meta_label)
-        if meta_label.bet_decision != BetDecision.BET_TAKEN:
+        if meta_label.bet_decision != BetDecision.BET_TAKEN and not relaxed_signals:
             return self._skipped(
                 reason="meta_label_bet_skipped",
                 reference_price=reference_price,

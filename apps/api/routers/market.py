@@ -17,8 +17,8 @@ from sqlalchemy.orm import Session
 from apps.api.config import settings
 from services.data import DataRepository, MarketQueryService, live_feed_bus
 from services.data.binance import (
-    BINANCE_USDM_WS_BASE,
     BinanceCcxtClient,
+    binance_usdm_ws_base,
     fetch_usdm_24h_tickers,
     normalize_ws_kline_event_with_status,
     stream_symbol,
@@ -251,14 +251,14 @@ def get_market_capabilities() -> CollectionResponse[ExchangeCapability]:
 
 def _fetch_binance_usdm_tickers() -> list[dict] | None:
     try:
-        import ccxt
-
-        client = ccxt.binanceusdm({"enableRateLimit": True, "timeout": 3000})
-        tickers = client.fapiPublicGetTicker24hr()
-        return tickers if isinstance(tickers, list) else None
+        return fetch_usdm_24h_tickers()
     except Exception:
         try:
-            return fetch_usdm_24h_tickers()
+            import ccxt
+
+            client = ccxt.binanceusdm({"enableRateLimit": True, "timeout": 3000})
+            tickers = client.fapiPublicGetTicker24hr()
+            return tickers if isinstance(tickers, list) else None
         except Exception:
             return None
 
@@ -369,7 +369,7 @@ async def _stream_exchange_rest_poll(
 def _binance_exchange_stream_url(*, perp_symbol: str, timeframe: str) -> str:
     raw = stream_symbol(perp_symbol)
     streams = "/".join([f"{raw}@kline_{timeframe}", f"{raw}@depth20@100ms", f"{raw}@trade"])
-    return f"{BINANCE_USDM_WS_BASE.replace('/ws', '/stream')}?streams={streams}"
+    return f"{binance_usdm_ws_base().replace('/ws', '/stream')}?streams={streams}"
 
 
 def _exchange_stream_event_from_binance_payload(

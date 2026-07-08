@@ -37,6 +37,9 @@ from .enums import (
     TripleBarrierOutcome,
 )
 from .execution_runtime import (
+    BinanceTestnetAccountStatus,
+    BinanceTestnetOrderView,
+    BinanceTestnetPositionView,
     ExchangeAccountSnapshot,
     ExchangeGatewayCapability,
     ReconciliationRecord,
@@ -211,6 +214,9 @@ __all__ = [
     "ExchangeAccountSnapshot",
     "ReconciliationRecord",
     "TradingRuntimeStatus",
+    "BinanceTestnetAccountStatus",
+    "BinanceTestnetOrderView",
+    "BinanceTestnetPositionView",
     # workflow
     "BacktestRun",
     "BacktestSubmissionRequest",
