@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
 from shared.models import TradeSide, TradeSignal
+
+CONTINUOUS_STRENGTH_THRESHOLD = 0.05
 
 
 def generate_macd_signal(
@@ -43,17 +47,29 @@ def generate_macd_signal(
             signal_index = -offset
             latest_delta = current_delta
             break
-    if direction is None or reason is None:
+    if direction is not None and reason is not None:
+        signal_time = (
+            frame.index[signal_index].to_pydatetime() if hasattr(frame.index[signal_index], "to_pydatetime") else None
+        )
+        confidence = min(abs(float(latest_delta)) / max(float(close.iloc[signal_index]), 1.0) * 1000.0, 1.0)
+        return TradeSignal(
+            symbol=symbol,
+            side=direction,
+            source="technical_macd",
+            signal_time=signal_time,
+            reason=reason,
+            confidence=confidence,
+        )
+
+    normalized = math.tanh(float(latest_delta) / max(float(close.iloc[-1]), 1.0) * 50.0)
+    if abs(normalized) < CONTINUOUS_STRENGTH_THRESHOLD:
         return None
-    signal_time = (
-        frame.index[signal_index].to_pydatetime() if hasattr(frame.index[signal_index], "to_pydatetime") else None
-    )
-    confidence = min(abs(float(latest_delta)) / max(float(close.iloc[signal_index]), 1.0) * 1000.0, 1.0)
+    signal_time = frame.index[-1].to_pydatetime() if hasattr(frame.index[-1], "to_pydatetime") else None
     return TradeSignal(
         symbol=symbol,
-        side=direction,
+        side=TradeSide.LONG if normalized > 0 else TradeSide.SHORT,
         source="technical_macd",
         signal_time=signal_time,
-        reason=reason,
-        confidence=confidence,
+        reason="macd_histogram",
+        confidence=abs(normalized),
     )

@@ -20,6 +20,7 @@ from apps.api.routers import (
     ensemble,
     ingestion,
     market,
+    metrics,
     notifications,
     research_sources,
     review,
@@ -106,6 +107,8 @@ for router in (
     research_sources.router,
 ):
     app.include_router(router, prefix="/api/v1")
+
+app.include_router(metrics.router)
 
 
 @app.get("/health")

@@ -30,6 +30,10 @@
 - [decisions-log.md](.github/agent/memory/decisions-log.md)
 - [task-history.md](.github/agent/memory/task-history.md)
 
+开发与测试：
+
+- 单元测试使用 SQLite，数据库文件写入 `.local/test-runtime/`（可安全删除；`python scripts/clean_test_artifacts.py` 清理 7 天前的残留）
+
 第一阶段目标：
 
 - 建立统一仓库骨架

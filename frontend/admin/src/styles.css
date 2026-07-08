@@ -245,6 +245,63 @@ h2 {
   border-color: #f6465d;
 }
 
+.text-link {
+  color: #d6a54b;
+  text-decoration: none;
+}
+
+.status-badge,
+.json-panel {
+  border: 1px solid #2b3644;
+  background: #111923;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.json-panel {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  max-height: 320px;
+  color: #d8dee9;
+  white-space: pre-wrap;
+}
+
+.form-panel,
+.form-grid,
+.form-row {
+  display: flex;
+  gap: 10px;
+}
+
+.form-panel {
+  flex-direction: column;
+}
+
+.form-grid {
+  flex-wrap: wrap;
+}
+
+.form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 180px;
+}
+
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover {
+  background: rgba(214, 165, 75, 0.08);
+}
+
 .module-tabs {
   display: flex;
   gap: 6px;

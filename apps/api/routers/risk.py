@@ -10,7 +10,7 @@ from services.data import DataRepository
 from services.database import get_db_session
 from services.notifications import NotificationOutboxService
 from services.strategy_library import RiskProfileRepository
-from shared.models import CollectionResponse, RiskEvent, RiskEventResolutionUpdate, RiskProfile
+from shared.models import CollectionResponse, RiskEvent, RiskEventResolutionUpdate, RiskProfile, RiskProfileUpdate
 
 router = APIRouter(prefix="/risk", tags=["risk"])
 
@@ -36,6 +36,18 @@ def create_risk_profile(body: RiskProfile, db: Session = Depends(get_db_session)
 @router.get("/profiles/{risk_profile_id}", response_model=RiskProfile)
 def get_risk_profile(risk_profile_id: str, db: Session = Depends(get_db_session)) -> RiskProfile:
     profile = _profile_repo(db).get_profile(risk_profile_id)
+    if profile is None:
+        raise not_found("risk_profile", risk_profile_id)
+    return profile
+
+
+@router.put("/profiles/{risk_profile_id}", response_model=RiskProfile)
+def update_risk_profile(
+    risk_profile_id: str,
+    body: RiskProfileUpdate,
+    db: Session = Depends(get_db_session),
+) -> RiskProfile:
+    profile = _profile_repo(db).update_profile(risk_profile_id, body)
     if profile is None:
         raise not_found("risk_profile", risk_profile_id)
     return profile

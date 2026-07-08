@@ -42,6 +42,7 @@ def test_gitignore_covers_runtime_database_artifacts() -> None:
     for required_pattern in (
         "/.dev_ai_quant.db",
         "/.pytest_ai_quant.*.db",
+        "/.local/",
         "*.sqlite",
         "*.sqlite3",
     ):

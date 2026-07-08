@@ -1,9 +1,20 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { request } from "../api/client";
+import { ActionMessage } from "../components/DetailPanels";
 import { asArray, formatNumber } from "../utils/format";
 
+function ideaSummary(item) {
+  return item.hypothesis_summary ?? item.core_thesis ?? "-";
+}
+
 export function ResearchDesk() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [actionMessage, setActionMessage] = useState("");
+
   const sources = useQuery({
     queryKey: ["research-sources"],
     queryFn: () => request("/api/v1/research-sources"),
@@ -25,6 +36,16 @@ export function ResearchDesk() {
     refetchInterval: 30000,
   });
 
+  const promoteIdea = useMutation({
+    mutationFn: (ideaId) => request(`/api/v1/strategies/ideas/${ideaId}/drafts`, { method: "POST", body: "{}" }),
+    onSuccess: () => {
+      setActionMessage("策略想法已晋升为草稿。");
+      queryClient.invalidateQueries({ queryKey: ["research-strategy-ideas"] });
+      queryClient.invalidateQueries({ queryKey: ["strategy-drafts"] });
+    },
+    onError: (err) => setActionMessage(`晋升草稿失败：${err.message}`),
+  });
+
   const sourceRows = asArray(sources.data?.items);
   const ideaRows = asArray(ideas.data?.items);
   const newsRows = asArray(news.data?.items);
@@ -37,6 +58,8 @@ export function ResearchDesk() {
         <p className="eyebrow">Data / Research Source</p>
         <h1>研究工作台</h1>
       </header>
+      <ActionMessage message={actionMessage} />
+      {sources.isError ? <div className="action-line">研究源加载失败：{sources.error.message}</div> : null}
 
       <section className="funding-metrics">
         <div className="metric"><span>开源研究源</span><strong>{sourceRows.length}</strong></div>
@@ -60,7 +83,11 @@ export function ResearchDesk() {
             </thead>
             <tbody>
               {sourceRows.length ? sourceRows.map((item) => (
-                <tr key={item.source_id}>
+                <tr
+                  key={item.source_id}
+                  className="clickable-row"
+                  onClick={() => navigate(`/research/sources/${item.source_id}`)}
+                >
                   <td>{item.source_id}</td>
                   <td>{item.source_type ?? item.category ?? "-"}</td>
                   <td>{item.license ?? item.license_policy ?? "-"}</td>
@@ -82,6 +109,7 @@ export function ResearchDesk() {
                 <th>市场</th>
                 <th>状态</th>
                 <th>假设</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -90,10 +118,19 @@ export function ResearchDesk() {
                   <td>{item.idea_id}</td>
                   <td>{item.source}</td>
                   <td>{item.market}</td>
-                  <td>{item.idea_status}</td>
-                  <td>{item.core_thesis}</td>
+                  <td>{item.idea_status ?? item.intake_bucket ?? "-"}</td>
+                  <td>{ideaSummary(item)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      onClick={() => promoteIdea.mutate(item.idea_id)}
+                      disabled={promoteIdea.isPending}
+                    >
+                      晋升草稿
+                    </button>
+                  </td>
                 </tr>
-              )) : <tr><td colSpan="5">暂无策略想法</td></tr>}
+              )) : <tr><td colSpan="6">暂无策略想法</td></tr>}
             </tbody>
           </table>
         </section>

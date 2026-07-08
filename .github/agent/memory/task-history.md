@@ -1,5 +1,13 @@
 # Task History
 
+### [TASK-033] Report gap closure — frontend depth, metrics, compose smoke, signal continuity
+- **Date**: 2026-07-08
+- **Type**: feature + refactor + ops
+- **Summary**: Closed the external review gaps after TASK-030/031/032: moved pytest SQLite artifacts to `.local/test-runtime/` and cleaned 46 stale root `.db` files; added RiskProfile PUT API + frontend create/edit forms; expanded Validation/Research/Strategy routes with detail pages, backtest submit, research-source refresh/extract, draft promote/materialize, and strategy status updates; exposed `/metrics` (scheduler + LiveFeedBus gauges) and wired Prometheus scrape; added `scripts/compose_smoke.py` plus optional `.github/workflows/compose-smoke.yml`; implemented MACD/Dow continuous strength with confidence-scaled ensemble weights.
+- **Files changed**: `tests/conftest.py`, `.gitignore`, `scripts/{clean_test_artifacts,compose_smoke}.py`, `shared/models/risk.py`, `services/strategy_library/repository.py`, `apps/api/routers/{risk,strategies,backtests,metrics}.py`, `apps/api/{main,auth}.py`, `services/strategy_library/technical/{macd,dow_trend}.py`, `services/execution/decision_pipeline.py`, `infra/prometheus/prometheus.yml`, `frontend/admin/src/{router.jsx,styles.css,pages/*,components/*}`, `.github/workflows/compose-smoke.yml`, tests + memory files.
+- **Layer mapping**: Validation/Strategy/Risk frontend depth (Validation + Strategy + Risk layers); signal continuity (Strategy + Execution); `/metrics` + compose smoke (Ops/Engineering).
+- **Verification**: `py -3 -m pytest -q -m "not integration"` -> 167 passed, 1 deselected; `npm --workspace frontend/admin run test -- --run` -> 12 passed; `npm run admin:build` passed. Compose smoke not run locally (Docker not on PATH); CI optional workflow added.
+
 ### [TASK-031] Real-time trading console + multi-screen split
 - **Date**: 2026-07-07
 - **Type**: fix + refactor + frontend

@@ -1,0 +1,28 @@
+name: Compose Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+  pull_request:
+    types: [labeled]
+
+jobs:
+  compose-smoke:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event.label.name == 'run-compose-smoke'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare compose env template
+        run: cp .env.example .env
+      - name: Run compose smoke
+        run: python scripts/compose_smoke.py
+      - name: Upload smoke logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-smoke-logs
+          path: |
+            .env
+            docker-compose.yml
+            docker-compose.test.yml

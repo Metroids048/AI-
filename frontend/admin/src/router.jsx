@@ -2,11 +2,15 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { NavLink, Outlet, RouterProvider, createBrowserRouter } from "react-router-dom";
 
 import { request } from "./api/client";
+import { BacktestDetail } from "./pages/BacktestDetail";
+import { OptimizationDetail } from "./pages/OptimizationDetail";
 import { OpsConsole } from "./pages/OpsConsole";
 import { PaperConsole } from "./pages/PaperConsole";
 import { ResearchDesk } from "./pages/ResearchDesk";
+import { ResearchSourceDetail } from "./pages/ResearchSourceDetail";
 import { ReviewCenter } from "./pages/ReviewCenter";
 import { RiskConsole } from "./pages/RiskConsole";
+import { StrategyDetail } from "./pages/StrategyDetail";
 import { StrategyLibrary } from "./pages/StrategyLibrary";
 import { ValidationCenter } from "./pages/ValidationCenter";
 
@@ -28,9 +32,13 @@ const router = createBrowserRouter([
       { path: "trading", element: <PaperConsole /> },
       { path: "risk", element: <RiskConsole /> },
       { path: "strategies", element: <StrategyLibrary /> },
+      { path: "strategies/:strategyId", element: <StrategyDetail /> },
       { path: "validation", element: <ValidationCenter /> },
+      { path: "validation/backtests/:runId", element: <BacktestDetail /> },
+      { path: "validation/optimizations/:runId", element: <OptimizationDetail /> },
       { path: "review", element: <ReviewCenter /> },
       { path: "research", element: <ResearchDesk /> },
+      { path: "research/sources/:sourceId", element: <ResearchSourceDetail /> },
       { path: "ops", element: <OpsConsole /> },
     ],
   },

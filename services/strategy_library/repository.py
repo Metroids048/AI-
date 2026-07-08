@@ -36,6 +36,7 @@ from shared.models import (
     ReviewReport,
     RiskLevel,
     RiskProfile,
+    RiskProfileUpdate,
     RunStatus,
     SignalEnsemble,
     StrategyContract,
@@ -732,8 +733,11 @@ class StrategyRepository:
         self.session.commit()
         return True
 
-    def list_versions(self) -> list[StrategyVersion]:
-        rows = self.session.query(models.StrategyVersion).order_by(models.StrategyVersion.created_at).all()
+    def list_versions(self, *, strategy_id: str | None = None) -> list[StrategyVersion]:
+        query = self.session.query(models.StrategyVersion)
+        if strategy_id is not None:
+            query = query.filter(models.StrategyVersion.strategy_id == strategy_id)
+        rows = query.order_by(models.StrategyVersion.created_at).all()
         return [_version_from_orm(row) for row in rows]
 
     def create_version(self, version: StrategyVersion) -> StrategyVersion:
@@ -991,6 +995,16 @@ class RiskProfileRepository:
             config_source=profile.config_source,
         )
         self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _risk_profile_from_orm(row)
+
+    def update_profile(self, risk_profile_id: str, body: RiskProfileUpdate) -> RiskProfile | None:
+        row = self.session.get(models.RiskProfile, risk_profile_id)
+        if row is None:
+            return None
+        for field_name, value in body.model_dump(exclude_unset=True).items():
+            setattr(row, field_name, value)
         self.session.commit()
         self.session.refresh(row)
         return _risk_profile_from_orm(row)

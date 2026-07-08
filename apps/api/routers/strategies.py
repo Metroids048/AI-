@@ -66,8 +66,11 @@ def materialize_strategy_from_draft(draft_id: str, db: Session = Depends(get_db_
 
 
 @router.get("/versions", response_model=CollectionResponse[StrategyVersion])
-def list_strategy_versions(db: Session = Depends(get_db_session)) -> CollectionResponse[StrategyVersion]:
-    return collection_response(_repo(db).list_versions())
+def list_strategy_versions(
+    strategy_id: str | None = None,
+    db: Session = Depends(get_db_session),
+) -> CollectionResponse[StrategyVersion]:
+    return collection_response(_repo(db).list_versions(strategy_id=strategy_id))
 
 
 @router.post("/versions", response_model=StrategyVersion, status_code=status.HTTP_201_CREATED)

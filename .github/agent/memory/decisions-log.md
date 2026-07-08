@@ -1,5 +1,12 @@
 # Decisions Log
 
+## ADR-041: `/metrics` is unauthenticated and intended for internal Prometheus scrape only
+- Date: 2026-07-08
+- Status: accepted
+- Context: TASK-033 added runtime observability for the in-process scheduler and LiveFeedBus, but the admin API otherwise requires Bearer auth on all `/api/v1/*` routes.
+- Decision: Expose `GET /metrics` without Bearer auth (added to `PUBLIC_PATHS`) using `prometheus-client` Gauges sourced from `runtime_scheduler_status()` and `live_feed_bus.status()`. Configure Prometheus in Docker Compose to scrape `api:8000`.
+- Consequences: Metrics are suitable for private-network monitoring only. If the API is ever exposed publicly, network policy or reverse-proxy auth must gate `/metrics`; business APIs remain Bearer-protected.
+
 ## ADR-040: Paper runtime enforces protective exits, optional Testnet mirroring, and free-model LLM fallback
 - Date: 2026-07-08
 - Status: accepted

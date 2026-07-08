@@ -1,5 +1,15 @@
 # Project Memory
 
+## Report gap closure — frontend depth, observability, compose smoke (TASK-033, 2026-07-08)
+
+- Pytest SQLite databases now live under `.local/test-runtime/` (see `tests/conftest.py`); root-level `.pytest_ai_quant*.db` clutter was migrated/cleaned. `scripts/clean_test_artifacts.py` removes stale files after 7 days.
+- Frontend §5 depth: nested routes for backtest/optimization/strategy/research-source details; ValidationCenter supports backtest submission; ResearchDesk supports refresh-assets/extract-ideas/promote-to-draft; StrategyLibrary supports detail drill-down, version history, materialize draft, status update; RiskConsole supports RiskProfile create + edit via `POST/PUT /api/v1/risk/profiles`.
+- Backend additions: `RiskProfileUpdate` + `PUT /risk/profiles/{id}`; `GET /optimizations/{id}`; `GET /strategies/versions?strategy_id=`.
+- Observability: `GET /metrics` exposes scheduler + live feed gauges; `infra/prometheus/prometheus.yml` scrapes `api:8000`. ADR-041 documents unauthenticated internal scrape policy.
+- Compose runtime smoke: `scripts/compose_smoke.py` brings up timescaledb/redis/api, checks `/health` and `/system/health/dependencies`, then tears down. Optional CI workflow `.github/workflows/compose-smoke.yml` runs on `workflow_dispatch`, weekly schedule, or PR label `run-compose-smoke`.
+- Signal engine: MACD histogram and Dow continuous trend paths emit confidence-scaled signals; `_signal_weight` multiplies base weight by `signal.confidence`.
+- Verified: `py -3 -m pytest -q -m "not integration"` -> 167 passed; admin Vitest 12 passed; admin build passed. Local compose smoke skipped (Docker not on PATH).
+
 ## Protective exits, free LLM fallback, and Binance Testnet mirror (TASK-032, 2026-07-08)
 
 - `PaperRuntimeService` now checks protective stoploss/takeprofit levels before no-trade/opposite-signal handling. It resolves the latest filled non-close entry order, uses Kline high/low crossing rather than close-only checks, fills at the protective trigger price, prioritizes stoploss when both protective levels are touched in the same bar, and records stoploss outcomes through Review `FailureRecord`.

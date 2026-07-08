@@ -16,7 +16,9 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
-TEST_DB_PATH = Path(f".pytest_ai_quant.{os.getpid()}.db").resolve()
+TEST_DB_DIR = Path(".local/test-runtime").resolve()
+TEST_DB_DIR.mkdir(parents=True, exist_ok=True)
+TEST_DB_PATH = TEST_DB_DIR / f"pytest_ai_quant.{os.getpid()}.db"
 os.environ["POSTGRES_URL"] = f"sqlite:///{TEST_DB_PATH.as_posix()}"
 
 

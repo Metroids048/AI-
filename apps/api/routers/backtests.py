@@ -194,6 +194,14 @@ def list_optimization_runs(
     return collection_response(_optimization_repo(db).list_runs())
 
 
+@router.get("/optimizations/{optimization_run_id}", response_model=OptimizationRun)
+def get_optimization_run(optimization_run_id: str, db: Session = Depends(get_db_session)) -> OptimizationRun:
+    run = _optimization_repo(db).get_run(optimization_run_id)
+    if run is None:
+        raise not_found("optimization_run", optimization_run_id)
+    return run
+
+
 @router.post("/optimizations", response_model=TaskSubmission, status_code=status.HTTP_202_ACCEPTED)
 def submit_optimization(body: OptimizationSubmissionRequest, db: Session = Depends(get_db_session)) -> TaskSubmission:
     created = _optimization_repo(db).create_run(

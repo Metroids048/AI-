@@ -36,6 +36,25 @@ class RiskProfile(PlatformModel):
     config_source: str = "risk-control-and-safeguards-plan.md §04"
 
 
+class RiskProfileUpdate(PlatformModel):
+    """PUT /risk/profiles/{id} body — all optional (partial update)."""
+
+    single_trade_risk_limit: float | None = None
+    max_symbol_exposure: float | None = None
+    max_total_exposure: float | None = None
+    max_open_positions: int | None = None
+    max_leverage: float | None = None
+    daily_loss_limit: float | None = None
+    weekly_loss_limit: float | None = None
+    drawdown_limit: float | None = None
+    hard_stop_drawdown_limit: float | None = None
+    consecutive_loss_limit: int | None = None
+    api_failure_limit: int | None = None
+    api_failure_window_minutes: int | None = None
+    market_scope: str | None = None
+    config_source: str | None = None
+
+
 class RiskEvent(PlatformModel):
     """Unified risk event across macro / news / social / market / exec sources."""
 

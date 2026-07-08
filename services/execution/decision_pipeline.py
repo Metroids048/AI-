@@ -467,13 +467,14 @@ def _candidate_from_signal(signal: TradeSignal, bars: list[OHLCVBar]) -> Candida
 
 
 def _signal_weight(signal: TradeSignal) -> float:
+    base = 0.5
     if signal.source == "technical_macd":
-        return 1.0
-    if signal.source == "technical_dow_trend":
-        return 0.9
-    if signal.source.startswith("price_action"):
-        return 0.7
-    return 0.5
+        base = 1.0
+    elif signal.source == "technical_dow_trend":
+        base = 0.9
+    elif signal.source.startswith("price_action"):
+        base = 0.7
+    return base * float(signal.confidence or 0.0)
 
 
 def _meta_label_samples(bars: list[OHLCVBar], *, direction: TradeSide) -> list[MetaLabelSample]:

@@ -64,7 +64,7 @@ from .research_source import (
     ResearchSourceImportResult,
     StrategySourceManifest,
 )
-from .risk import RiskEvent, RiskEventResolutionUpdate, RiskProfile
+from .risk import RiskEvent, RiskEventResolutionUpdate, RiskProfile, RiskProfileUpdate
 from .signal import (
     CandidateSignalSeries,
     DecisionVetoResult,
@@ -171,6 +171,7 @@ __all__ = [
     "RiskEvent",
     "RiskEventResolutionUpdate",
     "RiskProfile",
+    "RiskProfileUpdate",
     "StrategySourceManifest",
     "ResearchSourceAsset",
     "ResearchSourceImportRequest",

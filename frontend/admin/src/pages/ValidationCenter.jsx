@@ -1,6 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { request } from "../api/client";
+import { ActionMessage, StatusBadge } from "../components/DetailPanels";
 import { Metric } from "../components/Common";
 import { asArray, formatNumber, formatPercent, formatTime } from "../utils/format";
 
@@ -11,6 +14,11 @@ const FUNDING_PARAMS = new URLSearchParams({
 });
 
 export function ValidationCenter() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [actionMessage, setActionMessage] = useState("");
+  const [submitForm, setSubmitForm] = useState({ strategy_id: "", execution_engine: "freqtrade" });
+
   const backtests = useQuery({
     queryKey: ["validation-backtests"],
     queryFn: () => request("/api/v1/backtests"),
@@ -36,12 +44,51 @@ export function ValidationCenter() {
   const optimizationRows = asArray(optimizations.data?.items);
   const hypothesisRows = asArray(hypotheses.data?.items);
 
+  const handleSubmitBacktest = async (event) => {
+    event.preventDefault();
+    if (!submitForm.strategy_id.trim()) {
+      setActionMessage("提交回测需要 strategy_id。");
+      return;
+    }
+    try {
+      const payload = await request("/api/v1/backtests", {
+        method: "POST",
+        body: JSON.stringify(submitForm),
+      });
+      setActionMessage(`回测已排队：${payload.resource_id ?? payload.task_id}`);
+      await queryClient.invalidateQueries({ queryKey: ["validation-backtests"] });
+    } catch (err) {
+      setActionMessage(`提交回测失败：${err.message}`);
+    }
+  };
+
   return (
     <main className="app-shell page-shell">
       <header className="page-header">
         <p className="eyebrow">Validation Layer</p>
         <h1>验证中心</h1>
       </header>
+      <ActionMessage message={actionMessage} />
+      {(backtests.isError || optimizations.isError) ? (
+        <div className="action-line">数据加载失败：{backtests.error?.message ?? optimizations.error?.message}</div>
+      ) : null}
+
+      <section className="exchange-panel form-panel">
+        <div className="panel-title"><h2>提交回测</h2></div>
+        <form className="form-row" onSubmit={handleSubmitBacktest}>
+          <input
+            placeholder="strategy_id"
+            value={submitForm.strategy_id}
+            onChange={(event) => setSubmitForm((current) => ({ ...current, strategy_id: event.target.value }))}
+          />
+          <input
+            placeholder="execution_engine"
+            value={submitForm.execution_engine}
+            onChange={(event) => setSubmitForm((current) => ({ ...current, execution_engine: event.target.value }))}
+          />
+          <button type="submit">提交</button>
+        </form>
+      </section>
 
       <section className="funding-metrics">
         <Metric label="Funding 信号源" value={funding.data?.source ?? "等待 Binance 数据"} />
@@ -54,20 +101,22 @@ export function ValidationCenter() {
         <RecordTable
           title="历史回测"
           rows={backtestRows}
+          onRowClick={(row) => row.backtest_run_id && navigate(`/validation/backtests/${row.backtest_run_id}`)}
           columns={[
             ["backtest_run_id", "Run ID"],
-            ["run_status", "状态"],
-            ["execution_engine", "引擎"],
+            ["run_status", "状态", (value) => <StatusBadge value={value} />],
             ["strategy_id", "策略"],
+            ["metrics_summary.sharpe", "Sharpe", (value, row) => formatNumber(row.metrics_summary?.sharpe, 3)],
             ["created_at", "创建时间", formatTime],
           ]}
         />
         <RecordTable
           title="优化任务"
           rows={optimizationRows}
+          onRowClick={(row) => row.optimization_run_id && navigate(`/validation/optimizations/${row.optimization_run_id}`)}
           columns={[
             ["optimization_run_id", "Run ID"],
-            ["run_status", "状态"],
+            ["run_status", "状态", (value) => <StatusBadge value={value} />],
             ["optimization_method", "方法"],
             ["strategy_id", "策略"],
           ]}
@@ -103,7 +152,7 @@ export function ValidationCenter() {
   );
 }
 
-function RecordTable({ title, rows, columns }) {
+function RecordTable({ title, rows, columns, onRowClick }) {
   return (
     <div className="exchange-panel table-panel">
       <div className="panel-title"><h2>{title}</h2><span>{rows.length}</span></div>
@@ -113,10 +162,16 @@ function RecordTable({ title, rows, columns }) {
         </thead>
         <tbody>
           {rows.length ? rows.map((row, index) => (
-            <tr key={row.backtest_run_id ?? row.optimization_run_id ?? index}>
+            <tr
+              key={row.backtest_run_id ?? row.optimization_run_id ?? index}
+              className={onRowClick ? "clickable-row" : undefined}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+            >
               {columns.map(([key, label, formatter]) => {
-                const value = row[key];
-                return <td key={label}>{formatter ? formatter(value) : formatCell(value)}</td>;
+                const value = key.includes(".")
+                  ? key.split(".").reduce((current, part) => current?.[part], row)
+                  : row[key];
+                return <td key={label}>{formatter ? formatter(value, row) : formatCell(value)}</td>;
               })}
             </tr>
           )) : <tr><td colSpan={columns.length}>暂无记录</td></tr>}

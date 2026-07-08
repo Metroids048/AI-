@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from apps.api.config import settings
 from shared.models import ApiError
 
-PUBLIC_PATHS = {"/health", "/api/v1/health"}
+PUBLIC_PATHS = {"/health", "/api/v1/health", "/metrics"}
 LOCAL_ENVIRONMENTS = {"development", "dev", "test"}
 DEFAULT_ADMIN_TOKEN = "dev-admin-token"
 
