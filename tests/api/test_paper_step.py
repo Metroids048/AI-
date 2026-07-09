@@ -95,6 +95,36 @@ def _create_validated_strategy_and_paper_run(api_client, db_session) -> tuple[st
     return strategy_id, paper_resp.json()["resource_id"]
 
 
+def _trend_closes(*, start: Decimal, step: Decimal, count: int = 80) -> list[Decimal]:
+    return [start + step * Decimal(index) for index in range(count)]
+
+
+def _store_trend_bars(
+    db_session,
+    *,
+    symbol: str = "BTC/USDT",
+    start_at: datetime,
+    start: Decimal = Decimal("60000"),
+    step: Decimal = Decimal("100"),
+) -> None:
+    DataRepository(db_session).store_ohlcv_bars(
+        [
+            {
+                "symbol": symbol,
+                "exchange": "binance",
+                "timeframe": "1h",
+                "time": start_at + timedelta(hours=index),
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+                "volume": Decimal("12"),
+            }
+            for index, close in enumerate(_trend_closes(start=start, step=step))
+        ]
+    )
+
+
 def test_paper_run_creation_rejects_when_promotion_evidence_is_incomplete(api_client, db_session) -> None:
     strategy_resp = api_client.post(
         "/api/v1/strategies",
@@ -148,31 +178,11 @@ def test_paper_run_creation_rejects_when_promotion_evidence_is_incomplete(api_cl
 def test_paper_run_step_generates_order_through_gatekeeper(api_client, db_session) -> None:
     _, paper_run_id = _create_validated_strategy_and_paper_run(api_client, db_session)
     now = datetime.now(UTC).replace(microsecond=0)
-    DataRepository(db_session).store_ohlcv_bars(
-        [
-            {
-                "symbol": "BTC/USDT",
-                "exchange": "binance",
-                "timeframe": "1h",
-                "time": now - timedelta(minutes=40),
-                "open": Decimal("60000"),
-                "high": Decimal("60300"),
-                "low": Decimal("59900"),
-                "close": Decimal("60200"),
-                "volume": Decimal("10"),
-            },
-            {
-                "symbol": "BTC/USDT",
-                "exchange": "binance",
-                "timeframe": "1h",
-                "time": now - timedelta(minutes=5),
-                "open": Decimal("60200"),
-                "high": Decimal("60500"),
-                "low": Decimal("60100"),
-                "close": Decimal("60400"),
-                "volume": Decimal("12"),
-            },
-        ]
+    _store_trend_bars(
+        db_session,
+        start_at=now - timedelta(hours=79),
+        start=Decimal("60000"),
+        step=Decimal("100"),
     )
 
     step_resp = api_client.post(
@@ -222,20 +232,11 @@ def test_paper_run_step_rejects_when_market_data_is_stale(api_client, db_session
 def test_paper_run_step_persists_structured_rejection_reasons(api_client, db_session) -> None:
     strategy_id, paper_run_id = _create_validated_strategy_and_paper_run(api_client, db_session)
     now = datetime.now(UTC).replace(microsecond=0)
-    DataRepository(db_session).store_ohlcv_bars(
-        [
-            {
-                "symbol": "BTC/USDT",
-                "exchange": "binance",
-                "timeframe": "1h",
-                "time": now - timedelta(minutes=5),
-                "open": Decimal("60000"),
-                "high": Decimal("60500"),
-                "low": Decimal("59900"),
-                "close": Decimal("60400"),
-                "volume": Decimal("12"),
-            }
-        ]
+    _store_trend_bars(
+        db_session,
+        start_at=now - timedelta(hours=79),
+        start=Decimal("60000"),
+        step=Decimal("100"),
     )
     api_client.post(
         "/api/v1/execution/positions",

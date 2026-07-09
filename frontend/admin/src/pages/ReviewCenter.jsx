@@ -24,6 +24,11 @@ export function ReviewCenter() {
     queryFn: () => request("/api/v1/market/news?limit=12&refresh=true"),
     refetchInterval: 30000,
   });
+  const intelligence = useQuery({
+    queryKey: ["review-market-intelligence"],
+    queryFn: () => request("/api/v1/market-intelligence/signals?symbol=BTC/USDT"),
+    refetchInterval: 30000,
+  });
 
   const reviewRows = asArray(reviews.data?.items);
   const failureRows = asArray(failures.data?.items);
@@ -79,6 +84,17 @@ export function ReviewCenter() {
             <>
               <strong>{item.title}</strong>
               <span>{item.source ?? "rss"} / {item.severity ?? item.relevance_status ?? "captured"}</span>
+            </>
+          )}
+        />
+        <FeedPanel
+          title="情报因子复盘"
+          rows={intelligence.data ? [intelligence.data] : []}
+          empty="暂无情报因子记录"
+          render={(item) => (
+            <>
+              <strong>{item.direction ?? "neutral"} / 权重 {item.vote_weight}</strong>
+              <span>{item.active_event_cooldown ? "event cooldown" : item.should_participate ? "participating" : "watching"}</span>
             </>
           )}
         />

@@ -9,9 +9,9 @@ from typing import Any
 
 import pandas as pd
 
-from shared.config import settings
 from services.agents import AgentTaskService, build_configured_llm_runtime
 from services.data import DataRepository
+from services.data.market_intelligence import MarketIntelligenceService
 from services.strategy_library import (
     AgentTaskRepository,
     ExecutionRepository,
@@ -23,10 +23,17 @@ from services.strategy_library.ensemble import SignalEnsembleService
 from services.strategy_library.technical import (
     calculate_atr,
     classify_volatility_regime,
+    generate_adx_trend_signal,
+    generate_bollinger_reversion_signal,
     generate_dow_trend_signal,
+    generate_ema_trend_signal,
+    generate_false_breakout_signal,
     generate_macd_signal,
     generate_price_action_signals,
+    generate_rsi_signal,
+    generate_vwap_reclaim_signal,
 )
+from shared.config import settings
 from shared.models import (
     AgentTask,
     AgentTaskRequest,
@@ -44,6 +51,31 @@ from shared.models import (
     TradeSide,
     TradeSignal,
 )
+
+DEFAULT_TECHNICAL_SIGNALS: frozenset[str] = frozenset(
+    {
+        "macd",
+        "dow_trend",
+        "price_action",
+        "rsi",
+        "ema_trend",
+        "adx",
+        "vwap",
+        "bollinger",
+    }
+)
+
+_SIGNAL_ALIASES = {
+    "dow": "dow_trend",
+    "ema": "ema_trend",
+    "ema_cross": "ema_trend",
+    "ema_trend_follow": "ema_trend",
+    "false_break": "false_breakout",
+    "fake_breakout": "false_breakout",
+    "fake_breakdown": "false_breakout",
+    "boll": "bollinger",
+    "bbands": "bollinger",
+}
 
 
 @dataclass(frozen=True)
@@ -102,35 +134,47 @@ class DecisionPipeline:
             classify_volatility_regime(frame) if not frame.empty else {"regime": "insufficient_data"}
         )
         atr = calculate_atr(frame) if not frame.empty else None
-        signals = self._technical_signals(frame=frame, symbol=symbol)
-        fallback_direction = _fallback_direction(bars)
+        enabled_signals = _enabled_signals(strategy)
+        signals = self._technical_signals(frame=frame, symbol=symbol, enabled_signals=enabled_signals)
+        volatility = {**volatility, "enabled_signals": sorted(enabled_signals), "evaluated_timeframe": timeframe}
         if not signals:
-            trace: dict[str, Any] = {
-                "pipeline_status": "fallback_direction",
-                "fallback_reason": "technical_signals_insufficient",
-                "signals": [],
-                "volatility": volatility,
-            }
-            return DecisionPipelineResult(
-                direction=fallback_direction,
-                should_trade=fallback_direction is not None,
-                reason="fallback_direction" if fallback_direction is not None else "insufficient_market_data",
+            return self._skipped(
+                reason="technical_signals_insufficient",
                 reference_price=reference_price,
-                bar_time=latest.timestamp if latest else None,
+                latest=latest,
                 signals=[],
                 ensemble=None,
-                meta_label=None,
-                veto_result=None,
-                confidence_multiplier=1.0,
                 atr=atr,
-                volatility_context=volatility,
-                trace=trace,
+                volatility={**volatility, "signal_count": 0},
             )
+        market_intelligence_signal = None
+        if settings.market_intelligence_enabled:
+            market_intelligence_signal = MarketIntelligenceService(data_repo=self.data_repo).build_signal(
+                symbol=symbol
+            )
+            volatility = {
+                **volatility,
+                "market_intelligence": market_intelligence_signal.model_dump(mode="json"),
+            }
+            if market_intelligence_signal.should_participate and market_intelligence_signal.direction is not None:
+                signals = [
+                    *signals,
+                    TradeSignal(
+                        symbol=symbol,
+                        side=market_intelligence_signal.direction,
+                        source="market_intelligence",
+                        signal_time=market_intelligence_signal.generated_at,
+                        reason="bounded_market_intelligence_vote",
+                        confidence=market_intelligence_signal.confidence,
+                    ),
+                ]
 
         multi_timeframe = self._multi_timeframe_confirmation(
+            strategy=strategy,
             symbol=symbol,
             timeframe=timeframe,
             main_signals=signals,
+            enabled_signals=enabled_signals,
         )
         if not multi_timeframe["passed"] and not relaxed_signals:
             return self._skipped(
@@ -218,27 +262,60 @@ class DecisionPipeline:
             trace=trace,
         )
 
-    def _technical_signals(self, *, frame: pd.DataFrame, symbol: str) -> list[TradeSignal]:
+    def _technical_signals(
+        self,
+        *,
+        frame: pd.DataFrame,
+        symbol: str,
+        enabled_signals: set[str] | frozenset[str],
+    ) -> list[TradeSignal]:
         if frame.empty:
             return []
-        candidates = [
-            generate_macd_signal(frame, symbol=symbol),
-            generate_dow_trend_signal(frame, symbol=symbol),
-            *generate_price_action_signals(frame, symbol=symbol),
-        ]
+        candidates: list[TradeSignal | None] = []
+        if "macd" in enabled_signals:
+            candidates.append(generate_macd_signal(frame, symbol=symbol))
+        if "dow_trend" in enabled_signals:
+            candidates.append(generate_dow_trend_signal(frame, symbol=symbol))
+        if "price_action" in enabled_signals:
+            candidates.extend(generate_price_action_signals(frame, symbol=symbol))
+        elif "false_breakout" in enabled_signals:
+            candidates.append(generate_false_breakout_signal(frame, symbol=symbol))
+        if "rsi" in enabled_signals:
+            candidates.append(generate_rsi_signal(frame, symbol=symbol))
+        if "ema_trend" in enabled_signals:
+            candidates.append(generate_ema_trend_signal(frame, symbol=symbol))
+        if "adx" in enabled_signals:
+            candidates.append(generate_adx_trend_signal(frame, symbol=symbol))
+        if "vwap" in enabled_signals:
+            candidates.append(generate_vwap_reclaim_signal(frame, symbol=symbol))
+        if "bollinger" in enabled_signals:
+            candidates.append(generate_bollinger_reversion_signal(frame, symbol=symbol))
         return [signal for signal in candidates if signal is not None]
 
     def _multi_timeframe_confirmation(
         self,
         *,
+        strategy: StrategyContract,
         symbol: str,
         timeframe: str,
         main_signals: list[TradeSignal],
+        enabled_signals: set[str] | frozenset[str],
     ) -> dict[str, Any]:
-        confirm_timeframe = "15m" if timeframe != "15m" else "1h"
+        confirm_timeframe = _confirmation_timeframe(strategy=strategy, entry_timeframe=timeframe)
+        if confirm_timeframe == timeframe:
+            return {
+                "passed": True,
+                "status": "confirmation_same_timeframe",
+                "main_timeframe": timeframe,
+                "confirm_timeframe": confirm_timeframe,
+            }
         confirm_bars = self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=confirm_timeframe, limit=240)
         confirm_frame = _bars_to_frame(confirm_bars)
-        confirm_signals = self._technical_signals(frame=confirm_frame, symbol=symbol)
+        confirm_signals = self._technical_signals(
+            frame=confirm_frame,
+            symbol=symbol,
+            enabled_signals=enabled_signals,
+        )
         main_direction = _dominant_signal_direction(main_signals)
         confirm_direction = _dominant_signal_direction(confirm_signals)
         if not confirm_bars or not confirm_signals or main_direction is None or confirm_direction is None:
@@ -247,6 +324,7 @@ class DecisionPipeline:
                 "status": "confirmation_unavailable",
                 "main_timeframe": timeframe,
                 "confirm_timeframe": confirm_timeframe,
+                "confirm_signal_count": len(confirm_signals),
             }
         return {
             "passed": main_direction == confirm_direction,
@@ -255,6 +333,7 @@ class DecisionPipeline:
             "confirm_timeframe": confirm_timeframe,
             "main_direction": str(main_direction),
             "confirm_direction": str(confirm_direction),
+            "confirm_signal_count": len(confirm_signals),
         }
 
     def _run_decision_veto(
@@ -421,10 +500,36 @@ def _bars_to_frame(bars: list[OHLCVBar]) -> pd.DataFrame:
     return frame[["open", "high", "low", "close", "volume"]]
 
 
-def _fallback_direction(bars: list[OHLCVBar]) -> TradeSide | None:
-    if len(bars) < 2:
-        return None
-    return TradeSide.SHORT if bars[-1].close < bars[-2].close else TradeSide.LONG
+def _enabled_signals(strategy: StrategyContract) -> set[str]:
+    raw = strategy.rules.entry_rules.get("enabled_signals", strategy.rules.entry_rules.get("technical_signals"))
+    if raw is None or raw == "":
+        return set(DEFAULT_TECHNICAL_SIGNALS)
+    if isinstance(raw, str):
+        values = [raw]
+    elif isinstance(raw, (list, tuple, set)):
+        values = list(raw)
+    else:
+        return set(DEFAULT_TECHNICAL_SIGNALS)
+    normalized: set[str] = set()
+    for value in values:
+        key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+        if key in {"all", "default", "defaults"}:
+            return set(DEFAULT_TECHNICAL_SIGNALS)
+        normalized.add(_SIGNAL_ALIASES.get(key, key))
+    supported = set(DEFAULT_TECHNICAL_SIGNALS) | {"false_breakout"}
+    return {key for key in normalized if key in supported} or set(DEFAULT_TECHNICAL_SIGNALS)
+
+
+def _confirmation_timeframe(*, strategy: StrategyContract, entry_timeframe: str) -> str:
+    entry_rules = strategy.rules.entry_rules
+    direction_timeframe = entry_rules.get("direction_timeframe")
+    configured_entry_timeframe = entry_rules.get("entry_timeframe")
+    timeframe_model = str(entry_rules.get("timeframe_model", "")).lower()
+    if direction_timeframe and configured_entry_timeframe and entry_timeframe == str(configured_entry_timeframe):
+        return str(direction_timeframe)
+    if timeframe_model == "4h_direction_15m_entry" and entry_timeframe == "15m":
+        return "4h"
+    return "15m" if entry_timeframe != "15m" else "1h"
 
 
 def _dominant_signal_direction(signals: list[TradeSignal]) -> TradeSide | None:
@@ -459,10 +564,16 @@ def _signal_weight(signal: TradeSignal) -> float:
     base = 0.5
     if signal.source == "technical_macd":
         base = 1.0
-    elif signal.source == "technical_dow_trend":
+    elif signal.source == "technical_dow_trend" or signal.source == "technical_ema_trend":
         base = 0.9
+    elif signal.source == "technical_adx":
+        base = 0.85
+    elif signal.source in {"technical_rsi", "technical_vwap", "technical_bollinger"}:
+        base = 0.75
     elif signal.source.startswith("price_action"):
         base = 0.7
+    elif signal.source == "market_intelligence":
+        base = min(settings.market_intelligence_vote_weight_cap, 0.30)
     return base * float(signal.confidence or 0.0)
 
 

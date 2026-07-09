@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from shared.config import settings
 from services.data.repository import DataRepository
+from shared.config import settings
 from shared.models import RiskEvent, RiskEventType, RiskSeverity
 
 

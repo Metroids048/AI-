@@ -109,6 +109,14 @@ class Settings(BaseSettings):
     theblock_rss_url: str = "https://www.theblock.co/rss.xml"
     reuters_crypto_rss_url: str = ""
     sec_edgar_rss_url: str = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=&company=&dateb=&owner=include&start=0&count=40&output=atom&q=%22crypto%22"
+    market_intelligence_enabled: bool = True
+    market_intelligence_vote_weight_cap: float = 0.30
+    market_intelligence_cooldown_minutes: int = 30
+    coinglass_api_key: str = ""
+    coinglass_api_base_url: str = "https://open-api-v4.coinglass.com"
+    cryptoquant_api_key: str = ""
+    cryptoquant_api_base_url: str = "https://api.cryptoquant.com"
+    defillama_api_base_url: str = "https://api.llama.fi"
 
     # ---- Social / notifications ----
     twitter_bearer_token: str = ""

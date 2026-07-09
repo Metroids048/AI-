@@ -32,6 +32,11 @@ export function OpsConsole() {
     queryFn: () => request("/api/v1/market/macro-events?limit=20&refresh=true"),
     refetchInterval: 30000,
   });
+  const intelligence = useQuery({
+    queryKey: ["ops-market-intelligence"],
+    queryFn: () => request("/api/v1/market-intelligence/refresh?symbol=BTC/USDT"),
+    refetchInterval: 30000,
+  });
   const notifications = useQuery({
     queryKey: ["ops-notifications"],
     queryFn: () => request("/api/v1/notifications/outbox?limit=20"),
@@ -47,6 +52,7 @@ export function OpsConsole() {
   const agentRows = asArray(agents.data?.items);
   const notificationRows = asArray(notifications.data?.items);
   const capabilityRows = asArray(capabilities.data?.items);
+  const providerRows = Object.values(intelligence.data?.provider_status ?? {});
   const schedulerTone = tradingStatus.data?.scheduler_running ? "ok" : "warn";
 
   return (
@@ -133,6 +139,16 @@ export function OpsConsole() {
             <>
               <strong>{item.event_name}</strong>
               <span>{item.impact} / {formatTime(item.scheduled_at)}</span>
+            </>
+          )}
+        />
+        <FeedPanel
+          title="情报源状态"
+          items={providerRows}
+          renderItem={(item) => (
+            <>
+              <strong>{item.provider}</strong>
+              <span>{item.status} / {item.configured ? "configured" : "missing"}</span>
             </>
           )}
         />

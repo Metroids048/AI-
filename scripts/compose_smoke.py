@@ -6,7 +6,6 @@ import argparse
 import json
 import shutil
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -22,7 +21,14 @@ class ComposeSmokeResult:
 
 
 def _compose_command(project_root: Path, *args: str) -> list[str]:
-    command = ["docker", "compose", "-f", str(project_root / "docker-compose.yml"), "-f", str(project_root / "docker-compose.test.yml")]
+    command = [
+        "docker",
+        "compose",
+        "-f",
+        str(project_root / "docker-compose.yml"),
+        "-f",
+        str(project_root / "docker-compose.test.yml"),
+    ]
     command.extend(args)
     return command
 
@@ -62,7 +68,11 @@ def _wait_for_http(url: str, *, timeout_seconds: float = 120.0) -> None:
 
 def run_compose_smoke(*, project_root: Path, keep_running: bool = False) -> ComposeSmokeResult:
     if shutil.which("docker") is None:
-        return ComposeSmokeResult(exit_code=2, status="blocked", message="docker not found on PATH; compose smoke skipped")
+        return ComposeSmokeResult(
+            exit_code=2,
+            status="blocked",
+            message="docker not found on PATH; compose smoke skipped",
+        )
 
     _ensure_env(project_root)
     services = ["timescaledb", "redis", "api"]
@@ -76,7 +86,11 @@ def run_compose_smoke(*, project_root: Path, keep_running: bool = False) -> Comp
         _wait_for_http("http://127.0.0.1:8000/health")
         health = json.loads(urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=5).read().decode("utf-8"))
         if health.get("status") != "ok":
-            return ComposeSmokeResult(exit_code=1, status="health_failed", message=f"/health unexpected payload: {health}")
+            return ComposeSmokeResult(
+                exit_code=1,
+                status="health_failed",
+                message=f"/health unexpected payload: {health}",
+            )
 
         deps = json.loads(
             urllib.request.urlopen(
@@ -89,7 +103,11 @@ def run_compose_smoke(*, project_root: Path, keep_running: bool = False) -> Comp
         )
         database = deps.get("dependencies", {}).get("database", {})
         if database.get("status") != "ok":
-            return ComposeSmokeResult(exit_code=1, status="dependencies_failed", message=f"database check failed: {database}")
+            return ComposeSmokeResult(
+                exit_code=1,
+                status="dependencies_failed",
+                message=f"database check failed: {database}",
+            )
 
         return ComposeSmokeResult(exit_code=0, status="ok", message="compose smoke passed for timescaledb/redis/api")
     except subprocess.CalledProcessError as exc:

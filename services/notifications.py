@@ -10,8 +10,8 @@ from typing import Protocol
 import httpx
 from sqlalchemy.orm import Session
 
-from shared.config import settings
 from services.strategy_library import NotificationRepository
+from shared.config import settings
 from shared.models import NotificationOutboxItem, RiskEvent
 
 

@@ -20,6 +20,7 @@ from apps.api.routers import (
     ensemble,
     ingestion,
     market,
+    market_intelligence,
     metrics,
     notifications,
     research_sources,
@@ -29,8 +30,8 @@ from apps.api.routers import (
     strategies,
     system,
 )
-from services.execution.scheduler import RuntimeScheduler, set_runtime_scheduler
 from services.execution.bootstrap import bootstrap_local_paper_runtime
+from services.execution.scheduler import RuntimeScheduler, set_runtime_scheduler
 from shared.models import ApiError
 
 
@@ -103,6 +104,7 @@ for router in (
     agents.router,
     ensemble.router,
     market.router,
+    market_intelligence.router,
     console.router,
     system.router,
     notifications.router,

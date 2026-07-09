@@ -46,8 +46,8 @@ def _bootstrap_db() -> None:
     os.environ.setdefault("POSTGRES_URL", f"sqlite:///{DB_PATH.as_posix()}")
     os.environ.setdefault("BINANCE_USE_TESTNET", "true")
     os.environ.setdefault("BINANCE_AUTO_EXECUTE", "true")
-    from services.database import create_relational_schema, get_engine, reset_database_caches
     from services.data.repository import create_timeseries_schema
+    from services.database import create_relational_schema, get_engine, reset_database_caches
     from services.execution.bootstrap import bootstrap_local_paper_runtime
 
     reset_database_caches()
@@ -64,11 +64,11 @@ def _probe_binance() -> dict:
 
 
 def _run_one_cycle() -> dict:
+    from services.data import DataRepository
     from services.database import get_session_factory
-    from services.execution.paper_runtime import PaperRuntimeService
     from services.execution.gatekeeper import ExecutionGatekeeperService
     from services.execution.gateway import configured_gateways
-    from services.execution.tasks import run_paper_runtime_cycle
+    from services.execution.paper_runtime import PaperRuntimeService
     from services.strategy_library import (
         AgentTaskRepository,
         ExecutionRepository,
@@ -80,7 +80,6 @@ def _run_one_cycle() -> dict:
         StrategyRepository,
         ValidationRepository,
     )
-    from services.data import DataRepository
     from shared.models import PaperRuntimeCycleRequest
 
     session = get_session_factory()()

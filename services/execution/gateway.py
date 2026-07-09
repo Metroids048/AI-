@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -63,6 +64,12 @@ def _resolve_gateway_quantity(*, client: Any, symbol: str, order_request: Execut
     if quantity <= 0:
         raise ValueError("live gateway order requires positive entry_context.quantity")
     return quantity
+
+
+def _gateway_order_side(*, direction: str, close_only: bool) -> str:
+    if direction == "long":
+        return "sell" if close_only else "buy"
+    return "buy" if close_only else "sell"
 
 
 @dataclass
@@ -136,16 +143,17 @@ class BinanceUsdtPerpetualGateway:
             raise ValueError(f"symbol_not_found: {order_request.symbol}")
         requested_leverage = float(order_request.entry_context.get("requested_leverage") or 0)
         if requested_leverage >= 1:
-            try:
+            with contextlib.suppress(Exception):
                 self.set_leverage(symbol=order_request.symbol, leverage=requested_leverage)
-            except Exception:
-                # ponytail: leverage best-effort; order submit still attempted at exchange default.
-                pass
         quantity = _resolve_gateway_quantity(client=self.client, symbol=symbol, order_request=order_request)
-        side = "buy" if str(order_request.direction).lower() == "long" else "sell"
+        close_only = bool(
+            order_request.entry_context.get("close_only_mode") or order_request.entry_context.get("reduce_only")
+        )
+        direction = str(order_request.direction).lower()
+        side = _gateway_order_side(direction=direction, close_only=close_only)
         order_type = str(order_request.entry_context.get("order_type", "market"))
         params: dict[str, Any] = {"positionSide": "BOTH"}
-        if bool(order_request.entry_context.get("close_only_mode") or order_request.entry_context.get("reduce_only")):
+        if close_only:
             params["reduceOnly"] = True
         if "price" in order_request.stoploss_plan:
             params["stopLoss"] = {"triggerPrice": order_request.stoploss_plan["price"]}
@@ -219,7 +227,7 @@ class BinanceUsdtPerpetualGateway:
         if not callable(method):
             return []
         close_side = "SELL" if side == "buy" else "BUY"
-        refs: list[dict[str, Any]] = []
+        refs: list[dict[str, Any] | None] = []
         symbol = _binance_market_id(_normalize_binance_symbol(order_request.symbol))
         if "price" in order_request.stoploss_plan:
             refs.append(
@@ -273,7 +281,11 @@ class BinanceUsdtPerpetualGateway:
                     "apiKey": settings.binance_api_key,
                     "secret": settings.binance_api_secret,
                     "enableRateLimit": True,
-                    "options": {"defaultType": "future", "fetchCurrencies": False},
+                    "options": {
+                        "adjustForTimeDifference": True,
+                        "defaultType": "future",
+                        "fetchCurrencies": False,
+                    },
                 }
             )
         )
@@ -290,6 +302,13 @@ def _apply_legacy_testnet_api(client: Any) -> None:
         client.urls["api"] = clone(test_urls)
 
 
+def _sync_binance_time_difference(client: Any) -> None:
+    load_time_difference = getattr(client, "load_time_difference", None)
+    if callable(load_time_difference):
+        with contextlib.suppress(Exception):
+            load_time_difference()
+
+
 def configure_binance_paper_client(client: Any) -> str:
     """Configure CCXT for Binance Mock Trading; fall back to legacy testnet fapi if demo API blocked."""
     options = getattr(client, "options", None)
@@ -300,6 +319,7 @@ def configure_binance_paper_client(client: Any) -> str:
     mode = (settings.binance_trading_mode or "demo").lower()
     if mode == "testnet":
         _apply_legacy_testnet_api(client)
+        _sync_binance_time_difference(client)
         return "testnet"
 
     enable_demo = getattr(client, "enable_demo_trading", None)
@@ -307,6 +327,7 @@ def configure_binance_paper_client(client: Any) -> str:
         enable_demo(True)
     try:
         client.fetch_time({"type": "future"})
+        _sync_binance_time_difference(client)
         return "demo"
     except Exception:
         # ponytail: demo-fapi often returns 451 in CN; legacy testnet fapi still serves same paper keys.
@@ -319,6 +340,7 @@ def configure_binance_paper_client(client: Any) -> str:
         if isinstance(options, dict):
             options["enableDemoTrading"] = False
         _apply_legacy_testnet_api(client)
+        _sync_binance_time_difference(client)
         return "testnet-fallback"
 
 
@@ -514,10 +536,13 @@ def probe_testnet_account(*, order_limit: int = 10) -> BinanceTestnetAccountStat
                     )
                 )
         recent_orders.sort(key=lambda item: item.update_time or 0, reverse=True)
+        status_api_base = (
+            client.urls["api"].get("fapiPrivate", api_base) if isinstance(client.urls.get("api"), dict) else api_base
+        )
         return BinanceTestnetAccountStatus(
             connected=True,
             trading_mode=trading_mode,
-            api_base=client.urls["api"].get("fapiPrivate", api_base) if isinstance(client.urls.get("api"), dict) else api_base,
+            api_base=status_api_base,
             wallet_balance=snapshot.wallet_balance,
             available_balance=snapshot.available_balance,
             unrealized_pnl=snapshot.unrealized_pnl,

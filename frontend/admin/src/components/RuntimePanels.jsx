@@ -63,6 +63,42 @@ export function DecisionDebugPanel({ decisionTrace }) {
   );
 }
 
+export function MarketIntelligencePanel({ signal }) {
+  const components = Object.entries(signal?.component_scores ?? {});
+  const providers = Object.values(signal?.provider_status ?? {});
+  return (
+    <section className="exchange-panel intelligence-panel">
+      <div className="panel-title">
+        <h2>Market Intelligence</h2>
+        <span>{signal?.should_participate ? "投票中" : signal?.active_event_cooldown ? "冷却" : "观察"}</span>
+      </div>
+      {signal ? (
+        <div className="decision-summary">
+          <span>方向：{signal.direction ?? "neutral"}</span>
+          <span>Long：{formatNumber(signal.long_probability, 3)}</span>
+          <span>Short：{formatNumber(signal.short_probability, 3)}</span>
+          <span>置信：{formatNumber(signal.confidence, 3)}</span>
+          <span>权重：{formatNumber(signal.vote_weight, 3)} / 0.300</span>
+          <span>风险：{signal.risk_level}</span>
+          {signal.active_event_cooldown ? <p>{signal.rationale?.[0] ?? "重大事件冷却中，情报投票禁用"}</p> : null}
+          <div className="rejection-list">
+            {providers.map((provider) => (
+              <span key={provider.provider}>{provider.provider}:{provider.status}</span>
+            ))}
+          </div>
+          <div className="signal-chips">
+            {components.length ? components.map(([name, value]) => (
+              <span key={name}>{name}:{formatNumber(value, 3)}</span>
+            )) : <span>等待更多情报因子</span>}
+          </div>
+        </div>
+      ) : (
+        <div className="empty-list">暂无情报信号</div>
+      )}
+    </section>
+  );
+}
+
 function DecisionSummary({ trace }) {
   const signals = asArray(trace.signals);
   const ensemble = trace.ensemble ?? {};

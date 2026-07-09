@@ -9,8 +9,8 @@ from typing import Any
 
 import httpx
 
-from shared.config import settings
 from services.data.repository import DataRepository
+from shared.config import settings
 from shared.models import RiskEvent, RiskEventType, RiskSeverity
 
 HIGH_IMPACT_TERMS = {"fomc", "cpi", "ppi", "nonfarm", "nfp", "fed", "interest rate", "gdp", "pmi"}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
@@ -154,12 +155,9 @@ class CarryBacktestApplicationService:
             backtest_status = "passed" if passed else "failed"
         else:
             backtest_status = "completed" if persisted.run_status == "completed" else "failed"
-        try:
+        with contextlib.suppress(Exception):
             self.strategy_repo.update_lifecycle_status(
                 request.strategy_id,
                 backtest_status=backtest_status,
             )
-        except Exception:
-            # Lifecycle writeback must not break the backtest result path.
-            pass
         return persisted

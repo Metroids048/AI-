@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { request } from "../api/client";
 import { AppShell } from "../components/Common";
 import { KlinePanel, MarketHeader } from "../components/MarketPanels";
-import { DecisionDebugPanel } from "../components/RuntimePanels";
+import { DecisionDebugPanel, MarketIntelligencePanel } from "../components/RuntimePanels";
 import {
   BinanceSyncHero,
   FundingPanel,
@@ -184,6 +184,7 @@ export function PaperConsole() {
           signal={data.fundingSignal}
           onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })}
         />
+        <MarketIntelligencePanel signal={data.intelligenceSignal} />
         <DecisionDebugPanel decisionTrace={data.decisionTrace} />
       </section>
     </AppShell>

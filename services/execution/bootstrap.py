@@ -35,14 +35,30 @@ AUTO_PAPER_STRATEGY_RULES = {
 }
 
 AUTO_PAPER_TECHNICAL_RULES = {
-    "entry_rules": {"technical_pipeline": True},
-    "exit_rules": {"close_on_opposite_signal": True},
+    "entry_rules": {
+        "technical_pipeline": True,
+        "timeframe_model": "4h_direction_15m_entry",
+        "direction_timeframe": "4h",
+        "entry_timeframe": "15m",
+        "enabled_signals": [
+            "macd",
+            "dow_trend",
+            "price_action",
+            "rsi",
+            "ema_trend",
+            "adx",
+            "vwap",
+            "bollinger",
+        ],
+        "meta_label_min_win_rate": 0.48,
+    },
+    "exit_rules": {"close_on_opposite_signal": True, "max_hold_bars": 96},
     "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
     "takeprofit_rules": {"risk_reward": 2.5, "trail_after_r": 1.5},
     "position_rules": {
-        "risk_per_trade": 0.02,
-        "max_leverage": 10,
-        "max_position_fraction": 0.08,
+        "risk_per_trade": 0.01,
+        "max_leverage": 5,
+        "max_position_fraction": 0.05,
         "min_notional_usdt": 20,
     },
 }
@@ -168,8 +184,10 @@ def _ensure_auto_paper_run(
         BacktestRun,
         GateDecision,
         PaperRun,
+        StrategyContract,
         StrategyCreate,
         StrategyRules,
+        Timeframe,
     )
 
     with get_session_factory()() as session:
@@ -177,7 +195,7 @@ def _ensure_auto_paper_run(
         validation_repo = ValidationRepository(session)
         paper_repo = PaperRunRepository(session)
 
-        strategy = None
+        strategy: StrategyContract | None = None
         for item in strategy_repo.list_strategies():
             if item.strategy_key == strategy_key:
                 strategy = item
@@ -189,15 +207,17 @@ def _ensure_auto_paper_run(
                     source="platform:auto_bootstrap",
                     core_thesis=core_thesis,
                     symbol_scope=list(DEFAULT_BINANCE_TOP20),
-                    timeframe="1m",
+                    timeframe=Timeframe.M1,
                     rules=StrategyRules(**rules),
                 )
             )
         else:
             _sync_auto_paper_strategy(strategy_repo, strategy, rules=rules)
             strategy = strategy_repo.get_strategy(strategy.strategy_id or "")
+        if strategy is None:
+            raise ValueError(f"auto paper strategy disappeared: {strategy_key}")
 
-        backtest = None
+        backtest: BacktestRun | None = None
         for run in validation_repo.list_backtest_runs():
             if (
                 run.strategy_id == strategy.strategy_id
@@ -238,13 +258,13 @@ def _ensure_auto_paper_run(
                 )
             )
 
-        paper_run = None
-        for run in paper_repo.list_paper_runs():
+        paper_run: PaperRun | None = None
+        for paper_candidate in paper_repo.list_paper_runs():
             if (
-                run.strategy_id == strategy.strategy_id
-                and run.execution_profile.get("auto_paper_runtime_key") == runtime_key
+                paper_candidate.strategy_id == strategy.strategy_id
+                and paper_candidate.execution_profile.get("auto_paper_runtime_key") == runtime_key
             ):
-                paper_run = run
+                paper_run = paper_candidate
                 break
         execution_profile = {
             "auto_paper_runtime_key": runtime_key,
@@ -321,7 +341,8 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
         strategy_lane="directional",
         core_thesis=(
             "Local auto-cycle bootstrap strategy. Scans Binance USDT-M Top20 through "
-            "MACD/Dow/price-action ensemble, meta-label sizing, and optional LLM veto."
+            "4h trend + 15m entry, MACD/Dow/price-action/RSI/EMA/ADX/VWAP/Bollinger ensemble, "
+            "meta-label sizing, and optional LLM veto."
         ),
         rules=AUTO_PAPER_TECHNICAL_RULES,
         risk_profile_id=risk_profile_id,

@@ -60,6 +60,13 @@ from .market import (
     OhlcvSeriesResponse,
     OrderBookLevel,
 )
+from .market_intelligence import (
+    MAX_MARKET_INTELLIGENCE_VOTE_WEIGHT,
+    MarketEvent,
+    MarketIntelligenceFeatureSnapshot,
+    MarketIntelligenceProviderStatus,
+    MarketIntelligenceSignal,
+)
 from .research_source import (
     ResearchSourceAsset,
     ResearchSourceIdeaExtractionRequest,
@@ -160,6 +167,11 @@ __all__ = [
     "ExchangeCapability",
     "MarketUniverseItem",
     "FundingArbitrageSignal",
+    "MAX_MARKET_INTELLIGENCE_VOTE_WEIGHT",
+    "MarketEvent",
+    "MarketIntelligenceFeatureSnapshot",
+    "MarketIntelligenceProviderStatus",
+    "MarketIntelligenceSignal",
     # backtest
     "BacktestReport",
     "GateDecision",

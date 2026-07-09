@@ -1,5 +1,30 @@
 # Project Memory
 
+## Market Intelligence capped factor vote (TASK-037, 2026-07-09)
+
+- Market Intelligence is implemented as an in-architecture factor, not a new layer: `MarketEvent`, `MarketIntelligenceFeatureSnapshot`, provider status, and provider adapters belong to Data Layer; `MarketIntelligenceSignal` becomes a capped Strategy Layer vote; execution authority remains with SignalEnsemble, MetaLabel, Decision Veto, Gatekeeper, and Risk Engine.
+- First version supports Binance-derived `market_extras`, news/macro/risk evidence, and adapter-first provider status for CoinGlass, CryptoQuant, and DeFiLlama. CoinGlass/CryptoQuant missing API keys return `missing_credentials` and do not fail runtime.
+- Directional Paper decisions now add `market_intelligence` to the ensemble only after at least one deterministic technical signal exists. `vote_weight` is schema-capped at `0.30`; high/critical active risk events set cooldown and disable the vote.
+- New API surface: `/api/v1/market-intelligence/events`, `/features`, `/signals`, and `/refresh`. Trading console shows the intelligence panel; Ops shows provider status; Review shows current intelligence factor state.
+- Verification evidence: targeted Market Intelligence/DecisionPipeline tests passed (`23 passed`); changed Python Ruff passed; mypy passed; admin Vitest passed; admin build passed.
+
+## Binance Testnet real open/close smoke + quality baseline closure (TASK-036, 2026-07-09)
+
+- A real Binance Futures Testnet BTCUSDT open/close smoke was executed through `BinanceUsdtPerpetualGateway` with `LIVE_TRADING_ENABLED=false`, `BINANCE_USE_TESTNET=true`, API base `https://testnet.binancefuture.com/fapi/v1`, and quantity `0.001`.
+- Exchange records: open BUY market order `20356862614` filled for `0.0010` BTC at avg `62874.700000`; close SELL reduce-only market order `20356874963` filled for `0.0010` BTC at avg `62864.500000`; cleanup SELL reduce-only order `20356888777` filled for a pre-existing `0.0001` BTC residual position at avg `62874.200000`.
+- Final Testnet probe confirmed `open_position_count=0`, `positions=[]`, wallet balance `5250.75171046`, and available balance `5250.75171046`. Evidence is stored in `scripts/_testnet_open_close_report.json` and contains no API secrets.
+- Runtime hardening discovered during the real smoke: Binance private calls needed ccxt `adjustForTimeDifference` plus `load_time_difference()` after demo/testnet URL selection; close-only gateway orders now invert the current position side (`long` -> SELL reduce-only, `short` -> BUY reduce-only).
+- Quality baseline after the real smoke: full repo Ruff passed, mypy passed, backend non-integration tests passed (`185 passed, 1 deselected, 1 warning`), admin Vitest passed (`12 passed`), admin build passed, npm audit found 0 vulnerabilities, project `pip-audit .` found no known vulnerabilities, and `git diff --check` passed. Compose smoke remains host-blocked because Docker is not on PATH.
+
+## Technical strategy hardening + Strategy Library RAG (TASK-035, 2026-07-09)
+
+- Technical directional lane now defaults to explicit, rule-based signals only: MACD, Dow trend, price action false breakout/breakdown, RSI, EMA trend, ADX, VWAP reclaim, and Bollinger reversion. The unsafe "last two candles" fallback was removed; no qualifying signal means no trade.
+- The default automatic technical strategy is configured as `4h_direction_15m_entry`, with 4h direction confirmation and 15m entry signals. Default technical-lane risk is conservative: `risk_per_trade=1%`, `max_leverage=5`, and `max_position_fraction=5%`.
+- Binance/Testnet auto execution now follows the accepted "exchange first, local record after success" semantics. If the gateway submit fails, the local order is marked rejected with `binance_auto_execute_failed`, rather than filled locally.
+- RAG retrieval now prioritizes the local `策略库/*.md` operator-editable strategy documents, then falls back to distilled open-source assets under `research_source/open_source_strategy_library/assets/**/*.md`. Chinese trading keywords and the newly supported indicator families are searchable.
+- ABU was corrected to GPL-3.0 and kept as distilled research-only material. `策略库/05_ABU策略组件索引.md` records strategy component taxonomy without copying runtime source.
+- Verification evidence: `python -m pytest -q -m "not integration"` -> 184 passed, 1 deselected, 1 warning; changed-file Ruff passed; `python -m mypy` passed; admin Vitest passed (12 tests); admin build passed; `git diff --check` passed. Full repo Ruff still has pre-existing unrelated style issues in older files and was not batch-fixed.
+
 ## Report gap closure — frontend depth, observability, compose smoke (TASK-033, 2026-07-08)
 
 - Pytest SQLite databases now live under `.local/test-runtime/` (see `tests/conftest.py`); root-level `.pytest_ai_quant*.db` clutter was migrated/cleaned. `scripts/clean_test_artifacts.py` removes stale files after 7 days.

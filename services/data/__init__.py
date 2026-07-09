@@ -24,6 +24,12 @@ from .capabilities import list_exchange_capabilities
 from .heartbeat import MarketDataHeartbeatService
 from .live_feed_bus import LiveFeedBus, live_feed_bus
 from .market import MarketQueryService
+from .market_intelligence import (
+    CoinGlassProvider,
+    CryptoQuantProvider,
+    DeFiLlamaProvider,
+    MarketIntelligenceService,
+)
 from .repository import TIMESERIES_METADATA, DataRepository, create_timeseries_schema
 from .service import DEFAULT_BINANCE_TOP20, IngestionService
 
@@ -41,6 +47,10 @@ __all__ = [
     "list_exchange_capabilities",
     "MarketQueryService",
     "MarketDataHeartbeatService",
+    "MarketIntelligenceService",
+    "CoinGlassProvider",
+    "CryptoQuantProvider",
+    "DeFiLlamaProvider",
     "TIMESERIES_METADATA",
     "create_timeseries_schema",
     "normalize_funding_rate_history",

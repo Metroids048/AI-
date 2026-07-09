@@ -25,7 +25,7 @@ def _create_validated_paper_run(api_client, db_session) -> tuple[str, str]:
             "rules": {
                 "entry_rules": {"ema_fast": 20, "ema_slow": 50, "macd_confirmation": True},
                 "exit_rules": {"max_hold_bars": 48},
-                "stoploss_rules": {"atr_multiple": 2},
+                "stoploss_rules": {"fixed_bps": 5000},
                 "takeprofit_rules": {"risk_reward": 2},
                 "position_rules": {"risk_per_trade": 0.01, "max_leverage": 1},
             },
@@ -99,6 +99,10 @@ def _create_validated_paper_run(api_client, db_session) -> tuple[str, str]:
     return strategy_id, paper_resp.json()["resource_id"]
 
 
+def _trend_closes(*, start: Decimal, step: Decimal, count: int = 80) -> list[Decimal]:
+    return [start + step * Decimal(index) for index in range(count)]
+
+
 def _store_trend_bars(db_session, *, symbol: str, closes: list[Decimal], start_at: datetime) -> None:
     repo = DataRepository(db_session)
     bars = []
@@ -122,9 +126,19 @@ def _store_trend_bars(db_session, *, symbol: str, closes: list[Decimal], start_a
 
 def test_paper_runtime_auto_cycle_opens_positions_and_updates_status(api_client, db_session) -> None:
     _, paper_run_id = _create_validated_paper_run(api_client, db_session)
-    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=1)
-    _store_trend_bars(db_session, symbol="BTC/USDT", closes=[Decimal("60000"), Decimal("60400")], start_at=start_at)
-    _store_trend_bars(db_session, symbol="ETH/USDT", closes=[Decimal("3000"), Decimal("2950")], start_at=start_at)
+    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=79)
+    _store_trend_bars(
+        db_session,
+        symbol="BTC/USDT",
+        closes=_trend_closes(start=Decimal("60000"), step=Decimal("100")),
+        start_at=start_at,
+    )
+    _store_trend_bars(
+        db_session,
+        symbol="ETH/USDT",
+        closes=_trend_closes(start=Decimal("3000"), step=Decimal("-5")),
+        start_at=start_at,
+    )
 
     cycle_resp = api_client.post(
         f"/api/v1/execution/paper-runs/{paper_run_id}/auto-cycle",
@@ -153,8 +167,13 @@ def test_paper_runtime_auto_cycle_opens_positions_and_updates_status(api_client,
 
 def test_paper_runtime_auto_cycle_all_runs_running_paper_runs(api_client, db_session) -> None:
     _, paper_run_id = _create_validated_paper_run(api_client, db_session)
-    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=1)
-    _store_trend_bars(db_session, symbol="BTC/USDT", closes=[Decimal("60000"), Decimal("60400")], start_at=start_at)
+    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=79)
+    _store_trend_bars(
+        db_session,
+        symbol="BTC/USDT",
+        closes=_trend_closes(start=Decimal("60000"), step=Decimal("100")),
+        start_at=start_at,
+    )
     status_resp = api_client.patch(
         f"/api/v1/execution/paper-runs/{paper_run_id}/status",
         json={"paper_status": "running"},
@@ -190,8 +209,13 @@ def test_paper_run_execution_profile_patch_preserves_existing_keys(api_client, d
 
 def test_paper_runtime_auto_cycle_closes_position_on_opposite_signal(api_client, db_session) -> None:
     _, paper_run_id = _create_validated_paper_run(api_client, db_session)
-    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=2)
-    _store_trend_bars(db_session, symbol="BTC/USDT", closes=[Decimal("60000"), Decimal("60400")], start_at=start_at)
+    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=79)
+    _store_trend_bars(
+        db_session,
+        symbol="BTC/USDT",
+        closes=_trend_closes(start=Decimal("60000"), step=Decimal("100")),
+        start_at=start_at,
+    )
 
     first_cycle = api_client.post(
         f"/api/v1/execution/paper-runs/{paper_run_id}/auto-cycle",
@@ -203,8 +227,8 @@ def test_paper_runtime_auto_cycle_closes_position_on_opposite_signal(api_client,
     _store_trend_bars(
         db_session,
         symbol="BTC/USDT",
-        closes=[Decimal("60400"), Decimal("59800")],
-        start_at=datetime.now(UTC).replace(microsecond=0) - timedelta(hours=1),
+        closes=_trend_closes(start=Decimal("70000"), step=Decimal("-150")),
+        start_at=datetime.now(UTC).replace(microsecond=0) + timedelta(hours=1),
     )
 
     second_cycle = api_client.post(

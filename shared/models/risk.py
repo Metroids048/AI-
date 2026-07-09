@@ -15,7 +15,6 @@ from pydantic import Field
 from .base import PlatformModel
 from .enums import RiskEventType, RiskResolutionStatus, RiskSeverity
 
-
 MEDIUM_RISK_PROFILE_KEY = "medium_binance_top20"
 
 

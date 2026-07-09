@@ -128,7 +128,7 @@ def test_runtime_trailing_stop_ratchets_to_entry_after_configured_r_multiple(db_
     assert second.actions[0].reference_price == 100.0
 
 
-def test_gateway_mirror_failure_does_not_roll_back_local_fill(db_session, monkeypatch) -> None:
+def test_binance_first_gateway_failure_blocks_local_close(db_session, monkeypatch) -> None:
     from shared.config import settings
 
     monkeypatch.setattr(settings, "binance_auto_execute", True)
@@ -148,13 +148,22 @@ def test_gateway_mirror_failure_does_not_roll_back_local_fill(db_session, monkey
         request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
     )
 
-    assert result.closed_positions == 1
-    assert result.open_position_symbols == []
+    assert result.closed_positions == 0
+    assert result.rejected_orders == 1
+    assert result.open_position_symbols == ["BTC/USDT"]
     assert len(gateway.submitted) == 1
     assert gateway.submitted[0].entry_context["close_only_mode"] is True
     failures = ReviewRepository(db_session).list_failures(failure_type="gateway_mirror_failed")
     assert len(failures) == 1
     assert "testnet balance too low" in failures[0].failure_summary
+    latest_position = ExecutionRepository(db_session).list_latest_positions_for_run(
+        run_type="paper",
+        run_id=paper_run.paper_run_id or "",
+    )[0]
+    assert latest_position.quantity == -1.0
+    rejected_order = ExecutionRepository(db_session).list_orders()[-1]
+    assert rejected_order.execution_status == "rejected"
+    assert "binance_auto_execute_failed" in rejected_order.rejection_codes
 
 
 def _runtime_with_position(

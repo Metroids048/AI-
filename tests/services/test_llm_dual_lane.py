@@ -187,7 +187,10 @@ def test_carry_decision_rejects_negative_net_edge(db_session) -> None:
     )
 
     generator = PaperSignalGenerator(data_repo=data_repo)
-    with patch("services.execution.paper_signal.MarketQueryService.get_funding_arbitrage_signal", return_value=rejected_signal):
+    with patch(
+        "services.execution.paper_signal.MarketQueryService.get_funding_arbitrage_signal",
+        return_value=rejected_signal,
+    ):
         order = generator.generate_order(
             paper_run=paper_run,
             strategy=strategy,

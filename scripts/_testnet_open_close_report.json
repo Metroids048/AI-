@@ -1,0 +1,417 @@
+{
+  "run_id": "testnet-open-close-1783590596",
+  "started_at": "2026-07-09T09:49:56.562988+00:00",
+  "safety": {
+    "live_trading_enabled": false,
+    "binance_use_testnet": true,
+    "api_url": "https://testnet.binancefuture.com/fapi/v1",
+    "quantity": 0.001,
+    "symbol": "BTC/USDT"
+  },
+  "before": {
+    "connected": true,
+    "api_base": "https://testnet.binancefuture.com/fapi/v1",
+    "api_backend": "testnet-fallback",
+    "wallet_balance": 5250.81531077,
+    "available_balance": 5250.50036062,
+    "open_position_count": 1,
+    "positions": [
+      {
+        "symbol": "BTC/USDT:USDT",
+        "side": "long",
+        "quantity": 0.0001,
+        "entry_price": 61852.74726566071,
+        "mark_price": 62881.18208333,
+        "notional_usdt": 6.2881182,
+        "margin_usdt": 0.31440591,
+        "leverage": 0.0,
+        "unrealized_pnl": 0.10284348,
+        "liquidation_price": null
+      }
+    ],
+    "recent_orders": [
+      {
+        "order_id": "20146087811",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.0009,
+        "avg_price": 61649.1,
+        "update_time": 1783526286431
+      },
+      {
+        "order_id": "20135748281",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61782.9325,
+        "update_time": 1783523160468
+      },
+      {
+        "order_id": "20135544062",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61846.12375,
+        "update_time": 1783523095066
+      },
+      {
+        "order_id": "20134544630",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61816.0,
+        "update_time": 1783522784801
+      },
+      {
+        "order_id": "20133559949",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61907.1,
+        "update_time": 1783522481671
+      },
+      {
+        "order_id": "20133355917",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61812.7,
+        "update_time": 1783522417362
+      },
+      {
+        "order_id": "20133152107",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61895.7,
+        "update_time": 1783522352948
+      },
+      {
+        "order_id": "20131937374",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61832.2,
+        "update_time": 1783521985477
+      },
+      {
+        "order_id": "20131791221",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.001,
+        "avg_price": 61873.9,
+        "update_time": 1783521938992
+      },
+      {
+        "order_id": "20131731511",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61889.5,
+        "update_time": 1783521920618
+      }
+    ],
+    "error": null
+  },
+  "open_order": {
+    "live_run_id": "testnet-open-close-1783590596",
+    "gateway_order_id": "20356862614",
+    "gateway_status": "filled",
+    "symbol": "BTC/USDT",
+    "protection_order_refs": []
+  },
+  "close_order": {
+    "live_run_id": "testnet-open-close-1783590596",
+    "gateway_order_id": "20356874963",
+    "gateway_status": "filled",
+    "symbol": "BTC/USDT",
+    "protection_order_refs": []
+  },
+  "cleanup_orders": [
+    {
+      "position": {
+        "symbol": "BTC/USDT:USDT",
+        "side": "long",
+        "contracts": 0.0001,
+        "entryPrice": 62781.79520596916,
+        "markPrice": 62882.22552536
+      },
+      "order": {
+        "live_run_id": "testnet-open-close-1783590596",
+        "gateway_order_id": "20356888777",
+        "gateway_status": "filled",
+        "symbol": "BTC/USDT",
+        "protection_order_refs": []
+      }
+    }
+  ],
+  "after": {
+    "connected": true,
+    "api_base": "https://testnet.binancefuture.com/fapi/v1",
+    "api_backend": "testnet-fallback",
+    "wallet_balance": 5250.75171046,
+    "available_balance": 5250.75171046,
+    "open_position_count": 0,
+    "positions": [],
+    "recent_orders": [
+      {
+        "order_id": "20356888777",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.0001,
+        "avg_price": 62874.2,
+        "update_time": 1783590625521
+      },
+      {
+        "order_id": "20356874963",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.001,
+        "avg_price": 62864.5,
+        "update_time": 1783590620751
+      },
+      {
+        "order_id": "20356862614",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.001,
+        "avg_price": 62874.7,
+        "update_time": 1783590617215
+      },
+      {
+        "order_id": "20146087811",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.0009,
+        "avg_price": 61649.1,
+        "update_time": 1783526286431
+      },
+      {
+        "order_id": "20135748281",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61782.9325,
+        "update_time": 1783523160468
+      },
+      {
+        "order_id": "20135544062",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61846.12375,
+        "update_time": 1783523095066
+      },
+      {
+        "order_id": "20134544630",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61816.0,
+        "update_time": 1783522784801
+      },
+      {
+        "order_id": "20133559949",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61907.1,
+        "update_time": 1783522481671
+      },
+      {
+        "order_id": "20133355917",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61812.7,
+        "update_time": 1783522417362
+      },
+      {
+        "order_id": "20133152107",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.008,
+        "avg_price": 61895.7,
+        "update_time": 1783522352948
+      }
+    ],
+    "error": null
+  },
+  "all_order_ids": [
+    "20356862614",
+    "20356874963",
+    "20356888777"
+  ],
+  "pre_existing_btc_positions": [
+    {
+      "symbol": "BTC/USDT:USDT",
+      "side": "long",
+      "contracts": 0.0001,
+      "entryPrice": 61852.74726566071,
+      "markPrice": 62883.82416667
+    }
+  ],
+  "recent_exchange_orders_raw": [
+    {
+      "orderId": "20133152107",
+      "symbol": "BTCUSDT",
+      "side": "BUY",
+      "type": "MARKET",
+      "status": "FILLED",
+      "origQty": "0.0080",
+      "executedQty": "0.0080",
+      "avgPrice": "61895.700000",
+      "reduceOnly": false,
+      "updateTime": "1783522352948"
+    },
+    {
+      "orderId": "20133355917",
+      "symbol": "BTCUSDT",
+      "side": "SELL",
+      "type": "MARKET",
+      "status": "FILLED",
+      "origQty": "0.0080",
+      "executedQty": "0.0080",
+      "avgPrice": "61812.700000",
+      "reduceOnly": true,
+      "updateTime": "1783522417362"
+    },
+    {
+      "orderId": "20133559949",
+      "symbol": "BTCUSDT",
+      "side": "BUY",
+      "type": "MARKET",
+      "status": "FILLED",
+      "origQty": "0.0080",
+      "executedQty": "0.0080",
+      "avgPrice": "61907.100000",
+      "reduceOnly": false,
+      "updateTime": "1783522481671"
+    },
+    {
+      "orderId": "20134544630",
+      "symbol": "BTCUSDT",
+      "side": "SELL",
+      "type": "MARKET",
+      "status": "FILLED",
+      "origQty": "0.0080",
+      "executedQty": "0.0080",
+      "avgPrice": "61816.000000",
+      "reduceOnly": true,
+      "updateTime": "1783522784801"
+    },
+    {
+      "orderId": "20135544062",
+      "symbol": "BTCUSDT",
+      "side": "BUY",
+      "type": "MARKET",
+      "status": "FILLED",
+      "origQty": "0.0080",
+      "executedQty": "0.0080",
+      "avgPrice": "61846.123750",
+      "reduceOnly": false,
+      "updateTime": "1783523095066"
+    },
+    {
+      "orderId": "20135748281",
+      "symbol": "BTCUSDT",
+      "side": "SELL",
+      "type": "MARKET",
+      "status": "FILLED",
+      "origQty": "0.0080",
+      "executedQty": "0.0080",
+      "avgPrice": "61782.932500",
+      "reduceOnly": true,
+      "updateTime": "1783523160468"
+    },
+    {
+      "orderId": "20146087811",
+      "symbol": "BTCUSDT",
+      "side": "SELL",
+      "type": "MARKET",
+      "status": "FILLED",
+      "origQty": "0.0009",
+      "executedQty": "0.0009",
+      "avgPrice": "61649.100000",
+      "reduceOnly": false,
+      "updateTime": "1783526286431"
+    },
+    {
+      "orderId": "20356862614",
+      "symbol": "BTCUSDT",
+      "side": "BUY",
+      "type": "MARKET",
+      "status": "FILLED",
+      "origQty": "0.0010",
+      "executedQty": "0.0010",
+      "avgPrice": "62874.700000",
+      "reduceOnly": false,
+      "updateTime": "1783590617215"
+    },
+    {
+      "orderId": "20356874963",
+      "symbol": "BTCUSDT",
+      "side": "SELL",
+      "type": "MARKET",
+      "status": "FILLED",
+      "origQty": "0.0010",
+      "executedQty": "0.0010",
+      "avgPrice": "62864.500000",
+      "reduceOnly": true,
+      "updateTime": "1783590620751"
+    },
+    {
+      "orderId": "20356888777",
+      "symbol": "BTCUSDT",
+      "side": "SELL",
+      "type": "MARKET",
+      "status": "FILLED",
+      "origQty": "0.0001",
+      "executedQty": "0.0001",
+      "avgPrice": "62874.200000",
+      "reduceOnly": true,
+      "updateTime": "1783590625521"
+    }
+  ],
+  "finished_at": "2026-07-09T09:51:03.378307+00:00"
+}

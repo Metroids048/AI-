@@ -1,5 +1,26 @@
 # Decisions Log
 
+## ADR-044: Market Intelligence is a capped Strategy vote, not a new execution authority
+- Date: 2026-07-09
+- Status: accepted
+- Context: The user approved upgrading the message-source area into a Market Intelligence factor system for Binance USDT-M Top20, with CoinGlass/CryptoQuant/DeFiLlama/news/macro evidence assisting long/short direction. The project already had RiskEvent, SignalEnsemble, MetaLabel, Decision Veto, and Gatekeeper boundaries, so adding a separate "AI market engine" with direct order authority would violate the six-layer architecture.
+- Decision: Implement Market Intelligence inside the existing architecture. Data Layer owns `MarketEvent`, feature snapshots, provider status, and provider adapters. Strategy Layer consumes `MarketIntelligenceSignal` as a capped `market_intelligence` vote with `vote_weight <= 0.30`. It can join `SignalEnsemble` only after deterministic technical signals exist, so it cannot open a trade by itself. Active high/critical events keep the system in cooldown and disable the vote. CoinGlass/CryptoQuant are adapter-first and fail soft as `missing_credentials`; DeFiLlama is a credential-free provider status. Execution still flows through MetaLabel, Decision Veto, Gatekeeper, stoploss, RiskEvent, and Paper/Testnet only.
+- Consequences: Important news/data can materially tilt the ensemble without creating an LLM/news-to-order shortcut. Missing paid-provider credentials are observable but non-fatal. Review and Ops surfaces can inspect provider status, cooldown, evidence, and vote contribution. Future real CoinGlass/CryptoQuant fetchers can fill the same contract without changing execution authority.
+
+## ADR-043: Binance Testnet smoke must time-sync private calls, close reduce-only with inverse side, and leave the account flat
+- Date: 2026-07-09
+- Status: accepted
+- Context: A real Binance Futures Testnet open/close verification exposed two operational risks that unit tests had not fully covered: private API calls can fail with timestamp drift unless ccxt time difference is loaded after URL mode selection, and close-only requests represent the current position side, so the exchange order side must be inverted.
+- Decision: Configure the Binance gateway with `adjustForTimeDifference`, call `load_time_difference()` after demo/testnet URL configuration, and map close-only long positions to SELL reduce-only orders and close-only short positions to BUY reduce-only orders. Real smoke tests must verify the final account is flat and must write a sanitized local report without secrets.
+- Consequences: Testnet automation is more robust against local clock drift and no longer risks adding to a position when trying to close it. Operator smoke tests can leave auditable Binance order IDs while preserving a zero-position end state.
+
+## ADR-042: Technical lane trades only on explicit signals, Binance auto execution fails closed, and Strategy Library docs are first-priority RAG
+- Date: 2026-07-09
+- Status: accepted
+- Context: The user asked to make the quant strategy, opening/closing logic, risk controls, Binance Testnet path, and RAG strategy library complete enough for iterative optimization. Earlier technical execution still had an unsafe candle fallback, frontend/test wording still mixed "local Paper first" with the now-selected Binance-first semantics, and RAG lookup did not prioritize the manually editable `策略库`.
+- Decision: Remove the technical lane's no-signal fallback and require explicit Strategy Layer signals before any non-carry automatic order. Expand the default technical lane to 4h direction plus 15m entry with MACD/Dow/price-action/RSI/EMA/ADX/VWAP/Bollinger signals and conservative sizing defaults. Keep LLM/RAG as research, classification, veto, and review support only. For `BINANCE_AUTO_EXECUTE`, submit to Binance/Testnet first and only record the local fill after gateway success; gateway failure must reject the local order with auditable rejection codes. Make `策略库/*.md` the first RAG source, with distilled open-source assets as secondary context.
+- Consequences: The platform is safer but more selective: missing or weak technical evidence produces no trade. Testnet automation no longer creates false local fills when the exchange path fails. Operator-curated strategy documents become the main RAG substrate, while GPL/AGPL projects such as ABU remain research-only and cannot be copied into runtime execution.
+
 ## ADR-041: `/metrics` is unauthenticated and intended for internal Prometheus scrape only
 - Date: 2026-07-08
 - Status: accepted

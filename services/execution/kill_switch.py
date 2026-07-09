@@ -13,6 +13,7 @@ production, testable without Redis in CI).
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any, Protocol
 
 from shared.config import settings
 from shared.logging import get_logger
@@ -20,10 +21,18 @@ from shared.logging import get_logger
 logger = get_logger(__name__)
 
 
+class RedisLike(Protocol):
+    def get(self, key: str) -> Any: ...
+
+    def set(self, key: str, value: str) -> Any: ...
+
+    def delete(self, key: str) -> Any: ...
+
+
 class KillSwitch:
     """Process-wide trading halt flag backed by Redis with memory fallback."""
 
-    def __init__(self, redis_client: object | None = None) -> None:
+    def __init__(self, redis_client: RedisLike | None = None) -> None:
         self._redis = redis_client
         self._key = settings.kill_switch_redis_key
         # In-memory fallback so the switch works even without a Redis client

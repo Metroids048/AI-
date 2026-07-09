@@ -36,7 +36,8 @@ describe("Trading console panels", () => {
 
     expect(screen.getByText("Paper 模拟盘")).toBeInTheDocument();
     expect(screen.getByText("Testnet 已锁定")).toBeInTheDocument();
-    expect(screen.queryByText(/api/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Mock 账户 API 面板/)).toBeInTheDocument();
+    expect(screen.queryByText(/secret|token|key/i)).not.toBeInTheDocument();
   });
 
   it("renders top universe rows and lets user select a symbol", () => {
@@ -145,7 +146,8 @@ describe("Trading console panels", () => {
     const panel = within(view.container);
     fireEvent.click(panel.getByRole("button", { name: "开启 Testnet 镜像" }));
 
-    expect(panel.getByText("本地 Paper 成交优先；开启后才额外镜像到 Binance Futures Testnet。")).toBeInTheDocument();
+    expect(panel.getByText(/先提交币安/)).toBeInTheDocument();
+    expect(panel.getByText(/成功才本地成交/)).toBeInTheDocument();
     expect(onMirrorToggle).toHaveBeenCalledWith(true);
   });
 

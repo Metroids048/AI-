@@ -104,6 +104,51 @@ def generate_donchian_breakout_signal(
     return None
 
 
+def generate_false_breakout_signal(
+    frame: pd.DataFrame,
+    *,
+    symbol: str,
+    lookback: int = 20,
+    wick_body_ratio: float = 1.5,
+) -> TradeSignal | None:
+    """Detect failed support/resistance breaks that close back inside the prior range."""
+
+    if len(frame) < lookback + 1:
+        return None
+    history = frame.iloc[-lookback - 1 : -1]
+    latest = frame.iloc[-1]
+    previous_high = float(history["high"].max())
+    previous_low = float(history["low"].min())
+    open_ = float(latest["open"])
+    high = float(latest["high"])
+    low = float(latest["low"])
+    close = float(latest["close"])
+    body = max(abs(close - open_), 1e-9)
+    upper_wick = high - max(open_, close)
+    lower_wick = min(open_, close) - low
+    if high > previous_high and close < previous_high and upper_wick >= body * wick_body_ratio:
+        confidence = min((high - previous_high) / max(close, 1.0) * 30.0 + 0.35, 1.0)
+        return _signal(
+            frame=frame,
+            symbol=symbol,
+            direction=TradeSide.SHORT,
+            reason="false_resistance_breakout_reversal",
+            source="price_action_false_breakout",
+            confidence=confidence,
+        )
+    if low < previous_low and close > previous_low and lower_wick >= body * wick_body_ratio:
+        confidence = min((previous_low - low) / max(close, 1.0) * 30.0 + 0.35, 1.0)
+        return _signal(
+            frame=frame,
+            symbol=symbol,
+            direction=TradeSide.LONG,
+            reason="false_support_breakdown_reversal",
+            source="price_action_false_breakout",
+            confidence=confidence,
+        )
+    return None
+
+
 def generate_price_action_signals(frame: pd.DataFrame, *, symbol: str) -> list[TradeSignal]:
     """Return the first batch of supported price-action signals."""
 
@@ -111,6 +156,7 @@ def generate_price_action_signals(frame: pd.DataFrame, *, symbol: str) -> list[T
         generate_engulfing_signal(frame, symbol=symbol),
         generate_pin_bar_signal(frame, symbol=symbol),
         generate_donchian_breakout_signal(frame, symbol=symbol),
+        generate_false_breakout_signal(frame, symbol=symbol),
     ]
     return [signal for signal in candidates if signal is not None]
 

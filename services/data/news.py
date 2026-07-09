@@ -10,10 +10,10 @@ from typing import Any
 
 import httpx
 
-from shared.config import settings
 from services.agents import AgentTaskService, build_configured_llm_runtime
 from services.data.repository import DataRepository
 from services.strategy_library import AgentTaskRepository, ReviewRepository, StrategyRepository
+from shared.config import settings
 from shared.models import AgentTaskRequest, RiskEvent, RiskEventType, RiskSeverity
 
 HIGH_KEYWORDS = {

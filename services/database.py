@@ -10,8 +10,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from shared.config import settings
 from services.strategy_library.models import Base
+from shared.config import settings
 
 
 def resolve_database_url() -> str:

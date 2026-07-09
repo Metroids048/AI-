@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -10,7 +11,7 @@ from typing import Any
 from services.data import DataRepository
 from services.data.service import DEFAULT_BINANCE_TOP20
 from services.execution.gatekeeper import ExecutionGatekeeperService
-from services.execution.gateway import gateway_symbol_available
+from services.execution.gateway import ExchangeGateway, gateway_symbol_available
 from services.execution.paper_signal import PaperSignalGenerator
 from services.strategy_library import (
     AgentTaskRepository,
@@ -99,6 +100,7 @@ class PaperRuntimeService:
         )
         active_positions = {position.symbol: position for position in current_positions}
         scanned_symbols = self._select_symbols(paper_run=paper_run, request=request)
+        runtime_timeframe = self._runtime_timeframe(strategy=strategy, request=request)
         actions: list[PaperRuntimeAction] = []
         metrics = dict(paper_run.paper_metrics_summary)
         protective_trailing = dict(metrics.get("protective_trailing", {}))
@@ -114,7 +116,7 @@ class PaperRuntimeService:
         skipped_symbols = 0
 
         for symbol in scanned_symbols:
-            latest_bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=request.timeframe)
+            latest_bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=runtime_timeframe)
             if latest_bar is None:
                 skipped_symbols += 1
                 actions.append(
@@ -125,7 +127,7 @@ class PaperRuntimeService:
                     )
                 )
                 continue
-            cycle_key = f"{paper_run_id}:{symbol}:{request.timeframe}:{latest_bar.timestamp.isoformat()}"
+            cycle_key = f"{paper_run_id}:{symbol}:{runtime_timeframe}:{latest_bar.timestamp.isoformat()}"
             if cycle_key in processed_keys:
                 skipped_symbols += 1
                 actions.append(
@@ -146,7 +148,7 @@ class PaperRuntimeService:
                 strategy=strategy,
                 request=PaperRunStepRequest(
                     symbol=symbol,
-                    timeframe=request.timeframe,
+                    timeframe=runtime_timeframe,
                     idempotency_key=cycle_key,
                     enable_decision_veto=enable_veto,
                 ),
@@ -237,11 +239,11 @@ class PaperRuntimeService:
                             )
                             if not self._should_execute_on_binance(paper_run):
                                 self._maybe_mirror_to_gateway(
-                                paper_run=paper_run,
-                                order=order,
-                                order_request=close_order,
-                                position=current_position,
-                            )
+                                    paper_run=paper_run,
+                                    order=order,
+                                    order_request=close_order,
+                                    position=current_position,
+                                )
                             self._record_protective_outcome(
                                 paper_run=paper_run,
                                 order=order,
@@ -352,11 +354,11 @@ class PaperRuntimeService:
                         active_positions.pop(symbol, None)
                         if not self._should_execute_on_binance(paper_run):
                             self._maybe_mirror_to_gateway(
-                            paper_run=paper_run,
-                            order=order,
-                            order_request=close_order,
-                            position=current_position,
-                        )
+                                    paper_run=paper_run,
+                                    order=order,
+                                    order_request=close_order,
+                                    position=current_position,
+                                )
                         actions.append(
                             PaperRuntimeAction(
                                 symbol=symbol,
@@ -470,7 +472,12 @@ class PaperRuntimeService:
                 cycle_time=cycle_time,
             )
             if not self._should_execute_on_binance(paper_run):
-                self._maybe_mirror_to_gateway(paper_run=paper_run, order=order, order_request=base_order, position=position)
+                self._maybe_mirror_to_gateway(
+                    paper_run=paper_run,
+                    order=order,
+                    order_request=base_order,
+                    position=position,
+                )
             active_positions[symbol] = position
             opened_positions += 1
             actions.append(
@@ -502,6 +509,7 @@ class PaperRuntimeService:
             "consecutive_losses": consecutive_losses,
             "last_cycle_at": cycle_time.isoformat(),
             "last_scanned_symbols": scanned_symbols,
+            "last_runtime_timeframe": runtime_timeframe,
             "last_action_counts": last_action_counts,
             "protective_trailing": protective_trailing,
             "last_cycle_actions": [action.model_dump(mode="json") for action in actions],
@@ -531,13 +539,11 @@ class PaperRuntimeService:
         # Wrapped so that a writeback failure (e.g. cross-session commit) never
         # interrupts the live trading cycle.
         if updated_run.strategy_id:
-            try:
+            with suppress(Exception):
                 self.strategy_repo.update_lifecycle_status(
                     updated_run.strategy_id,
                     paper_status="running",
                 )
-            except Exception:
-                pass
         return PaperRuntimeCycleResult(
             paper_run_id=paper_run_id,
             paper_status=updated_run.paper_status,
@@ -577,6 +583,11 @@ class PaperRuntimeService:
         base = request.symbols or paper_run.candidate_symbols or DEFAULT_BINANCE_TOP20
         deduped = list(dict.fromkeys(base))
         return deduped[: request.max_symbols]
+
+    @staticmethod
+    def _runtime_timeframe(*, strategy: StrategyContract, request: PaperRuntimeCycleRequest) -> str:
+        entry_timeframe = strategy.rules.entry_rules.get("entry_timeframe")
+        return str(entry_timeframe or request.timeframe)
 
     @staticmethod
     def _close_order_request(
@@ -772,9 +783,12 @@ class PaperRuntimeService:
     ) -> OrderExecution:
         if not self._should_execute_on_binance(paper_run):
             return order
+        gateway = self.gateway
+        if gateway is None:
+            return order
         try:
             mirror_request = self._gateway_order_request(order_request=order_request, position=position)
-            gateway_result = self.gateway.submit_order(
+            gateway_result = gateway.submit_order(
                 live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}",
                 order_request=mirror_request,
             )
@@ -783,6 +797,10 @@ class PaperRuntimeService:
             return (
                 self.execution_repo.update_order(
                     order.order_execution_id or "",
+                    execution_status="rejected",
+                    rejection_reason=f"binance_auto_execute_failed: {exc}",
+                    rejection_codes=[*order.rejection_codes, "binance_auto_execute_failed"],
+                    gateway_status="gateway_failed",
                     lifecycle_history=[
                         *order.lifecycle_history,
                         {
@@ -798,7 +816,7 @@ class PaperRuntimeService:
         return (
             self.execution_repo.update_order(
                 order.order_execution_id or "",
-                gateway_name=getattr(self.gateway.capability, "gateway_name", "gateway_mirror"),
+                gateway_name=getattr(gateway.capability, "gateway_name", "gateway_mirror"),
                 gateway_order_id=gateway_result.get("gateway_order_id"),
                 gateway_status=gateway_result.get("gateway_status", "submitted"),
                 lifecycle_history=[
@@ -828,9 +846,10 @@ class PaperRuntimeService:
             return
         if self.gateway is None:
             return
+        gateway = self.gateway
         try:
             mirror_request = self._gateway_mirror_request(order_request=order_request, position=position)
-            gateway_result = self.gateway.submit_order(
+            gateway_result = gateway.submit_order(
                 live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}",
                 order_request=mirror_request,
             )
@@ -890,6 +909,7 @@ class PaperRuntimeService:
             }
         )
 
+    @staticmethod
     def _gateway_mirror_request(
         *,
         order_request: ExecutionOrderRequest,

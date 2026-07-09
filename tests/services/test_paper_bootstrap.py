@@ -74,7 +74,9 @@ def test_bootstrap_creates_carry_and_directional_runs(db_session, monkeypatch) -
     assert technical_run.execution_profile.get("strategy_lane") == "directional"
 
     strategy_repo = StrategyRepository(db_session)
-    carry_strategy = next(item for item in strategy_repo.list_strategies() if item.strategy_key == AUTO_PAPER_RUNTIME_KEY)
+    carry_strategy = next(
+        item for item in strategy_repo.list_strategies() if item.strategy_key == AUTO_PAPER_RUNTIME_KEY
+    )
     technical_strategy = next(
         item for item in strategy_repo.list_strategies() if item.strategy_key == AUTO_PAPER_TECHNICAL_KEY
     )

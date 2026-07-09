@@ -8,6 +8,7 @@ class StubCcxtClient:
     def __init__(self) -> None:
         self.leverage_calls: list[tuple[int, str]] = []
         self.algo_orders: list[dict] = []
+        self.created_orders: list[dict] = []
         self.urls = {
             "test": {"fapiPrivate": "https://testnet.binancefuture.com/fapi/v1"},
             "api": {"fapiPrivate": "https://fapi.binance.com/fapi/v1"},
@@ -33,9 +34,17 @@ class StubCcxtClient:
     def create_order(self, symbol, order_type, side, amount, price=None, params=None):  # noqa: ANN001
         assert symbol == "BTC/USDT:USDT"
         assert order_type == "market"
-        assert side == "buy"
         assert amount == 0.01
-        assert params["stopLoss"]["triggerPrice"] == 59000
+        self.created_orders.append(
+            {
+                "symbol": symbol,
+                "order_type": order_type,
+                "side": side,
+                "amount": amount,
+                "price": price,
+                "params": params,
+            }
+        )
         return {"id": "binance-order-1", "status": "open"}
 
     def fapiPrivatePostAlgoOrder(self, payload):  # noqa: N802, ANN001
@@ -78,6 +87,8 @@ def test_binance_gateway_maps_account_order_cancel_and_reconcile() -> None:
     assert snapshot.open_position_count == 1
     assert client.urls["api"]["fapiPrivate"] == "https://testnet.binancefuture.com/fapi/v1"
     assert submitted["gateway_order_id"] == "binance-order-1"
+    assert client.created_orders[0]["side"] == "buy"
+    assert client.created_orders[0]["params"]["stopLoss"]["triggerPrice"] == 59000
     assert len(submitted["protection_order_refs"]) == 2
     assert client.algo_orders[0]["algoType"] == "CONDITIONAL"
     assert client.algo_orders[0]["type"] == "STOP_MARKET"
@@ -86,3 +97,22 @@ def test_binance_gateway_maps_account_order_cancel_and_reconcile() -> None:
     assert client.leverage_calls == [(2, "BTC/USDT:USDT")]
     assert cancelled["gateway_status"] == "cancelled"
     assert reconciled["reconciliation_status"] == "ok"
+
+
+def test_binance_gateway_close_only_inverts_position_side() -> None:
+    client = StubCcxtClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+
+    submitted = gateway.submit_order(
+        live_run_id="live-run-1",
+        order_request=ExecutionOrderRequest(
+            strategy_id="strategy-1",
+            symbol="BTC/USDT",
+            direction="long",
+            entry_context={"order_type": "market", "quantity": 0.01, "close_only_mode": True},
+        ),
+    )
+
+    assert submitted["gateway_order_id"] == "binance-order-1"
+    assert client.created_orders[0]["side"] == "sell"
+    assert client.created_orders[0]["params"]["reduceOnly"] is True

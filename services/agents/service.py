@@ -5,11 +5,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 
-from shared.config import settings
 from research_source.open_source_strategy_library import OpenSourceStrategyExtractor, OpenSourceStrategyLibrary
 from research_source.worldquant_adapter import LocalAlphaScanner
 from services.agents.llm_runtime import StructuredLLMRuntime, UnavailableLLMRuntime
 from services.strategy_library import AgentTaskRepository, ReviewRepository, StrategyRepository
+from shared.config import settings
 from shared.models import (
     AgentTask,
     AgentTaskRequest,
@@ -61,7 +61,9 @@ class AgentTaskService:
     def _register_default_executors(self) -> None:
         self._executors[("research_agent", "scan_local_alpha")] = self._handle_scan_local_alpha
         self._executors[("research_agent", "import_open_source_sources")] = self._handle_import_open_source
-        self._executors[("research_agent", "extract_open_source_strategy_ideas")] = self._handle_extract_open_source_ideas
+        self._executors[
+            ("research_agent", "extract_open_source_strategy_ideas")
+        ] = self._handle_extract_open_source_ideas
         self._executors[("strategy_agent", "materialize_seed_strategy_drafts")] = self._handle_materialize_drafts
         self._executors[("decision_veto_agent", "pre_execution_veto")] = self._handle_deterministic_veto
         self._executors[("review_agent", "summarize_failures")] = self._handle_summarize_failures

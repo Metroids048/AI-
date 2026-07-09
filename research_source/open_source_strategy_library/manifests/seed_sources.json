@@ -6,16 +6,53 @@
     "license": "GPL-3.0",
     "license_policy": "distilled_research_only",
     "project_role": "crypto_strategy_shapes",
-    "asset_categories": ["crypto_bot", "backtesting", "dry_run", "hyperopt", "strategy_templates"],
+    "asset_categories": [
+      "crypto_bot",
+      "backtesting",
+      "dry_run",
+      "hyperopt",
+      "strategy_templates"
+    ],
     "crypto_relevance": "high",
     "priority": 10,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "documentation", "extraction_tags": ["dry_run", "backtesting", "hyperopt"]},
-      {"path": "docs/strategy-customization.md", "asset_type": "strategy_shape", "extraction_tags": ["strategy_template", "technical_signal"]},
-      {"path": "docs/hyperopt.md", "asset_type": "workflow_note", "extraction_tags": ["optimization", "parameter_search"]}
+      {
+        "path": "README.md",
+        "asset_type": "documentation",
+        "extraction_tags": [
+          "dry_run",
+          "backtesting",
+          "hyperopt"
+        ]
+      },
+      {
+        "path": "docs/strategy-customization.md",
+        "asset_type": "strategy_shape",
+        "extraction_tags": [
+          "strategy_template",
+          "technical_signal"
+        ]
+      },
+      {
+        "path": "docs/hyperopt.md",
+        "asset_type": "workflow_note",
+        "extraction_tags": [
+          "optimization",
+          "parameter_search"
+        ]
+      }
     ],
-    "asset_denylist": ["user_data/config", ".env", "secrets", "credentials"],
-    "strategy_extraction_targets": ["funding_carry", "trend_following", "optimization_workflow"],
+    "asset_denylist": [
+      "user_data/config",
+      ".env",
+      "secrets",
+      "credentials"
+    ],
+    "strategy_extraction_targets": [
+      "funding_carry",
+      "trend_following",
+      "optimization_workflow"
+    ],
     "license_notes": "Use as research reference and strategy-shape inspiration only; do not copy GPL runtime code into the platform core.",
     "source_notes": "Extract crypto strategy structure, dry-run discipline, and optimization workflow patterns."
   },
@@ -26,15 +63,43 @@
     "license": "MIT",
     "license_policy": "distilled_research_allowed",
     "project_role": "crypto_strategy_shapes",
-    "asset_categories": ["crypto_framework", "strategy_templates", "backtesting", "paper_trading"],
+    "asset_categories": [
+      "crypto_framework",
+      "strategy_templates",
+      "backtesting",
+      "paper_trading"
+    ],
     "crypto_relevance": "high",
     "priority": 20,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "documentation", "extraction_tags": ["backtesting", "paper_trading", "strategy_template"]},
-      {"path": "docs/docs/strategies.md", "asset_type": "strategy_shape", "extraction_tags": ["multi_timeframe", "technical_signal"]}
+      {
+        "path": "README.md",
+        "asset_type": "documentation",
+        "extraction_tags": [
+          "backtesting",
+          "paper_trading",
+          "strategy_template"
+        ]
+      },
+      {
+        "path": "docs/docs/strategies.md",
+        "asset_type": "strategy_shape",
+        "extraction_tags": [
+          "multi_timeframe",
+          "technical_signal"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials"],
-    "strategy_extraction_targets": ["funding_carry", "trend_following", "multi_timeframe"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials"
+    ],
+    "strategy_extraction_targets": [
+      "funding_carry",
+      "trend_following",
+      "multi_timeframe"
+    ],
     "license_notes": "Permissive license; still import ideas as platform rules, not external runtime code.",
     "source_notes": "Extract multi-timeframe crypto strategy shape and risk/research workflow concepts."
   },
@@ -45,15 +110,43 @@
     "license": "Apache-2.0",
     "license_policy": "distilled_research_allowed",
     "project_role": "crypto_market_making_shapes",
-    "asset_categories": ["market_making", "grid", "arbitrage", "exchange_connectors"],
+    "asset_categories": [
+      "market_making",
+      "grid",
+      "arbitrage",
+      "exchange_connectors"
+    ],
     "crypto_relevance": "high",
     "priority": 30,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "documentation", "extraction_tags": ["market_making", "connectors"]},
-      {"path": "hummingbot/strategy_v2/README.md", "asset_type": "strategy_shape", "extraction_tags": ["strategy_v2", "grid_market_making"]}
+      {
+        "path": "README.md",
+        "asset_type": "documentation",
+        "extraction_tags": [
+          "market_making",
+          "connectors"
+        ]
+      },
+      {
+        "path": "hummingbot/strategy_v2/README.md",
+        "asset_type": "strategy_shape",
+        "extraction_tags": [
+          "strategy_v2",
+          "grid_market_making"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials", "private_key"],
-    "strategy_extraction_targets": ["grid_market_making", "market_making", "funding_carry"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials",
+      "private_key"
+    ],
+    "strategy_extraction_targets": [
+      "grid_market_making",
+      "market_making",
+      "funding_carry"
+    ],
     "license_notes": "Use strategy taxonomy and simulation concepts; connector/live execution remains out of scope.",
     "source_notes": "Extract market-making, grid, spread, and inventory-risk ideas for Paper-only simulation."
   },
@@ -64,14 +157,34 @@
     "license": "Apache-2.0",
     "license_policy": "distilled_research_allowed",
     "project_role": "research_framework",
-    "asset_categories": ["event_driven_engine", "backtesting", "optimization", "multi_asset"],
+    "asset_categories": [
+      "event_driven_engine",
+      "backtesting",
+      "optimization",
+      "multi_asset"
+    ],
     "crypto_relevance": "medium",
     "priority": 40,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "architecture_note", "extraction_tags": ["event_driven", "backtesting", "multi_asset"]}
+      {
+        "path": "README.md",
+        "asset_type": "architecture_note",
+        "extraction_tags": [
+          "event_driven",
+          "backtesting",
+          "multi_asset"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials"],
-    "strategy_extraction_targets": ["event_driven_research", "multi_asset_architecture"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials"
+    ],
+    "strategy_extraction_targets": [
+      "event_driven_research",
+      "multi_asset_architecture"
+    ],
     "license_notes": "Use architecture patterns and event-driven research abstractions.",
     "source_notes": "Extract research/backtest/live separation and multi-market engine boundaries."
   },
@@ -82,14 +195,35 @@
     "license": "MIT",
     "license_policy": "distilled_research_allowed",
     "project_role": "research_framework",
-    "asset_categories": ["gateway_architecture", "cta_strategy", "portfolio", "risk"],
+    "asset_categories": [
+      "gateway_architecture",
+      "cta_strategy",
+      "portfolio",
+      "risk"
+    ],
     "crypto_relevance": "medium",
     "priority": 50,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "architecture_note", "extraction_tags": ["gateway", "cta", "risk"]}
+      {
+        "path": "README.md",
+        "asset_type": "architecture_note",
+        "extraction_tags": [
+          "gateway",
+          "cta",
+          "risk"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials"],
-    "strategy_extraction_targets": ["gateway_architecture", "risk_manager", "portfolio"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials"
+    ],
+    "strategy_extraction_targets": [
+      "gateway_architecture",
+      "risk_manager",
+      "portfolio"
+    ],
     "license_notes": "Use framework classification and gateway boundaries; no direct execution integration in this tranche.",
     "source_notes": "Extract CTA/gateway/application layering ideas for future multi-market expansion."
   },
@@ -97,18 +231,39 @@
     "source_id": "abu",
     "name": "ABU",
     "repo_url": "https://github.com/bbfamily/abu",
-    "license": "MIT",
-    "license_policy": "distilled_research_allowed",
+    "license": "GPL-3.0",
+    "license_policy": "distilled_research_only",
     "project_role": "research_framework",
-    "asset_categories": ["market_reports", "price_action", "strategy_taxonomy", "quant_theory"],
+    "asset_categories": [
+      "market_reports",
+      "price_action",
+      "strategy_taxonomy",
+      "quant_theory"
+    ],
     "crypto_relevance": "medium",
     "priority": 60,
     "asset_allowlist": [
-      {"path": "readme.md", "asset_type": "documentation", "extraction_tags": ["price_action", "market_report", "strategy_taxonomy"]}
+      {
+        "path": "readme.md",
+        "asset_type": "documentation",
+        "extraction_tags": [
+          "price_action",
+          "market_report",
+          "strategy_taxonomy"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials"],
-    "strategy_extraction_targets": ["price_action", "trend_following", "research_report"],
-    "license_notes": "Prioritize docs and theory as RAG assets; convert only objective price-action rules to ideas.",
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials"
+    ],
+    "strategy_extraction_targets": [
+      "price_action",
+      "trend_following",
+      "research_report"
+    ],
+    "license_notes": "GitHub repository currently declares GPL-3.0; use docs and theory as distilled RAG assets only, and do not copy runtime code into platform core.",
     "source_notes": "Extract market report intake, price-action theory, signal taxonomy, and quant research architecture."
   },
   {
@@ -118,14 +273,34 @@
     "license": "AGPL-3.0",
     "license_policy": "distilled_research_only",
     "project_role": "crypto_strategy_shapes",
-    "asset_categories": ["visual_strategy", "data_mining", "backtesting", "paper_trading"],
+    "asset_categories": [
+      "visual_strategy",
+      "data_mining",
+      "backtesting",
+      "paper_trading"
+    ],
     "crypto_relevance": "high",
     "priority": 70,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "documentation", "extraction_tags": ["visual_strategy", "paper_trading"]}
+      {
+        "path": "README.md",
+        "asset_type": "documentation",
+        "extraction_tags": [
+          "visual_strategy",
+          "paper_trading"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials", "private_key"],
-    "strategy_extraction_targets": ["grid_market_making", "visual_research_workflow"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials",
+      "private_key"
+    ],
+    "strategy_extraction_targets": [
+      "grid_market_making",
+      "visual_research_workflow"
+    ],
     "license_notes": "AGPL source must not be copied into platform runtime; use as high-level research reference only.",
     "source_notes": "Extract visual strategy/paper-trading workflow concepts and classify as research notes."
   },
@@ -136,14 +311,33 @@
     "license": "Apache-2.0",
     "license_policy": "distilled_research_allowed",
     "project_role": "llm_research_workflow",
-    "asset_categories": ["ai_quant", "local_deployment", "research_workflow"],
+    "asset_categories": [
+      "ai_quant",
+      "local_deployment",
+      "research_workflow"
+    ],
     "crypto_relevance": "medium",
     "priority": 80,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "research_workflow", "extraction_tags": ["local_ai_quant", "dashboard"]}
+      {
+        "path": "README.md",
+        "asset_type": "research_workflow",
+        "extraction_tags": [
+          "local_ai_quant",
+          "dashboard"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials", "token"],
-    "strategy_extraction_targets": ["research_workflow", "dashboard"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials",
+      "token"
+    ],
+    "strategy_extraction_targets": [
+      "research_workflow",
+      "dashboard"
+    ],
     "license_notes": "Use AI research workflow references only; no LLM direct trading instruction path.",
     "source_notes": "Extract local AI quant workflow and dashboard/research boundaries."
   },
@@ -154,14 +348,32 @@
     "license": "unknown",
     "license_policy": "metadata_only",
     "project_role": "llm_research_workflow",
-    "asset_categories": ["personal_trading_agent", "llm_workflow", "research_assistant"],
+    "asset_categories": [
+      "personal_trading_agent",
+      "llm_workflow",
+      "research_assistant"
+    ],
     "crypto_relevance": "medium",
     "priority": 90,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "research_workflow", "extraction_tags": ["llm_workflow", "research_assistant"]}
+      {
+        "path": "README.md",
+        "asset_type": "research_workflow",
+        "extraction_tags": [
+          "llm_workflow",
+          "research_assistant"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials", "token"],
-    "strategy_extraction_targets": ["research_workflow"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials",
+      "token"
+    ],
+    "strategy_extraction_targets": [
+      "research_workflow"
+    ],
     "license_notes": "Treat as metadata and workflow inspiration until license is confirmed.",
     "source_notes": "Extract agent workflow boundaries; never allow direct LLM order generation."
   },
@@ -172,14 +384,33 @@
     "license": "MIT",
     "license_policy": "distilled_research_allowed",
     "project_role": "llm_research_workflow",
-    "asset_categories": ["multi_agent", "research_review", "decision_support"],
+    "asset_categories": [
+      "multi_agent",
+      "research_review",
+      "decision_support"
+    ],
     "crypto_relevance": "medium",
     "priority": 100,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "research_workflow", "extraction_tags": ["multi_agent", "research_review"]}
+      {
+        "path": "README.md",
+        "asset_type": "research_workflow",
+        "extraction_tags": [
+          "multi_agent",
+          "research_review"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials", "token"],
-    "strategy_extraction_targets": ["multi_agent_research", "review_workflow"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials",
+      "token"
+    ],
+    "strategy_extraction_targets": [
+      "multi_agent_research",
+      "review_workflow"
+    ],
     "license_notes": "Use multi-agent research/review roles only.",
     "source_notes": "Extract analyst/research/review patterns without turning agents into traders."
   },
@@ -190,14 +421,33 @@
     "license": "Apache-2.0",
     "license_policy": "distilled_research_allowed",
     "project_role": "llm_research_workflow",
-    "asset_categories": ["multi_agent", "chinese_finance", "research_review"],
+    "asset_categories": [
+      "multi_agent",
+      "chinese_finance",
+      "research_review"
+    ],
     "crypto_relevance": "medium",
     "priority": 110,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "research_workflow", "extraction_tags": ["multi_agent", "chinese_finance"]}
+      {
+        "path": "README.md",
+        "asset_type": "research_workflow",
+        "extraction_tags": [
+          "multi_agent",
+          "chinese_finance"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials", "token"],
-    "strategy_extraction_targets": ["multi_agent_research", "review_workflow"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials",
+      "token"
+    ],
+    "strategy_extraction_targets": [
+      "multi_agent_research",
+      "review_workflow"
+    ],
     "license_notes": "Use Chinese financial research workflow and role design only.",
     "source_notes": "Extract Chinese multi-agent research/reporting patterns."
   },
@@ -208,14 +458,33 @@
     "license": "unknown",
     "license_policy": "metadata_only",
     "project_role": "llm_research_workflow",
-    "asset_categories": ["news_research", "dashboard", "scheduled_reports"],
+    "asset_categories": [
+      "news_research",
+      "dashboard",
+      "scheduled_reports"
+    ],
     "crypto_relevance": "low",
     "priority": 120,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "research_workflow", "extraction_tags": ["scheduled_report", "news_research"]}
+      {
+        "path": "README.md",
+        "asset_type": "research_workflow",
+        "extraction_tags": [
+          "scheduled_report",
+          "news_research"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials", "token"],
-    "strategy_extraction_targets": ["scheduled_report", "news_research"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials",
+      "token"
+    ],
+    "strategy_extraction_targets": [
+      "scheduled_report",
+      "news_research"
+    ],
     "license_notes": "Use scheduling/reporting ideas only until license is confirmed.",
     "source_notes": "Extract scheduled news and research-report workflow patterns."
   },
@@ -226,14 +495,36 @@
     "license": "LGPL-3.0",
     "license_policy": "distilled_research_only",
     "project_role": "research_framework_candidate",
-    "asset_categories": ["backtesting", "live_trading", "high_performance", "crypto"],
+    "asset_categories": [
+      "backtesting",
+      "live_trading",
+      "high_performance",
+      "crypto"
+    ],
     "crypto_relevance": "high",
     "priority": 200,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "architecture_note", "extraction_tags": ["research_live_parity", "event_driven", "backtesting"]}
+      {
+        "path": "README.md",
+        "asset_type": "architecture_note",
+        "extraction_tags": [
+          "research_live_parity",
+          "event_driven",
+          "backtesting"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials", "private_key"],
-    "strategy_extraction_targets": ["research_live_parity", "event_bus", "adapter_state"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials",
+      "private_key"
+    ],
+    "strategy_extraction_targets": [
+      "research_live_parity",
+      "event_bus",
+      "adapter_state"
+    ],
     "license_notes": "Supplemental candidate; no runtime dependency in this tranche.",
     "source_notes": "Candidate for future architecture comparison, not first-batch strategy extraction."
   },
@@ -244,14 +535,33 @@
     "license": "GPL-3.0",
     "license_policy": "distilled_research_only",
     "project_role": "crypto_strategy_shapes_candidate",
-    "asset_categories": ["crypto_bot", "automation", "strategy_templates"],
+    "asset_categories": [
+      "crypto_bot",
+      "automation",
+      "strategy_templates"
+    ],
     "crypto_relevance": "high",
     "priority": 210,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "documentation", "extraction_tags": ["crypto_bot", "automation"]}
+      {
+        "path": "README.md",
+        "asset_type": "documentation",
+        "extraction_tags": [
+          "crypto_bot",
+          "automation"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials", "private_key"],
-    "strategy_extraction_targets": ["trend_following", "automation"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials",
+      "private_key"
+    ],
+    "strategy_extraction_targets": [
+      "trend_following",
+      "automation"
+    ],
     "license_notes": "Supplemental GPL candidate; research reference only.",
     "source_notes": "Candidate source for crypto automation ideas."
   },
@@ -262,14 +572,34 @@
     "license": "MIT",
     "license_policy": "distilled_research_allowed",
     "project_role": "research_framework_candidate",
-    "asset_categories": ["ai_quant", "research_platform", "dataset_pipeline"],
+    "asset_categories": [
+      "ai_quant",
+      "research_platform",
+      "dataset_pipeline"
+    ],
     "crypto_relevance": "low",
     "priority": 220,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "architecture_note", "extraction_tags": ["ai_quant", "experiment_management", "dataset_pipeline"]}
+      {
+        "path": "README.md",
+        "asset_type": "architecture_note",
+        "extraction_tags": [
+          "ai_quant",
+          "experiment_management",
+          "dataset_pipeline"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials"],
-    "strategy_extraction_targets": ["experiment_management", "model_training", "dataset_pipeline"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials"
+    ],
+    "strategy_extraction_targets": [
+      "experiment_management",
+      "model_training",
+      "dataset_pipeline"
+    ],
     "license_notes": "Supplemental AI quant research-platform reference.",
     "source_notes": "Candidate for research pipeline and experiment management patterns."
   },
@@ -280,14 +610,33 @@
     "license": "MIT",
     "license_policy": "distilled_research_allowed",
     "project_role": "research_framework_candidate",
-    "asset_categories": ["research_agent", "experiment_management", "model_iteration"],
+    "asset_categories": [
+      "research_agent",
+      "experiment_management",
+      "model_iteration"
+    ],
     "crypto_relevance": "medium",
     "priority": 225,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "research_workflow", "extraction_tags": ["research_agent", "experiment_management"]}
+      {
+        "path": "README.md",
+        "asset_type": "research_workflow",
+        "extraction_tags": [
+          "research_agent",
+          "experiment_management"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials", "token"],
-    "strategy_extraction_targets": ["research_agent", "experiment_management"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials",
+      "token"
+    ],
+    "strategy_extraction_targets": [
+      "research_agent",
+      "experiment_management"
+    ],
     "license_notes": "Use experiment and research-agent workflow ideas only.",
     "source_notes": "Candidate for hypothesis generation, experiment tracking, and iterative research workflow."
   },
@@ -298,14 +647,32 @@
     "license": "Apache-2.0",
     "license_policy": "distilled_research_allowed",
     "project_role": "research_framework_candidate",
-    "asset_categories": ["vectorized_backtesting", "parameter_grid", "research_experiments"],
+    "asset_categories": [
+      "vectorized_backtesting",
+      "parameter_grid",
+      "research_experiments"
+    ],
     "crypto_relevance": "high",
     "priority": 226,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "architecture_note", "extraction_tags": ["vectorized_backtesting", "parameter_grid"]}
+      {
+        "path": "README.md",
+        "asset_type": "architecture_note",
+        "extraction_tags": [
+          "vectorized_backtesting",
+          "parameter_grid"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials"],
-    "strategy_extraction_targets": ["parameter_grid", "vectorized_backtest"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials"
+    ],
+    "strategy_extraction_targets": [
+      "parameter_grid",
+      "vectorized_backtest"
+    ],
     "license_notes": "Use research/backtest experiment patterns; no runtime dependency in this tranche.",
     "source_notes": "Candidate for high-speed parameter grid validation and vectorized research experiments."
   },
@@ -316,14 +683,34 @@
     "license": "AGPL-3.0",
     "license_policy": "distilled_research_only",
     "project_role": "research_framework_candidate",
-    "asset_categories": ["financial_data_platform", "multi_asset_data", "ai_agent_data"],
+    "asset_categories": [
+      "financial_data_platform",
+      "multi_asset_data",
+      "ai_agent_data"
+    ],
     "crypto_relevance": "medium",
     "priority": 227,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "architecture_note", "extraction_tags": ["data_layer", "multi_asset_data", "ai_agent_data"]}
+      {
+        "path": "README.md",
+        "asset_type": "architecture_note",
+        "extraction_tags": [
+          "data_layer",
+          "multi_asset_data",
+          "ai_agent_data"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials", "token"],
-    "strategy_extraction_targets": ["data_layer", "multi_asset_data"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials",
+      "token"
+    ],
+    "strategy_extraction_targets": [
+      "data_layer",
+      "multi_asset_data"
+    ],
     "license_notes": "AGPL source is research/data-layer reference only; do not copy runtime code into core.",
     "source_notes": "Candidate for future unified financial data access and multi-market data taxonomy."
   },
@@ -334,14 +721,34 @@
     "license": "MIT",
     "license_policy": "distilled_research_allowed",
     "project_role": "research_framework_candidate",
-    "asset_categories": ["reinforcement_learning", "research_framework", "portfolio"],
+    "asset_categories": [
+      "reinforcement_learning",
+      "research_framework",
+      "portfolio"
+    ],
     "crypto_relevance": "medium",
     "priority": 230,
     "asset_allowlist": [
-      {"path": "README.md", "asset_type": "architecture_note", "extraction_tags": ["reinforcement_learning", "portfolio", "risk"]}
+      {
+        "path": "README.md",
+        "asset_type": "architecture_note",
+        "extraction_tags": [
+          "reinforcement_learning",
+          "portfolio",
+          "risk"
+        ]
+      }
     ],
-    "asset_denylist": [".env", "secrets", "credentials"],
-    "strategy_extraction_targets": ["portfolio", "risk_layer", "rl_research"],
+    "asset_denylist": [
+      ".env",
+      "secrets",
+      "credentials"
+    ],
+    "strategy_extraction_targets": [
+      "portfolio",
+      "risk_layer",
+      "rl_research"
+    ],
     "license_notes": "Supplemental research source; RL output must not bypass validation or risk gates.",
     "source_notes": "Candidate for future research experiments, not live execution."
   }

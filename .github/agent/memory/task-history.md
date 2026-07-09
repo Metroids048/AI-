@@ -1,5 +1,34 @@
 # Task History
 
+### [TASK-037] Market Intelligence capped factor vote
+- **Date**: 2026-07-09
+- **Type**: feature + data + strategy + frontend
+- **Summary**: Implemented the approved Market Intelligence factor-voting plan without adding a seventh architecture layer. Added shared contracts for `MarketEvent`, `MarketIntelligenceFeatureSnapshot`, provider status, and capped `MarketIntelligenceSignal`; added Data Layer provider adapters/status for Binance/CoinGlass/CryptoQuant/DeFiLlama plus feature/signal scoring from existing market/news/macro/risk data; exposed `/api/v1/market-intelligence/{events,features,signals,refresh}`; wired the bounded vote into directional DecisionPipeline only after deterministic technical signals exist; added Trading/Ops/Review frontend visibility.
+- **Files changed**: `shared/models/market_intelligence.py`, `services/data/market_intelligence.py`, `apps/api/routers/market_intelligence.py`, `services/execution/decision_pipeline.py`, `frontend/admin/src/{hooks/useConsoleData.js,components/RuntimePanels.jsx,pages/PaperConsole.jsx,pages/OpsConsole.jsx,pages/ReviewCenter.jsx}`, `.env.example`, targeted tests, and memory files.
+- **Layer mapping**: Data Layer owns provider normalization/status and feature snapshots; Strategy Layer owns the capped intelligence vote; Agent Layer remains classification/explanation only; Execution/Risk still enforce MetaLabel, Decision Veto, Gatekeeper, stoploss, and Paper/Testnet boundaries; Review surfaces intelligence traces.
+- **Research loop served**: `Provider/News/Macro/Risk evidence -> MarketIntelligenceSignal -> SignalEnsemble vote -> MetaLabel -> Decision Veto/Gatekeeper -> Paper/Testnet -> Review evidence`.
+- **Verification**: targeted tests `23 passed`; changed Python Ruff passed; `py -3 -m mypy` passed; admin Vitest `12 passed`; admin build passed.
+- **Notes**: CoinGlass/CryptoQuant are adapter-first and return `missing_credentials` until API keys are configured. The intelligence vote is schema-capped at `0.30` and cannot open a trade without a deterministic technical signal.
+
+### [TASK-036] Real Binance Testnet open/close smoke and remaining quality baseline closure
+- **Date**: 2026-07-09
+- **Type**: live-testnet verification + fix + quality
+- **Summary**: Executed a real Binance Futures Testnet BTCUSDT smoke through the gateway: opened `0.001` BTC with BUY market order `20356862614`, closed it with SELL reduce-only market order `20356874963`, then cleaned a pre-existing `0.0001` BTC residual position with SELL reduce-only order `20356888777`. Final probe confirmed `open_position_count=0` and no positions. Fixed gateway time sync for private Testnet calls and close-only side inversion before the smoke.
+- **Files changed**: `services/execution/gateway.py`, `tests/services/test_binance_gateway.py`, quality cleanup across Ruff-reported files, `scripts/_testnet_open_close_report.json`, and memory files.
+- **Layer mapping**: Binance gateway behavior belongs to Execution Layer; final flat-position verification is Risk Engine operational safety; local sanitized report is Review/Ops evidence.
+- **Verification**: Real Testnet orders filled and are visible in Binance recent orders; full repo Ruff passed; `python -m pytest -q -m "not integration"` -> 185 passed, 1 deselected, 1 warning; `python -m mypy` passed; admin Vitest -> 12 passed; admin build passed; `npm audit --audit-level=high` -> 0 vulnerabilities; project `pip-audit .` -> no known vulnerabilities; `git diff --check` passed.
+- **Notes**: Docker compose smoke is still blocked by host environment (`docker not found on PATH`), not by repository code. Profitability is still not claimed; this task proves exchange connectivity and safe open/close mechanics, not strategy edge.
+
+### [TASK-035] Technical strategy hardening, Binance-first auto execution, and Strategy Library RAG
+- **Date**: 2026-07-09
+- **Type**: feat + fix + research assetization
+- **Summary**: Hardened the existing carry + technical automatic strategy path. The technical lane now requires explicit indicator/price-action signals, supports 4h direction + 15m entry confirmation, adds RSI/EMA/ADX/VWAP/Bollinger and false-breakout logic, removes unsafe candle fallback, and lowers default risk sizing. Binance auto execution now fails closed when gateway submission fails. RAG now prioritizes `策略库/*.md`, and ABU research material is recorded as GPL-3.0 distilled research-only.
+- **Files changed**: `services/execution/{decision_pipeline,bootstrap,paper_runtime,gateway,kill_switch}.py`, `services/strategy_library/technical/{indicators,price_action,__init__}.py`, `services/agents/rag_context.py`, `research_source/open_source_strategy_library/**`, `策略库/*.md`, frontend/admin runtime tests, and backend strategy/runtime tests.
+- **Layer mapping**: Technical signal generation belongs to Strategy Layer; Binance-first order submission and fail-closed handling belong to Execution Layer/Risk Engine; RAG strategy documents belong to Data Layer E-level research intake feeding Strategy/Agent; failure/rejection codes feed Review Layer.
+- **Research loop served**: `策略库/RAG -> Strategy signals -> DecisionPipeline -> Gatekeeper -> Binance Testnet/Paper order -> Review evidence` is now more explicit and auditable.
+- **Verification**: `python -m pytest -q -m "not integration"` -> 184 passed, 1 deselected, 1 warning; changed-file Ruff passed; `python -m mypy` passed; admin Vitest passed (12 tests); admin build passed; `git diff --check` passed.
+- **Notes**: Full repo Ruff still reports 33 pre-existing unrelated style issues in older files; no real Binance Testnet order was submitted during this session; profitability is not claimed and still requires backtest/OOS/Paper evidence before live promotion.
+
 ### [TASK-034] LLM free-model chain + carry/directional dual PaperRun lanes
 - **Date**: 2026-07-09
 - **Type**: feature + execution + agent

@@ -9,7 +9,11 @@ from shared.models import TradeSide, TradeSignal
 CONTINUOUS_STRENGTH_THRESHOLD = 0.05
 
 
-def _collect_pivots(frame: pd.DataFrame, *, pivot_window: int) -> tuple[list[tuple[int, float]], list[tuple[int, float]]]:
+def _collect_pivots(
+    frame: pd.DataFrame,
+    *,
+    pivot_window: int,
+) -> tuple[list[tuple[int, float]], list[tuple[int, float]]]:
     highs = frame["high"].astype(float)
     lows = frame["low"].astype(float)
     pivot_highs: list[tuple[int, float]] = []

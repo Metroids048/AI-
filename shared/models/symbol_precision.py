@@ -33,16 +33,32 @@ class SymbolPrecision:
 
 # Binance USDT-perpetual contract specs (subset — extensible).
 _DEFAULT_PRECISION: dict[str, SymbolPrecision] = {
-    "BTC/USDT": SymbolPrecision("BTC/USDT", price_precision=2, quantity_precision=3, min_quantity=0.001, min_notional=5.0),
-    "ETH/USDT": SymbolPrecision("ETH/USDT", price_precision=2, quantity_precision=3, min_quantity=0.001, min_notional=5.0),
-    "SOL/USDT": SymbolPrecision("SOL/USDT", price_precision=3, quantity_precision=0, min_quantity=1.0, min_notional=5.0),
-    "BNB/USDT": SymbolPrecision("BNB/USDT", price_precision=2, quantity_precision=2, min_quantity=0.01, min_notional=5.0),
-    "XRP/USDT": SymbolPrecision("XRP/USDT", price_precision=4, quantity_precision=0, min_quantity=1.0, min_notional=5.0),
-    "DOGE/USDT": SymbolPrecision("DOGE/USDT", price_precision=5, quantity_precision=0, min_quantity=1.0, min_notional=5.0),
-    "ADA/USDT": SymbolPrecision("ADA/USDT", price_precision=4, quantity_precision=0, min_quantity=1.0, min_notional=5.0),
+    "BTC/USDT": SymbolPrecision(
+        "BTC/USDT", price_precision=2, quantity_precision=3, min_quantity=0.001, min_notional=5.0
+    ),
+    "ETH/USDT": SymbolPrecision(
+        "ETH/USDT", price_precision=2, quantity_precision=3, min_quantity=0.001, min_notional=5.0
+    ),
+    "SOL/USDT": SymbolPrecision(
+        "SOL/USDT", price_precision=3, quantity_precision=0, min_quantity=1.0, min_notional=5.0
+    ),
+    "BNB/USDT": SymbolPrecision(
+        "BNB/USDT", price_precision=2, quantity_precision=2, min_quantity=0.01, min_notional=5.0
+    ),
+    "XRP/USDT": SymbolPrecision(
+        "XRP/USDT", price_precision=4, quantity_precision=0, min_quantity=1.0, min_notional=5.0
+    ),
+    "DOGE/USDT": SymbolPrecision(
+        "DOGE/USDT", price_precision=5, quantity_precision=0, min_quantity=1.0, min_notional=5.0
+    ),
+    "ADA/USDT": SymbolPrecision(
+        "ADA/USDT", price_precision=4, quantity_precision=0, min_quantity=1.0, min_notional=5.0
+    ),
 }
 
-_FALLBACK = SymbolPrecision("__fallback__", price_precision=2, quantity_precision=3, min_quantity=0.001, min_notional=5.0)
+_FALLBACK = SymbolPrecision(
+    "__fallback__", price_precision=2, quantity_precision=3, min_quantity=0.001, min_notional=5.0
+)
 
 
 def get_precision(symbol: str) -> SymbolPrecision:

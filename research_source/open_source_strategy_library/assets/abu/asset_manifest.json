@@ -1,9 +1,9 @@
 {
   "source_id": "abu",
   "repo_url": "https://github.com/bbfamily/abu",
-  "license": "MIT",
-  "license_policy": "distilled_research_allowed",
-  "updated_at": "2026-07-06T09:33:30.125887+00:00",
+  "license": "GPL-3.0",
+  "license_policy": "distilled_research_only",
+  "updated_at": "2026-07-06T17:33:30.125887+08:00",
   "assets": [
     {
       "asset_id": "abu:e47fce973538232b",
@@ -11,7 +11,7 @@
       "asset_type": "documentation",
       "origin_url": "https://github.com/bbfamily/abu/blob/d602d847677e4c2b77b0a122df30816ea68b5710/readme.md",
       "origin_ref": "d602d847677e4c2b77b0a122df30816ea68b5710",
-      "license": "MIT",
+      "license": "GPL-3.0",
       "local_path": "research_source/open_source_strategy_library/assets/abu/docs/readme.md.md",
       "sha256": "e47fce973538232bdee21952121d8b2e556f09c2f27df1e46bd5ba5ee9116a7b",
       "bytes": 2114,
@@ -30,7 +30,7 @@
       "asset_type": "source_summary",
       "origin_url": "https://github.com/bbfamily/abu",
       "origin_ref": "local_manifest",
-      "license": "MIT",
+      "license": "GPL-3.0",
       "local_path": "research_source/open_source_strategy_library/assets/abu/source_summary.md",
       "sha256": "d3bdd3ed918f94a85242444a227ecfd424e53f4ec786625ebaaf1042b0ee6af2",
       "bytes": 798,

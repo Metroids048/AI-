@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -12,7 +13,7 @@ from typing import Any, Protocol
 from urllib.parse import urlencode
 
 from shared.binance_network import binance_urlopen_json
-
+from shared.config import settings
 from shared.models import (
     Exchange,
     MarketExtras,
@@ -25,8 +26,6 @@ from shared.models import (
 )
 
 from .repository import DataRepository
-
-from shared.config import settings
 
 STABLE_OR_LEVERAGED_SUFFIXES = (
     "UP/USDT",
@@ -406,10 +405,8 @@ class BinanceCcxtClient:
         usdm_exchange: CcxtLikeExchange | None = None,
     ):
         if spot_exchange is None or usdm_exchange is None:
-            try:
+            with contextlib.suppress(ImportError):
                 import ccxt  # noqa: F401
-            except ImportError:
-                pass
 
         self.spot_exchange = spot_exchange or BinancePublicRestExchange(
             market_type="spot",

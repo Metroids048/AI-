@@ -6,8 +6,8 @@ from typing import Any
 
 import httpx
 
-from shared.config import settings
 from services.data.news import NewsIngestionService
+from shared.config import settings
 
 
 class SocialIngestionService:

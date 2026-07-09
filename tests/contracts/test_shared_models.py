@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 
 import pytest
@@ -12,6 +13,9 @@ from shared.models import (
     BacktestReport,
     ExecutionRiskState,
     FailureRecord,
+    MarketEvent,
+    MarketIntelligenceFeatureSnapshot,
+    MarketIntelligenceSignal,
     MetaLabel,
     OHLCVBar,
     RiskEvent,
@@ -129,3 +133,30 @@ def test_signal_ensemble_and_meta_label_minimal() -> None:
     meta = MetaLabel(meta_label_id="m1", ensemble_id=ensemble.ensemble_id)
     assert ensemble.ensemble_status == "formed"
     assert meta.bet_decision == "pending"
+
+
+def test_market_intelligence_contracts_cap_vote_weight() -> None:
+    event = MarketEvent(event_id="event-1", source="jinshi", event_type="news", title="ETF approved")
+    snapshot = MarketIntelligenceFeatureSnapshot(symbol="BTC/USDT", generated_at=event.occurred_at or datetime.now())
+    signal = MarketIntelligenceSignal(
+        symbol=snapshot.symbol,
+        generated_at=snapshot.generated_at,
+        long_probability=0.72,
+        short_probability=0.28,
+        confidence=0.8,
+        direction=TradeSide.LONG,
+        vote_weight=0.30,
+    )
+
+    assert event.event_type == "news"
+    assert snapshot.symbol == "BTC/USDT"
+    assert signal.vote_weight == 0.30
+    with pytest.raises(ValidationError):
+        MarketIntelligenceSignal(
+            symbol="BTC/USDT",
+            generated_at=snapshot.generated_at,
+            long_probability=0.7,
+            short_probability=0.3,
+            confidence=0.8,
+            vote_weight=0.31,
+        )

@@ -20,6 +20,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     tradingStatus: null,
     manualContext: null,
     fundingSignal: null,
+    intelligenceSignal: null,
     orderBook: null,
     trades: null,
     decisionTrace: null,
@@ -152,6 +153,11 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     run(
       `/api/v1/market/funding-arbitrage-signal?${params.toString()}`,
       (current, payload) => ({ ...current, fundingSignal: payload ?? current.fundingSignal }),
+      { showLoaded: false },
+    );
+    run(
+      `/api/v1/market-intelligence/signals?${new URLSearchParams({ symbol }).toString()}`,
+      (current, payload) => ({ ...current, intelligenceSignal: payload ?? current.intelligenceSignal }),
       { showLoaded: false },
     );
     return Promise.allSettled(tasks);
