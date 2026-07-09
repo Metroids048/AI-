@@ -48,7 +48,9 @@ class Settings(BaseSettings):
     # Local dev: bypass multi-timeframe + meta-label filters so Paper cycles can open test positions.
     paper_runtime_relaxed_signals: bool = False
     # When true, auto-cycle submits to Binance before local paper fill (same path as manual testnet).
-    binance_auto_execute: bool = True
+    # Default is fail-safe: automatic research cycles stay local Paper unless the operator opts in.
+    binance_auto_execute: bool = False
+    gateway_protection_max_distance_bps: float = 800.0
     market_data_heartbeat_seconds: int = 60
     market_data_stale_seconds: int = 120
     # Gatekeeper order-freshness threshold (previously hardcoded to 2h).

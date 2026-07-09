@@ -46,9 +46,13 @@ function Stop-ExistingProjectProcess($Port, $ExpectedPattern) {
         }
         $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $ownerPid" -ErrorAction SilentlyContinue
         $commandLine = $processInfo.CommandLine
-        if ($commandLine -and ($commandLine.Contains($Root) -or $commandLine.Contains($ExpectedPattern))) {
+        if ($commandLine -and (
+            $commandLine.Contains($Root) -or
+            $commandLine.Contains($ExpectedPattern) -or
+            $commandLine.Contains("uvicorn")
+        )) {
             Write-Step "stopping previous project process on port $Port (pid $ownerPid)"
-            Stop-Process -Id $ownerPid -Force
+            Stop-Process -Id $ownerPid -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 1
         }
     }

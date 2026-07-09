@@ -1,5 +1,14 @@
 # Project Memory
 
+## Auto Paper/Testnet safety rollback after far protection orders (TASK-038, 2026-07-09)
+
+- Root cause: local Paper bootstrap and startup defaults treated Binance credentials as consent to exchange mirroring. `mirror_to_gateway` was auto-enabled, `BINANCE_AUTO_EXECUTE` defaulted true, and local startup scripts forced auto execution on. Automatic Paper cycles could therefore submit Testnet market entries plus stop/takeprofit conditional protection orders.
+- Price root cause: Paper order generation used the latest repository K-line close as `reference_price`; the Binance gateway submitted already-computed stoploss/takeprofit triggers and did not revalidate protection distances against a current execution reference before placing the entry.
+- Safety fix: automatic Paper/Testnet mirroring is now operator opt-in. `BINANCE_AUTO_EXECUTE` defaults false in settings, scripts, `.env.example`, and local `.env`; `PAPER_RUNTIME_RELAXED_SIGNALS` is false in local `.env` / `.env.example`; bootstrap no longer flips running PaperRuns to `mirror_to_gateway=true`.
+- Gateway guard: Binance gateway now rejects invalid or far protection prices before entry submission, using `GATEWAY_PROTECTION_MAX_DISTANCE_BPS` (default 800 bps). Long/short stoploss and takeprofit side checks are enforced before any exchange order is created.
+- Operational response: the already-running local FastAPI process on port 8000 was stopped so old in-memory settings cannot continue scheduler cycles. Restarting the console will use the safer Paper-only defaults.
+- Verification: targeted execution/API tests passed (`28 passed, 1 warning`), changed-file Ruff passed, and `git diff --check` passed.
+
 ## Market Intelligence capped factor vote (TASK-037, 2026-07-09)
 
 - Market Intelligence is implemented as an in-architecture factor, not a new layer: `MarketEvent`, `MarketIntelligenceFeatureSnapshot`, provider status, and provider adapters belong to Data Layer; `MarketIntelligenceSignal` becomes a capped Strategy Layer vote; execution authority remains with SignalEnsemble, MetaLabel, Decision Veto, Gatekeeper, and Risk Engine.

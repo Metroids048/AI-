@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from services.data.service import DEFAULT_BINANCE_TOP20
-from shared.config import settings
 from shared.models import PaperRun
 
 PAPER_PRIORITY_SYMBOLS = ["BTC/USDT", "ETH/USDT"]
@@ -11,8 +10,8 @@ PAPER_PRIORITY_SYMBOLS = ["BTC/USDT", "ETH/USDT"]
 
 def _default_execution_profile(profile: dict) -> dict:
     merged = dict(profile)
-    if "mirror_to_gateway" not in merged and settings.binance_api_key and settings.binance_api_secret:
-        merged["mirror_to_gateway"] = True
+    if "mirror_to_gateway" not in merged:
+        merged["mirror_to_gateway"] = False
     return merged
 
 

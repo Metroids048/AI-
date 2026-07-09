@@ -1,10 +1,3 @@
 @echo off
-setlocal
 cd /d "%~dp0"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_paper_console.ps1"
-if errorlevel 1 (
-  echo.
-  echo Startup failed. Check logs\api.log and logs\frontend.log
-  pause
-)
-endlocal
+call "%~dp0一键启动.cmd"

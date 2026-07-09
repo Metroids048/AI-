@@ -24,6 +24,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     orderBook: null,
     trades: null,
     decisionTrace: null,
+    dataSources: null,
     testnetAccount: null,
     feedStatus: null,
     streamStatus: "connecting",
@@ -90,15 +91,43 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
         error: "",
       }),
       { reportError: true },
-    ).then((overviewPayload) => {
-      const latestPaper = Array.isArray(overviewPayload?.paper_runs) ? overviewPayload.paper_runs.at(-1) : null;
-      if (!latestPaper?.paper_run_id || refreshId.current !== currentRefresh) return;
+    ).then(() => {
       run(
-        `/api/v1/execution/paper-runs/${latestPaper.paper_run_id}/decision-trace`,
-        (current, payload) => ({ ...current, decisionTrace: payload }),
+        "/api/v1/execution/paper-runs",
+        (current, payload) => current,
         { showLoaded: false },
-      );
+      ).then((paperRunsPayload) => {
+        const runs = asArray(paperRunsPayload?.items);
+        const autoRun =
+          runs.find((run) => run.execution_profile?.auto_paper_runtime_key === "auto_paper_btc_technical") ??
+          runs.find((run) => (run.candidate_symbols?.length ?? 0) >= 20) ??
+          runs.at(-1);
+        if (!autoRun?.paper_run_id || refreshId.current !== currentRefresh) return;
+        run(
+          `/api/v1/execution/paper-runs/${autoRun.paper_run_id}/decision-trace`,
+          (current, payload) => ({ ...current, decisionTrace: payload }),
+          { showLoaded: false },
+        );
+      });
     });
+    tasks.push(
+      Promise.all([
+        request("/api/v1/market/news?limit=5&refresh=false"),
+        request("/api/v1/market/macro-events?limit=5&refresh=false"),
+      ])
+        .then(([news, macro]) => {
+          commit((current) => ({
+            ...current,
+            dataSources: {
+              news_total: news?.total ?? asArray(news?.items).length,
+              macro_total: macro?.total ?? asArray(macro?.items).length,
+              news_refresh_error: news?.refresh_error ?? null,
+              macro_refresh_error: macro?.refresh_error ?? null,
+            },
+          }));
+        })
+        .catch(() => undefined),
+    );
     run(
       `/api/v1/market/snapshot?${params.toString()}`,
       (current, payload) => ({ ...current, snapshot: payload, error: "" }),

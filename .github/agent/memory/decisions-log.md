@@ -1,5 +1,12 @@
 # Decisions Log
 
+## ADR-045: Automatic Paper cycles never imply Binance/Testnet execution consent
+- Date: 2026-07-09
+- Status: accepted
+- Context: A local Paper/Testnet run left far BTCUSDT conditional protection orders on Binance because auto bootstrap enabled `mirror_to_gateway` whenever credentials existed, startup scripts forced `BINANCE_AUTO_EXECUTE=true`, and the gateway did not validate protection trigger distance before submitting exchange orders.
+- Decision: Treat exchange submission as explicit operator opt-in only. Default automatic research cycles remain local Paper. Credentials alone do not enable `mirror_to_gateway`, bootstrap must not flip existing PaperRuns into exchange mirroring, and local startup/default environment files keep `BINANCE_AUTO_EXECUTE=false`. Binance protection triggers must be directionally valid and within a configured maximum distance (`GATEWAY_PROTECTION_MAX_DISTANCE_BPS`, default 800 bps) from the execution reference before entry submission.
+- Consequences: The local console can still monitor live market data and run Paper cycles, but it will not create Binance/Testnet orders unless the operator deliberately enables both run-level mirroring and global auto execution. Far or stale stop/takeprofit triggers fail closed before any entry order is sent.
+
 ## ADR-044: Market Intelligence is a capped Strategy vote, not a new execution authority
 - Date: 2026-07-09
 - Status: accepted

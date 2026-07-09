@@ -72,6 +72,47 @@ def _gateway_order_side(*, direction: str, close_only: bool) -> str:
     return "buy" if close_only else "sell"
 
 
+def _validate_protection_prices(order_request: ExecutionOrderRequest) -> None:
+    """Reject stale or nonsensical exchange protection triggers before entry submit."""
+
+    if bool(order_request.entry_context.get("close_only_mode") or order_request.entry_context.get("reduce_only")):
+        return
+    reference_price = float(
+        order_request.entry_context.get("gateway_reference_price")
+        or order_request.entry_context.get("reference_price")
+        or order_request.entry_context.get("limit_price")
+        or 0
+    )
+    if reference_price <= 0:
+        return
+
+    max_distance = max(float(settings.gateway_protection_max_distance_bps), 0.0) / 10000.0
+    direction = str(order_request.direction).lower()
+    checks = (
+        ("stoploss", order_request.stoploss_plan.get("price")),
+        ("takeprofit", order_request.takeprofit_plan.get("price")),
+    )
+    for label, raw_price in checks:
+        if raw_price is None:
+            continue
+        price = float(raw_price)
+        if price <= 0:
+            raise ValueError(f"invalid_{label}_price: {price}")
+        if direction == "long" and label == "stoploss" and price >= reference_price:
+            raise ValueError(f"invalid_stoploss_price: long stoploss {price} must be below {reference_price}")
+        if direction == "long" and label == "takeprofit" and price <= reference_price:
+            raise ValueError(f"invalid_takeprofit_price: long takeprofit {price} must be above {reference_price}")
+        if direction == "short" and label == "stoploss" and price <= reference_price:
+            raise ValueError(f"invalid_stoploss_price: short stoploss {price} must be above {reference_price}")
+        if direction == "short" and label == "takeprofit" and price >= reference_price:
+            raise ValueError(f"invalid_takeprofit_price: short takeprofit {price} must be below {reference_price}")
+        if max_distance > 0 and abs(price - reference_price) / reference_price > max_distance:
+            raise ValueError(
+                f"protection_price_too_far: {label} {price} differs from reference "
+                f"{reference_price} by more than {settings.gateway_protection_max_distance_bps} bps"
+            )
+
+
 @dataclass
 class NullExchangeGateway:
     capability: ExchangeGatewayCapability = field(
@@ -155,6 +196,7 @@ class BinanceUsdtPerpetualGateway:
         params: dict[str, Any] = {"positionSide": "BOTH"}
         if close_only:
             params["reduceOnly"] = True
+        _validate_protection_prices(order_request)
         if "price" in order_request.stoploss_plan:
             params["stopLoss"] = {"triggerPrice": order_request.stoploss_plan["price"]}
         if "price" in order_request.takeprofit_plan:
@@ -266,7 +308,7 @@ class BinanceUsdtPerpetualGateway:
         try:
             return method(payload)
         except Exception:
-            # ponytail: optional protection mirror; primary entry order already submitted.
+            # Optional protection mirror; primary entry order already submitted.
             return None
 
     @staticmethod

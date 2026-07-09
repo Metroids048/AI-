@@ -390,9 +390,17 @@ def get_paper_decision_trace(paper_run_id: str, db: Session = Depends(get_db_ses
     if run is None:
         raise not_found("paper_run", paper_run_id)
     metrics = run.paper_metrics_summary
+    profile = run.execution_profile or {}
     return {
         "paper_run_id": paper_run_id,
+        "strategy_lane": profile.get("strategy_lane"),
+        "auto_paper_runtime_key": profile.get("auto_paper_runtime_key"),
+        "candidate_symbols": run.candidate_symbols,
+        "selection_basis": run.selection_basis,
         "last_cycle_at": metrics.get("last_cycle_at"),
+        "last_scanned_symbols": metrics.get("last_scanned_symbols", []),
+        "last_action_counts": metrics.get("last_action_counts", {}),
+        "last_runtime_timeframe": metrics.get("last_runtime_timeframe"),
         "last_cycle_actions": metrics.get("last_cycle_actions", []),
         "last_cycle_decisions": metrics.get("last_cycle_decisions", []),
         "processed_cycle_keys": metrics.get("processed_cycle_keys", []),

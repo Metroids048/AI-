@@ -53,10 +53,16 @@ class RuntimeScheduler:
         paper_cycle_seconds: float | None = None,
         heartbeat_seconds: float | None = None,
         notification_seconds: float | None = None,
+        news_poll_seconds: float = 180.0,
+        macro_poll_seconds: float = 900.0,
+        social_poll_seconds: float = 300.0,
         risk_sweep_seconds: float = 60.0,
         daily_review_check_seconds: float = 60.0,
         paper_cycle_runner: Runner | None = None,
         heartbeat_runner: Runner | None = None,
+        news_poll_runner: Runner | None = None,
+        macro_poll_runner: Runner | None = None,
+        social_poll_runner: Runner | None = None,
         risk_sweep_runner: Runner | None = None,
         notification_runner: Runner | None = None,
         daily_review_runner: Callable[[str | None], Any] | None = None,
@@ -64,10 +70,16 @@ class RuntimeScheduler:
         self.paper_cycle_seconds = float(paper_cycle_seconds or settings.paper_runtime_cycle_seconds)
         self.heartbeat_seconds = float(heartbeat_seconds or settings.market_data_heartbeat_seconds)
         self.notification_seconds = float(notification_seconds or settings.notification_dispatch_seconds)
+        self.news_poll_seconds = float(news_poll_seconds)
+        self.macro_poll_seconds = float(macro_poll_seconds)
+        self.social_poll_seconds = float(social_poll_seconds)
         self.risk_sweep_seconds = float(risk_sweep_seconds)
         self.daily_review_check_seconds = float(daily_review_check_seconds)
         self.paper_cycle_runner = paper_cycle_runner or _default_paper_cycle_runner
         self.heartbeat_runner = heartbeat_runner or _default_heartbeat_runner
+        self.news_poll_runner = news_poll_runner or _default_news_poll_runner
+        self.macro_poll_runner = macro_poll_runner or _default_macro_poll_runner
+        self.social_poll_runner = social_poll_runner or _default_social_poll_runner
         self.risk_sweep_runner = risk_sweep_runner or _default_risk_sweep_runner
         self.notification_runner = notification_runner or _default_notification_runner
         self.daily_review_runner = daily_review_runner or _default_daily_review_runner
@@ -98,6 +110,27 @@ class RuntimeScheduler:
                     name="market_data_heartbeat",
                     interval_seconds=self.heartbeat_seconds,
                     runner=self.heartbeat_runner,
+                )
+            ),
+            asyncio.create_task(
+                self._run_periodic(
+                    name="poll_news_feeds",
+                    interval_seconds=self.news_poll_seconds,
+                    runner=self.news_poll_runner,
+                )
+            ),
+            asyncio.create_task(
+                self._run_periodic(
+                    name="poll_macro_calendar",
+                    interval_seconds=self.macro_poll_seconds,
+                    runner=self.macro_poll_runner,
+                )
+            ),
+            asyncio.create_task(
+                self._run_periodic(
+                    name="poll_social_watchlist",
+                    interval_seconds=self.social_poll_seconds,
+                    runner=self.social_poll_runner,
                 )
             ),
             asyncio.create_task(
@@ -256,6 +289,24 @@ def _default_heartbeat_runner() -> dict:
     from services.data.tasks import market_data_heartbeat
 
     return market_data_heartbeat.run(list(DEFAULT_BINANCE_TOP20), "1m")
+
+
+def _default_news_poll_runner() -> dict:
+    from services.data.tasks import poll_news_feeds
+
+    return poll_news_feeds.run()
+
+
+def _default_macro_poll_runner() -> dict:
+    from services.data.tasks import poll_macro_calendar
+
+    return poll_macro_calendar.run()
+
+
+def _default_social_poll_runner() -> dict:
+    from services.data.tasks import poll_social_watchlist
+
+    return poll_social_watchlist.run()
 
 
 def _default_risk_sweep_runner() -> dict:

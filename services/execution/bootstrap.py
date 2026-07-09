@@ -69,8 +69,8 @@ def binance_credentials_configured() -> bool:
 
 
 def default_mirror_to_gateway() -> bool:
-    """Enable Testnet mirroring by default when operator credentials are present."""
-    return binance_credentials_configured()
+    """Keep Paper/Testnet mirroring operator-opt-in even when credentials exist."""
+    return False
 
 
 def bootstrap_medium_risk_profile() -> str:
@@ -98,32 +98,9 @@ def bootstrap_medium_risk_profile() -> str:
 
 
 def bootstrap_paper_testnet_mirror() -> int:
-    """Turn on mirror_to_gateway for active PaperRuns when Testnet keys are configured."""
-    if not default_mirror_to_gateway():
-        logger.info("paper testnet mirror bootstrap skipped: binance credentials not configured")
-        return 0
-
-    from services.database import get_session_factory
-    from services.strategy_library import PaperRunRepository
-
-    updated = 0
-    with get_session_factory()() as session:
-        repo = PaperRunRepository(session)
-        for run in repo.list_paper_runs():
-            if run.paper_status != "running" or not run.paper_run_id:
-                continue
-            profile = dict(run.execution_profile)
-            if profile.get("mirror_to_gateway") is True:
-                continue
-            repo.update_paper_run(
-                run.paper_run_id,
-                execution_profile={**profile, "mirror_to_gateway": True},
-            )
-            updated += 1
-        session.commit()
-    if updated:
-        logger.info("enabled mirror_to_gateway on %s running paper run(s)", updated)
-    return updated
+    """Do not auto-enable gateway mirroring for existing PaperRuns."""
+    logger.info("paper testnet mirror bootstrap skipped: mirroring is operator opt-in")
+    return 0
 
 
 def bootstrap_clear_stale_blocking_risk_events() -> int:
@@ -271,7 +248,7 @@ def _ensure_auto_paper_run(
             "strategy_lane": strategy_lane,
             "account_equity": 10_000,
             "equity_peak": 10_000,
-            "mirror_to_gateway": True,
+            "mirror_to_gateway": default_mirror_to_gateway(),
             "risk_profile_id": risk_profile_id,
             "max_leverage": rules["position_rules"]["max_leverage"],
         }
@@ -349,8 +326,79 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
     )
 
 
-def bootstrap_local_paper_runtime() -> None:
+def bootstrap_seed_multi_timeframe_ohlcv() -> int:
+    """Seed 15m/4h bars so directional auto-cycle gatekeeper freshness checks pass."""
+    if not binance_credentials_configured():
+        return 0
+
+    from services.data.binance import BinanceCcxtClient
+    from services.data.repository import DataRepository
+    from services.data.service import DEFAULT_BINANCE_TOP20
+    from services.database import get_session_factory
+
+    written_total = 0
+    timeframes = ("1m", "15m", "4h")
+    with get_session_factory()() as session:
+        repo = DataRepository(session)
+        client = BinanceCcxtClient()
+        for symbol in DEFAULT_BINANCE_TOP20[:5]:  # ponytail: seed head symbols first; WS covers rest
+            for timeframe in timeframes:
+                try:
+                    bars = client.fetch_recent_ohlcv(symbol=symbol, timeframe=timeframe, limit=120)
+                    written_total += repo.store_ohlcv_bars(bars)
+                except Exception as exc:
+                    logger.warning("ohlcv seed skipped for %s %s: %s", symbol, timeframe, exc)
+        session.commit()
+    if written_total:
+        logger.info("seeded %s multi-timeframe ohlcv bar(s) for auto-cycle", written_total)
+    return written_total
+
+
+def bootstrap_pause_legacy_paper_runs() -> int:
+    """Pause old manual PaperRuns without auto_paper_runtime_key (they block/veto auto lanes)."""
+    from services.database import get_session_factory
+    from services.strategy_library import PaperRunRepository
+
+    paused = 0
+    with get_session_factory()() as session:
+        repo = PaperRunRepository(session)
+        for run in repo.list_paper_runs():
+            if run.paper_status != "running":
+                continue
+            if run.execution_profile.get("auto_paper_runtime_key"):
+                continue
+            repo.update_paper_run(run.paper_run_id or "", paper_status="paused")
+            paused += 1
+        session.commit()
+    if paused:
+        logger.info("paused %s legacy paper run(s) without auto_paper_runtime_key", paused)
+    return paused
+
+
+def bootstrap_poll_information_sources() -> dict[str, Any]:
+    """One-shot C/B/D source poll for local in-process scheduler mode."""
+    from services.data.tasks import poll_macro_calendar, poll_news_feeds, poll_social_watchlist
+
+    summary: dict[str, Any] = {}
+    for name, runner in (
+        ("poll_news_feeds", poll_news_feeds.run),
+        ("poll_macro_calendar", poll_macro_calendar.run),
+        ("poll_social_watchlist", poll_social_watchlist.run),
+    ):
+        try:
+            summary[name] = runner()
+        except Exception as exc:  # pragma: no cover - defensive startup guard
+            logger.warning("%s bootstrap failed: %s", name, exc)
+            summary[name] = {"error": str(exc)}
+    logger.info("information source bootstrap complete: %s", summary)
+    return summary
+
+
+def bootstrap_local_paper_runtime(*, seed_ohlcv: bool = True) -> None:
     bootstrap_paper_testnet_mirror()
     bootstrap_auto_trading_paper_run()
     bootstrap_auto_trading_technical_paper_run()
+    bootstrap_pause_legacy_paper_runs()
     bootstrap_clear_stale_blocking_risk_events()
+    if seed_ohlcv:
+        bootstrap_seed_multi_timeframe_ohlcv()

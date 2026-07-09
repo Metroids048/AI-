@@ -1,5 +1,22 @@
 # Task History
 
+### [TASK-039] Paper auto-cycle proof + multi-timeframe OHLCV seed
+- **Date**: 2026-07-09
+- **Type**: fix + verification
+- **Summary**: User reported no auto orders despite engine supposedly running 24/7. Root cause: directional lane uses 15m entry bars but heartbeat only maintained 1m; stale-data heartbeat created 92 blocking risk events; same-bar idempotency skipped most 60s cycles; carry lane correctly rejected funding arb with no net edge. Ran local verify script: manual open+close filled; after clearing risk events and seeding 15m/4h OHLCV, forced directional auto-cycle `opened=1`. Added `bootstrap_seed_multi_timeframe_ohlcv()` on API startup.
+- **Files changed**: `services/execution/bootstrap.py`, `scripts/_run_auto_cycles_verify.py`, task-history.
+- **Layer mapping**: Data Layer (OHLCV freshness) + Execution Layer (gatekeeper/risk events) + Validation (Paper cycles).
+- **Verification**: `py -3 scripts/_run_auto_cycles_verify.py` -> manual OPEN/CLOSE filled, forced directional `opened=1`; `py -3 -m pytest tests/services/test_paper_bootstrap.py tests/services/test_paper_runtime.py -q` -> 8 passed.
+
+### [TASK-038] Auto Paper/Testnet safety rollback after far conditional orders
+- **Date**: 2026-07-09
+- **Type**: fix + safety
+- **Summary**: Investigated Binance Testnet far BTCUSDT conditional orders and found the unsafe path: local Paper bootstrap auto-enabled `mirror_to_gateway`, startup/default env forced `BINANCE_AUTO_EXECUTE=true`, relaxed signals were enabled locally, and Binance protection trigger prices were submitted without distance sanity checks. Changed automatic execution to explicit opt-in, disabled local relaxed/auto execution defaults, added Binance protection price validation before exchange entry submission, and stopped the old local FastAPI process on port 8000 so stale in-memory settings cannot keep cycling.
+- **Files changed**: `shared/config.py`, `services/execution/{bootstrap,gateway,paper}.py`, `scripts/{start_paper_console,run-api-local}.ps1`, `scripts/bootstrap_and_verify_binance.py`, `.env.example`, local `.env`, and targeted tests.
+- **Layer mapping**: Execution Layer / Risk Engine safety boundary. This does not change Strategy Layer signal semantics; it prevents Paper research cycles from becoming exchange actions without explicit operator consent.
+- **Research loop served**: Strategy/Validation can continue producing Paper decisions, but Execution now fails closed before Testnet order placement when mirroring is not explicitly enabled or protection prices are invalid/far.
+- **Verification**: `py -3 -m pytest tests/services/test_binance_gateway.py tests/services/test_paper_bootstrap.py tests/services/test_paper_runtime.py tests/api/test_paper_runtime_api.py tests/api/test_testnet_manual_trading.py -q` -> 28 passed / 1 warning; changed-file Ruff passed; `git diff --check` passed.
+
 ### [TASK-037] Market Intelligence capped factor vote
 - **Date**: 2026-07-09
 - **Type**: feature + data + strategy + frontend

@@ -35,7 +35,7 @@ def _ensure_env_keys() -> None:
     keys = {line.split("=", 1)[0].strip() for line in lines if "=" in line and not line.strip().startswith("#")}
     additions: list[str] = []
     if "BINANCE_AUTO_EXECUTE" not in keys:
-        additions.append("BINANCE_AUTO_EXECUTE=true")
+        additions.append("BINANCE_AUTO_EXECUTE=false")
     if additions and ENV_PATH.exists():
         text = ENV_PATH.read_text(encoding="utf-8").rstrip() + "\n" + "\n".join(additions) + "\n"
         ENV_PATH.write_text(text, encoding="utf-8")
@@ -45,7 +45,7 @@ def _bootstrap_db() -> None:
     os.environ.setdefault("APP_ENV", "development")
     os.environ.setdefault("POSTGRES_URL", f"sqlite:///{DB_PATH.as_posix()}")
     os.environ.setdefault("BINANCE_USE_TESTNET", "true")
-    os.environ.setdefault("BINANCE_AUTO_EXECUTE", "true")
+    os.environ.setdefault("BINANCE_AUTO_EXECUTE", "false")
     from services.data.repository import create_timeseries_schema
     from services.database import create_relational_schema, get_engine, reset_database_caches
     from services.execution.bootstrap import bootstrap_local_paper_runtime

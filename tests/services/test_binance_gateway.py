@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from services.execution.gateway import BinanceUsdtPerpetualGateway
+from shared.config import settings
 from shared.models import ExecutionOrderRequest
 
 
@@ -116,3 +119,25 @@ def test_binance_gateway_close_only_inverts_position_side() -> None:
     assert submitted["gateway_order_id"] == "binance-order-1"
     assert client.created_orders[0]["side"] == "sell"
     assert client.created_orders[0]["params"]["reduceOnly"] is True
+
+
+def test_binance_gateway_rejects_far_protection_price_before_entry(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "gateway_protection_max_distance_bps", 800)
+    client = StubCcxtClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+
+    with pytest.raises(ValueError, match="protection_price_too_far"):
+        gateway.submit_order(
+            live_run_id="live-run-1",
+            order_request=ExecutionOrderRequest(
+                strategy_id="strategy-1",
+                symbol="BTC/USDT",
+                direction="long",
+                stoploss_plan={"price": 60000},
+                takeprofit_plan={"price": 70000},
+                entry_context={"order_type": "market", "quantity": 0.001, "reference_price": 61675.14},
+            ),
+        )
+
+    assert client.created_orders == []
+    assert client.algo_orders == []

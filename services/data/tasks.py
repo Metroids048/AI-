@@ -127,10 +127,37 @@ def enqueue_binance_ingestion(job_payload: dict, *, client=None) -> dict:
 
 @shared_task(name="services.data.tasks.market_data_heartbeat", queue="ops_queue")
 def market_data_heartbeat(symbols: list[str] | None = None, timeframe: str = "1m") -> dict:
+    from services.data.binance import BinanceCcxtClient
+    from shared.config import settings
+
     session = get_session_factory()()
     try:
-        return MarketDataHeartbeatService(data_repo=DataRepository(session)).check_symbols(
-            symbols=symbols or ["BTC/USDT"],
+        data_repo = DataRepository(session)
+        target_symbols = list(symbols or ["BTC/USDT"])
+        client = BinanceCcxtClient()
+        # Refresh bars before stale checks — directional lane gatekeeper needs 15m/4h.
+        refresh_symbols = target_symbols[:5]
+        for symbol in refresh_symbols:
+            for tf in ("1m", "15m", "4h"):
+                try:
+                    bars = client.fetch_recent_ohlcv(symbol=symbol, timeframe=tf, limit=60)
+                    data_repo.store_ohlcv_bars(bars)
+                except Exception:
+                    pass
+        for symbol in target_symbols[5:]:
+            try:
+                data_repo.store_ohlcv_bars(
+                    client.fetch_recent_ohlcv(symbol=symbol, timeframe="1m", limit=10)
+                )
+            except Exception:
+                pass
+        session.commit()
+        if settings.app_env.lower() in {"development", "test", "dev"}:
+            from services.execution.bootstrap import bootstrap_clear_stale_blocking_risk_events
+
+            bootstrap_clear_stale_blocking_risk_events()
+        return MarketDataHeartbeatService(data_repo=data_repo).check_symbols(
+            symbols=target_symbols,
             timeframe=timeframe,
         )
     finally:

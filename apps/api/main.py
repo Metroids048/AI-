@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import os
 from contextlib import asynccontextmanager
 
@@ -30,7 +32,11 @@ from apps.api.routers import (
     strategies,
     system,
 )
-from services.execution.bootstrap import bootstrap_local_paper_runtime
+from services.execution.bootstrap import (
+    bootstrap_local_paper_runtime,
+    bootstrap_poll_information_sources,
+    bootstrap_seed_multi_timeframe_ohlcv,
+)
 from services.execution.scheduler import RuntimeScheduler, set_runtime_scheduler
 from shared.models import ApiError
 
@@ -44,14 +50,27 @@ def _should_start_inprocess_scheduler() -> bool:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     scheduler = None
-    bootstrap_local_paper_runtime()
+    seed_task: asyncio.Task[int] | None = None
+    ingest_task: asyncio.Task[dict] | None = None
+    # ponytail: skip blocking OHLCV seed so /health is ready for one-click browser open.
+    bootstrap_local_paper_runtime(seed_ohlcv=False)
     if _should_start_inprocess_scheduler():
         scheduler = RuntimeScheduler()
         set_runtime_scheduler(scheduler)
         scheduler.start()
+        seed_task = asyncio.create_task(asyncio.to_thread(bootstrap_seed_multi_timeframe_ohlcv))
+        ingest_task = asyncio.create_task(asyncio.to_thread(bootstrap_poll_information_sources))
     try:
         yield
     finally:
+        if seed_task is not None:
+            seed_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await seed_task
+        if ingest_task is not None:
+            ingest_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await ingest_task
         if scheduler is not None:
             await scheduler.stop()
         set_runtime_scheduler(None)

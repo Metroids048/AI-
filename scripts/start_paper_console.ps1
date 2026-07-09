@@ -1,27 +1,39 @@
 param(
     [int]$ApiPort = 8000,
     [int]$FrontendPort = 5173,
-    [string]$DatabasePath = ".local_paper_console.db",
-    [switch]$TradingOnly
+    [string]$DatabasePath = ".local_paper_console.db"
 )
 
 $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $Logs = Join-Path $Root "logs"
+$StartupLog = Join-Path $Logs "startup-last.log"
 $DatabaseFullPath = Join-Path $Root $DatabasePath
 $SqliteUrl = "sqlite:///$($DatabaseFullPath.Replace('\', '/'))"
 $ApiUrl = "http://127.0.0.1:$ApiPort"
 $FrontendUrl = "http://127.0.0.1:$FrontendPort"
 
+# Clash/V2Ray often proxies localhost and breaks Invoke-WebRequest health checks.
+$env:NO_PROXY = "127.0.0.1,localhost,127.0.0.1:$ApiPort,127.0.0.1:$FrontendPort"
+$env:HTTP_PROXY = ""
+$env:HTTPS_PROXY = ""
+
 New-Item -ItemType Directory -Force -Path $Logs | Out-Null
+try {
+    Start-Transcript -Path $StartupLog -Force | Out-Null
+}
+catch {
+    Write-Step "transcript log skipped: $($_.Exception.Message)"
+}
 
 function Write-Step($Message) {
-    Write-Host "[paper-console] $Message"
+    $line = "[paper-console] $Message"
+    Write-Host $line
 }
 
 function Test-HttpOk($Url) {
     try {
-        $response = Invoke-WebRequest -Uri $Url -TimeoutSec 2
+        $response = Invoke-WebRequest -Uri $Url -TimeoutSec 3 -UseBasicParsing -Proxy $null
         return ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500)
     }
     catch {
@@ -29,11 +41,38 @@ function Test-HttpOk($Url) {
     }
 }
 
+function Open-DefaultBrowser($Url) {
+    Write-Step "opening browser: $Url"
+    $opened = $false
+    foreach ($launcher in @(
+            { Start-Process $Url },
+            { Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "start", "", $Url) },
+            { Start-Process -FilePath "explorer.exe" -ArgumentList $Url }
+        )) {
+        try {
+            & $launcher
+            $opened = $true
+            break
+        }
+        catch {
+            continue
+        }
+    }
+    if (-not $opened) {
+        Write-Step "WARNING: auto browser open failed — copy this URL manually: $Url"
+    }
+}
+
 function Wait-HttpOk($Url, $Seconds) {
     $deadline = (Get-Date).AddSeconds($Seconds)
+    $lastProgress = [datetime]::MinValue
     do {
         if (Test-HttpOk $Url) {
             return $true
+        }
+        if (((Get-Date) - $lastProgress).TotalSeconds -ge 15) {
+            Write-Step "still waiting: $Url"
+            $lastProgress = Get-Date
         }
         Start-Sleep -Seconds 1
     } while ((Get-Date) -lt $deadline)
@@ -69,13 +108,22 @@ function Stop-ExistingProjectProcess($Port, $ExpectedPattern) {
         }
         $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $ownerPid" -ErrorAction SilentlyContinue
         $commandLine = $processInfo.CommandLine
-        if ($commandLine -and ($commandLine.Contains($Root) -or $commandLine.Contains($ExpectedPattern))) {
+        $isProjectProcess = $false
+        if ($commandLine) {
+            $isProjectProcess = (
+                $commandLine.Contains($Root) -or
+                $commandLine.Contains($ExpectedPattern) -or
+                $commandLine.Contains("uvicorn") -or
+                $commandLine.Contains("vite")
+            )
+        }
+        if ($isProjectProcess) {
             Write-Step "stopping previous project process on port $Port (pid $ownerPid)"
-            Stop-Process -Id $ownerPid -Force
+            Stop-Process -Id $ownerPid -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 1
             continue
         }
-        throw "Port $Port is already used by another process. Close it or start with a different port."
+        throw "Port $Port is already used by another process (pid $ownerPid). Close it or start with a different port."
     }
 }
 
@@ -134,6 +182,8 @@ function Set-GeoFriendlyBinanceEndpointsIfNeeded {
 
 Set-Location $Root
 
+try {
+
 Write-Step "checking local runtimes"
 Assert-Command "py" "Install Python 3.11+ and make the py launcher available."
 Assert-Command "npm.cmd" "Install Node.js/npm before starting the frontend."
@@ -179,7 +229,7 @@ $env:LIVE_TRADING_ENABLED = "false"
 $env:RUNTIME_SCHEDULER_MODE = "inprocess"
 $env:RUNTIME_SCHEDULER_AUTOSTART = "true"
 $env:PAPER_RUNTIME_CYCLE_SECONDS = "60"
-$env:BINANCE_AUTO_EXECUTE = "true"
+$env:BINANCE_AUTO_EXECUTE = "false"
 $env:BINANCE_LIVE_UNIVERSE_ENABLED = "true"
 $env:BINANCE_LIVE_MARKET_ENABLED = "true"
 $env:BINANCE_LIVE_WS_ENABLED = "true"
@@ -217,9 +267,7 @@ if ((-not (Test-Path (Join-Path $Root "node_modules"))) -or $missingNodeModules.
 }
 
 Stop-ExistingProjectProcess $ApiPort "apps.api.main:app"
-if (-not $TradingOnly) {
-    Stop-ExistingProjectProcess $FrontendPort "vite"
-}
+Stop-ExistingProjectProcess $FrontendPort "vite"
 
 Write-Step "starting FastAPI on $ApiUrl"
 $runApiScript = Join-Path $PSScriptRoot "run-api-local.ps1"
@@ -233,44 +281,45 @@ Start-Process -FilePath "powershell.exe" -ArgumentList @(
     "-LogPath", (Join-Path $Logs "api.log")
 ) -WindowStyle Hidden
 
-if (-not $TradingOnly) {
-    Write-Step "starting Vite admin console on $FrontendUrl"
-    $frontendCommand = @"
+Write-Step "starting Vite admin console on $FrontendUrl"
+$frontendCommand = @"
 Set-Location '$Root'
 npm --workspace frontend/admin run dev -- --host 127.0.0.1 --port $FrontendPort *> '$Logs\frontend.log'
 "@
-    Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $frontendCommand) -WindowStyle Hidden
-}
+Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $frontendCommand) -WindowStyle Hidden
 
 Write-Step "waiting for API"
-if (-not (Wait-HttpOk "$ApiUrl/health" 120)) {
+if (-not (Wait-HttpOk "$ApiUrl/health" 180)) {
     Show-LogTail (Join-Path $Logs "api.log")
     throw "FastAPI did not become ready. See logs/api.log"
 }
 
-if ($TradingOnly) {
-    Write-Host ""
-    Write-Host "Paper trading engine is running (no frontend):"
-    Write-Host "  API:  $ApiUrl"
-    Write-Host "  Logs: $Logs"
-    Write-Host ""
-    Write-Host "Close this window anytime — scheduler keeps running in the background."
-    return
-}
-
 Write-Step "waiting for frontend"
-if (-not (Wait-HttpOk "$FrontendUrl/" 45)) {
+if (-not (Wait-HttpOk "$FrontendUrl/" 60)) {
     Show-LogTail (Join-Path $Logs "frontend.log")
     throw "Frontend did not become ready. See logs/frontend.log"
 }
 
-Write-Step "opening browser: $FrontendUrl/trading"
-Start-Process "$FrontendUrl/trading"
+Open-DefaultBrowser "$FrontendUrl/trading"
 
 Write-Host ""
-Write-Host "Paper console is running:"
+Write-Host "========================================"
+Write-Host "  Paper console started successfully"
+Write-Host "  Frontend: $FrontendUrl/trading"
 Write-Host "  API:      $ApiUrl"
-Write-Host "  Frontend: $FrontendUrl"
 Write-Host "  Logs:     $Logs"
+Write-Host "========================================"
 Write-Host ""
-Write-Host "Close this window whenever you like; the services continue in the background."
+Write-Host "Close this window anytime — API + frontend keep running in background."
+
+}
+catch {
+    Write-Host ""
+    Write-Host "[paper-console] ERROR: $($_.Exception.Message)"
+    Show-LogTail (Join-Path $Logs "api.log")
+    Show-LogTail (Join-Path $Logs "frontend.log")
+    Stop-Transcript | Out-Null
+    exit 1
+}
+
+try { Stop-Transcript | Out-Null } catch { }

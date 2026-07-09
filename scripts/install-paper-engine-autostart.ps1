@@ -6,7 +6,6 @@ $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $TaskName = "AIQuantPaperEngine"
 $EngineScript = Join-Path $Root "scripts\start-paper-engine.ps1"
-$BatPath = Join-Path $Root "一键启动-交易引擎.bat"
 
 if ($Remove) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
@@ -20,5 +19,6 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Description "AI Quant Paper trading engine (API + 7x24 scheduler)" -Force | Out-Null
 
 Write-Host "Registered logon autostart task: $TaskName"
-Write-Host "Manual start: $BatPath"
+Write-Host "Manual full console: 一键启动.bat (API + frontend + browser)"
+Write-Host "Engine only (advanced): scripts\start-paper-engine.ps1"
 Write-Host "Remove with: powershell -File scripts/install-paper-engine-autostart.ps1 -Remove"

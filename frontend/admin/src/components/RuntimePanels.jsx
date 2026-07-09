@@ -1,4 +1,4 @@
-import { asArray, formatNumber } from "../utils/format";
+import { asArray, formatNumber, formatTime } from "../utils/format";
 
 export function RiskEventFeed({ events, onResolve }) {
   const rows = asArray(events);
@@ -59,6 +59,73 @@ export function DecisionDebugPanel({ decisionTrace }) {
           <div className="empty-list">暂无自动 cycle 决策记录</div>
         )}
       </div>
+    </section>
+  );
+}
+
+export function Top20MonitorPanel({ decisionTrace, tradingStatus }) {
+  const scanned = asArray(decisionTrace?.last_scanned_symbols);
+  const candidates = asArray(decisionTrace?.candidate_symbols);
+  const counts = decisionTrace?.last_action_counts ?? {};
+  const liveFeeds = Object.values(tradingStatus?.live_feed_status ?? {});
+  const liveCount = liveFeeds.filter((feed) => feed?.status === "live").length;
+  const laneLabel =
+    decisionTrace?.auto_paper_runtime_key === "auto_paper_btc_technical"
+      ? "方向策略 (4h+15m)"
+      : decisionTrace?.auto_paper_runtime_key === "auto_paper_btc_funding"
+        ? "Carry 资金费率"
+        : decisionTrace?.strategy_lane ?? "auto";
+  return (
+    <section className="exchange-panel top20-panel">
+      <div className="panel-title">
+        <h2>Top20 自动监控</h2>
+        <span>{scanned.length || candidates.length}/20</span>
+      </div>
+      <div className="decision-summary">
+        <span>车道：{laneLabel}</span>
+        <span>周期：{decisionTrace?.last_runtime_timeframe ?? "15m"}</span>
+        <span>上次扫描：{decisionTrace?.last_cycle_at ? formatTime(decisionTrace.last_cycle_at) : "等待首轮 cycle"}</span>
+        <span>Live WS：{liveCount} 路</span>
+        <span>
+          本轮：开 {counts.opened ?? 0} / 平 {counts.closed ?? 0} / 拒 {counts.rejected ?? 0} / 跳过 {counts.skipped ?? 0}
+        </span>
+      </div>
+      <div className="signal-chips">
+        {(scanned.length ? scanned : candidates).map((symbol) => (
+          <span key={symbol}>{symbol}</span>
+        ))}
+      </div>
+      {!scanned.length && !candidates.length ? (
+        <div className="empty-list">等待自动 PaperRun 写入 Top20 候选范围</div>
+      ) : null}
+    </section>
+  );
+}
+
+export function DataSourcesPanel({ dataSources, intelligenceSignal }) {
+  const providers = Object.values(intelligenceSignal?.provider_status ?? {});
+  const newsTotal = dataSources?.news_total ?? 0;
+  const macroTotal = dataSources?.macro_total ?? 0;
+  return (
+    <section className="exchange-panel data-sources-panel">
+      <div className="panel-title">
+        <h2>信息源</h2>
+        <span>C/B/D 级</span>
+      </div>
+      <div className="decision-summary">
+        <span>新闻 RSS：{newsTotal} 条</span>
+        <span>宏观事件：{macroTotal} 条</span>
+        {dataSources?.news_refresh_error ? <span>新闻刷新：{dataSources.news_refresh_error}</span> : null}
+        {dataSources?.macro_refresh_error ? <span>宏观刷新：{dataSources.macro_refresh_error}</span> : null}
+      </div>
+      <div className="rejection-list">
+        {providers.length ? providers.map((provider) => (
+          <span key={provider.provider}>{provider.provider}:{provider.status}</span>
+        )) : <span>情报 Provider 等待首次刷新</span>}
+      </div>
+      <p className="ticket-note">
+        完整新闻/宏观/Agent 任务见 <a href="/ops">运维 Ops</a>；情报因子见 Market Intelligence 与 <a href="/review">复盘 Review</a>。
+      </p>
     </section>
   );
 }
