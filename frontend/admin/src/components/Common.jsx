@@ -19,9 +19,9 @@ export function Metric({ label, value, tone = "neutral" }) {
 export function AppShell({ overview, snapshot, tradingStatus, streamStatus, error, children }) {
   const riskTone = overview?.global_risk_status === "blocked" ? "danger" : "ok";
   const dataTone = snapshot?.data_status === "ok" ? "ok" : snapshot?.data_status === "stale" ? "warn" : "neutral";
-  const streamTone = streamStatus === "live" ? "ok" : streamStatus === "connecting" ? "warn" : "neutral";
+  const streamTone = streamStatus === "live" ? "ok" : streamStatus === "connecting" ? "warn" : streamStatus === "offline" ? "danger" : "neutral";
   const modeLabel = tradingStatus?.mode === "testnet" ? "Testnet" : "Paper";
-  const streamLabel = streamStatus === "live" ? "实时" : streamStatus === "connecting" ? "连接中" : "REST 轮询";
+  const streamLabel = streamStatus === "live" ? "实时" : streamStatus === "connecting" ? "连接中" : streamStatus === "offline" ? "服务不可用" : "REST 轮询";
 
   return (
     <main className="app-shell">

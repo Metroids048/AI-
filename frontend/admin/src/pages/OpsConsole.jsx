@@ -34,7 +34,7 @@ export function OpsConsole() {
   });
   const intelligence = useQuery({
     queryKey: ["ops-market-intelligence"],
-    queryFn: () => request("/api/v1/market-intelligence/refresh?symbol=BTC/USDT"),
+    queryFn: () => request("/api/v1/market-intelligence/refresh?symbol=BTC/USDT", { method: "POST" }),
     refetchInterval: 30000,
   });
   const notifications = useQuery({
@@ -108,8 +108,8 @@ export function OpsConsole() {
               </tr>
             </thead>
             <tbody>
-              {capabilityRows.length ? capabilityRows.map((item) => (
-                <tr key={item.exchange}>
+              {capabilityRows.length ? capabilityRows.map((item, index) => (
+                <tr key={`${item.exchange}:${item.gateway_name ?? index}`}>
                   <td>{item.exchange}</td>
                   <td>{String(item.supports_market_data)}</td>
                   <td>{String(item.supports_order_submit)}</td>

@@ -59,6 +59,7 @@ from .market import (
     OHLCVBar,
     OhlcvSeriesResponse,
     OrderBookLevel,
+    UniverseAsset,
 )
 from .market_intelligence import (
     MAX_MARKET_INTELLIGENCE_VOTE_WEIGHT,
@@ -102,6 +103,7 @@ from .workflow import (
     AdjustLeverageRequest,
     AgentTask,
     AgentTaskRequest,
+    AutoTradingSettings,
     BacktestRun,
     BacktestSubmissionRequest,
     CancelOrderRequest,
@@ -166,6 +168,7 @@ __all__ = [
     "ConsoleOverview",
     "ExchangeCapability",
     "MarketUniverseItem",
+    "UniverseAsset",
     "FundingArbitrageSignal",
     "MAX_MARKET_INTELLIGENCE_VOTE_WEIGHT",
     "MarketEvent",
@@ -236,6 +239,7 @@ __all__ = [
     "OptimizationRun",
     "OptimizationSubmissionRequest",
     "PaperRun",
+    "AutoTradingSettings",
     "PaperRuntimeAction",
     "PaperRuntimeCycleRequest",
     "PaperRuntimeCycleResult",

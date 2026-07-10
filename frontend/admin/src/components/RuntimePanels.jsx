@@ -1,4 +1,25 @@
+import { useEffect, useState } from "react";
+
 import { asArray, formatNumber, formatTime } from "../utils/format";
+
+const DEFAULT_AUTO_SETTINGS = {
+  execution_mode: "binance_simulation_first",
+  max_leverage: 5,
+  risk_per_trade: 0.01,
+  order_notional_usdt: "",
+  max_open_positions: 5,
+  max_symbols: 20,
+  max_symbol_exposure: 0.15,
+  max_total_exposure: 0.5,
+  daily_loss_limit: 0.04,
+  weekly_loss_limit: 0.08,
+  hard_stop_drawdown_limit: 0.2,
+  strategy_lanes: ["carry", "trend_breakout", "mean_reversion"],
+  stoploss: { atr_multiple: 2, fixed_bps: 250 },
+  takeprofit: { risk_reward: 2.5, trail_after_r: 1.5 },
+  llm_veto_enabled: true,
+  market_intelligence_enabled: true,
+};
 
 export function RiskEventFeed({ events, onResolve }) {
   const rows = asArray(events);
@@ -70,11 +91,14 @@ export function Top20MonitorPanel({ decisionTrace, tradingStatus }) {
   const liveFeeds = Object.values(tradingStatus?.live_feed_status ?? {});
   const liveCount = liveFeeds.filter((feed) => feed?.status === "live").length;
   const laneLabel =
-    decisionTrace?.auto_paper_runtime_key === "auto_paper_btc_technical"
-      ? "方向策略 (4h+15m)"
+    decisionTrace?.auto_paper_runtime_key === "auto_paper_mature_templates"
+      ? "成熟模板集合"
+      : decisionTrace?.auto_paper_runtime_key === "auto_paper_btc_technical"
+        ? "旧方向策略"
       : decisionTrace?.auto_paper_runtime_key === "auto_paper_btc_funding"
         ? "Carry 资金费率"
         : decisionTrace?.strategy_lane ?? "auto";
+  const assets = asArray(decisionTrace?.execution_profile?.universe_assets);
   return (
     <section className="exchange-panel top20-panel">
       <div className="panel-title">
@@ -83,7 +107,7 @@ export function Top20MonitorPanel({ decisionTrace, tradingStatus }) {
       </div>
       <div className="decision-summary">
         <span>车道：{laneLabel}</span>
-        <span>周期：{decisionTrace?.last_runtime_timeframe ?? "15m"}</span>
+        <span>周期：{decisionTrace?.last_runtime_timeframe ?? "1h"}</span>
         <span>上次扫描：{decisionTrace?.last_cycle_at ? formatTime(decisionTrace.last_cycle_at) : "等待首轮 cycle"}</span>
         <span>Live WS：{liveCount} 路</span>
         <span>
@@ -91,9 +115,15 @@ export function Top20MonitorPanel({ decisionTrace, tradingStatus }) {
         </span>
       </div>
       <div className="signal-chips">
-        {(scanned.length ? scanned : candidates).map((symbol) => (
-          <span key={symbol}>{symbol}</span>
-        ))}
+        {assets.length
+          ? assets.map((asset) => (
+              <span key={asset.platform_symbol} className={asset.tradable_status === "trading" ? "positive" : "negative"} title={asset.reason ?? ""}>
+                {asset.display_symbol ?? asset.platform_symbol}:{asset.tradable_status}
+              </span>
+            ))
+          : (scanned.length ? scanned : candidates).map((symbol) => (
+              <span key={symbol}>{symbol}</span>
+            ))}
       </div>
       {!scanned.length && !candidates.length ? (
         <div className="empty-list">等待自动 PaperRun 写入 Top20 候选范围</div>
@@ -126,6 +156,182 @@ export function DataSourcesPanel({ dataSources, intelligenceSignal }) {
       <p className="ticket-note">
         完整新闻/宏观/Agent 任务见 <a href="/ops">运维 Ops</a>；情报因子见 Market Intelligence 与 <a href="/review">复盘 Review</a>。
       </p>
+    </section>
+  );
+}
+
+export function MessageSourcesPanel({ dataSources, intelligenceSignal, riskEvents }) {
+  const news = asArray(dataSources?.news_items).slice(0, 6);
+  const macro = asArray(dataSources?.macro_items).slice(0, 6);
+  const risks = asArray(riskEvents).slice(0, 6);
+  const intelligence = intelligenceSignal
+    ? [{
+        id: "market-intelligence",
+        source: "market_intelligence",
+        title: `${intelligenceSignal.direction ?? "neutral"} / weight ${formatNumber(intelligenceSignal.vote_weight, 3)}`,
+        severity: intelligenceSignal.risk_level,
+        published_at: intelligenceSignal.generated_at,
+        action: intelligenceSignal.active_event_cooldown ? "cooldown" : intelligenceSignal.should_participate ? "vote" : "observe",
+      }]
+    : [];
+  const rows = [
+    ...news.map((item) => ({
+      id: item.id ?? item.url ?? item.title,
+      source: item.source ?? "news",
+      title: item.title ?? "news item",
+      severity: item.severity ?? "info",
+      published_at: item.published_at,
+      action: item.classification_summary ?? "risk-classified",
+    })),
+    ...macro.map((item) => ({
+      id: item.id ?? item.event_name,
+      source: item.source ?? "macro",
+      title: item.event_name ?? "macro event",
+      severity: item.impact ?? "scheduled",
+      published_at: item.scheduled_at,
+      action: item.is_active_pause_window ? "pause-window" : "calendar",
+    })),
+    ...risks.map((item) => ({
+      id: item.risk_event_id ?? item.description,
+      source: item.source,
+      title: item.description,
+      severity: item.severity,
+      published_at: item.occurred_at,
+      action: item.recommended_action ?? item.resolution_status,
+    })),
+    ...intelligence,
+  ].slice(0, 14);
+  return (
+    <section className="exchange-panel data-sources-panel">
+      <div className="panel-title">
+        <h2>消息源</h2>
+        <span>{rows.length}</span>
+      </div>
+      <div className="compact-table">
+        <div className="compact-table-row four header">
+          <span>来源</span>
+          <span>级别</span>
+          <span>动作</span>
+          <span>时间</span>
+        </div>
+        {rows.length ? rows.map((item) => (
+          <div className="compact-table-row four" key={item.id}>
+            <span title={item.title}>{item.source}</span>
+            <span>{item.severity}</span>
+            <span>{item.action}</span>
+            <span>{item.published_at ? formatTime(item.published_at) : "-"}</span>
+          </div>
+        )) : <div className="empty-list">暂无消息源明细</div>}
+      </div>
+    </section>
+  );
+}
+
+export function AutoSettingsPanel({ paperRunId, autoSettings, onSave }) {
+  const [form, setForm] = useState(() => normalizeSettings(autoSettings));
+
+  useEffect(() => {
+    setForm(normalizeSettings(autoSettings));
+  }, [paperRunId, JSON.stringify(autoSettings ?? {})]);
+
+  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const updateNested = (group, key, value) => setForm((current) => ({
+    ...current,
+    [group]: { ...(current[group] ?? {}), [key]: value },
+  }));
+  const submit = () => {
+    onSave?.({
+      ...form,
+      max_leverage: Number(form.max_leverage),
+      risk_per_trade: Number(form.risk_per_trade),
+      order_notional_usdt: Number(form.order_notional_usdt) > 0 ? Number(form.order_notional_usdt) : null,
+      max_open_positions: Number(form.max_open_positions),
+      max_symbols: Number(form.max_symbols),
+      max_symbol_exposure: Number(form.max_symbol_exposure),
+      max_total_exposure: Number(form.max_total_exposure),
+      daily_loss_limit: Number(form.daily_loss_limit),
+      weekly_loss_limit: Number(form.weekly_loss_limit),
+      hard_stop_drawdown_limit: Number(form.hard_stop_drawdown_limit),
+      strategy_lanes: String(form.strategy_lanes_text ?? "").split(",").map((item) => item.trim()).filter(Boolean),
+      stoploss: {
+        atr_multiple: Number(form.stoploss?.atr_multiple),
+        fixed_bps: Number(form.stoploss?.fixed_bps),
+      },
+      takeprofit: {
+        risk_reward: Number(form.takeprofit?.risk_reward),
+        trail_after_r: Number(form.takeprofit?.trail_after_r),
+      },
+    });
+  };
+
+  return (
+    <section className="exchange-panel runtime-control-panel">
+      <div className="panel-title">
+        <h2>自动开单设置</h2>
+        <span>{paperRunId ? "可保存" : "等待 PaperRun"}</span>
+      </div>
+      <div className="ticket-grid">
+        <label>执行模式<select value={form.execution_mode} onChange={(event) => update("execution_mode", event.target.value)}>
+          <option value="binance_simulation_first">币安模拟盘优先</option>
+          <option value="paper_only">仅本地 Paper</option>
+        </select></label>
+        <label>杠杆<input type="number" value={form.max_leverage} onChange={(event) => update("max_leverage", event.target.value)} /></label>
+        <label>单笔风险<input type="number" step="0.001" value={form.risk_per_trade} onChange={(event) => update("risk_per_trade", event.target.value)} /></label>
+        <label>固定金额<input type="number" value={form.order_notional_usdt} onChange={(event) => update("order_notional_usdt", event.target.value)} /></label>
+        <label>最多持仓<input type="number" value={form.max_open_positions} onChange={(event) => update("max_open_positions", event.target.value)} /></label>
+        <label>扫描币种<input type="number" value={form.max_symbols} onChange={(event) => update("max_symbols", event.target.value)} /></label>
+        <label>单币敞口<input type="number" step="0.01" value={form.max_symbol_exposure} onChange={(event) => update("max_symbol_exposure", event.target.value)} /></label>
+        <label>总敞口<input type="number" step="0.01" value={form.max_total_exposure} onChange={(event) => update("max_total_exposure", event.target.value)} /></label>
+        <label>日亏损<input type="number" step="0.01" value={form.daily_loss_limit} onChange={(event) => update("daily_loss_limit", event.target.value)} /></label>
+        <label>周亏损<input type="number" step="0.01" value={form.weekly_loss_limit} onChange={(event) => update("weekly_loss_limit", event.target.value)} /></label>
+        <label>硬停止<input type="number" step="0.01" value={form.hard_stop_drawdown_limit} onChange={(event) => update("hard_stop_drawdown_limit", event.target.value)} /></label>
+        <label>策略车道<input value={form.strategy_lanes_text} onChange={(event) => update("strategy_lanes_text", event.target.value)} /></label>
+        <label>ATR止损<input type="number" step="0.1" value={form.stoploss?.atr_multiple} onChange={(event) => updateNested("stoploss", "atr_multiple", event.target.value)} /></label>
+        <label>固定bps<input type="number" value={form.stoploss?.fixed_bps} onChange={(event) => updateNested("stoploss", "fixed_bps", event.target.value)} /></label>
+        <label>盈亏比<input type="number" step="0.1" value={form.takeprofit?.risk_reward} onChange={(event) => updateNested("takeprofit", "risk_reward", event.target.value)} /></label>
+        <label>移动止损R<input type="number" step="0.1" value={form.takeprofit?.trail_after_r} onChange={(event) => updateNested("takeprofit", "trail_after_r", event.target.value)} /></label>
+      </div>
+      <div className="ticket-type-tabs">
+        <button type="button" className={form.llm_veto_enabled ? "active" : ""} onClick={() => update("llm_veto_enabled", !form.llm_veto_enabled)}>LLM Veto</button>
+        <button type="button" className={form.market_intelligence_enabled ? "active" : ""} onClick={() => update("market_intelligence_enabled", !form.market_intelligence_enabled)}>Market Intelligence</button>
+      </div>
+      <button type="button" onClick={submit} disabled={!paperRunId}>保存自动开单设置</button>
+    </section>
+  );
+}
+
+export function OrderSyncPanel({ orderSync }) {
+  const local = asArray(orderSync?.local_orders);
+  const gateway = asArray(orderSync?.gateway_recent_orders);
+  const refs = asArray(orderSync?.protection_order_refs);
+  return (
+    <section className="exchange-panel table-panel">
+      <div className="panel-title">
+        <h2>订单同步</h2>
+        <span>本地 {local.length} / Binance {gateway.length}</span>
+      </div>
+      <div className="decision-summary">
+        <span>模式：{orderSync?.execution_mode ?? "-"}</span>
+        <span>持仓：{asArray(orderSync?.positions).length}</span>
+        <span>保护单：{refs.length}</span>
+      </div>
+      <div className="compact-table">
+        <div className="compact-table-row four header">
+          <span>本地单</span>
+          <span>交易对</span>
+          <span>状态</span>
+          <span>Binance</span>
+        </div>
+        {local.slice(0, 8).map((order) => (
+          <div className="compact-table-row four" key={order.order_execution_id}>
+            <span>{String(order.order_execution_id ?? "").slice(0, 8)}</span>
+            <span>{order.symbol}</span>
+            <span>{order.execution_status}</span>
+            <span>{order.gateway_order_id ?? order.gateway_status ?? "-"}</span>
+          </div>
+        ))}
+        {!local.length ? <div className="empty-list">暂无本地自动订单</div> : null}
+      </div>
     </section>
   );
 }
@@ -208,4 +414,40 @@ function DecisionSummary({ trace }) {
       </div>
     </div>
   );
+}
+
+function normalizeSettings(value) {
+  const merged = {
+    ...DEFAULT_AUTO_SETTINGS,
+    ...(value ?? {}),
+    stoploss: { ...DEFAULT_AUTO_SETTINGS.stoploss, ...(value?.stoploss ?? {}) },
+    takeprofit: { ...DEFAULT_AUTO_SETTINGS.takeprofit, ...(value?.takeprofit ?? {}) },
+  };
+  return {
+    ...merged,
+    execution_mode: merged.execution_mode ?? DEFAULT_AUTO_SETTINGS.execution_mode,
+    max_leverage: merged.max_leverage ?? DEFAULT_AUTO_SETTINGS.max_leverage,
+    risk_per_trade: merged.risk_per_trade ?? DEFAULT_AUTO_SETTINGS.risk_per_trade,
+    order_notional_usdt: merged.order_notional_usdt ?? "",
+    max_open_positions: merged.max_open_positions ?? DEFAULT_AUTO_SETTINGS.max_open_positions,
+    max_symbols: merged.max_symbols ?? DEFAULT_AUTO_SETTINGS.max_symbols,
+    max_symbol_exposure: merged.max_symbol_exposure ?? DEFAULT_AUTO_SETTINGS.max_symbol_exposure,
+    max_total_exposure: merged.max_total_exposure ?? DEFAULT_AUTO_SETTINGS.max_total_exposure,
+    daily_loss_limit: merged.daily_loss_limit ?? DEFAULT_AUTO_SETTINGS.daily_loss_limit,
+    weekly_loss_limit: merged.weekly_loss_limit ?? DEFAULT_AUTO_SETTINGS.weekly_loss_limit,
+    hard_stop_drawdown_limit: merged.hard_stop_drawdown_limit ?? DEFAULT_AUTO_SETTINGS.hard_stop_drawdown_limit,
+    strategy_lanes_text: asArray(merged.strategy_lanes ?? DEFAULT_AUTO_SETTINGS.strategy_lanes).join(","),
+    stoploss: {
+      ...merged.stoploss,
+      atr_multiple: merged.stoploss?.atr_multiple ?? DEFAULT_AUTO_SETTINGS.stoploss.atr_multiple,
+      fixed_bps: merged.stoploss?.fixed_bps ?? DEFAULT_AUTO_SETTINGS.stoploss.fixed_bps,
+    },
+    takeprofit: {
+      ...merged.takeprofit,
+      risk_reward: merged.takeprofit?.risk_reward ?? DEFAULT_AUTO_SETTINGS.takeprofit.risk_reward,
+      trail_after_r: merged.takeprofit?.trail_after_r ?? DEFAULT_AUTO_SETTINGS.takeprofit.trail_after_r,
+    },
+    llm_veto_enabled: merged.llm_veto_enabled ?? DEFAULT_AUTO_SETTINGS.llm_veto_enabled,
+    market_intelligence_enabled: merged.market_intelligence_enabled ?? DEFAULT_AUTO_SETTINGS.market_intelligence_enabled,
+  };
 }

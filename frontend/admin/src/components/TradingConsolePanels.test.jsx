@@ -11,6 +11,8 @@ import {
   RuntimeControlPanel,
   TradingTicket,
 } from "./TradingConsolePanels";
+import { AppShell } from "./Common";
+import { AutoSettingsPanel } from "./RuntimePanels";
 
 const manualContext = {
   strategy_id: "strategy-manual",
@@ -156,5 +158,38 @@ describe("Trading console panels", () => {
 
     expect(screen.getByText("自动运行中")).toBeInTheDocument();
     expect(screen.getByText("inprocess / 下次 00:42")).toBeInTheDocument();
+  });
+
+  it("shows an explicit unavailable state instead of implying REST polling", () => {
+    render(
+      <AppShell streamStatus="offline" error="服务暂时不可用，请稍后重试">
+        <div>内容</div>
+      </AppShell>,
+    );
+
+    expect(screen.getByText("服务不可用")).toBeInTheDocument();
+  });
+
+  it("keeps automatic settings controls controlled when the API returns null values", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const view = render(
+      <AutoSettingsPanel
+        paperRunId="paper-1"
+        autoSettings={{
+          execution_mode: null,
+          max_leverage: null,
+          order_notional_usdt: null,
+          stoploss: { atr_multiple: null },
+        }}
+      />,
+    );
+
+    const panel = within(view.container);
+    expect(panel.getByLabelText("执行模式")).toHaveValue("binance_simulation_first");
+    expect(panel.getByLabelText("杠杆")).toHaveValue(5);
+    expect(panel.getByLabelText("ATR止损")).toHaveValue(2);
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });

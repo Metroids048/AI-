@@ -1,5 +1,21 @@
 # Task History
 
+### [TASK-041] Adversarial audit remediation and runtime verification
+- **Date**: 2026-07-10
+- **Type**: security / reliability / frontend remediation
+- **Summary**: Closed the audit blockers without bypassing the six-layer gates: corrected the Paper status enum, made local SQLite startup run relational migrations plus its separately owned runtime tables, suppressed unsafe external wire logging, rejected withdrawal-enabled Binance keys, propagated stable client order IDs and timeout reconciliation, and rejected under-minimum opening notionals. The admin console now normalizes nullable auto-settings, uses POST for intelligence refresh, keeps multi-gateway rows uniquely keyed, and presents a stable API-unavailable state for both network errors and Vite proxy 5xx responses.
+- **Layer mapping**: Data/ops owns local SQLite runtime schema; Execution/Risk owns exchange permission, idempotency, min-notional and unavailable-gateway fail-closed behavior; frontend is an operator surface only and does not bypass validation or risk gates.
+- **Verification**: clean SQLite migration + schema + API lifespan `/health` returned 200; full Python `205 passed, 1 skipped`; Ruff passed; admin Vitest `8 files / 17 tests` and production build passed; desktop and 390px browser checks passed in the controlled standard local topology. API-down browser evidence showed the Chinese unavailable state and no new API requests after a six-second observation window.
+- **Limits**: Docker/Compose runtime remains unverified because Docker is absent. Mypy currently fails with 68 errors in 23 files and is not a passing gate. Testnet credentials and all credential values remain absent from logs/memory; the Testnet key used during the preceding audit should be rotated by the operator.
+
+### [TASK-040] Global adversarial test and architecture compliance audit
+- **Date**: 2026-07-10
+- **Type**: audit / QA
+- **Summary**: Audited the current dirty worktree with offline adversarial harnesses, full regression, Binance Testnet open/reduce-only-close/reconciliation, and Playwright route checks. Added the evidence report at `docs/audits/2026-07-10-global-adversarial-architecture-audit.md`.
+- **Findings**: Critical API lifespan crash from `paper_status="disabled"` not belonging to `RunStatus`; CCXT debug logging exposes authentication request material; API-key withdrawal permission self-check remains absent. High-risk gateway idempotency is not propagated to client order ids, and below-min-notional requests are silently increased to 50 USDT.
+- **Verification**: Python `196 passed, 1 skipped`; targeted decision/risk tests `38 passed`; targeted LLM/gateway/API tests `23 passed`; admin Vitest `12 passed`; Mypy and admin build passed. Full Ruff fails on 3 existing errors in `scripts/_run_auto_cycles_verify.py`; Docker unavailable. API normal-data browser checks blocked by the confirmed startup failure.
+- **Notes**: Testnet used `LIVE_TRADING_ENABLED=false`, `BINANCE_USE_TESTNET=true`, and an order cap below 120 USDT. No product code or existing tests were changed; temporary harnesses and raw logs are under ignored `.local/audit/`.
+
 ### [TASK-039] Paper auto-cycle proof + multi-timeframe OHLCV seed
 - **Date**: 2026-07-09
 - **Type**: fix + verification
@@ -268,6 +284,14 @@
 - **Notes**: Browser smoke ran against frontend only, so API failure state was visible by design. Real WebSocket ingestion, exchange account sync, real order placement/cancel, notifications, and LLM veto remain not implemented.
 
 ### [TASK-012] Phase 1a/1b/1d/1e grounding implementation
+### [TASK-039] Fixed Top20 Binance simulation-first auto-trading optimization
+- **Date**: 2026-07-10
+- **Type**: feat + safety hardening + frontend
+- **Summary**: Implemented the fixed operator Top20 universe, Binance symbol/status mapping including `PEPE -> 1000PEPEUSDT`, all-20 heartbeat refresh, mature-template default auto strategy, disabled operator-experience 4h/15m research lane, medium-risk defaults, typed auto-settings API, Binance simulation-first local sync, order-sync API, and Trading console panels for auto settings, Top20 monitoring, message sources, and order reconciliation.
+- **Files changed**: `services/data/{universe,binance,market,service,tasks}.py`, `services/execution/{bootstrap,decision_pipeline,paper_runtime}.py`, `apps/api/routers/{market,runs}.py`, `shared/models/{market,risk,workflow,__init__}.py`, `frontend/admin/src/{hooks/useConsoleData.js,pages/PaperConsole.jsx,components/RuntimePanels.jsx}`, and targeted backend/frontend tests.
+- **Verification**: Targeted backend tests passed (`24 passed` before final smoke); full non-integration pytest passed (`196 passed, 1 deselected, 1 warning`); Ruff, mypy, admin Vitest (`12 passed`), admin build, `git diff --check`, and Playwright trading-page smoke passed. Browser smoke was run with Vite only, so API proxy 502s were expected; no JS runtime crash remained after adding the missing `asArray` helper.
+- **Notes**: Live/mainnet trading remains disabled. The user-provided report Markdown remains untracked and was not modified.
+
 - **Date**: 2026-07-03
 - **Type**: fix + feat
 - **Summary**: Restored `services/data`, fixed root-scoped ignore rules and runtime artifact ignores, moved LLM dependencies to optional extra, aligned compose Python images with Python 3.11, replaced carry placeholder metrics/cost constants with calculated net metrics and cost breakdown, added deterministic SignalEnsemble/MetaLabel service/API, and added MACD plus Dow swing trend technical signal modules. WorldQuant alpha semantics were explicitly deferred per user instruction.

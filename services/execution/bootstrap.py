@@ -6,16 +6,18 @@ import logging
 from typing import Any
 
 from services.data.service import DEFAULT_BINANCE_TOP20
+from services.data.universe import fixed_top20_assets
 from shared.config import settings
 from shared.models.risk import MEDIUM_RISK_PROFILE_KEY, medium_risk_profile
 
 logger = logging.getLogger(__name__)
 
 AUTO_PAPER_RUNTIME_KEY = "auto_paper_btc_funding"
-AUTO_PAPER_TECHNICAL_KEY = "auto_paper_btc_technical"
+AUTO_PAPER_TECHNICAL_KEY = "auto_paper_mature_templates"
+OPERATOR_EXPERIENCE_STRATEGY_KEY = "operator_experience_4h_15m_v1"
 
 # Medium-risk auto-trading preset for Top20 + funding carry admission.
-AUTO_PAPER_STRATEGY_RULES = {
+AUTO_PAPER_STRATEGY_RULES: dict[str, Any] = {
     "entry_rules": {
         "funding_threshold_bps": 0.5,
         "min_estimated_net_edge_bps": 10.0,
@@ -27,30 +29,30 @@ AUTO_PAPER_STRATEGY_RULES = {
     "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
     "takeprofit_rules": {"risk_reward": 3.0, "trail_after_r": 1.5},
     "position_rules": {
-        "risk_per_trade": 0.02,
-        "max_leverage": 20,
-        "max_position_fraction": 0.10,
+        "risk_per_trade": 0.01,
+        "max_leverage": 5,
+        "max_position_fraction": 0.15,
         "min_notional_usdt": 20,
     },
 }
 
-AUTO_PAPER_TECHNICAL_RULES = {
+AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
     "entry_rules": {
         "technical_pipeline": True,
-        "timeframe_model": "4h_direction_15m_entry",
-        "direction_timeframe": "4h",
-        "entry_timeframe": "15m",
+        "strategy_lanes": ["trend_breakout", "mean_reversion", "volatility_filtered_breakout"],
+        "timeframe_model": "validated_template_1h",
+        "entry_timeframe": "1h",
         "enabled_signals": [
             "macd",
             "dow_trend",
-            "price_action",
-            "rsi",
             "ema_trend",
             "adx",
+            "price_action",
+            "rsi",
             "vwap",
             "bollinger",
         ],
-        "meta_label_min_win_rate": 0.48,
+        "meta_label_min_win_rate": 0.50,
     },
     "exit_rules": {"close_on_opposite_signal": True, "max_hold_bars": 96},
     "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
@@ -63,14 +65,29 @@ AUTO_PAPER_TECHNICAL_RULES = {
     },
 }
 
+OPERATOR_EXPERIENCE_RULES: dict[str, Any] = {
+    "entry_rules": {
+        "technical_pipeline": True,
+        "timeframe_model": "operator_experience_4h_15m_v1",
+        "direction_timeframe": "4h",
+        "entry_timeframe": "15m",
+        "enabled_signals": ["dow_trend", "ema_trend", "adx", "price_action", "rsi", "macd"],
+        "default_enabled_for_auto_trading": False,
+    },
+    "exit_rules": {"close_on_opposite_signal": True},
+    "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
+    "takeprofit_rules": {"risk_reward": 2.5, "trail_after_r": 1.5},
+    "position_rules": {"risk_per_trade": 0.01, "max_leverage": 5, "max_position_fraction": 0.05},
+}
+
 
 def binance_credentials_configured() -> bool:
     return bool(settings.binance_api_key and settings.binance_api_secret)
 
 
 def default_mirror_to_gateway() -> bool:
-    """Keep Paper/Testnet mirroring operator-opt-in even when credentials exist."""
-    return False
+    """Default new auto runs to Binance simulation-first only in the safe testnet boundary."""
+    return bool(binance_credentials_configured() and settings.binance_use_testnet and not settings.live_trading_enabled)
 
 
 def bootstrap_medium_risk_profile() -> str:
@@ -156,8 +173,6 @@ def _ensure_auto_paper_run(
     from services.database import get_session_factory
     from services.strategy_library import PaperRunRepository, StrategyRepository, ValidationRepository
     from shared.models import (
-        BacktestEngine,
-        BacktestReport,
         BacktestRun,
         GateDecision,
         PaperRun,
@@ -213,28 +228,26 @@ def _ensure_auto_paper_run(
                         "strategy_lane": strategy_lane,
                         "paper_only": True,
                         "live_promotion_allowed": False,
+                        "admission_note": (
+                            "Operator-approved Binance simulation bootstrap. "
+                            "Live promotion still requires real backtest/OOS evidence."
+                        ),
                     },
-                    metrics_summary=BacktestReport(
-                        strategy_id=strategy.strategy_id,
-                        engine=BacktestEngine.VECTORBT,
-                        sharpe=1.2,
-                        profit_factor=1.35,
-                        max_drawdown=0.08,
-                        win_rate=0.52,
-                        expectancy=0.01,
-                        total_trades=12,
-                        validation_windows=[{"window_id": "auto-paper", "passed": True, "expectancy": 0.01}],
-                    ),
+                    metrics_summary=None,
                     run_status="completed",
                     eligibility_result=GateDecision(
                         strategy_id=strategy.strategy_id,
                         passed=True,
                         decision_status="accepted",
-                        reason="Auto Paper bootstrap; Testnet mirror enabled for operator verification.",
+                        reason="Accepted for Binance simulation only; live promotion requires validated OOS report.",
                     ),
                 )
             )
 
+        universe_assets = [asset.model_dump(mode="json") for asset in fixed_top20_assets()]
+        strategy_lanes = ["carry"] if strategy_lane == "carry" else list(
+            rules["entry_rules"].get("strategy_lanes", [])
+        )
         paper_run: PaperRun | None = None
         for paper_candidate in paper_repo.list_paper_runs():
             if (
@@ -246,11 +259,18 @@ def _ensure_auto_paper_run(
         execution_profile = {
             "auto_paper_runtime_key": runtime_key,
             "strategy_lane": strategy_lane,
+            "strategy_lanes": strategy_lanes,
             "account_equity": 10_000,
             "equity_peak": 10_000,
+            "execution_mode": "binance_simulation_first" if default_mirror_to_gateway() else "paper_only",
             "mirror_to_gateway": default_mirror_to_gateway(),
             "risk_profile_id": risk_profile_id,
             "max_leverage": rules["position_rules"]["max_leverage"],
+            "max_symbols": 20,
+            "universe_mode": "fixed_top20",
+            "universe_assets": universe_assets,
+            "llm_veto_enabled": True,
+            "market_intelligence_enabled": True,
         }
         if paper_run is None:
             paper_run = paper_repo.create_paper_run(
@@ -258,7 +278,7 @@ def _ensure_auto_paper_run(
                     strategy_id=strategy.strategy_id,
                     symbol_scope=list(DEFAULT_BINANCE_TOP20),
                     candidate_symbols=list(DEFAULT_BINANCE_TOP20),
-                    selection_basis="binance_top20_quote_volume",
+                    selection_basis="fixed_operator_top20",
                     gate_decision_ref=backtest.backtest_run_id,
                     execution_profile=execution_profile,
                     paper_status="running",
@@ -272,6 +292,7 @@ def _ensure_auto_paper_run(
                 paper_status="running",
                 candidate_symbols=list(DEFAULT_BINANCE_TOP20),
                 symbol_scope=list(DEFAULT_BINANCE_TOP20),
+                selection_basis="fixed_operator_top20",
             ) or paper_run
 
         session.commit()
@@ -306,7 +327,7 @@ def bootstrap_auto_trading_paper_run() -> str | None:
 
 
 def bootstrap_auto_trading_technical_paper_run() -> str | None:
-    """Ensure a running directional-lane PaperRun exists for technical + LLM veto cycles."""
+    """Ensure a running mature-template PaperRun exists for technical + LLM veto cycles."""
     if not binance_credentials_configured():
         logger.info("auto technical paper run bootstrap skipped: binance credentials not configured")
         return None
@@ -317,13 +338,46 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
         strategy_key=AUTO_PAPER_TECHNICAL_KEY,
         strategy_lane="directional",
         core_thesis=(
-            "Local auto-cycle bootstrap strategy. Scans Binance USDT-M Top20 through "
-            "4h trend + 15m entry, MACD/Dow/price-action/RSI/EMA/ADX/VWAP/Bollinger ensemble, "
-            "meta-label sizing, and optional LLM veto."
+            "Local auto-cycle bootstrap strategy. Scans the fixed operator Binance USDT-M Top20 through "
+            "mature template lanes: funding/carry, trend breakout, mean reversion, and "
+            "volatility-filtered breakout. Operator 4h/15m experience logic is kept as a disabled "
+            "research candidate, not the default auto lane."
         ),
         rules=AUTO_PAPER_TECHNICAL_RULES,
         risk_profile_id=risk_profile_id,
     )
+
+
+def bootstrap_operator_experience_strategy() -> str | None:
+    """Register the 4h/15m operator-experience strategy as disabled research material."""
+    from services.database import get_session_factory
+    from services.strategy_library import StrategyRepository
+    from shared.models import RunStatus, StrategyCreate, StrategyRules, Timeframe
+
+    with get_session_factory()() as session:
+        repo = StrategyRepository(session)
+        existing = next(
+            (item for item in repo.list_strategies() if item.strategy_key == OPERATOR_EXPERIENCE_STRATEGY_KEY),
+            None,
+        )
+        if existing is None:
+            strategy = repo.create_strategy(
+                StrategyCreate(
+                    strategy_key=OPERATOR_EXPERIENCE_STRATEGY_KEY,
+                    source="operator:research_candidate",
+                    core_thesis="4h direction + 15m entry operator experience; disabled until separately validated.",
+                    symbol_scope=list(DEFAULT_BINANCE_TOP20),
+                    timeframe=Timeframe.M15,
+                    rules=StrategyRules(**OPERATOR_EXPERIENCE_RULES),
+                )
+            )
+            repo.update_lifecycle_status(strategy.strategy_id or "", paper_status=RunStatus.NOT_STARTED)
+            session.commit()
+            return strategy.strategy_id
+        _sync_auto_paper_strategy(repo, existing, rules=OPERATOR_EXPERIENCE_RULES)
+        repo.update_lifecycle_status(existing.strategy_id or "", paper_status=RunStatus.NOT_STARTED)
+        session.commit()
+        return existing.strategy_id
 
 
 def bootstrap_seed_multi_timeframe_ohlcv() -> int:
@@ -341,7 +395,7 @@ def bootstrap_seed_multi_timeframe_ohlcv() -> int:
     with get_session_factory()() as session:
         repo = DataRepository(session)
         client = BinanceCcxtClient()
-        for symbol in DEFAULT_BINANCE_TOP20[:5]:  # ponytail: seed head symbols first; WS covers rest
+        for symbol in DEFAULT_BINANCE_TOP20:
             for timeframe in timeframes:
                 try:
                     bars = client.fetch_recent_ohlcv(symbol=symbol, timeframe=timeframe, limit=120)
@@ -398,6 +452,7 @@ def bootstrap_local_paper_runtime(*, seed_ohlcv: bool = True) -> None:
     bootstrap_paper_testnet_mirror()
     bootstrap_auto_trading_paper_run()
     bootstrap_auto_trading_technical_paper_run()
+    bootstrap_operator_experience_strategy()
     bootstrap_pause_legacy_paper_runs()
     bootstrap_clear_stale_blocking_risk_events()
     if seed_ohlcv:

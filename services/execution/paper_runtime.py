@@ -116,6 +116,23 @@ class PaperRuntimeService:
         skipped_symbols = 0
 
         for symbol in scanned_symbols:
+            tradable_skip_reason = _fixed_universe_skip_reason(paper_run, symbol)
+            if tradable_skip_reason is not None:
+                skipped_symbols += 1
+                cycle_key = f"{paper_run_id}:{symbol}:universe_status:{cycle_time.date().isoformat()}"
+                actions.append(
+                    PaperRuntimeAction(
+                        symbol=symbol,
+                        action="skip_untradable_symbol",
+                        reason=tradable_skip_reason,
+                        idempotency_key=cycle_key,
+                        decision_trace={
+                            "pipeline_status": "universe_status_rejected",
+                            "rejection_reason": tradable_skip_reason,
+                        },
+                    )
+                )
+                continue
             latest_bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=runtime_timeframe)
             if latest_bar is None:
                 skipped_symbols += 1
@@ -142,7 +159,11 @@ class PaperRuntimeService:
                 continue
 
             lane = paper_run.execution_profile.get("strategy_lane", "directional")
-            enable_veto = request.enable_decision_veto and lane != "carry"
+            enable_veto = (
+                request.enable_decision_veto
+                and bool(paper_run.execution_profile.get("llm_veto_enabled", True))
+                and lane != "carry"
+            )
             base_order = self.signal_generator.generate_order(
                 paper_run=paper_run,
                 strategy=strategy,
@@ -582,7 +603,8 @@ class PaperRuntimeService:
     def _select_symbols(*, paper_run: PaperRun, request: PaperRuntimeCycleRequest) -> list[str]:
         base = request.symbols or paper_run.candidate_symbols or DEFAULT_BINANCE_TOP20
         deduped = list(dict.fromkeys(base))
-        return deduped[: request.max_symbols]
+        configured_max = int(paper_run.execution_profile.get("max_symbols") or request.max_symbols)
+        return deduped[: min(request.max_symbols, configured_max)]
 
     @staticmethod
     def _runtime_timeframe(*, strategy: StrategyContract, request: PaperRuntimeCycleRequest) -> str:
@@ -767,9 +789,12 @@ class PaperRuntimeService:
         )
 
     def _should_execute_on_binance(self, paper_run: PaperRun) -> bool:
+        execution_mode = str(paper_run.execution_profile.get("execution_mode", "paper_only"))
+        legacy_mirror_enabled = bool(paper_run.execution_profile.get("mirror_to_gateway", False))
         return (
-            bool(paper_run.execution_profile.get("mirror_to_gateway", False))
-            and settings.binance_auto_execute
+            (execution_mode == "binance_simulation_first" or legacy_mirror_enabled)
+            and settings.binance_use_testnet
+            and not settings.live_trading_enabled
             and self.gateway is not None
         )
 
@@ -816,6 +841,10 @@ class PaperRuntimeService:
         return (
             self.execution_repo.update_order(
                 order.order_execution_id or "",
+                entry_context={
+                    **order.entry_context,
+                    "protection_order_refs": gateway_result.get("protection_order_refs", []),
+                },
                 gateway_name=getattr(gateway.capability, "gateway_name", "gateway_mirror"),
                 gateway_order_id=gateway_result.get("gateway_order_id"),
                 gateway_status=gateway_result.get("gateway_status", "submitted"),
@@ -858,6 +887,10 @@ class PaperRuntimeService:
             return
         self.execution_repo.update_order(
             order.order_execution_id or "",
+            entry_context={
+                **order.entry_context,
+                "protection_order_refs": gateway_result.get("protection_order_refs", []),
+            },
             gateway_name=getattr(self.gateway.capability, "gateway_name", "gateway_mirror"),
             gateway_order_id=gateway_result.get("gateway_order_id"),
             gateway_status=gateway_result.get("gateway_status", "submitted"),
@@ -1031,6 +1064,21 @@ def _realized_pnl(*, position: PositionSnapshot, mark_price: float) -> float:
     if position.side == TradeSide.LONG:
         return (mark_price - position.entry_price) * position.quantity
     return (position.entry_price - mark_price) * position.quantity
+
+
+def _fixed_universe_skip_reason(paper_run: PaperRun, symbol: str) -> str | None:
+    if paper_run.execution_profile.get("universe_mode") != "fixed_top20":
+        return None
+    for asset in paper_run.execution_profile.get("universe_assets", []) or []:
+        if not isinstance(asset, dict):
+            continue
+        if asset.get("platform_symbol") != symbol:
+            continue
+        status = str(asset.get("tradable_status") or "unknown").lower()
+        if status == "trading":
+            return None
+        return str(asset.get("reason") or f"Binance contract status is {status}")
+    return None
 
 
 @dataclass(frozen=True)

@@ -21,9 +21,10 @@ def test_binance_proxy_url_prefers_https(monkeypatch) -> None:
 def test_medium_risk_profile_supports_top20_auto_trading() -> None:
     profile = medium_risk_profile()
     assert profile.risk_profile_id == MEDIUM_RISK_PROFILE_KEY
-    assert profile.max_open_positions >= 10
-    assert profile.max_total_exposure >= 0.75
-    assert profile.max_leverage >= 20
+    assert profile.max_open_positions == 5
+    assert profile.max_total_exposure == 0.50
+    assert profile.max_leverage == 5
+    assert profile.daily_loss_limit == 0.04
 
 
 def test_bootstrap_medium_risk_profile_is_idempotent(db_session) -> None:

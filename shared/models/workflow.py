@@ -123,6 +123,27 @@ class PaperRuntimeCycleRequest(PlatformModel):
     enable_decision_veto: bool = True
 
 
+class AutoTradingSettings(PlatformModel):
+    """Typed operator-editable automatic trading controls for a PaperRun."""
+
+    execution_mode: str = Field(default="binance_simulation_first", pattern="^(paper_only|binance_simulation_first)$")
+    max_leverage: float = Field(default=5.0, ge=1, le=125)
+    risk_per_trade: float = Field(default=0.01, ge=0, le=0.10)
+    order_notional_usdt: float | None = Field(default=None, gt=0)
+    max_open_positions: int = Field(default=5, ge=1, le=20)
+    max_symbols: int = Field(default=20, ge=1, le=20)
+    max_symbol_exposure: float = Field(default=0.15, ge=0, le=1)
+    max_total_exposure: float = Field(default=0.50, ge=0, le=1)
+    daily_loss_limit: float = Field(default=0.04, ge=0, le=1)
+    weekly_loss_limit: float = Field(default=0.08, ge=0, le=1)
+    hard_stop_drawdown_limit: float = Field(default=0.20, ge=0, le=1)
+    strategy_lanes: list[str] = Field(default_factory=lambda: ["carry", "trend_breakout", "mean_reversion"])
+    stoploss: dict[str, Any] = Field(default_factory=lambda: {"atr_multiple": 2.0, "fixed_bps": 250})
+    takeprofit: dict[str, Any] = Field(default_factory=lambda: {"risk_reward": 2.5, "trail_after_r": 1.5})
+    llm_veto_enabled: bool = True
+    market_intelligence_enabled: bool = True
+
+
 class PaperRuntimeAction(PlatformModel):
     symbol: str
     action: str

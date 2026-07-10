@@ -71,6 +71,12 @@ def _resolve_level() -> int:
     return logging.DEBUG if settings.app_env == "development" else logging.INFO
 
 
+def configure_external_library_loggers() -> None:
+    """Prevent HTTP wire logs from exposing exchange authentication material."""
+    for name in ("ccxt", "urllib3"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def get_logger(name: str) -> logging.Logger:
     """Return a configured logger.
 
@@ -78,6 +84,7 @@ def get_logger(name: str) -> logging.Logger:
     handler set. Sensitive keys in ``extra`` are redacted before emission.
     """
     logger = logging.getLogger(name)
+    configure_external_library_loggers()
     if not logging.getLogger().handlers:
         root = logging.getLogger()
         root.setLevel(_resolve_level())

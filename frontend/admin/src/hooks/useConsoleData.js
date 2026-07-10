@@ -9,6 +9,8 @@ const FALLBACK_UNIVERSE = [
   { symbol: "SOL/USDT", perp_symbol: "SOL/USDT:USDT", source: "frontend_fallback" },
 ];
 
+const asArray = (value) => (Array.isArray(value) ? value : []);
+
 export function useConsoleData(symbol, perpSymbol, timeframe) {
   const [state, setState] = useState({
     overview: null,
@@ -25,6 +27,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     trades: null,
     decisionTrace: null,
     dataSources: null,
+    orderSync: null,
     testnetAccount: null,
     feedStatus: null,
     streamStatus: "connecting",
@@ -72,7 +75,13 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
         })
         .catch((err) => {
           if (reportError) {
-            commit((current) => ({ ...current, error: err.message, loading: false }));
+            commit((current) => ({
+              ...current,
+              error: err.message,
+              loading: false,
+              streamStatus: "offline",
+              feedStatus: { status: "offline", source: "api_unavailable" },
+            }));
           }
           return null;
         })
@@ -99,6 +108,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
       ).then((paperRunsPayload) => {
         const runs = asArray(paperRunsPayload?.items);
         const autoRun =
+          runs.find((run) => run.execution_profile?.auto_paper_runtime_key === "auto_paper_mature_templates") ??
           runs.find((run) => run.execution_profile?.auto_paper_runtime_key === "auto_paper_btc_technical") ??
           runs.find((run) => (run.candidate_symbols?.length ?? 0) >= 20) ??
           runs.at(-1);
@@ -106,6 +116,11 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
         run(
           `/api/v1/execution/paper-runs/${autoRun.paper_run_id}/decision-trace`,
           (current, payload) => ({ ...current, decisionTrace: payload }),
+          { showLoaded: false },
+        );
+        run(
+          `/api/v1/execution/paper-runs/${autoRun.paper_run_id}/order-sync`,
+          (current, payload) => ({ ...current, orderSync: payload }),
           { showLoaded: false },
         );
       });
@@ -121,6 +136,8 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
             dataSources: {
               news_total: news?.total ?? asArray(news?.items).length,
               macro_total: macro?.total ?? asArray(macro?.items).length,
+              news_items: asArray(news?.items),
+              macro_items: asArray(macro?.items),
               news_refresh_error: news?.refresh_error ?? null,
               macro_refresh_error: macro?.refresh_error ?? null,
             },
@@ -157,7 +174,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
       { reportError: true },
     );
     run(
-      "/api/v1/market/universe?limit=20",
+      "/api/v1/market/universe?limit=20&mode=fixed_top20",
       (current, payload) => ({
         ...current,
         universe: payload?.items?.length ? payload.items : current.universe,
@@ -193,6 +210,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
   }, [symbol, perpSymbol, timeframe]);
 
   useEffect(() => {
+    if (state.error) return undefined;
     refresh();
     // When the WS stream is live, reduce polling to a 30s fallback to avoid
     // duplicating WS pushes (previously polled every 8s regardless of WS
@@ -200,9 +218,10 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     const interval = state.streamStatus === "live" ? 30000 : 8000;
     const timer = window.setInterval(refresh, interval);
     return () => window.clearInterval(timer);
-  }, [refresh, state.streamStatus]);
+  }, [refresh, state.error, state.streamStatus]);
 
   useEffect(() => {
+    if (state.error) return undefined;
     const pollBinance = () => {
       request("/api/v1/execution/binance-testnet-account")
         .then((payload) => setState((current) => ({ ...current, testnetAccount: payload ?? current.testnetAccount })))
@@ -211,9 +230,13 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     pollBinance();
     const timer = window.setInterval(pollBinance, 5000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [state.error]);
 
   useEffect(() => {
+    if (state.error) {
+      setState((current) => ({ ...current, streamStatus: "offline" }));
+      return undefined;
+    }
     if (!("WebSocket" in window)) {
       setState((current) => ({ ...current, streamStatus: "polling" }));
       return undefined;
@@ -264,7 +287,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       if (socket) socket.close();
     };
-  }, [symbol, perpSymbol, timeframe]);
+  }, [symbol, perpSymbol, timeframe, state.error]);
 
   return { ...state, refresh };
 }

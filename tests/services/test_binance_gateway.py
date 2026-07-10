@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from services.execution.gateway import BinanceUsdtPerpetualGateway
+from services.execution.gateway import BinanceUsdtPerpetualGateway, configured_gateways
 from shared.config import settings
-from shared.models import ExecutionOrderRequest
+from shared.models import ExecutionOrderRequest, TradeSide
 
 
 class StubCcxtClient:
@@ -66,6 +66,17 @@ class StubCcxtClient:
         return []
 
 
+def test_configured_gateways_keeps_disabled_gateway_available_without_credentials(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "binance_api_key", "")
+    monkeypatch.setattr(settings, "binance_api_secret", "")
+
+    gateway = configured_gateways()[0]
+
+    assert gateway.capability.gateway_name == "binance_usdt_perpetual"
+    with pytest.raises(ValueError, match="credentials are not configured"):
+        gateway.sync_account(live_run_id="live-run-1")
+
+
 def test_binance_gateway_maps_account_order_cancel_and_reconcile() -> None:
     client = StubCcxtClient()
     gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
@@ -76,7 +87,7 @@ def test_binance_gateway_maps_account_order_cancel_and_reconcile() -> None:
         order_request=ExecutionOrderRequest(
             strategy_id="strategy-1",
             symbol="BTC/USDT",
-            direction="long",
+            direction=TradeSide.LONG,
             stoploss_plan={"price": 59000},
             takeprofit_plan={"price": 62000},
             entry_context={"order_type": "market", "quantity": 0.01},
@@ -111,7 +122,7 @@ def test_binance_gateway_close_only_inverts_position_side() -> None:
         order_request=ExecutionOrderRequest(
             strategy_id="strategy-1",
             symbol="BTC/USDT",
-            direction="long",
+            direction=TradeSide.LONG,
             entry_context={"order_type": "market", "quantity": 0.01, "close_only_mode": True},
         ),
     )
@@ -132,7 +143,7 @@ def test_binance_gateway_rejects_far_protection_price_before_entry(monkeypatch) 
             order_request=ExecutionOrderRequest(
                 strategy_id="strategy-1",
                 symbol="BTC/USDT",
-                direction="long",
+            direction=TradeSide.LONG,
                 stoploss_plan={"price": 60000},
                 takeprofit_plan={"price": 70000},
                 entry_context={"order_type": "market", "quantity": 0.001, "reference_price": 61675.14},
@@ -141,3 +152,91 @@ def test_binance_gateway_rejects_far_protection_price_before_entry(monkeypatch) 
 
     assert client.created_orders == []
     assert client.algo_orders == []
+
+
+def test_binance_gateway_propagates_stable_client_order_id_from_idempotency_key() -> None:
+    client = StubCcxtClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+    request = ExecutionOrderRequest(
+        strategy_id="strategy-1",
+        symbol="BTC/USDT",
+            direction=TradeSide.LONG,
+        stoploss_plan={"price": 59000},
+        takeprofit_plan={"price": 62000},
+        entry_context={"order_type": "market", "quantity": 0.01},
+        idempotency_key="same-logical-order",
+    )
+
+    gateway.submit_order(live_run_id="live-run-1", order_request=request)
+    gateway.submit_order(live_run_id="live-run-1", order_request=request)
+
+    first_id = client.created_orders[0]["params"].get("newClientOrderId")
+    second_id = client.created_orders[1]["params"].get("newClientOrderId")
+    assert first_id == second_id
+    assert first_id.startswith("aq-")
+    assert len(first_id) <= 36
+
+
+def test_binance_gateway_rejects_below_min_notional_before_exchange_submit() -> None:
+    client = StubCcxtClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+
+    with pytest.raises(ValueError, match="below_min_notional"):
+        gateway.submit_order(
+            live_run_id="live-run-1",
+            order_request=ExecutionOrderRequest(
+                strategy_id="strategy-1",
+                symbol="BTC/USDT",
+            direction=TradeSide.LONG,
+                stoploss_plan={"price": 95},
+                takeprofit_plan={"price": 105},
+                entry_context={
+                    "order_type": "market",
+                    "quantity": 0.1,
+                    "reference_price": 100,
+                    "requested_notional": 10,
+                    "min_notional_usdt": 50,
+                },
+            ),
+        )
+
+    assert client.created_orders == []
+
+
+def test_binance_gateway_rejects_withdrawal_enabled_api_key() -> None:
+    class WithdrawalEnabledClient(StubCcxtClient):
+        def fetch_balance(self, params=None):  # noqa: ANN001
+            payload = super().fetch_balance(params=params)
+            payload["info"]["canWithdraw"] = True
+            return payload
+
+    with pytest.raises(ValueError, match="withdrawal permission"):
+        BinanceUsdtPerpetualGateway(client=WithdrawalEnabledClient(), use_testnet=True)
+
+
+def test_binance_gateway_recovers_timeout_by_querying_client_order_id() -> None:
+    class TimeoutAfterAcceptClient(StubCcxtClient):
+        def create_order(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            self.created_orders.append({"params": kwargs.get("params") or args[-1]})
+            raise TimeoutError("exchange response timed out")
+
+        def fapiPrivateGetOrder(self, payload):  # noqa: N802, ANN001
+            assert payload["origClientOrderId"].startswith("aq-")
+            return {"orderId": "recovered-order", "status": "FILLED"}
+
+    gateway = BinanceUsdtPerpetualGateway(client=TimeoutAfterAcceptClient(), use_testnet=True)
+    result = gateway.submit_order(
+        live_run_id="live-run-1",
+        order_request=ExecutionOrderRequest(
+            strategy_id="strategy-1",
+            symbol="BTC/USDT",
+            direction=TradeSide.LONG,
+            stoploss_plan={"price": 59000},
+            takeprofit_plan={"price": 62000},
+            entry_context={"order_type": "market", "quantity": 0.01},
+            idempotency_key="recover-after-timeout",
+        ),
+    )
+
+    assert result["gateway_order_id"] == "recovered-order"
+    assert result["gateway_status"] == "filled"

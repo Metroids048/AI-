@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -37,11 +38,11 @@ def _resolve_gateway_quantity(*, client: Any, symbol: str, order_request: Execut
     reference_price = float(context.get("reference_price") or context.get("limit_price") or 0)
     quantity = float(context.get("quantity") or 0.0)
     requested_notional = float(context.get("requested_notional") or 0.0)
+    close_only = bool(context.get("close_only_mode") or context.get("reduce_only"))
     if quantity <= 0 and reference_price > 0:
-        target_notional = max(requested_notional, min_notional)
-        quantity = target_notional / reference_price
-    if reference_price > 0 and quantity * reference_price < min_notional:
-        quantity = min_notional / reference_price
+        quantity = requested_notional / reference_price
+    if not close_only and reference_price > 0 and quantity * reference_price < min_notional:
+        raise ValueError(f"below_min_notional: requested order is below {min_notional} USDT")
     load_markets = getattr(client, "load_markets", None)
     if callable(load_markets) and not getattr(client, "markets", None):
         load_markets()
@@ -56,14 +57,24 @@ def _resolve_gateway_quantity(*, client: Any, symbol: str, order_request: Execut
             step = float(((market.get("limits") or {}).get("amount") or {}).get("min") or step)
         except Exception:
             pass
-    if reference_price > 0:
-        while quantity > 0 and quantity * reference_price < min_notional:
-            quantity += step
-            if callable(amount_to_precision):
-                quantity = float(amount_to_precision(symbol, quantity))
+    if not close_only and reference_price > 0 and quantity * reference_price < min_notional:
+        raise ValueError(f"below_min_notional: rounded order is below {min_notional} USDT")
     if quantity <= 0:
         raise ValueError("live gateway order requires positive entry_context.quantity")
     return quantity
+
+
+def _binance_client_order_id(*, live_run_id: str, idempotency_key: str) -> str:
+    digest = hashlib.sha256(f"{live_run_id}:{idempotency_key}".encode()).hexdigest()
+    return f"aq-{digest[:33]}"
+
+
+def _order_id(payload: dict[str, Any]) -> str:
+    return str(payload.get("id") or payload.get("orderId") or "")
+
+
+def _is_withdrawal_enabled(value: Any) -> bool:
+    return value is True or str(value).strip().lower() in {"1", "true", "yes"}
 
 
 def _gateway_order_side(*, direction: str, close_only: bool) -> str:
@@ -162,6 +173,21 @@ class BinanceUsdtPerpetualGateway:
         self.client = client or self._build_default_client()
         if self.use_testnet:
             self.api_backend = configure_binance_paper_client(self.client)
+        self._assert_withdrawal_disabled()
+
+    def _assert_withdrawal_disabled(self) -> None:
+        if isinstance(self.client, _UnavailableBinanceClient):
+            return
+        fetch_balance = getattr(self.client, "fetch_balance", None)
+        if not callable(fetch_balance):
+            return
+        try:
+            balance = fetch_balance(params={"type": "future"})
+        except Exception as exc:
+            raise ValueError("unable to verify Binance API key permissions") from exc
+        info = balance.get("info", {}) if isinstance(balance, dict) else {}
+        if isinstance(info, dict) and _is_withdrawal_enabled(info.get("canWithdraw")):
+            raise ValueError("Binance API key withdrawal permission must be disabled")
 
     def sync_account(self, *, live_run_id: str) -> ExchangeAccountSnapshot:
         balance = self.client.fetch_balance(params={"type": "future"})
@@ -194,6 +220,11 @@ class BinanceUsdtPerpetualGateway:
         side = _gateway_order_side(direction=direction, close_only=close_only)
         order_type = str(order_request.entry_context.get("order_type", "market"))
         params: dict[str, Any] = {"positionSide": "BOTH"}
+        if order_request.idempotency_key:
+            params["newClientOrderId"] = _binance_client_order_id(
+                live_run_id=live_run_id,
+                idempotency_key=order_request.idempotency_key,
+            )
         if close_only:
             params["reduceOnly"] = True
         _validate_protection_prices(order_request)
@@ -201,14 +232,26 @@ class BinanceUsdtPerpetualGateway:
             params["stopLoss"] = {"triggerPrice": order_request.stoploss_plan["price"]}
         if "price" in order_request.takeprofit_plan:
             params["takeProfit"] = {"triggerPrice": order_request.takeprofit_plan["price"]}
-        created = self.client.create_order(
-            _normalize_binance_symbol(order_request.symbol),
-            order_type,
-            side,
-            quantity,
-            order_request.entry_context.get("limit_price"),
-            params,
-        )
+        try:
+            created = self.client.create_order(
+                _normalize_binance_symbol(order_request.symbol),
+                order_type,
+                side,
+                quantity,
+                order_request.entry_context.get("limit_price"),
+                params,
+            )
+        except TimeoutError:
+            client_order_id = params.get("newClientOrderId")
+            lookup = getattr(self.client, "fapiPrivateGetOrder", None)
+            if not client_order_id or not callable(lookup):
+                raise
+            created = lookup(
+                {
+                    "symbol": _binance_market_id(symbol),
+                    "origClientOrderId": client_order_id,
+                }
+            )
         protection_refs = self._submit_protection_algo_orders(
             order_request=order_request,
             side=side,
@@ -216,7 +259,7 @@ class BinanceUsdtPerpetualGateway:
         )
         return {
             "live_run_id": live_run_id,
-            "gateway_order_id": str(created.get("id")),
+            "gateway_order_id": _order_id(created),
             "gateway_status": _normalize_order_status(created.get("status")),
             "symbol": order_request.symbol,
             "protection_order_refs": protection_refs,

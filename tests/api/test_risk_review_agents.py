@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from services.data import DataRepository
 from services.strategy_library import StrategyRepository, ValidationRepository
-from shared.models import BacktestReport, BacktestRun, GateDecision, StrategyCreate, StrategyRules
+from shared.models import BacktestEngine, BacktestReport, BacktestRun, GateDecision, StrategyCreate, StrategyRules
 
 
 def test_risk_event_rejects_execution_and_review_writeback(api_client, db_session) -> None:
@@ -23,7 +23,7 @@ def test_risk_event_rejects_execution_and_review_writeback(api_client, db_sessio
             execution_engine="freqtrade",
             metrics_summary=BacktestReport(
                 strategy_id=strategy.strategy_id,
-                engine="freqtrade",
+                engine=BacktestEngine.FREQTRADE,
                 sharpe=1.4,
                 profit_factor=1.35,
                 max_drawdown=0.10,

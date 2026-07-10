@@ -17,6 +17,7 @@ from services.strategy_library import (
 from shared.models import (
     BacktestReport,
     BacktestRun,
+    BacktestEngine,
     ExchangeAccountSnapshot,
     ExchangeGatewayCapability,
     ExecutionOrderRequest,
@@ -27,6 +28,7 @@ from shared.models import (
     RiskProfile,
     StrategyCreate,
     StrategyRules,
+    TradeSide,
 )
 
 
@@ -108,7 +110,7 @@ def _seed_context(db_session) -> tuple[str, str, str]:
             },
             metrics_summary=BacktestReport(
                 strategy_id=strategy.strategy_id,
-                engine="freqtrade",
+                engine=BacktestEngine.FREQTRADE,
                 sharpe=1.8,
                 deflated_sharpe=1.4,
                 profit_factor=1.6,
@@ -170,7 +172,7 @@ def test_live_execution_service_runs_account_order_cancel_and_reconcile(db_sessi
         order_request=ExecutionOrderRequest(
             strategy_id=strategy_id,
             symbol="BTC/USDT",
-            direction="long",
+            direction=TradeSide.LONG,
             entry_context={"timeframe": "1h"},
             stoploss_plan={"price": 59000},
             takeprofit_plan={"price": 62000},

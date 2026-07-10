@@ -1,5 +1,21 @@
 # Project Memory
 
+## Adversarial audit remediation baseline (TASK-041, 2026-07-10)
+- Local SQLite startup is a two-part contract: Alembic owns relational tables, while `create_local_runtime_schema()` creates the separately owned time-series/event tables needed outside Docker. `run-api-local.ps1` must perform both after setting `POSTGRES_URL`; production TimescaleDB remains owned by `infra/timescale/init.sql`.
+- Execution gateway startup fails closed for configured keys that expose `canWithdraw`; the credential-less placeholder gateway remains visible for operator capability status but cannot trade. Opening requests below exchange `min_notional` are rejected, and exchange submissions use a stable, length-bounded client order ID derived from the logical idempotency key.
+- The frontend must treat network failures and proxy 5xx as the same service-unavailable state. Once that state is set, `useConsoleData` stops refresh, account polling, and WebSocket reconnection. Auto-settings must normalize nullable API fields before binding controlled inputs.
+- Latest verification: Python `205 passed, 1 skipped`; Ruff and frontend test/build pass. Mypy is currently a separate failing quality gate (`68` errors in `23` files) and must not be reported as clean.
+
+## Fixed Top20 Binance simulation-first auto trading lane (TASK-039, 2026-07-10)
+
+- The automatic trading candidate universe is now the operator-defined fixed Top20 list, not a dynamic quote-volume replacement: BTC, ETH, SOL, XRP, BNB, HYPE, SUI, LINK, TRX, AVAX, TON, DOGE, ADA, HBAR, ONDO, ENA, TAO, FET/ASI, RENDER, and PEPE. PEPE maps to Binance USD-M `1000PEPEUSDT` while the UI displays `PEPE (1000PEPE contract)`.
+- `/api/v1/market/universe?mode=fixed_top20` returns `UniverseAsset` status, exchange symbol mapping, precision, min notional, and skip reasons. Automatic runtime skips non-TRADING symbols with visible review context instead of silently trying to trade them.
+- Data heartbeat now maintains required automatic-cycle timeframes (`1m`, `15m`, `4h`) for all 20 fixed candidates. Runtime scanning respects configurable `max_symbols`, `max_open_positions`, leverage, exposure, and kill-switch boundaries.
+- Default automatic strategy bootstrap moved away from the operator-experience `4h_direction_15m_entry` rule. The new default key is `auto_paper_mature_templates`; `operator_experience_4h_15m_v1` is kept disabled for research/backtest only. Bootstrap no longer fabricates validation metrics.
+- Binance simulation-first execution mode records local `OrderExecution`, `PositionSnapshot`, gateway order ids, and protection refs only after Testnet/Demo gateway success. Gateway failure fails closed with a local rejection rather than a fake fill. Mainnet/live trading remains disabled.
+- Trading console now exposes editable automatic order settings, fixed Top20 monitoring, message-source rows, and order-sync state. Settings updates write through typed auto-settings into the current PaperRun execution profile and bound RiskProfile.
+- Verification evidence: backend non-integration pytest passed (`196 passed, 1 deselected, 1 warning`), Ruff passed, mypy passed, admin Vitest passed (`12 passed`), admin build passed, `git diff --check` passed, and Playwright smoke confirmed the trading page renders the new panels without JS runtime errors when only Vite is running.
+
 ## Auto Paper/Testnet safety rollback after far protection orders (TASK-038, 2026-07-09)
 
 - Root cause: local Paper bootstrap and startup defaults treated Binance credentials as consent to exchange mirroring. `mirror_to_gateway` was auto-enabled, `BINANCE_AUTO_EXECUTE` defaulted true, and local startup scripts forced auto execution on. Automatic Paper cycles could therefore submit Testnet market entries plus stop/takeprofit conditional protection orders.

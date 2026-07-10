@@ -11,11 +11,13 @@ from services.strategy_library import ExecutionRepository, HypothesisRepository,
 from shared.models import (
     BacktestReport,
     BacktestRun,
+    BacktestEngine,
     GateDecision,
     HypothesisRecord,
     OrderExecution,
     PodRiskReport,
     RiskEvent,
+    RiskEventType,
     RiskSeverity,
     TradeSide,
     ValidationBenchmarkResult,
@@ -57,7 +59,7 @@ def _create_validated_strategy(api_client, db_session) -> tuple[str, str]:
             execution_engine="vectorbt",
             metrics_summary=BacktestReport(
                 strategy_id=strategy_id,
-                engine="vectorbt",
+                engine=BacktestEngine.VECTORBT,
                 sharpe=1.8,
                 deflated_sharpe=1.25,
                 profit_factor=1.5,
@@ -302,7 +304,7 @@ def test_manual_order_blocked_by_active_high_risk_event(api_client, db_session) 
     _store_fresh_bar(db_session)
     DataRepository(db_session).store_risk_event(
         RiskEvent(
-            event_type="exchange_incident",
+            event_type=RiskEventType.EXCHANGE_INCIDENT,
             severity=RiskSeverity.HIGH,
             source="test",
             description="Binance incident blocks manual trading",

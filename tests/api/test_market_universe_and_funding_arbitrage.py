@@ -33,6 +33,35 @@ def test_market_universe_api_falls_back_to_configured_top20(api_client) -> None:
     assert body["items"][0]["source"] in {"binance_usdm_24h_ticker", "fallback_default_top20"}
 
 
+def test_fixed_top20_universe_api_uses_operator_order_and_pepe_contract(api_client, monkeypatch) -> None:
+    from apps.api.routers import market as market_router
+
+    monkeypatch.setattr(
+        market_router,
+        "fetch_usdm_exchange_info_symbols",
+        lambda: [
+            {"symbol": "BTCUSDT", "status": "TRADING", "pricePrecision": 2},
+            {"symbol": "ETHUSDT", "status": "TRADING"},
+            {
+                "symbol": "1000PEPEUSDT",
+                "status": "TRADING",
+                "filters": [{"filterType": "MIN_NOTIONAL", "notional": "5"}],
+            },
+        ],
+    )
+
+    response = api_client.get("/api/v1/market/universe?limit=20&mode=fixed_top20")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 20
+    assert [item["display_symbol"] for item in body["items"][:5]] == ["BTC", "ETH", "SOL", "XRP", "BNB"]
+    assert body["items"][-1]["symbol"] == "PEPE/USDT"
+    assert body["items"][-1]["exchange_symbol"] == "1000PEPEUSDT"
+    assert body["items"][-1]["display_symbol"] == "PEPE (1000PEPE contract)"
+    assert body["items"][-1]["tradable_status"] == "trading"
+
+
 def test_funding_arbitrage_signal_rejects_negative_net_edge(api_client, db_session) -> None:
     repo = DataRepository(db_session)
     now = datetime.now(UTC).replace(microsecond=0)

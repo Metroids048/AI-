@@ -8,6 +8,7 @@ from services.strategy_library import HypothesisRepository, ValidationRepository
 from shared.models import (
     BacktestReport,
     BacktestRun,
+    BacktestEngine,
     GateDecision,
     HypothesisRecord,
     MarketExtras,
@@ -70,7 +71,7 @@ def test_strategy_to_backtest_to_paper_vertical_slice(api_client, db_session) ->
             stress_test_scenarios=["funding_flip", "spread_widening"],
             metrics_summary=BacktestReport(
                 strategy_id=strategy_id,
-                engine="freqtrade",
+            engine=BacktestEngine.FREQTRADE,
                 sharpe=1.5,
                 deflated_sharpe=1.2,
                 profit_factor=1.4,
@@ -191,7 +192,7 @@ def test_validation_report_surfaces_promotion_gate_with_hypothesis_context(api_c
             validation_methodology={"hypothesis_id": hypothesis.hypothesis_id},
             metrics_summary=BacktestReport(
                 strategy_id=strategy_id,
-                engine="freqtrade",
+            engine=BacktestEngine.FREQTRADE,
                 sharpe=1.7,
                 deflated_sharpe=1.3,
                 profit_factor=1.5,

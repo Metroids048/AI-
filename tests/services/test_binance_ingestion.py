@@ -56,6 +56,7 @@ def test_binance_symbol_helpers() -> None:
     assert spot_to_usdm_perp_symbol("BTC/USDT") == "BTC/USDT:USDT"
     assert spot_to_usdm_perp_symbol("BTC/USDT:USDT") == "BTC/USDT:USDT"
     assert platform_symbol_to_binance_raw("BTC/USDT:USDT") == "BTCUSDT"
+    assert platform_symbol_to_binance_raw("PEPE/USDT") == "1000PEPEUSDT"
     assert stream_symbol("BTC/USDT:USDT") == "btcusdt"
 
 
@@ -236,3 +237,31 @@ def test_binance_ingestion_task_writes_ohlcv_and_funding(api_client) -> None:
     assert response.status_code == 200
     assert response.json()["data_status"] in {"ok", "stale"}
     assert response.json()["funding_rate"] == "0.0001"
+
+
+class _HeartbeatClient:
+    calls: list[tuple[str, str]] = []
+
+    def fetch_recent_ohlcv(self, *, symbol, timeframe, limit=300):
+        self.calls.append((symbol, timeframe))
+        return normalize_ohlcv_rows(
+            rows=[[1711929600000, 42000, 42500, 41800, 42300, 123.45]],
+            symbol=symbol,
+            timeframe=timeframe,
+        )
+
+
+def test_market_data_heartbeat_refreshes_all_fixed_top20_timeframes(monkeypatch) -> None:
+    from services.data import binance as binance_module
+    from services.data.service import DEFAULT_BINANCE_TOP20
+    from services.data.tasks import market_data_heartbeat
+
+    _HeartbeatClient.calls = []
+    monkeypatch.setattr(binance_module, "BinanceCcxtClient", _HeartbeatClient)
+
+    result = market_data_heartbeat(symbols=list(DEFAULT_BINANCE_TOP20), timeframe="15m")
+
+    assert result["checked_symbols"] == list(DEFAULT_BINANCE_TOP20)
+    assert len(_HeartbeatClient.calls) == len(DEFAULT_BINANCE_TOP20) * 3
+    assert ("PEPE/USDT", "15m") in _HeartbeatClient.calls
+    assert ("PEPE/USDT", "4h") in _HeartbeatClient.calls

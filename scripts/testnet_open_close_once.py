@@ -37,7 +37,7 @@ def main() -> int:
     os.environ.setdefault("LIVE_TRADING_ENABLED", "false")
 
     from services.execution.gateway import BinanceUsdtPerpetualGateway, probe_testnet_account
-    from shared.models import ExecutionOrderRequest
+    from shared.models import ExecutionOrderRequest, TradeSide
 
     run_id = f"testnet-open-close-{int(time.time())}"
     symbol = "BTC/USDT"
@@ -73,7 +73,7 @@ def main() -> int:
     open_req = ExecutionOrderRequest(
         strategy_id="testnet-smoke",
         symbol=symbol,
-        direction="long",
+        direction=TradeSide.LONG,
         entry_context={
             "order_type": "market",
             "quantity": quantity,
@@ -98,7 +98,7 @@ def main() -> int:
     close_req = ExecutionOrderRequest(
         strategy_id="testnet-smoke",
         symbol=symbol,
-        direction="long",
+        direction=TradeSide.LONG,
         entry_context={
             "order_type": "market",
             "quantity": quantity,

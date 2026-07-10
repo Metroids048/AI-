@@ -19,6 +19,7 @@ from services.strategy_library import (
 from shared.models import (
     BacktestReport,
     BacktestRun,
+    BacktestEngine,
     DecisionVetoResult,
     ExecutionOrderRequest,
     ExecutionRiskState,
@@ -50,7 +51,7 @@ def _seed_gatekeeper_context(db_session) -> tuple[ExecutionGatekeeperService, st
             execution_engine="freqtrade",
             metrics_summary=BacktestReport(
                 strategy_id=strategy.strategy_id,
-                engine="freqtrade",
+                engine=BacktestEngine.FREQTRADE,
                 sharpe=1.6,
                 profit_factor=1.5,
                 max_drawdown=0.1,

@@ -18,6 +18,7 @@ from shared.models import (
 from .binance import BinanceCcxtClient, BinanceUniverseSelector
 from .repository import DataRepository
 from .service import DEFAULT_BINANCE_TOP20
+from .universe import fixed_top20_market_items
 
 
 class MarketQueryService:
@@ -59,8 +60,17 @@ class MarketQueryService:
             candles=candles,
         )
 
-    def get_market_universe(self, *, limit: int = 20, tickers: list[dict] | None = None) -> list[MarketUniverseItem]:
+    def get_market_universe(
+        self,
+        *,
+        limit: int = 20,
+        tickers: list[dict] | None = None,
+        mode: str = "dynamic",
+        exchange_info_symbols: list[dict] | None = None,
+    ) -> list[MarketUniverseItem]:
         safe_limit = max(1, min(limit, 50))
+        if mode == "fixed_top20":
+            return fixed_top20_market_items(exchange_info_symbols)[: min(safe_limit, 20)]
         source = "fallback_default_top20"
         selected = DEFAULT_BINANCE_TOP20[:safe_limit]
         payload_by_symbol: dict[str, dict] = {}

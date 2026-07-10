@@ -4,7 +4,15 @@ import { useSearchParams } from "react-router-dom";
 import { request } from "../api/client";
 import { AppShell } from "../components/Common";
 import { KlinePanel, MarketHeader } from "../components/MarketPanels";
-import { DecisionDebugPanel, DataSourcesPanel, MarketIntelligencePanel, Top20MonitorPanel } from "../components/RuntimePanels";
+import {
+  AutoSettingsPanel,
+  DecisionDebugPanel,
+  DataSourcesPanel,
+  MarketIntelligencePanel,
+  MessageSourcesPanel,
+  OrderSyncPanel,
+  Top20MonitorPanel,
+} from "../components/RuntimePanels";
 import {
   BinanceSyncHero,
   FundingPanel,
@@ -36,7 +44,11 @@ export function PaperConsole() {
     () => (Array.isArray(data.overview?.paper_runs) ? data.overview.paper_runs.at(-1) : null),
     [data.overview?.paper_runs],
   );
-  const mirrorToGateway = Boolean(latestPaperRun?.execution_profile?.mirror_to_gateway);
+  const autoPaperRunId = data.decisionTrace?.paper_run_id ?? latestPaperRun?.paper_run_id;
+  const autoSettings = data.decisionTrace?.auto_settings ?? latestPaperRun?.execution_profile;
+  const mirrorToGateway = Boolean(
+    (data.decisionTrace?.execution_profile ?? latestPaperRun?.execution_profile)?.mirror_to_gateway,
+  );
   const latestPosition = useMemo(
     () => (data.overview?.positions ?? []).find((position) => position.symbol === symbol && Math.abs(Number(position.quantity)) > 0),
     [data.overview?.positions, symbol],
@@ -77,19 +89,32 @@ export function PaperConsole() {
       if (type === "runAllCycles") {
         const result = await request("/api/v1/execution/paper-runs/auto-cycle-all", {
           method: "POST",
-          body: JSON.stringify({ symbols: [symbol], max_symbols: 1, timeframe, enable_decision_veto: true }),
+          body: JSON.stringify({ symbols: [], max_symbols: Number(autoSettings?.max_symbols ?? 20), timeframe, enable_decision_veto: true }),
         });
         setActionMessage(`自动 cycle 已执行：${result.paper_runs} 个 PaperRun。`);
       }
       if (type === "toggleGatewayMirror") {
-        if (!latestPaperRun?.paper_run_id) {
+        if (!autoPaperRunId) {
           throw new Error("没有可配置的 PaperRun");
         }
-        await request(`/api/v1/execution/paper-runs/${latestPaperRun.paper_run_id}/execution-profile`, {
+        await request(`/api/v1/execution/paper-runs/${autoPaperRunId}/execution-profile`, {
           method: "PATCH",
-          body: JSON.stringify({ mirror_to_gateway: Boolean(payload.enabled) }),
+          body: JSON.stringify({
+            mirror_to_gateway: Boolean(payload.enabled),
+            execution_mode: payload.enabled ? "binance_simulation_first" : "paper_only",
+          }),
         });
         setActionMessage(payload.enabled ? "Testnet 镜像下单已开启。" : "Testnet 镜像下单已关闭。");
+      }
+      if (type === "saveAutoSettings") {
+        if (!autoPaperRunId) {
+          throw new Error("没有可配置的自动 PaperRun");
+        }
+        await request(`/api/v1/execution/paper-runs/${autoPaperRunId}/auto-settings`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+        setActionMessage("自动开单设置已保存，并同步到风控档与策略规则。");
       }
       if (type === "carryBacktest") {
         const now = new Date();
@@ -180,12 +205,23 @@ export function PaperConsole() {
           onMirrorToggle={(enabled) => handleAction("toggleGatewayMirror", { enabled })}
           onRunCycle={() => handleAction("runAllCycles")}
         />
+        <AutoSettingsPanel
+          paperRunId={autoPaperRunId}
+          autoSettings={autoSettings}
+          onSave={(payload) => handleAction("saveAutoSettings", payload)}
+        />
         <FundingPanel
           signal={data.fundingSignal}
           onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })}
         />
         <Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={data.tradingStatus} />
         <DataSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} />
+        <MessageSourcesPanel
+          dataSources={data.dataSources}
+          intelligenceSignal={data.intelligenceSignal}
+          riskEvents={data.overview?.risk_events}
+        />
+        <OrderSyncPanel orderSync={data.orderSync} />
         <MarketIntelligencePanel signal={data.intelligenceSignal} />
         <DecisionDebugPanel decisionTrace={data.decisionTrace} />
       </section>

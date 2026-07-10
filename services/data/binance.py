@@ -26,6 +26,7 @@ from shared.models import (
 )
 
 from .repository import DataRepository
+from .universe import platform_to_exchange_symbol
 
 STABLE_OR_LEVERAGED_SUFFIXES = (
     "UP/USDT",
@@ -146,7 +147,15 @@ def spot_to_usdm_perp_symbol(symbol: str) -> str:
 def platform_symbol_to_binance_raw(symbol: str) -> str:
     """Convert platform symbols like BTC/USDT:USDT to Binance raw BTCUSDT."""
 
-    return symbol.replace(":USDT", "").replace("/", "").upper()
+    return platform_to_exchange_symbol(symbol)
+
+
+def fetch_usdm_exchange_info_symbols() -> list[dict[str, Any]]:
+    """Fetch Binance USD-M exchangeInfo symbols without requiring CCXT."""
+
+    payload = binance_urlopen_json(f"{binance_usdm_rest_base()}/fapi/v1/exchangeInfo")
+    symbols = payload.get("symbols") if isinstance(payload, Mapping) else None
+    return symbols if isinstance(symbols, list) else []
 
 
 def stream_symbol(symbol: str) -> str:

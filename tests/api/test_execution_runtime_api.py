@@ -7,6 +7,7 @@ from services.strategy_library import ExecutionRepository, HypothesisRepository,
 from shared.models import (
     BacktestReport,
     BacktestRun,
+    BacktestEngine,
     ExchangeAccountSnapshot,
     ExchangeGatewayCapability,
     GateDecision,
@@ -94,7 +95,7 @@ def _create_live_run(api_client, db_session) -> str:
             validation_methodology={"hypothesis_id": hypothesis.hypothesis_id},
             metrics_summary=BacktestReport(
                 strategy_id=strategy_id,
-                engine="freqtrade",
+                engine=BacktestEngine.FREQTRADE,
                 sharpe=1.8,
                 deflated_sharpe=1.4,
                 profit_factor=1.6,

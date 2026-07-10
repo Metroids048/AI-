@@ -5,27 +5,10 @@ from __future__ import annotations
 from shared.config import settings
 from shared.models import IngestionJob
 
+from .universe import FIXED_TOP20_SYMBOLS
+
 DEFAULT_BINANCE_TOP20 = [
-    "BTC/USDT",
-    "ETH/USDT",
-    "BNB/USDT",
-    "SOL/USDT",
-    "XRP/USDT",
-    "DOGE/USDT",
-    "ADA/USDT",
-    "TRX/USDT",
-    "AVAX/USDT",
-    "LINK/USDT",
-    "DOT/USDT",
-    "MATIC/USDT",
-    "LTC/USDT",
-    "BCH/USDT",
-    "UNI/USDT",
-    "ATOM/USDT",
-    "ETC/USDT",
-    "FIL/USDT",
-    "APT/USDT",
-    "ARB/USDT",
+    *FIXED_TOP20_SYMBOLS,
 ]
 
 

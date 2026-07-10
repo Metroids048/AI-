@@ -20,6 +20,7 @@ from services.data.binance import (
     BinanceCcxtClient,
     binance_usdm_ws_base,
     fetch_usdm_24h_tickers,
+    fetch_usdm_exchange_info_symbols,
     normalize_ws_kline_event_with_status,
     stream_symbol,
 )
@@ -217,10 +218,17 @@ async def stream_exchange_terminal(
 @router.get("/universe", response_model=CollectionResponse[MarketUniverseItem])
 def get_market_universe(
     limit: int = Query(default=20, ge=1, le=50),
+    mode: str = Query(default="dynamic", pattern="^(dynamic|fixed_top20)$"),
     db: Session = Depends(get_db_session),
 ) -> CollectionResponse[MarketUniverseItem]:
-    tickers = _fetch_binance_usdm_tickers() if settings.binance_live_universe_enabled else None
-    items = _market_service(db).get_market_universe(limit=limit, tickers=tickers)
+    tickers = _fetch_binance_usdm_tickers() if settings.binance_live_universe_enabled and mode == "dynamic" else None
+    exchange_info = _fetch_binance_exchange_info_symbols() if mode == "fixed_top20" else None
+    items = _market_service(db).get_market_universe(
+        limit=limit,
+        tickers=tickers,
+        mode=mode,
+        exchange_info_symbols=exchange_info,
+    )
     return CollectionResponse(items=items, total=len(items))
 
 
@@ -261,6 +269,13 @@ def _fetch_binance_usdm_tickers() -> list[dict] | None:
             return tickers if isinstance(tickers, list) else None
         except Exception:
             return None
+
+
+def _fetch_binance_exchange_info_symbols() -> list[dict] | None:
+    try:
+        return fetch_usdm_exchange_info_symbols()
+    except Exception:
+        return None
 
 
 def _websocket_token_is_valid(token: str) -> bool:

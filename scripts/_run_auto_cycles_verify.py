@@ -1,7 +1,6 @@
 """Run paper auto-cycles locally and print order/action evidence."""
 from __future__ import annotations
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -21,12 +20,11 @@ for key, value in dotenv_values(ROOT / ".env").items():
     if value is not None and key not in os.environ:
         os.environ[key] = value
 
-from services.database import get_session_factory, reset_database_caches  # noqa: E402
 from services.data import DataRepository  # noqa: E402
+from services.database import get_session_factory, reset_database_caches  # noqa: E402
 from services.execution.gatekeeper import ExecutionGatekeeperService  # noqa: E402
 from services.execution.gateway import configured_gateways  # noqa: E402
 from services.execution.paper_runtime import PaperRuntimeService  # noqa: E402
-from services.execution.tasks import run_all_paper_runtime_cycles  # noqa: E402
 from services.strategy_library import (  # noqa: E402
     AgentTaskRepository,
     ExecutionRepository,

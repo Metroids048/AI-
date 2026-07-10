@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
@@ -37,6 +38,7 @@ from services.strategy_library import (
 from services.validation.admission import ValidationAdmissionService
 from shared.models import (
     AdjustLeverageRequest,
+    AutoTradingSettings,
     BinanceTestnetAccountStatus,
     CancelOrderRequest,
     ClosePositionRequest,
@@ -59,6 +61,8 @@ from shared.models import (
     PaperRuntimeStatus,
     PositionSnapshot,
     ReconciliationRecord,
+    RiskProfileUpdate,
+    StrategyUpdate,
     TaskSubmission,
     TradingRuntimeStatus,
 )
@@ -331,6 +335,121 @@ def update_paper_run_execution_profile(
     return updated
 
 
+@router.patch("/paper-runs/{paper_run_id}/auto-settings", response_model=PaperRun)
+def update_paper_run_auto_settings(
+    paper_run_id: str,
+    body: AutoTradingSettings,
+    db: Session = Depends(get_db_session),
+) -> PaperRun:
+    run = _paper_repo(db).get_paper_run(paper_run_id)
+    if run is None:
+        raise not_found("paper_run", paper_run_id)
+
+    risk_profile_id = str(run.execution_profile.get("risk_profile_id") or "")
+    if risk_profile_id:
+        RiskProfileRepository(db).update_profile(
+            risk_profile_id,
+            RiskProfileUpdate(
+                single_trade_risk_limit=body.risk_per_trade,
+                max_symbol_exposure=body.max_symbol_exposure,
+                max_total_exposure=body.max_total_exposure,
+                max_open_positions=body.max_open_positions,
+                max_leverage=body.max_leverage,
+                daily_loss_limit=body.daily_loss_limit,
+                weekly_loss_limit=body.weekly_loss_limit,
+                hard_stop_drawdown_limit=body.hard_stop_drawdown_limit,
+                market_scope="Binance USDT-M fixed Top20",
+                config_source="frontend auto-settings",
+            ),
+        )
+
+    strategy_repo = StrategyRepository(db)
+    strategy = strategy_repo.get_strategy(run.strategy_id)
+    if strategy is not None:
+        position_rules = {
+            **strategy.rules.position_rules,
+            "risk_per_trade": body.risk_per_trade,
+            "max_leverage": body.max_leverage,
+            "max_position_fraction": body.max_symbol_exposure,
+        }
+        if body.order_notional_usdt is not None:
+            position_rules["order_notional_usdt"] = body.order_notional_usdt
+        else:
+            position_rules.pop("order_notional_usdt", None)
+        updated_rules = strategy.rules.model_copy(
+            update={
+                "entry_rules": {
+                    **strategy.rules.entry_rules,
+                    "strategy_lanes": body.strategy_lanes,
+                    "market_intelligence_enabled": body.market_intelligence_enabled,
+                },
+                "stoploss_rules": {**strategy.rules.stoploss_rules, **body.stoploss},
+                "takeprofit_rules": {**strategy.rules.takeprofit_rules, **body.takeprofit},
+                "position_rules": position_rules,
+            }
+        )
+        strategy_repo.update_strategy(run.strategy_id, StrategyUpdate(rules=updated_rules))
+
+    settings_payload = body.model_dump(mode="json")
+    history = list(run.paper_metrics_summary.get("auto_settings_history", []))[-49:]
+    history.append({"updated_at": datetime.now(UTC).isoformat(), "settings": settings_payload})
+    updated_profile = {
+        **run.execution_profile,
+        **settings_payload,
+        "mirror_to_gateway": body.execution_mode == "binance_simulation_first",
+        "auto_settings_updated_at": datetime.now(UTC).isoformat(),
+    }
+    updated_metrics = {**run.paper_metrics_summary, "auto_settings_history": history}
+    updated = _paper_repo(db).update_paper_run(
+        paper_run_id,
+        execution_profile=updated_profile,
+        paper_metrics_summary=updated_metrics,
+    )
+    if updated is None:
+        raise not_found("paper_run", paper_run_id)
+    return updated
+
+
+@router.get("/paper-runs/{paper_run_id}/order-sync", response_model=dict)
+def get_paper_run_order_sync(paper_run_id: str, db: Session = Depends(get_db_session)) -> dict:
+    run = _paper_repo(db).get_paper_run(paper_run_id)
+    if run is None:
+        raise not_found("paper_run", paper_run_id)
+    local_orders = [
+        order.model_dump(mode="json")
+        for order in _execution_repo(db).list_orders()
+        if order.paper_run_id == paper_run_id
+    ]
+    positions = [
+        position.model_dump(mode="json")
+        for position in _execution_repo(db).list_latest_positions_for_run(run_type="paper", run_id=paper_run_id)
+    ]
+    account = probe_testnet_account(order_limit=20)
+    gateway_by_id = {str(order.order_id): order.model_dump(mode="json") for order in account.recent_orders}
+    return {
+        "paper_run_id": paper_run_id,
+        "execution_mode": run.execution_profile.get("execution_mode"),
+        "local_orders": local_orders,
+        "gateway_recent_orders": list(gateway_by_id.values()),
+        "positions": positions,
+        "protection_order_refs": [
+            {
+                "order_execution_id": order.get("order_execution_id"),
+                "symbol": order.get("symbol"),
+                "refs": order.get("entry_context", {}).get("protection_order_refs", []),
+            }
+            for order in local_orders
+            if order.get("entry_context", {}).get("protection_order_refs")
+        ],
+        "unmatched_local_orders": [
+            order
+            for order in local_orders
+            if order.get("gateway_order_id") and str(order.get("gateway_order_id")) not in gateway_by_id
+        ],
+        "account": account.model_dump(mode="json"),
+    }
+
+
 @router.post("/paper-runs/{paper_run_id}/step", response_model=OrderExecution, status_code=status.HTTP_201_CREATED)
 def step_paper_run(
     paper_run_id: str,
@@ -397,6 +516,28 @@ def get_paper_decision_trace(paper_run_id: str, db: Session = Depends(get_db_ses
         "auto_paper_runtime_key": profile.get("auto_paper_runtime_key"),
         "candidate_symbols": run.candidate_symbols,
         "selection_basis": run.selection_basis,
+        "execution_profile": profile,
+        "auto_settings": {
+            key: profile.get(key)
+            for key in (
+                "execution_mode",
+                "max_leverage",
+                "risk_per_trade",
+                "order_notional_usdt",
+                "max_open_positions",
+                "max_symbols",
+                "max_symbol_exposure",
+                "max_total_exposure",
+                "daily_loss_limit",
+                "weekly_loss_limit",
+                "hard_stop_drawdown_limit",
+                "strategy_lanes",
+                "stoploss",
+                "takeprofit",
+                "llm_veto_enabled",
+                "market_intelligence_enabled",
+            )
+        },
         "last_cycle_at": metrics.get("last_cycle_at"),
         "last_scanned_symbols": metrics.get("last_scanned_symbols", []),
         "last_action_counts": metrics.get("last_action_counts", {}),

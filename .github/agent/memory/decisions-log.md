@@ -1,5 +1,12 @@
 # Decisions Log
 
+## ADR-046: Fixed Top20 automation uses Binance simulation-first sync and typed operator risk settings
+- Date: 2026-07-10
+- Status: accepted
+- Context: The operator observed that automatic trading was not opening orders and was not reliably scanning the intended top 20 coins. The previous automatic lane also overfit operator experience (`4h + 15m`) into default strategy behavior, while frontend controls did not expose enough real-time risk and order-sync settings.
+- Decision: Use a fixed operator Top20 universe for automatic Paper/Testnet cycles, with explicit Binance USD-M exchange-symbol mapping and runtime `exchangeInfo` tradability checks. Keep `4h_direction_15m_entry` only as disabled research strategy `operator_experience_4h_15m_v1`; default automation uses mature-template lanes that must pass Strategy -> Backtest/OOS -> PaperRun -> Binance simulation -> Review. Automatic gateway mode is `binance_simulation_first`: submit to Binance Testnet/Demo first and create local fills/positions/protection refs only after exchange success. Expose typed auto-trading settings in the Trading console and persist changes into PaperRun execution profile plus RiskProfile audit context.
+- Consequences: The automatic engine scans the intended universe and fails closed for untradable symbols or gateway errors. Operators can adjust leverage, sizing, max positions, max symbols, stoploss/takeprofit, LLM veto, and Market Intelligence toggles without editing code. No mainnet/live trading is enabled by this decision.
+
 ## ADR-045: Automatic Paper cycles never imply Binance/Testnet execution consent
 - Date: 2026-07-09
 - Status: accepted

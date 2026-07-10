@@ -79,10 +79,30 @@ class MarketUniverseItem(PlatformModel):
 
     symbol: str
     perp_symbol: str
+    display_symbol: str | None = None
+    exchange_symbol: str | None = None
+    tradable_status: str = "unknown"
+    reason: str | None = None
+    precision: dict[str, Any] = Field(default_factory=dict)
+    min_notional: Decimal | None = None
     quote_volume: float | None = None
     last_price: Decimal | None = None
     price_change_percent: float | None = None
     source: str = "fallback_default_top20"
+
+
+class UniverseAsset(PlatformModel):
+    """Fixed operator-approved auto-trading universe asset with exchange mapping."""
+
+    display_symbol: str
+    platform_symbol: str
+    perp_symbol: str
+    exchange_symbol: str
+    tradable_status: str = "unknown"
+    reason: str | None = None
+    precision: dict[str, Any] = Field(default_factory=dict)
+    min_notional: Decimal | None = None
+    source: str = "fixed_operator_top20"
 
 
 class FundingArbitrageSignal(PlatformModel):

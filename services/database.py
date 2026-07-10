@@ -53,6 +53,24 @@ def create_relational_schema(url: str | None = None) -> None:
     Base.metadata.create_all(get_engine(url))
 
 
+def create_local_runtime_schema(url: str) -> None:
+    """Initialize the complete local SQLite schema after relational migrations.
+
+    Production TimescaleDB owns the time-series and event tables through
+    ``infra/timescale/init.sql``. Local SQLite has no equivalent init hook, so
+    its console startup path must create those tables explicitly.
+    """
+
+    if not url.startswith("sqlite"):
+        raise ValueError("create_local_runtime_schema only supports SQLite URLs")
+
+    engine = get_engine(url)
+    Base.metadata.create_all(engine)
+    from services.data.repository import create_timeseries_schema
+
+    create_timeseries_schema(engine)
+
+
 def reset_database_caches() -> None:
     get_engine.cache_clear()
     get_session_factory.cache_clear()

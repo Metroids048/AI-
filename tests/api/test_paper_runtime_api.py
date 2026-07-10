@@ -4,13 +4,20 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from services.data import DataRepository
-from services.strategy_library import HypothesisRepository, ValidationRepository
+from services.strategy_library import (
+    HypothesisRepository,
+    RiskProfileRepository,
+    StrategyRepository,
+    ValidationRepository,
+)
 from shared.models import (
     BacktestReport,
     BacktestRun,
+    BacktestEngine,
     GateDecision,
     HypothesisRecord,
     PodRiskReport,
+    RiskProfile,
     ValidationBenchmarkResult,
 )
 
@@ -50,7 +57,7 @@ def _create_validated_paper_run(api_client, db_session) -> tuple[str, str]:
             execution_engine="freqtrade",
             metrics_summary=BacktestReport(
                 strategy_id=strategy_id,
-                engine="freqtrade",
+                engine=BacktestEngine.FREQTRADE,
                 sharpe=1.5,
                 deflated_sharpe=1.2,
                 profit_factor=1.4,
@@ -205,6 +212,53 @@ def test_paper_run_execution_profile_patch_preserves_existing_keys(api_client, d
     assert profile["mirror_to_gateway"] is True
     assert profile["account_equity"] == 10_000
     assert profile["equity_peak"] == 10_000
+
+
+def test_paper_run_auto_settings_updates_profile_and_strategy_rules(api_client, db_session) -> None:
+    strategy_id, paper_run_id = _create_validated_paper_run(api_client, db_session)
+    risk_profile = RiskProfile(risk_profile_id="auto-settings-risk")
+    RiskProfileRepository(db_session).create_profile(risk_profile)
+    attach_resp = api_client.patch(
+        f"/api/v1/execution/paper-runs/{paper_run_id}/execution-profile",
+        json={"risk_profile_id": "auto-settings-risk"},
+    )
+    assert attach_resp.status_code == 200
+
+    response = api_client.patch(
+        f"/api/v1/execution/paper-runs/{paper_run_id}/auto-settings",
+        json={
+            "execution_mode": "binance_simulation_first",
+            "max_leverage": 5,
+            "risk_per_trade": 0.01,
+            "order_notional_usdt": 120,
+            "max_open_positions": 5,
+            "max_symbols": 20,
+            "max_symbol_exposure": 0.15,
+            "max_total_exposure": 0.5,
+            "daily_loss_limit": 0.04,
+            "weekly_loss_limit": 0.08,
+            "hard_stop_drawdown_limit": 0.2,
+            "strategy_lanes": ["carry", "trend_breakout"],
+            "stoploss": {"atr_multiple": 2, "fixed_bps": 250},
+            "takeprofit": {"risk_reward": 2.5, "trail_after_r": 1.5},
+            "llm_veto_enabled": False,
+            "market_intelligence_enabled": True,
+        },
+    )
+
+    assert response.status_code == 200
+    profile = response.json()["execution_profile"]
+    assert profile["execution_mode"] == "binance_simulation_first"
+    assert profile["mirror_to_gateway"] is True
+    assert profile["max_open_positions"] == 5
+    stored_profile = RiskProfileRepository(db_session).get_profile("auto-settings-risk")
+    assert stored_profile is not None
+    assert stored_profile.max_leverage == 5
+    assert stored_profile.max_open_positions == 5
+    strategy = StrategyRepository(db_session).get_strategy(strategy_id)
+    assert strategy is not None
+    assert strategy.rules.position_rules["order_notional_usdt"] == 120
+    assert strategy.rules.entry_rules["strategy_lanes"] == ["carry", "trend_breakout"]
 
 
 def test_paper_runtime_auto_cycle_closes_position_on_opposite_signal(api_client, db_session) -> None:

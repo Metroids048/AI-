@@ -14,16 +14,24 @@ export function streamUrl(path) {
 }
 
 export async function request(path, options = {}) {
-  const response = await fetch(apiUrl(path), {
-    headers: {
-      "Content-Type": "application/json",
-      ...(ADMIN_API_TOKEN ? { Authorization: `Bearer ${ADMIN_API_TOKEN}` } : {}),
-      ...(options.headers ?? {}),
-    },
-    ...options,
-  });
+  let response;
+  try {
+    response = await fetch(apiUrl(path), {
+      headers: {
+        "Content-Type": "application/json",
+        ...(ADMIN_API_TOKEN ? { Authorization: `Bearer ${ADMIN_API_TOKEN}` } : {}),
+        ...(options.headers ?? {}),
+      },
+      ...options,
+    });
+  } catch {
+    throw new Error("服务暂时不可用，请稍后重试");
+  }
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
+    if (response.status >= 500) {
+      throw new Error("服务暂时不可用，请稍后重试");
+    }
     const message = payload?.message ?? payload?.detail ?? response.statusText;
     throw new Error(typeof message === "string" ? message : "请求失败");
   }

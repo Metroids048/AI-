@@ -8,6 +8,7 @@ from services.strategy_library import HypothesisRepository, ValidationRepository
 from shared.models import (
     BacktestReport,
     BacktestRun,
+    BacktestEngine,
     GateDecision,
     HypothesisRecord,
     PodRiskReport,
@@ -51,7 +52,7 @@ def _create_validated_strategy_and_paper_run(api_client, db_session) -> tuple[st
             execution_engine="freqtrade",
             metrics_summary=BacktestReport(
                 strategy_id=strategy_id,
-                engine="freqtrade",
+                engine=BacktestEngine.FREQTRADE,
                 sharpe=1.4,
                 deflated_sharpe=1.2,
                 profit_factor=1.4,
@@ -149,7 +150,7 @@ def test_paper_run_creation_rejects_when_promotion_evidence_is_incomplete(api_cl
             execution_engine="freqtrade",
             metrics_summary=BacktestReport(
                 strategy_id=strategy_id,
-                engine="freqtrade",
+                engine=BacktestEngine.FREQTRADE,
                 sharpe=1.6,
                 profit_factor=1.5,
                 max_drawdown=0.1,

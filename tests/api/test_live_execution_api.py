@@ -4,6 +4,7 @@ from services.strategy_library import HypothesisRepository, ValidationRepository
 from shared.models import (
     BacktestReport,
     BacktestRun,
+    BacktestEngine,
     GateDecision,
     HypothesisRecord,
     PodRiskReport,
@@ -44,7 +45,7 @@ def _create_live_admitted_backtest(api_client, db_session) -> tuple[str, str]:
             validation_methodology={"hypothesis_id": hypothesis.hypothesis_id},
             metrics_summary=BacktestReport(
                 strategy_id=strategy_id,
-                engine="freqtrade",
+                engine=BacktestEngine.FREQTRADE,
                 sharpe=1.8,
                 deflated_sharpe=1.4,
                 profit_factor=1.6,
@@ -120,7 +121,7 @@ def test_live_run_creation_requires_complete_promotion_evidence(api_client, db_s
             execution_engine="freqtrade",
             metrics_summary=BacktestReport(
                 strategy_id=strategy_id,
-                engine="freqtrade",
+                engine=BacktestEngine.FREQTRADE,
                 sharpe=1.7,
                 profit_factor=1.5,
                 max_drawdown=0.1,

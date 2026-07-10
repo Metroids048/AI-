@@ -148,7 +148,8 @@ class DecisionPipeline:
                 volatility={**volatility, "signal_count": 0},
             )
         market_intelligence_signal = None
-        if settings.market_intelligence_enabled:
+        strategy_allows_market_intelligence = bool(strategy.rules.entry_rules.get("market_intelligence_enabled", True))
+        if settings.market_intelligence_enabled and strategy_allows_market_intelligence:
             market_intelligence_signal = MarketIntelligenceService(data_repo=self.data_repo).build_signal(
                 symbol=symbol
             )

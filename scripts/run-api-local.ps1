@@ -36,6 +36,16 @@ if (-not $env:BINANCE_USDM_WS_BASE) { $env:BINANCE_USDM_WS_BASE = "wss://stream.
 
 Set-Location $Root
 py -3 -c "from services.database import reset_database_caches; reset_database_caches()" | Out-Null
+py -3 -m alembic upgrade head
+if ($LASTEXITCODE -ne 0) {
+    throw "Database migration failed; API will not start against an unknown schema."
+}
+if ($PostgresUrl -like "sqlite*") {
+    py -3 -c "from services.database import create_local_runtime_schema; create_local_runtime_schema('$PostgresUrl')"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Local runtime schema initialization failed; API will not start against an incomplete schema."
+    }
+}
 
 # Uvicorn logs to stderr; with Stop, PowerShell treats that as a terminating error and kills the API.
 $previousErrorAction = $ErrorActionPreference

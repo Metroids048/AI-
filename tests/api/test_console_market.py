@@ -13,12 +13,15 @@ from services.strategy_library import (
 from shared.models import (
     BacktestReport,
     BacktestRun,
+    BacktestEngine,
     GateDecision,
     MarketExtras,
     OrderExecution,
     PaperRun,
     PositionSnapshot,
     RiskEvent,
+    RiskEventType,
+    RiskSeverity,
     TradeSide,
 )
 
@@ -283,8 +286,8 @@ def test_console_overview_aggregates_execution_and_risk_state(api_client, db_ses
     data_repo.store_market_extras([MarketExtras(symbol="BTC/USDT:USDT", time=now, funding_rate=Decimal("0.0007"))])
     data_repo.store_risk_event(
         RiskEvent(
-            event_type="exchange_incident",
-            severity="high",
+            event_type=RiskEventType.EXCHANGE_INCIDENT,
+            severity=RiskSeverity.HIGH,
             source="manual",
             description="binance degradation",
             affected_scope=["BTC/USDT"],
@@ -298,7 +301,7 @@ def test_console_overview_aggregates_execution_and_risk_state(api_client, db_ses
             execution_engine="freqtrade",
             metrics_summary=BacktestReport(
                 strategy_id="strategy-console",
-                engine="freqtrade",
+                engine=BacktestEngine.FREQTRADE,
                 sharpe=1.2,
                 profit_factor=1.4,
                 max_drawdown=0.12,
@@ -359,8 +362,8 @@ def test_console_control_status_updates(api_client, db_session) -> None:
     )
     risk_event = DataRepository(db_session).store_risk_event(
         RiskEvent(
-            event_type="exchange_incident",
-            severity="high",
+            event_type=RiskEventType.EXCHANGE_INCIDENT,
+            severity=RiskSeverity.HIGH,
             source="manual",
             description="operator acknowledgement test",
         )

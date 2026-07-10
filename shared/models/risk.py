@@ -42,20 +42,20 @@ def medium_risk_profile() -> RiskProfile:
     """Operator medium preset: wider limits with total-exposure cap for Top20 auto trading."""
     return RiskProfile(
         risk_profile_id=MEDIUM_RISK_PROFILE_KEY,
-        single_trade_risk_limit=0.02,
+        single_trade_risk_limit=0.01,
         max_symbol_exposure=0.15,
-        max_total_exposure=0.80,
-        max_open_positions=10,
-        max_leverage=20.0,
-        daily_loss_limit=0.06,
-        weekly_loss_limit=0.12,
+        max_total_exposure=0.50,
+        max_open_positions=5,
+        max_leverage=5.0,
+        daily_loss_limit=0.04,
+        weekly_loss_limit=0.08,
         drawdown_limit=0.15,
-        hard_stop_drawdown_limit=0.30,
+        hard_stop_drawdown_limit=0.20,
         consecutive_loss_limit=6,
         api_failure_limit=5,
         api_failure_window_minutes=10,
         market_scope="Binance USDT-M Top20",
-        config_source="operator medium risk preset (auto paper + funding arb)",
+        config_source="operator medium risk preset (fixed Top20 Binance simulation)",
     )
 
 
