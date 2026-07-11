@@ -18,6 +18,14 @@ from shared.config import settings
 Runner = Callable[[], Any]
 
 
+def _preload_celery_task_api() -> None:
+    """Initialize Celery's lazy task exports before worker threads import task modules."""
+    from celery import shared_task
+
+    if not callable(shared_task):  # pragma: no cover - dependency contract guard
+        raise RuntimeError("Celery shared_task API is unavailable")
+
+
 @dataclass
 class RuntimeSchedulerStatus:
     mode: str = "inprocess"
@@ -93,6 +101,7 @@ class RuntimeScheduler:
     def start(self) -> None:
         if self.status.running:
             return
+        _preload_celery_task_api()
         self._stop_event = asyncio.Event()
         self.status.running = True
         self.status.started_at = datetime.now(UTC)

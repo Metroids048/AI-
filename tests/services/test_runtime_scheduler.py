@@ -4,11 +4,15 @@ import asyncio
 
 import pytest
 
-from services.execution.scheduler import RuntimeScheduler
+from services.execution.scheduler import RuntimeScheduler, _preload_celery_task_api
 
 
 def _raise_runtime_error(message: str) -> None:
     raise RuntimeError(message)
+
+
+def test_scheduler_preloads_celery_task_api_before_starting_threads() -> None:
+    _preload_celery_task_api()
 
 
 @pytest.mark.asyncio
