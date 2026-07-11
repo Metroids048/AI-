@@ -13,6 +13,7 @@ from services.data.binance import (
     platform_symbol_to_binance_raw,
     spot_to_usdm_perp_symbol,
     stream_symbol,
+    websocket_connect_options,
 )
 from services.data.tasks import enqueue_binance_ingestion
 
@@ -30,6 +31,17 @@ def test_top20_selector_prefers_liquid_usdt_pairs() -> None:
         limit=3,
     )
     assert symbols == ["BTC/USDT", "ETH/USDT", "BNB/USDT"]
+
+
+def test_websocket_connect_options_disable_ambient_proxy_when_supported() -> None:
+    def modern_connect(url, *, proxy="auto"):  # noqa: ARG001
+        return None
+
+    def legacy_connect(url):  # noqa: ARG001
+        return None
+
+    assert websocket_connect_options(modern_connect) == {"proxy": None}
+    assert websocket_connect_options(legacy_connect) == {}
 
 
 def test_normalize_ohlcv_rows() -> None:

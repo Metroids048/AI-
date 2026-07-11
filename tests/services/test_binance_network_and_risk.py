@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from shared.binance_network import binance_ccxt_config, binance_proxy_url
+from shared.binance_network import binance_ccxt_config, binance_proxy_url, binance_urlopen
 from shared.config import settings
 from shared.models.risk import MEDIUM_RISK_PROFILE_KEY, medium_risk_profile
 
@@ -16,6 +16,25 @@ def test_binance_proxy_url_prefers_https(monkeypatch) -> None:
     monkeypatch.setattr(settings, "binance_https_proxy", "http://127.0.0.1:7890")
     monkeypatch.setattr(settings, "binance_http_proxy", "http://127.0.0.1:1080")
     assert binance_proxy_url() == "http://127.0.0.1:7890"
+
+
+def test_binance_urlopen_disables_ambient_proxy_when_no_scoped_proxy(monkeypatch) -> None:
+    from shared import binance_network
+
+    captured = {}
+
+    class StubOpener:
+        def open(self, url, timeout):
+            captured.update(url=url, timeout=timeout)
+            return "response"
+
+    monkeypatch.setattr(settings, "binance_https_proxy", "")
+    monkeypatch.setattr(settings, "binance_http_proxy", "")
+    monkeypatch.setattr(binance_network, "ProxyHandler", lambda proxies: captured.update(proxies=proxies) or proxies)
+    monkeypatch.setattr(binance_network, "build_opener", lambda handler: StubOpener())
+
+    assert binance_urlopen("https://demo-fapi.binance.com/ping", timeout=3) == "response"
+    assert captured["proxies"] == {}
 
 
 def test_medium_risk_profile_supports_top20_auto_trading() -> None:

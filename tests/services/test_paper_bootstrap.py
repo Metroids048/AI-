@@ -10,6 +10,7 @@ from services.execution.bootstrap import (
     bootstrap_auto_trading_technical_paper_run,
     bootstrap_operator_experience_strategy,
     bootstrap_paper_testnet_mirror,
+    bootstrap_pause_legacy_paper_runs,
     default_mirror_to_gateway,
 )
 from services.execution.paper import PaperOrchestrationService
@@ -63,6 +64,22 @@ def test_bootstrap_paper_testnet_mirror_does_not_update_running_runs(db_session,
     updated = repo.get_paper_run(created.paper_run_id or "")
     assert updated is not None
     assert updated.execution_profile.get("mirror_to_gateway") is False
+
+
+def test_bootstrap_pauses_retired_technical_auto_run(db_session) -> None:
+    from services.strategy_library import PaperRunRepository
+
+    repo = PaperRunRepository(db_session)
+    retired = repo.create_paper_run(
+        PaperRun(
+            strategy_id="retired-strategy",
+            paper_status="running",
+            execution_profile={"auto_paper_runtime_key": "auto_paper_btc_technical"},
+        )
+    )
+
+    assert bootstrap_pause_legacy_paper_runs() == 1
+    assert repo.get_paper_run(retired.paper_run_id or "").paper_status == "paused"
 
 
 def test_bootstrap_creates_carry_and_directional_runs(db_session, monkeypatch) -> None:
@@ -133,3 +150,4 @@ def test_console_startup_preserves_operator_auto_execute_setting_and_rotates_log
     assert '$env:LOG_LEVEL = "INFO"' in api_script
     assert "create_relational_schema" not in console_script
     assert "adopt_complete_legacy_sqlite_schema" in api_script
+    assert "--no-access-log" in api_script
