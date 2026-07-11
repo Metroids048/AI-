@@ -1,5 +1,12 @@
 # Task History
 
+### [TASK-044] Merge Codex branch into main and sync GitHub
+- **Date**: 2026-07-12
+- **Type**: git hygiene / sync
+- **Summary**: Diagnosed push/pull confusion: local commits lived on `codex/fix-binance-top20-runtime` while `git push origin main` reported Everything up-to-date. Fast-forward merged 18 commits into `main`, pushed `130c174..3d754ee` to `origin/main`, deleted the local Codex branch. Repo policy going forward: work only on `main`.
+- **Verification**: `git status` clean; `main` tracks `origin/main` at `3d754ee`.
+- **Limits**: Remote Dependabot branches left untouched (dependency bumps, not Codex work). `gh` not authenticated for PR cleanup.
+
 ### [TASK-043] Implement Testnet Top20 acceptance, dual-leg funding carry, and the trading workbench
 - **Date**: 2026-07-11
 - **Type**: execution / risk / API / frontend / verification
