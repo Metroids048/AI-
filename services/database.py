@@ -6,7 +6,7 @@ import os
 from collections.abc import Generator
 from functools import lru_cache
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -51,6 +51,38 @@ def get_db_session() -> Generator[Session, None, None]:
 
 def create_relational_schema(url: str | None = None) -> None:
     Base.metadata.create_all(get_engine(url))
+
+
+def adopt_complete_legacy_sqlite_schema(url: str, *, head_revision: str) -> bool:
+    """Stamp a complete pre-Alembic SQLite schema without recreating its tables."""
+
+    if not url.startswith("sqlite"):
+        return False
+    engine = get_engine(url)
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    expected_tables = set(Base.metadata.tables)
+    if not expected_tables.issubset(existing_tables):
+        return False
+    for table_name, table in Base.metadata.tables.items():
+        existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+        if not {column.name for column in table.columns}.issubset(existing_columns):
+            return False
+
+    with engine.begin() as connection:
+        if "alembic_version" in existing_tables:
+            current_revision = connection.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).scalar()
+            if current_revision:
+                return False
+        else:
+            connection.execute(
+                text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")
+            )
+        connection.execute(
+            text("INSERT INTO alembic_version (version_num) VALUES (:revision)"),
+            {"revision": head_revision},
+        )
+    return True
 
 
 def create_local_runtime_schema(url: str) -> None:

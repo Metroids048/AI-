@@ -60,6 +60,12 @@ function Rotate-RuntimeLog {
     Move-Item -LiteralPath $Path -Destination "$Path.1" -Force
 }
 py -3 -c "from services.database import reset_database_caches; reset_database_caches()" | Out-Null
+if ($PostgresUrl -like "sqlite*") {
+    py -3 -c "from services.database import adopt_complete_legacy_sqlite_schema; print('legacy SQLite adopted' if adopt_complete_legacy_sqlite_schema('$PostgresUrl', head_revision='0006') else 'migration state unchanged')"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Legacy SQLite inspection failed; database was not modified."
+    }
+}
 py -3 -m alembic upgrade head
 if ($LASTEXITCODE -ne 0) {
     throw "Database migration failed; API will not start against an unknown schema."

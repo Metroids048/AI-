@@ -30,13 +30,14 @@ def test_adopt_complete_legacy_sqlite_schema_for_alembic_without_losing_data(tmp
         create_relational_schema(database_url)
         engine = get_engine(database_url)
         with engine.begin() as connection:
-            connection.execute(text("INSERT INTO strategies (strategy_id, strategy_key, source, core_thesis, rules) VALUES ('s1', 'legacy', 'manual', 'keep me', '{}')"))
+            connection.execute(text("CREATE TABLE legacy_marker (value VARCHAR(40) NOT NULL)"))
+            connection.execute(text("INSERT INTO legacy_marker (value) VALUES ('keep me')"))
 
         assert adopt_complete_legacy_sqlite_schema(database_url, head_revision="0006") is True
 
         with engine.connect() as connection:
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0006"
-            assert connection.execute(text("SELECT core_thesis FROM strategies WHERE strategy_id='s1'")).scalar_one() == "keep me"
+            assert connection.execute(text("SELECT value FROM legacy_marker")).scalar_one() == "keep me"
     finally:
         get_engine(database_url).dispose()
         reset_database_caches()

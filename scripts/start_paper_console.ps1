@@ -240,7 +240,6 @@ $binanceSpotRestBase = if ($env:BINANCE_SPOT_REST_BASE) { $env:BINANCE_SPOT_REST
 $binanceUsdmRestBase = if ($env:BINANCE_USDM_REST_BASE) { $env:BINANCE_USDM_REST_BASE } else { "" }
 $binanceSpotWsBase = if ($env:BINANCE_SPOT_WS_BASE) { $env:BINANCE_SPOT_WS_BASE } else { "" }
 $binanceUsdmWsBase = if ($env:BINANCE_USDM_WS_BASE) { $env:BINANCE_USDM_WS_BASE } else { "" }
-py -3 -c "from services.database import create_relational_schema, get_engine, reset_database_caches; from services.data.repository import create_timeseries_schema; reset_database_caches(); create_relational_schema(); create_timeseries_schema(get_engine()); print('schema ready')"
 
 $requiredNodeModules = @(
     "node_modules\@tanstack\react-query",

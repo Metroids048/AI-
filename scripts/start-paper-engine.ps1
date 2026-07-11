@@ -79,7 +79,6 @@ Set-Location $Root
 Write-Step "initializing local Paper database: $DatabasePath"
 $env:POSTGRES_URL = $SqliteUrl
 $env:LLM_USE_CATALOG_SEEDS_ONLY = if ($env:LLM_USE_CATALOG_SEEDS_ONLY) { $env:LLM_USE_CATALOG_SEEDS_ONLY } else { "true" }
-py -3 -c "from services.database import create_relational_schema, get_engine, reset_database_caches; from services.data.repository import create_timeseries_schema; reset_database_caches(); create_relational_schema(); create_timeseries_schema(get_engine()); print('schema ready')"
 
 Stop-ExistingProjectProcess $ApiPort "apps.api.main:app"
 

@@ -64,7 +64,6 @@ function Ensure-Runtime {
     $env:BINANCE_USE_TESTNET = "true"
     $env:RUNTIME_SCHEDULER_MODE = "inprocess"
     $env:RUNTIME_SCHEDULER_AUTOSTART = "true"
-    py -3 -c "from services.database import create_relational_schema, get_engine, reset_database_caches; from services.data.repository import create_timeseries_schema; reset_database_caches(); create_relational_schema(); create_timeseries_schema(get_engine())" 2>$null
 }
 
 $apiReady = Test-EndpointReady $ApiHealthUrl
