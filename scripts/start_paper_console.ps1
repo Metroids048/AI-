@@ -191,6 +191,9 @@ $envPath = Ensure-LocalEnvFile $Root
 if ($envPath) {
     Import-DotEnv $envPath | Out-Null
 }
+if (-not $env:BINANCE_HTTPS_PROXY -and $env:HTTPS_PROXY) {
+    $env:BINANCE_HTTPS_PROXY = $env:HTTPS_PROXY
+}
 if (-not $env:BINANCE_API_KEY -or -not $env:BINANCE_API_SECRET) {
     Write-Step "WARNING: BINANCE_API_KEY/SECRET not loaded — local Paper works, Testnet mirror and exchange records will not"
 }

@@ -59,6 +59,9 @@ function Ensure-Runtime {
     if (Test-Path -LiteralPath $envPath) {
         Import-DotEnv $envPath | Out-Null
     }
+    if (-not $env:BINANCE_HTTPS_PROXY -and $env:HTTPS_PROXY) {
+        $env:BINANCE_HTTPS_PROXY = $env:HTTPS_PROXY
+    }
     $env:POSTGRES_URL = $SqliteUrl
     $env:APP_ENV = "development"
     $env:BINANCE_USE_TESTNET = "true"

@@ -74,6 +74,9 @@ $envPath = Join-Path $Root ".env"
 if (Test-Path -LiteralPath $envPath) {
     Import-DotEnv $envPath | Out-Null
 }
+if (-not $env:BINANCE_HTTPS_PROXY -and $env:HTTPS_PROXY) {
+    $env:BINANCE_HTTPS_PROXY = $env:HTTPS_PROXY
+}
 
 Set-Location $Root
 Write-Step "initializing local Paper database: $DatabasePath"

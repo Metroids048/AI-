@@ -22,7 +22,7 @@ from services.execution import (
     PaperSignalGenerator,
     configured_gateways,
 )
-from services.execution.gateway import probe_testnet_account
+from services.execution.gateway import BinanceUsdtPerpetualGateway, probe_testnet_account
 from services.execution.manual_context import ManualTradingContextService
 from services.execution.scheduler import runtime_scheduler_status
 from services.strategy_library import (
@@ -141,9 +141,8 @@ def list_paper_runs(db: Session = Depends(get_db_session)) -> CollectionResponse
 
 @router.get("/trading-status", response_model=TradingRuntimeStatus)
 def get_trading_status() -> TradingRuntimeStatus:
-    gateway = configured_gateways()[0]
     credentials_configured = bool(settings.binance_api_key and settings.binance_api_secret)
-    gateway_available = credentials_configured and gateway.capability.supports_order_submit
+    gateway_available = credentials_configured and BinanceUsdtPerpetualGateway.capability.supports_order_submit
     if not settings.binance_use_testnet or settings.live_trading_enabled:
         auto_execution_state = "blocked_safety_boundary"
     elif not credentials_configured:
