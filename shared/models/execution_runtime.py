@@ -31,6 +31,10 @@ class TradingRuntimeStatus(PlatformModel):
     live_trading_enabled: bool
     credentials_configured: bool
     gateway_available: bool
+    auto_execute_enabled: bool = False
+    auto_execution_state: str = "monitoring_only"
+    fixed_top20_count: int = 20
+    backend_build_id: str = "development"
     supported_modes: list[str] = Field(default_factory=lambda: ["paper", "testnet"])
     scheduler_mode: str = "disabled"
     scheduler_running: bool = False

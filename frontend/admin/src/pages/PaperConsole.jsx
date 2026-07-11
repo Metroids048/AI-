@@ -160,7 +160,12 @@ export function PaperConsole() {
       />
       <section className="terminal-grid">
         <div className="market-rail">
-          <MarketList universe={data.universe} selectedSymbol={symbol} onSelect={handleSelectSymbol} />
+          <MarketList
+            universe={data.universe}
+            universeStatus={data.universeStatus}
+            selectedSymbol={symbol}
+            onSelect={handleSelectSymbol}
+          />
         </div>
         <div className="chart-rail">
           <KlinePanel

@@ -73,7 +73,7 @@ def _resolve_level() -> int:
 
 def configure_external_library_loggers() -> None:
     """Prevent HTTP wire logs from exposing exchange authentication material."""
-    for name in ("ccxt", "urllib3"):
+    for name in ("ccxt", "urllib3", "websockets", "httpx", "httpcore"):
         logging.getLogger(name).setLevel(logging.WARNING)
 
 

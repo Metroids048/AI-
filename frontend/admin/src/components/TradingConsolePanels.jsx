@@ -162,7 +162,7 @@ export function TestnetAccountPanel({ account }) {
   );
 }
 
-export function MarketList({ universe, selectedSymbol, onSelect }) {
+export function MarketList({ universe, universeStatus = "loading", selectedSymbol, onSelect }) {
   const rows = asArray(universe);
   return (
     <section className="exchange-panel market-list-panel">
@@ -183,14 +183,19 @@ export function MarketList({ universe, selectedSymbol, onSelect }) {
                 className={`market-row ${item.symbol === selectedSymbol ? "active" : ""}`}
                 onClick={() => onSelect(item.symbol, item.perp_symbol)}
               >
-                <span>{item.symbol}</span>
+                <span title={item.reason ?? ""}>
+                  {item.display_symbol ?? item.symbol}
+                  <small>{marketStatusLabel(item.tradable_status)}</small>
+                </span>
                 <span>{formatNumber(item.last_price)}</span>
                 <span className={change >= 0 ? "positive" : "negative"}>{formatNumber(change, 2)}%</span>
               </button>
             );
           })
         ) : (
-          <div className="empty-list">暂无市场列表</div>
+          <div className="empty-list">
+            {universeStatus === "error" ? "固定 Top20 市场列表加载失败" : "正在加载固定 Top20 市场列表"}
+          </div>
         )}
       </div>
     </section>
@@ -443,13 +448,27 @@ export function AutoEngineStatusBadge({ status }) {
   const eta = status?.next_cycle_eta_seconds;
   const etaLabel = Number.isFinite(Number(eta)) ? ` / 下次 ${formatEta(Number(eta))}` : "";
   const error = status?.scheduler_error ? ` / ${status.scheduler_error}` : "";
+  const executionLabel = {
+    armed: `Mock 自动下单已武装 / Top${status?.fixed_top20_count ?? 20} 监控中`,
+    monitoring_only: "仅监控，Mock 自动下单未开启",
+    blocked_missing_credentials: "缺少 Mock API 凭据",
+    blocked_gateway_unavailable: "Mock 下单网关不可用",
+    blocked_safety_boundary: "安全边界阻止自动下单",
+  }[status?.auto_execution_state];
   return (
     <div className={`auto-engine-badge ${running ? "positive" : "neutral"}`}>
       <span>{running ? "自动运行中" : "自动引擎停止"}</span>
       <strong>{status?.scheduler_mode ?? "disabled"}{running ? etaLabel : ""}</strong>
+      {executionLabel ? <em>{executionLabel}</em> : null}
       {error ? <em>{error}</em> : null}
     </div>
   );
+}
+
+function marketStatusLabel(status) {
+  if (status === "trading") return "可交易";
+  if (status && status !== "unknown") return "不可交易";
+  return "待校验";
 }
 
 export function OrdersTable({ orders, onCancel }) {

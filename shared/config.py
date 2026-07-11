@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     # ---- Application ----
     app_env: str = "development"
     app_name: str = "ai-quant-research-platform"
+    app_build_id: str = "development"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     admin_api_token: str = "dev-admin-token"

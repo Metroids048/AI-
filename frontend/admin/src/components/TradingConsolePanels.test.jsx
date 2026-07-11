@@ -62,10 +62,11 @@ describe("Trading console panels", () => {
   });
 
   it("shows an explicit loading state instead of a fake three-symbol universe", () => {
-    render(<MarketList selectedSymbol="BTC/USDT" universe={[]} onSelect={vi.fn()} />);
+    const view = render(<MarketList selectedSymbol="BTC/USDT" universe={[]} onSelect={vi.fn()} />);
+    const panel = within(view.container);
 
-    expect(screen.getByText("正在加载固定 Top20 市场列表")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /ETH\/USDT/ })).not.toBeInTheDocument();
+    expect(panel.getByText("正在加载固定 Top20 市场列表")).toBeInTheDocument();
+    expect(panel.queryByRole("button", { name: /ETH\/USDT/ })).not.toBeInTheDocument();
   });
 
   it("uses automatic Paper evidence and stoploss before open orders", () => {

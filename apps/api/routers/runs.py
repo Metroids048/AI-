@@ -142,6 +142,17 @@ def list_paper_runs(db: Session = Depends(get_db_session)) -> CollectionResponse
 def get_trading_status() -> TradingRuntimeStatus:
     gateway = configured_gateways()[0]
     credentials_configured = bool(settings.binance_api_key and settings.binance_api_secret)
+    gateway_available = credentials_configured and gateway.capability.supports_order_submit
+    if not settings.binance_use_testnet or settings.live_trading_enabled:
+        auto_execution_state = "blocked_safety_boundary"
+    elif not credentials_configured:
+        auto_execution_state = "blocked_missing_credentials"
+    elif not gateway_available:
+        auto_execution_state = "blocked_gateway_unavailable"
+    elif not settings.binance_auto_execute:
+        auto_execution_state = "monitoring_only"
+    else:
+        auto_execution_state = "armed"
     notes = ["secrets are never returned by this endpoint"]
     if not settings.binance_use_testnet:
         notes.append("binance_use_testnet is false; manual testnet trading is disabled by policy")
@@ -153,7 +164,11 @@ def get_trading_status() -> TradingRuntimeStatus:
         binance_use_testnet=settings.binance_use_testnet,
         live_trading_enabled=settings.live_trading_enabled,
         credentials_configured=credentials_configured,
-        gateway_available=credentials_configured and gateway.capability.supports_order_submit,
+        gateway_available=gateway_available,
+        auto_execute_enabled=settings.binance_auto_execute,
+        auto_execution_state=auto_execution_state,
+        fixed_top20_count=20,
+        backend_build_id=settings.app_build_id,
         scheduler_mode=scheduler_status.mode,
         scheduler_running=scheduler_status.running,
         last_auto_cycle_at=scheduler_status.last_auto_cycle_at,

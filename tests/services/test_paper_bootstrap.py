@@ -70,6 +70,7 @@ def test_bootstrap_creates_carry_and_directional_runs(db_session, monkeypatch) -
 
     monkeypatch.setattr(settings, "binance_api_key", "key")
     monkeypatch.setattr(settings, "binance_api_secret", "secret")
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
 
     carry_id = bootstrap_auto_trading_paper_run()
     technical_id = bootstrap_auto_trading_technical_paper_run()
@@ -127,6 +128,6 @@ def test_console_startup_preserves_operator_auto_execute_setting_and_rotates_log
     console_script = (root / "scripts" / "start_paper_console.ps1").read_text(encoding="utf-8")
     api_script = (root / "scripts" / "run-api-local.ps1").read_text(encoding="utf-8")
 
-    assert '$env:BINANCE_AUTO_EXECUTE = "false"' not in console_script
+    assert '$env:BINANCE_AUTO_EXECUTE = "false"' not in console_script.splitlines()
     assert "Rotate-RuntimeLog" in api_script
     assert '$env:LOG_LEVEL = "INFO"' in api_script

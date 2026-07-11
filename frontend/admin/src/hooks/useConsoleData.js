@@ -3,12 +3,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { request, streamUrl } from "../api/client";
 
 const MAX_TRADES = 80;
-const FALLBACK_UNIVERSE = [
-  { symbol: "BTC/USDT", perp_symbol: "BTC/USDT:USDT", source: "frontend_fallback" },
-  { symbol: "ETH/USDT", perp_symbol: "ETH/USDT:USDT", source: "frontend_fallback" },
-  { symbol: "SOL/USDT", perp_symbol: "SOL/USDT:USDT", source: "frontend_fallback" },
-];
-
 const asArray = (value) => (Array.isArray(value) ? value : []);
 
 export function useConsoleData(symbol, perpSymbol, timeframe) {
@@ -18,7 +12,8 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     candles: [],
     latestKline: null,
     candleSnapshotVersion: 0,
-    universe: FALLBACK_UNIVERSE,
+    universe: [],
+    universeStatus: "loading",
     tradingStatus: null,
     manualContext: null,
     fundingSignal: null,
@@ -178,9 +173,12 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
       (current, payload) => ({
         ...current,
         universe: payload?.items?.length ? payload.items : current.universe,
+        universeStatus: payload?.items?.length === 20 ? "ready" : "error",
       }),
       { showLoaded: false },
-    );
+    ).then((payload) => {
+      if (!payload) commit((current) => ({ ...current, universeStatus: "error" }));
+    });
     run(
       "/api/v1/execution/trading-status",
       (current, payload) => ({ ...current, tradingStatus: payload ?? current.tradingStatus }),

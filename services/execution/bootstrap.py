@@ -87,7 +87,12 @@ def binance_credentials_configured() -> bool:
 
 def default_mirror_to_gateway() -> bool:
     """Default new auto runs to Binance simulation-first only in the safe testnet boundary."""
-    return bool(binance_credentials_configured() and settings.binance_use_testnet and not settings.live_trading_enabled)
+    return bool(
+        binance_credentials_configured()
+        and settings.binance_auto_execute
+        and settings.binance_use_testnet
+        and not settings.live_trading_enabled
+    )
 
 
 def bootstrap_medium_risk_profile() -> str:

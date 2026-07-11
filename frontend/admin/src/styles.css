@@ -689,6 +689,16 @@ h2 {
   box-shadow: inset 3px 0 0 #d6a54b;
 }
 
+.market-row > span:first-child {
+  display: grid;
+  min-width: 0;
+}
+
+.market-row small {
+  color: #8c99a6;
+  font-size: 10px;
+}
+
 .book-side {
   display: grid;
   gap: 1px;

@@ -26,6 +26,11 @@ $env:BINANCE_LIVE_MARKET_ENABLED = "true"
 $env:BINANCE_LIVE_WS_ENABLED = "true"
 if (-not $env:BINANCE_LIVE_WS_SYMBOLS) { $env:BINANCE_LIVE_WS_SYMBOLS = "top20" }
 if (-not $env:PAPER_RUNTIME_ENABLE_DECISION_VETO) { $env:PAPER_RUNTIME_ENABLE_DECISION_VETO = "true" }
+if (-not $env:LOG_LEVEL) { $env:LOG_LEVEL = "INFO" }
+if (-not $env:APP_BUILD_ID) {
+    $env:APP_BUILD_ID = (git -C $Root rev-parse --short HEAD 2>$null)
+    if (-not $env:APP_BUILD_ID) { $env:APP_BUILD_ID = "development" }
+}
 # Skip outbound model-catalog discovery; use seed free models unless explicitly overridden.
 if (-not $env:LLM_USE_CATALOG_SEEDS_ONLY) { $env:LLM_USE_CATALOG_SEEDS_ONLY = "true" }
 
@@ -35,6 +40,25 @@ if (-not $env:BINANCE_SPOT_WS_BASE) { $env:BINANCE_SPOT_WS_BASE = "wss://data-st
 if (-not $env:BINANCE_USDM_WS_BASE) { $env:BINANCE_USDM_WS_BASE = "wss://stream.binancefuture.com/ws" }
 
 Set-Location $Root
+
+function Rotate-RuntimeLog {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [long]$MaxBytes = 10485760,
+        [int]$Retention = 5
+    )
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $file = Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+    if (-not $file -or $file.Length -lt $MaxBytes) { return }
+    for ($index = $Retention - 1; $index -ge 1; $index--) {
+        $source = "$Path.$index"
+        $target = "$Path.$($index + 1)"
+        if (Test-Path -LiteralPath $source) {
+            Move-Item -LiteralPath $source -Destination $target -Force
+        }
+    }
+    Move-Item -LiteralPath $Path -Destination "$Path.1" -Force
+}
 py -3 -c "from services.database import reset_database_caches; reset_database_caches()" | Out-Null
 py -3 -m alembic upgrade head
 if ($LASTEXITCODE -ne 0) {
@@ -52,7 +76,11 @@ $previousErrorAction = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
 try {
     if ($LogPath) {
-        py -3 -m uvicorn apps.api.main:app --host 127.0.0.1 --port $Port *>&1 | Out-File -FilePath $LogPath -Encoding utf8 -Append
+        Rotate-RuntimeLog -Path $LogPath
+        py -3 -m uvicorn apps.api.main:app --host 127.0.0.1 --port $Port *>&1 | ForEach-Object {
+            Rotate-RuntimeLog -Path $LogPath
+            Add-Content -LiteralPath $LogPath -Value $_ -Encoding utf8
+        }
     }
     else {
         py -3 -m uvicorn apps.api.main:app --host 127.0.0.1 --port $Port
