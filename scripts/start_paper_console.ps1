@@ -185,7 +185,9 @@ Set-Location $Root
 try {
 
 Write-Step "checking local runtimes"
-Assert-Command "py" "Install Python 3.11+ and make the py launcher available."
+if (-not $env:AGENT_PYTHON -or -not (Test-Path -LiteralPath $env:AGENT_PYTHON)) {
+    throw "AGENT_PYTHON is unavailable. Run verify-global-agent-stack.ps1 before starting the console."
+}
 Assert-Command "npm.cmd" "Install Node.js/npm before starting the frontend."
 $envPath = Ensure-LocalEnvFile $Root
 if ($envPath) {
@@ -210,7 +212,7 @@ $requiredPythonModules = @(
 )
 $missingPythonModules = @()
 foreach ($moduleName in $requiredPythonModules) {
-    py -3 -c "import $moduleName" 2>$null
+    & $env:AGENT_PYTHON -c "import $moduleName" 2>$null
     if ($LASTEXITCODE -ne 0) {
         $missingPythonModules += $moduleName
     }
@@ -218,9 +220,9 @@ foreach ($moduleName in $requiredPythonModules) {
 
 if ($missingPythonModules.Count -gt 0) {
     Write-Step "installing Python project dependencies; missing: $($missingPythonModules -join ', ')"
-    py -3 -m pip install -e .
+    & $env:AGENT_PYTHON -m pip install -e .
     if ($LASTEXITCODE -ne 0) {
-        throw "Python dependency install failed. Run: py -3 -m pip install -e ."
+        throw "Python dependency install failed. Run: `$env:AGENT_PYTHON -m pip install -e ."
     }
 }
 

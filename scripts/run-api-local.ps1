@@ -9,6 +9,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "load-dotenv.ps1")
+if (-not $env:AGENT_PYTHON -or -not (Test-Path -LiteralPath $env:AGENT_PYTHON)) {
+    throw "AGENT_PYTHON is unavailable. Run verify-global-agent-stack.ps1 before starting the API."
+}
 $envPath = Join-Path $Root ".env"
 Import-DotEnv $envPath | Out-Null
 
@@ -59,19 +62,19 @@ function Rotate-RuntimeLog {
     }
     Move-Item -LiteralPath $Path -Destination "$Path.1" -Force
 }
-py -3 -c "from services.database import reset_database_caches; reset_database_caches()" | Out-Null
+& $env:AGENT_PYTHON -c "from services.database import reset_database_caches; reset_database_caches()" | Out-Null
 if ($PostgresUrl -like "sqlite*") {
-    py -3 -c "from services.database import adopt_complete_legacy_sqlite_schema; print('legacy SQLite adopted' if adopt_complete_legacy_sqlite_schema('$PostgresUrl', head_revision='0006') else 'migration state unchanged')"
+    & $env:AGENT_PYTHON -c "from services.database import adopt_complete_legacy_sqlite_schema; print('legacy SQLite adopted' if adopt_complete_legacy_sqlite_schema('$PostgresUrl', head_revision='0006') else 'migration state unchanged')"
     if ($LASTEXITCODE -ne 0) {
         throw "Legacy SQLite inspection failed; database was not modified."
     }
 }
-py -3 -m alembic upgrade head
+& $env:AGENT_PYTHON -m alembic upgrade head
 if ($LASTEXITCODE -ne 0) {
     throw "Database migration failed; API will not start against an unknown schema."
 }
 if ($PostgresUrl -like "sqlite*") {
-    py -3 -c "from services.database import create_local_runtime_schema; create_local_runtime_schema('$PostgresUrl')"
+    & $env:AGENT_PYTHON -c "from services.database import create_local_runtime_schema; create_local_runtime_schema('$PostgresUrl')"
     if ($LASTEXITCODE -ne 0) {
         throw "Local runtime schema initialization failed; API will not start against an incomplete schema."
     }
@@ -83,13 +86,13 @@ $ErrorActionPreference = "Continue"
 try {
     if ($LogPath) {
         Rotate-RuntimeLog -Path $LogPath
-        py -3 -m uvicorn apps.api.main:app --host 127.0.0.1 --port $Port --no-access-log --log-level warning *>&1 | ForEach-Object {
+        & $env:AGENT_PYTHON -m uvicorn apps.api.main:app --host 127.0.0.1 --port $Port --no-access-log --log-level warning *>&1 | ForEach-Object {
             Rotate-RuntimeLog -Path $LogPath
             Add-Content -LiteralPath $LogPath -Value $_ -Encoding utf8
         }
     }
     else {
-        py -3 -m uvicorn apps.api.main:app --host 127.0.0.1 --port $Port --no-access-log --log-level warning
+        & $env:AGENT_PYTHON -m uvicorn apps.api.main:app --host 127.0.0.1 --port $Port --no-access-log --log-level warning
     }
 }
 finally {
