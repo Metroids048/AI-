@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from time import monotonic, sleep
 
 from services.data import DataRepository
 from services.data.binance import BinanceUniverseSelector
@@ -60,6 +61,24 @@ def test_fixed_top20_universe_api_uses_operator_order_and_pepe_contract(api_clie
     assert body["items"][-1]["exchange_symbol"] == "1000PEPEUSDT"
     assert body["items"][-1]["display_symbol"] == "PEPE (1000PEPE contract)"
     assert body["items"][-1]["tradable_status"] == "trading"
+
+
+def test_fixed_top20_universe_does_not_block_on_slow_exchange_info(api_client, monkeypatch) -> None:
+    from apps.api.routers import market as market_router
+
+    def slow_exchange_info():
+        sleep(2)
+        return []
+
+    monkeypatch.setattr(market_router, "fetch_usdm_exchange_info_symbols", slow_exchange_info)
+    market_router.reset_exchange_info_cache()
+    started = monotonic()
+
+    response = api_client.get("/api/v1/market/universe?limit=20&mode=fixed_top20")
+
+    assert monotonic() - started < 1.5
+    assert response.status_code == 200
+    assert response.json()["total"] == 20
 
 
 def test_funding_arbitrage_signal_rejects_negative_net_edge(api_client, db_session) -> None:
