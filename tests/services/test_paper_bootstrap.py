@@ -131,3 +131,5 @@ def test_console_startup_preserves_operator_auto_execute_setting_and_rotates_log
     assert '$env:BINANCE_AUTO_EXECUTE = "false"' not in console_script.splitlines()
     assert "Rotate-RuntimeLog" in api_script
     assert '$env:LOG_LEVEL = "INFO"' in api_script
+    assert "create_relational_schema" not in console_script
+    assert "adopt_complete_legacy_sqlite_schema" in api_script
