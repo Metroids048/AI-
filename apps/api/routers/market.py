@@ -5,9 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Mapping
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import UTC, datetime
 from decimal import Decimal
 from hmac import compare_digest
+from threading import Lock
+from time import monotonic
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, WebSocket, status
@@ -43,6 +47,14 @@ from shared.models import (
 )
 
 router = APIRouter(prefix="/market", tags=["market"])
+
+_EXCHANGE_INFO_TTL_SECONDS = 300.0
+_EXCHANGE_INFO_WAIT_SECONDS = 0.25
+_exchange_info_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="binance-exchange-info")
+_exchange_info_lock = Lock()
+_exchange_info_future: Future[list[dict[str, Any]]] | None = None
+_exchange_info_cache: list[dict[str, Any]] | None = None
+_exchange_info_cached_at = 0.0
 
 
 def _market_service(db: Session) -> MarketQueryService:
@@ -272,10 +284,42 @@ def _fetch_binance_usdm_tickers() -> list[dict] | None:
 
 
 def _fetch_binance_exchange_info_symbols() -> list[dict] | None:
+    global _exchange_info_cache, _exchange_info_cached_at, _exchange_info_future
+
+    now = monotonic()
+    with _exchange_info_lock:
+        if _exchange_info_cache is not None and now - _exchange_info_cached_at < _EXCHANGE_INFO_TTL_SECONDS:
+            return _exchange_info_cache
+        if _exchange_info_future is None:
+            _exchange_info_future = _exchange_info_executor.submit(fetch_usdm_exchange_info_symbols)
+        future = _exchange_info_future
     try:
-        return fetch_usdm_exchange_info_symbols()
+        result = future.result(timeout=_EXCHANGE_INFO_WAIT_SECONDS)
+    except FutureTimeoutError:
+        return _exchange_info_cache
     except Exception:
-        return None
+        with _exchange_info_lock:
+            if _exchange_info_future is future:
+                _exchange_info_future = None
+        return _exchange_info_cache
+    with _exchange_info_lock:
+        _exchange_info_cache = result
+        _exchange_info_cached_at = monotonic()
+        if _exchange_info_future is future:
+            _exchange_info_future = None
+    return result
+
+
+def reset_exchange_info_cache() -> None:
+    """Reset the short-lived exchangeInfo cache for tests and explicit refreshes."""
+
+    global _exchange_info_cache, _exchange_info_cached_at, _exchange_info_future
+    with _exchange_info_lock:
+        if _exchange_info_future is not None:
+            _exchange_info_future.cancel()
+        _exchange_info_future = None
+        _exchange_info_cache = None
+        _exchange_info_cached_at = 0.0
 
 
 def _websocket_token_is_valid(token: str) -> bool:
