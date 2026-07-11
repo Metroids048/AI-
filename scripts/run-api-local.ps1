@@ -83,13 +83,13 @@ $ErrorActionPreference = "Continue"
 try {
     if ($LogPath) {
         Rotate-RuntimeLog -Path $LogPath
-        py -3 -m uvicorn apps.api.main:app --host 127.0.0.1 --port $Port *>&1 | ForEach-Object {
+        py -3 -m uvicorn apps.api.main:app --host 127.0.0.1 --port $Port --no-access-log *>&1 | ForEach-Object {
             Rotate-RuntimeLog -Path $LogPath
             Add-Content -LiteralPath $LogPath -Value $_ -Encoding utf8
         }
     }
     else {
-        py -3 -m uvicorn apps.api.main:app --host 127.0.0.1 --port $Port
+        py -3 -m uvicorn apps.api.main:app --host 127.0.0.1 --port $Port --no-access-log
     }
 }
 finally {

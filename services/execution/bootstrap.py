@@ -414,7 +414,7 @@ def bootstrap_seed_multi_timeframe_ohlcv() -> int:
 
 
 def bootstrap_pause_legacy_paper_runs() -> int:
-    """Pause old manual PaperRuns without auto_paper_runtime_key (they block/veto auto lanes)."""
+    """Pause old manual and explicitly retired PaperRuns that duplicate active lanes."""
     from services.database import get_session_factory
     from services.strategy_library import PaperRunRepository
 
@@ -424,13 +424,14 @@ def bootstrap_pause_legacy_paper_runs() -> int:
         for run in repo.list_paper_runs():
             if run.paper_status != "running":
                 continue
-            if run.execution_profile.get("auto_paper_runtime_key"):
+            runtime_key = run.execution_profile.get("auto_paper_runtime_key")
+            if runtime_key and runtime_key != "auto_paper_btc_technical":
                 continue
             repo.update_paper_run(run.paper_run_id or "", paper_status="paused")
             paused += 1
         session.commit()
     if paused:
-        logger.info("paused %s legacy paper run(s) without auto_paper_runtime_key", paused)
+        logger.info("paused %s legacy or retired paper run(s)", paused)
     return paused
 
 

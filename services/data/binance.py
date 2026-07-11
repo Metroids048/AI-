@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -161,6 +162,16 @@ def fetch_usdm_exchange_info_symbols() -> list[dict[str, Any]]:
 def stream_symbol(symbol: str) -> str:
     base = symbol.replace(":USDT", "").replace("/", "")
     return base.lower()
+
+
+def websocket_connect_options(connect: Callable[..., Any]) -> dict[str, Any]:
+    """Disable ambient proxy discovery on websockets versions that support it."""
+
+    try:
+        parameters = inspect.signature(connect).parameters
+    except (TypeError, ValueError):
+        return {}
+    return {"proxy": None} if "proxy" in parameters else {}
 
 
 def fetch_usdm_24h_tickers() -> list[dict[str, Any]]:
@@ -759,7 +770,12 @@ class BinanceLiveMarketCollector:
             import websockets
         except ImportError as exc:  # pragma: no cover - depends on runtime extras
             raise RuntimeError("websockets package is required for Binance live collectors") from exc
-        async with websockets.connect(url, ping_interval=20, ping_timeout=20) as websocket:
+        async with websockets.connect(
+            url,
+            ping_interval=20,
+            ping_timeout=20,
+            **websocket_connect_options(websockets.connect),
+        ) as websocket:
             async for ws_message in websocket:
                 message_text = ws_message.decode("utf-8") if isinstance(ws_message, bytes) else str(ws_message)
                 yield json.loads(message_text)

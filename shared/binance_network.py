@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from urllib.request import ProxyHandler, build_opener, urlopen
+from urllib.request import ProxyHandler, build_opener
 
 from shared.config import settings
 
@@ -33,10 +33,9 @@ def binance_ccxt_config(base: dict[str, Any] | None = None) -> dict[str, Any]:
 def binance_urlopen(url: str, *, timeout: float = 5):  # noqa: ANN201
     """Open a Binance REST URL, optionally via BINANCE_HTTPS_PROXY."""
     proxy = binance_proxy_url()
-    if proxy:
-        opener = build_opener(ProxyHandler({"http": proxy, "https": proxy}))
-        return opener.open(url, timeout=timeout)
-    return urlopen(url, timeout=timeout)  # noqa: S310
+    proxies = {"http": proxy, "https": proxy} if proxy else {}
+    opener = build_opener(ProxyHandler(proxies))
+    return opener.open(url, timeout=timeout)
 
 
 def binance_urlopen_json(url: str, *, timeout: float = 5) -> Any:

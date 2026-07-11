@@ -104,7 +104,6 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
         const runs = asArray(paperRunsPayload?.items);
         const autoRun =
           runs.find((run) => run.execution_profile?.auto_paper_runtime_key === "auto_paper_mature_templates") ??
-          runs.find((run) => run.execution_profile?.auto_paper_runtime_key === "auto_paper_btc_technical") ??
           runs.find((run) => (run.candidate_symbols?.length ?? 0) >= 20) ??
           runs.at(-1);
         if (!autoRun?.paper_run_id || refreshId.current !== currentRefresh) return;
