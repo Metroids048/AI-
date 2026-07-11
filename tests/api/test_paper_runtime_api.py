@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from services.data import DataRepository
 from services.strategy_library import (
+    ExecutionRepository,
     HypothesisRepository,
     RiskProfileRepository,
     StrategyRepository,
@@ -14,8 +15,11 @@ from shared.models import (
     BacktestReport,
     BacktestRun,
     BacktestEngine,
+    BinanceTestnetAccountStatus,
+    BinanceTestnetOrderView,
     GateDecision,
     HypothesisRecord,
+    OrderExecution,
     PodRiskReport,
     RiskProfile,
     ValidationBenchmarkResult,
@@ -259,6 +263,61 @@ def test_paper_run_auto_settings_updates_profile_and_strategy_rules(api_client, 
     assert strategy is not None
     assert strategy.rules.position_rules["order_notional_usdt"] == 120
     assert strategy.rules.entry_rules["strategy_lanes"] == ["carry", "trend_breakout"]
+
+
+def test_order_sync_reconciles_non_btc_orders_across_fixed_top20(api_client, db_session, monkeypatch) -> None:
+    from apps.api.routers import runs as runs_router
+
+    strategy_id, paper_run_id = _create_validated_paper_run(api_client, db_session)
+    ExecutionRepository(db_session).create_order(
+        OrderExecution(
+            strategy_id=strategy_id,
+            paper_run_id=paper_run_id,
+            symbol="ETH/USDT",
+            direction="long",
+            execution_status="filled",
+            stoploss_present=True,
+            gateway_order_id="eth-order-1",
+            gateway_status="filled",
+        )
+    )
+    monkeypatch.setattr(
+        runs_router,
+        "probe_testnet_account",
+        lambda order_limit=20: BinanceTestnetAccountStatus(
+            connected=True,
+            recent_orders=[
+                BinanceTestnetOrderView(
+                    order_id="eth-order-1",
+                    symbol="ETH/USDT",
+                    side="buy",
+                    order_type="market",
+                    status="filled",
+                    quantity=0.01,
+                ),
+                BinanceTestnetOrderView(
+                    order_id="sol-external-1",
+                    symbol="SOL/USDT",
+                    side="sell",
+                    order_type="market",
+                    status="filled",
+                    quantity=1,
+                ),
+            ],
+        ),
+    )
+
+    response = api_client.get(f"/api/v1/execution/paper-runs/{paper_run_id}/order-sync")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["symbol_summary"]) == 20
+    eth = next(item for item in body["symbol_summary"] if item["symbol"] == "ETH/USDT")
+    sol = next(item for item in body["symbol_summary"] if item["symbol"] == "SOL/USDT")
+    assert eth["matched_order_count"] == 1
+    assert sol["unmatched_gateway_order_count"] == 1
+    assert body["matched_local_order_count"] == 1
+    assert [item["order_id"] for item in body["unmatched_gateway_orders"]] == ["sol-external-1"]
 
 
 def test_paper_runtime_auto_cycle_closes_position_on_opposite_signal(api_client, db_session) -> None:

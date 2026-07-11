@@ -12,7 +12,7 @@ import {
   TradingTicket,
 } from "./TradingConsolePanels";
 import { AppShell } from "./Common";
-import { AutoSettingsPanel } from "./RuntimePanels";
+import { AutoSettingsPanel, OrderSyncPanel } from "./RuntimePanels";
 
 const manualContext = {
   strategy_id: "strategy-manual",
@@ -177,6 +177,28 @@ describe("Trading console panels", () => {
     expect(screen.getByText("自动运行中")).toBeInTheDocument();
     expect(screen.getByText("inprocess / 下次 00:42")).toBeInTheDocument();
     expect(screen.getByText("Mock 自动下单已武装 / Top20 监控中")).toBeInTheDocument();
+  });
+
+  it("shows matched and unmatched Binance order reconciliation", () => {
+    const view = render(
+      <OrderSyncPanel
+        orderSync={{
+          execution_mode: "binance_simulation_first",
+          local_orders: [],
+          gateway_recent_orders: [],
+          positions: [],
+          protection_order_refs: [],
+          matched_local_order_count: 2,
+          unmatched_local_orders: [{ order_execution_id: "local-1" }],
+          unmatched_gateway_orders: [{ order_id: "gateway-1" }],
+        }}
+      />,
+    );
+    const panel = within(view.container);
+
+    expect(panel.getByText("已匹配：2")).toBeInTheDocument();
+    expect(panel.getByText("本地未匹配：1")).toBeInTheDocument();
+    expect(panel.getByText("Binance 未匹配：1")).toBeInTheDocument();
   });
 
   it("shows an explicit unavailable state instead of implying REST polling", () => {
