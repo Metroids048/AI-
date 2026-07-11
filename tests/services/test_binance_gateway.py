@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from services.execution.gateway import BinanceUsdtPerpetualGateway, configured_gateways
+from services.data.universe import FIXED_TOP20_SYMBOLS
+from services.execution.gateway import BinanceUsdtPerpetualGateway, _normalize_binance_symbol, configured_gateways
 from shared.config import settings
 from shared.models import ExecutionOrderRequest, TradeSide
 
@@ -10,6 +11,7 @@ from shared.models import ExecutionOrderRequest, TradeSide
 class StubCcxtClient:
     def __init__(self) -> None:
         self.leverage_calls: list[tuple[int, str]] = []
+        self.open_order_symbols: list[str | None] = []
         self.algo_orders: list[dict] = []
         self.created_orders: list[dict] = []
         self.urls = {
@@ -62,8 +64,18 @@ class StubCcxtClient:
         assert order_id == "binance-order-1"
         return {"id": order_id, "status": "canceled"}
 
-    def fetch_open_orders(self):
+    def fetch_open_orders(self, symbol=None):  # noqa: ANN001
+        self.open_order_symbols.append(symbol)
         return []
+
+    def fetch_ticker(self, symbol):  # noqa: ANN001
+        assert symbol == "BTC/USDT:USDT"
+        return {"last": 60_000.0}
+
+
+def test_binance_gateway_normalizes_platform_contract_aliases() -> None:
+    assert _normalize_binance_symbol("BTC/USDT") == "BTC/USDT:USDT"
+    assert _normalize_binance_symbol("PEPE/USDT") == "1000PEPE/USDT:USDT"
 
 
 def test_configured_gateways_keeps_disabled_gateway_available_without_credentials(monkeypatch) -> None:
@@ -113,6 +125,96 @@ def test_binance_gateway_maps_account_order_cancel_and_reconcile() -> None:
     assert reconciled["reconciliation_status"] == "ok"
 
 
+def test_binance_gateway_exposes_acceptance_adapter_without_bypassing_submit_order() -> None:
+    class EmptyAccountClient(StubCcxtClient):
+        def fetch_positions(self):
+            return []
+
+        def create_order(self, symbol, order_type, side, amount, price=None, params=None):  # noqa: ANN001
+            self.created_orders.append(
+                {
+                    "symbol": symbol,
+                    "order_type": order_type,
+                    "side": side,
+                    "amount": amount,
+                    "price": price,
+                    "params": params,
+                }
+            )
+            return {"id": f"binance-order-{len(self.created_orders)}", "status": "closed"}
+
+    client = EmptyAccountClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+
+    assert gateway.preflight() == {"open_orders": [], "open_positions": []}
+    assert client.open_order_symbols == [_normalize_binance_symbol(symbol) for symbol in FIXED_TOP20_SYMBOLS]
+    assert gateway.account_equity() == 1180.0
+    assert gateway.fetch_last_price("BTC/USDT") == 60_000.0
+
+    opened = gateway.submit_acceptance_order(
+        symbol="BTC/USDT",
+        side="buy",
+        requested_notional=600,
+        reference_price=60_000,
+        reduce_only=False,
+        stoploss_price=58_500,
+        idempotency_key="accept-btc-open",
+    )
+    closed = gateway.submit_acceptance_order(
+        symbol="BTC/USDT",
+        side="sell",
+        requested_notional=600,
+        reference_price=60_000,
+        reduce_only=True,
+        stoploss_price=None,
+        idempotency_key="accept-btc-close",
+    )
+
+    assert opened["gateway_status"] == "filled"
+    assert opened["quantity"] == 0.01
+    assert opened["reduce_only"] is False
+    assert client.created_orders[0]["params"]["stopLoss"]["triggerPrice"] == 58_500
+    assert closed["reduce_only"] is True
+    assert client.created_orders[1]["params"]["reduceOnly"] is True
+    assert gateway.final_state() == {"open_orders": [], "open_positions": []}
+
+
+def test_binance_gateway_exposes_perp_carry_leg_adapter() -> None:
+    class CarryClient(StubCcxtClient):
+        def fetch_positions(self):
+            return []
+
+        def create_order(self, symbol, order_type, side, amount, price=None, params=None):  # noqa: ANN001
+            self.created_orders.append({"side": side, "amount": amount, "params": params})
+            return {"id": f"carry-{len(self.created_orders)}", "status": "closed"}
+
+    client = CarryClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+
+    entered = gateway.submit_carry_order(
+        symbol="BTC/USDT:USDT",
+        side="sell",
+        notional_usdt=600,
+        quantity=0.01,
+        reduce_only=False,
+        idempotency_key="carry-perp-entry",
+    )
+    closed = gateway.submit_carry_order(
+        symbol="BTC/USDT:USDT",
+        side="buy",
+        notional_usdt=600,
+        quantity=0.01,
+        reduce_only=True,
+        idempotency_key="carry-perp-exit",
+    )
+
+    assert entered["side"] == "sell"
+    assert client.created_orders[0]["side"] == "sell"
+    assert closed["reduce_only"] is True
+    assert client.created_orders[1]["side"] == "buy"
+    assert client.created_orders[1]["params"]["reduceOnly"] is True
+
+
 def test_binance_gateway_close_only_inverts_position_side() -> None:
     client = StubCcxtClient()
     gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
@@ -143,7 +245,7 @@ def test_binance_gateway_rejects_far_protection_price_before_entry(monkeypatch) 
             order_request=ExecutionOrderRequest(
                 strategy_id="strategy-1",
                 symbol="BTC/USDT",
-            direction=TradeSide.LONG,
+                direction=TradeSide.LONG,
                 stoploss_plan={"price": 60000},
                 takeprofit_plan={"price": 70000},
                 entry_context={"order_type": "market", "quantity": 0.001, "reference_price": 61675.14},
@@ -160,7 +262,7 @@ def test_binance_gateway_propagates_stable_client_order_id_from_idempotency_key(
     request = ExecutionOrderRequest(
         strategy_id="strategy-1",
         symbol="BTC/USDT",
-            direction=TradeSide.LONG,
+        direction=TradeSide.LONG,
         stoploss_plan={"price": 59000},
         takeprofit_plan={"price": 62000},
         entry_context={"order_type": "market", "quantity": 0.01},
@@ -187,7 +289,7 @@ def test_binance_gateway_rejects_below_min_notional_before_exchange_submit() -> 
             order_request=ExecutionOrderRequest(
                 strategy_id="strategy-1",
                 symbol="BTC/USDT",
-            direction=TradeSide.LONG,
+                direction=TradeSide.LONG,
                 stoploss_plan={"price": 95},
                 takeprofit_plan={"price": 105},
                 entry_context={

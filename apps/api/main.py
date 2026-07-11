@@ -47,19 +47,28 @@ def _should_start_inprocess_scheduler() -> bool:
     return not (os.getenv("PYTEST_CURRENT_TEST") or ".pytest_ai_quant" in os.getenv("POSTGRES_URL", ""))
 
 
+def _is_local_console_api_only() -> bool:
+    """Keep the desktop console responsive; scheduled work remains operator-triggered."""
+    return os.getenv("PAPER_CONSOLE_API_ONLY", "false").lower() == "true"
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     scheduler = None
     seed_task: asyncio.Task[int] | None = None
     ingest_task: asyncio.Task[dict] | None = None
-    # ponytail: skip blocking OHLCV seed so /health is ready for one-click browser open.
-    bootstrap_local_paper_runtime(seed_ohlcv=False)
-    if _should_start_inprocess_scheduler():
+    # The one-click desktop console must not consume its request workers with
+    # a Top20 cycle or outbound feeds before the operator opens the workspace.
+    local_api_only = _is_local_console_api_only()
+    if not local_api_only:
+        bootstrap_local_paper_runtime(seed_ohlcv=False)
+    if not local_api_only and _should_start_inprocess_scheduler():
         scheduler = RuntimeScheduler()
         set_runtime_scheduler(scheduler)
         scheduler.start()
-        seed_task = asyncio.create_task(asyncio.to_thread(bootstrap_seed_multi_timeframe_ohlcv))
-        ingest_task = asyncio.create_task(asyncio.to_thread(bootstrap_poll_information_sources))
+        if os.getenv("PAPER_CONSOLE_SKIP_BACKGROUND_BOOTSTRAP", "false").lower() != "true":
+            seed_task = asyncio.create_task(asyncio.to_thread(bootstrap_seed_multi_timeframe_ohlcv))
+            ingest_task = asyncio.create_task(asyncio.to_thread(bootstrap_poll_information_sources))
     try:
         yield
     finally:

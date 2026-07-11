@@ -68,8 +68,8 @@ class AgentTaskService:
         self._executors[("decision_veto_agent", "pre_execution_veto")] = self._handle_deterministic_veto
         self._executors[("review_agent", "summarize_failures")] = self._handle_summarize_failures
 
-    def list_tasks(self) -> list[AgentTask]:
-        return self.agent_repo.list_tasks()
+    def list_tasks(self, *, limit: int = 50) -> list[AgentTask]:
+        return self.agent_repo.list_tasks(limit=limit)
 
     def get_task(self, agent_task_id: str) -> AgentTask | None:
         return self.agent_repo.get_task(agent_task_id)

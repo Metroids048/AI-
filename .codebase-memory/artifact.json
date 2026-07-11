@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "ae75e7e7e0747ad2a3a89b971dc068c834bd220d",
+    "indexed_at": "2026-07-11T15:47:06Z",
+    "project": "ai_quant_research_platform",
+    "nodes": 3187,
+    "edges": 15803,
+    "original_size": 5963776,
+    "compressed_size": 805609,
+    "compression_level": 9
+}

@@ -95,7 +95,7 @@ select {
 table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
+  table-layout: auto;
 }
 
 th,
@@ -104,7 +104,8 @@ td {
   padding: 9px 8px;
   text-align: left;
   vertical-align: top;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 th {
@@ -585,6 +586,114 @@ h2 {
   align-items: stretch;
 }
 
+.trading-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.55fr) minmax(560px, 1.8fr) minmax(320px, 0.8fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.records-workspace {
+  height: 440px;
+  min-height: 440px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 0;
+  overflow: hidden;
+}
+
+.records-workspace-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid #202a35;
+  overflow-x: auto;
+}
+
+.records-workspace-tabs button {
+  min-width: 92px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.records-workspace-tabs button.active {
+  border-color: rgba(22, 199, 132, 0.85);
+  background: #10241d;
+}
+
+.records-workspace-tabs button span {
+  margin-left: 6px;
+  color: #8c99a6;
+}
+
+.records-workspace-scroll {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+
+.records-workspace-scroll .exchange-panel {
+  border: 0;
+  padding: 0;
+}
+
+.records-workspace-scroll table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #0d141b;
+}
+
+.workspace-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 10px;
+}
+
+.acceptance-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.acceptance-actions > div {
+  border: 1px solid #25303c;
+  padding: 10px;
+}
+
+.acceptance-actions strong,
+.acceptance-actions p {
+  display: block;
+  margin: 0 0 8px;
+}
+
+.risk-tier-preview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.risk-tier-preview > div {
+  border: 1px solid #25303c;
+  padding: 8px;
+}
+
+.risk-tier-preview span,
+.risk-tier-preview strong {
+  display: block;
+  font-size: 12px;
+}
+
+.risk-tier-preview span { color: #8c99a6; }
+.risk-tier-preview strong { margin-top: 4px; color: #f5f7fa; }
+
+.acceptance-actions p {
+  color: #8c99a6;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .market-rail,
 .book-rail,
 .chart-rail,
@@ -893,6 +1002,7 @@ h2 {
   .topbar,
   .market-header,
   .terminal-grid,
+  .trading-workspace-grid,
   .execution-grid,
   .records-grid,
   .ops-grid {
@@ -919,6 +1029,11 @@ h2 {
   .terminal-grid .book-rail {
     order: 4;
   }
+
+  .records-workspace {
+    height: 520px;
+    min-height: 520px;
+  }
 }
 
 @media (max-width: 720px) {
@@ -934,7 +1049,13 @@ h2 {
   .ticket-actions,
   .funding-metrics,
   .marker-strip,
-  .rejection-list {
+    .rejection-list {
+    grid-template-columns: 1fr;
+  }
+
+  .acceptance-actions,
+  .workspace-panel-grid,
+  .risk-tier-preview {
     grid-template-columns: 1fr;
   }
 

@@ -1200,6 +1200,7 @@ class ReviewRepository:
         strategy_id: str | None = None,
         idea_id: str | None = None,
         failure_type: str | None = None,
+        limit: int = 50,
     ) -> list[FailureRecord]:
         query = self.session.query(models.FailureRecord)
         if strategy_id is not None:
@@ -1208,7 +1209,7 @@ class ReviewRepository:
             query = query.filter(models.FailureRecord.idea_id == idea_id)
         if failure_type is not None:
             query = query.filter(models.FailureRecord.failure_type == failure_type)
-        rows = query.order_by(models.FailureRecord.created_at).all()
+        rows = query.order_by(models.FailureRecord.created_at.desc()).limit(limit).all()
         return [_failure_record_from_orm(row) for row in rows]
 
     def create_failure(self, record: FailureRecord) -> FailureRecord:
@@ -1240,8 +1241,8 @@ class AgentTaskRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def list_tasks(self) -> list[AgentTask]:
-        rows = self.session.query(models.AgentTask).order_by(models.AgentTask.created_at).all()
+    def list_tasks(self, *, limit: int = 50) -> list[AgentTask]:
+        rows = self.session.query(models.AgentTask).order_by(models.AgentTask.created_at.desc()).limit(limit).all()
         return [_agent_task_from_orm(row) for row in rows]
 
     def get_task(self, agent_task_id: str) -> AgentTask | None:

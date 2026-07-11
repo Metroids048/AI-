@@ -1,9 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
 import { request } from "../api/client";
 import { asArray, formatTime } from "../utils/format";
 
 export function ReviewCenter() {
+  const queryClient = useQueryClient();
+  const [actionMessage, setActionMessage] = useState("");
   const reviews = useQuery({
     queryKey: ["review-reports"],
     queryFn: () => request("/api/v1/reviews"),
@@ -11,7 +14,7 @@ export function ReviewCenter() {
   });
   const failures = useQuery({
     queryKey: ["review-failures"],
-    queryFn: () => request("/api/v1/failures"),
+    queryFn: () => request("/api/v1/failures?limit=50"),
     refetchInterval: 15000,
   });
   const decisions = useQuery({
@@ -35,12 +38,27 @@ export function ReviewCenter() {
   const decisionRows = asArray(decisions.data?.items);
   const newsRows = asArray(news.data?.items);
 
+  const generateTodayReview = async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      await request(`/api/v1/reviews/daily/${today}`, { method: "POST", body: "{}" });
+      setActionMessage("今日复盘已生成，失败模式与建议已回写。" );
+      await queryClient.invalidateQueries({ queryKey: ["review-reports"] });
+    } catch (err) {
+      setActionMessage(`生成复盘失败：${err.message}`);
+    }
+  };
+
   return (
     <main className="app-shell page-shell">
       <header className="page-header">
         <p className="eyebrow">Review Layer</p>
         <h1>复盘中心</h1>
       </header>
+      <section className="form-row">
+        <button type="button" onClick={generateTodayReview}>生成今日复盘</button>
+        {actionMessage ? <span className="action-line">{actionMessage}</span> : null}
+      </section>
 
       <section className="ops-grid">
         <FeedPanel

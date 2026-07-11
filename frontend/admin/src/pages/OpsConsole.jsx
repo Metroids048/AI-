@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { request } from "../api/client";
 import { StatusPill } from "../components/Common";
@@ -7,6 +7,7 @@ import { AutoEngineStatusBadge } from "../components/TradingConsolePanels";
 import { asArray, formatTime } from "../utils/format";
 
 export function OpsConsole() {
+  const queryClient = useQueryClient();
   const health = useQuery({
     queryKey: ["ops-dependency-health"],
     queryFn: () => request("/api/v1/system/health/dependencies"),
@@ -34,8 +35,12 @@ export function OpsConsole() {
   });
   const intelligence = useQuery({
     queryKey: ["ops-market-intelligence"],
-    queryFn: () => request("/api/v1/market-intelligence/refresh?symbol=BTC/USDT", { method: "POST" }),
+    queryFn: () => request("/api/v1/market-intelligence/signals?symbol=BTC/USDT"),
     refetchInterval: 30000,
+  });
+  const refreshIntelligence = useMutation({
+    mutationFn: () => request("/api/v1/market-intelligence/refresh?symbol=BTC/USDT", { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ops-market-intelligence"] }),
   });
   const notifications = useQuery({
     queryKey: ["ops-notifications"],
@@ -63,6 +68,11 @@ export function OpsConsole() {
       </header>
 
       <AutoEngineStatusBadge status={tradingStatus.data} />
+      <section className="form-row">
+        <button type="button" onClick={() => refreshIntelligence.mutate()} disabled={refreshIntelligence.isPending}>
+          {refreshIntelligence.isPending ? "刷新中" : "刷新市场情报"}
+        </button>
+      </section>
 
       <section className="status-row ops-status-row">
         <StatusPill label="系统健康" value={health.data?.status ?? "loading"} tone={health.data?.status === "ok" ? "ok" : "warn"} />

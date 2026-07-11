@@ -1,5 +1,6 @@
 """Execution layer package."""
 
+from .carry_execution import CarryExecutionService
 from .gatekeeper import ExecutionGatekeeperService
 from .gateway import BinanceUsdtPerpetualGateway, ExchangeGateway, NullExchangeGateway, configured_gateways
 from .kill_switch import KillSwitch, get_kill_switch
@@ -8,6 +9,8 @@ from .manual import ManualTradingService
 from .paper import PAPER_PRIORITY_SYMBOLS, PaperOrchestrationService
 from .paper_runtime import PaperRuntimeService
 from .paper_signal import PaperSignalGenerator
+from .spot_gateway import BinanceSpotTestnetGateway
+from .testnet_acceptance import TestnetAcceptanceService
 
 __all__ = [
     "BinanceUsdtPerpetualGateway",
@@ -23,4 +26,7 @@ __all__ = [
     "PaperOrchestrationService",
     "PaperRuntimeService",
     "PaperSignalGenerator",
+    "BinanceSpotTestnetGateway",
+    "CarryExecutionService",
+    "TestnetAcceptanceService",
 ]

@@ -22,11 +22,19 @@ $env:BINANCE_USE_TESTNET = "true"
 $env:LIVE_TRADING_ENABLED = "false"
 $env:RUNTIME_SCHEDULER_MODE = "inprocess"
 $env:RUNTIME_SCHEDULER_AUTOSTART = "true"
+if ($env:PAPER_CONSOLE_API_ONLY -eq "true") {
+    $env:RUNTIME_SCHEDULER_AUTOSTART = "false"
+    $env:BINANCE_LIVE_UNIVERSE_ENABLED = "false"
+    $env:BINANCE_LIVE_MARKET_ENABLED = "false"
+}
 $env:PAPER_RUNTIME_CYCLE_SECONDS = if ($env:PAPER_RUNTIME_CYCLE_SECONDS) { $env:PAPER_RUNTIME_CYCLE_SECONDS } else { "60" }
 $env:BINANCE_AUTO_EXECUTE = if ($env:BINANCE_AUTO_EXECUTE) { $env:BINANCE_AUTO_EXECUTE } else { "false" }
 $env:BINANCE_LIVE_UNIVERSE_ENABLED = "true"
 $env:BINANCE_LIVE_MARKET_ENABLED = "true"
 $env:BINANCE_LIVE_WS_ENABLED = "true"
+if ($env:PAPER_CONSOLE_DISABLE_LIVE_WS -eq "true") {
+    $env:BINANCE_LIVE_WS_ENABLED = "false"
+}
 if (-not $env:BINANCE_LIVE_WS_SYMBOLS) { $env:BINANCE_LIVE_WS_SYMBOLS = "top20" }
 if (-not $env:PAPER_RUNTIME_ENABLE_DECISION_VETO) { $env:PAPER_RUNTIME_ENABLE_DECISION_VETO = "true" }
 if (-not $env:LOG_LEVEL) { $env:LOG_LEVEL = "INFO" }
@@ -85,15 +93,12 @@ $previousErrorAction = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
 try {
     if ($LogPath) {
-        Rotate-RuntimeLog -Path $LogPath
-        & $env:AGENT_PYTHON -m uvicorn apps.api.main:app --host 127.0.0.1 --port $Port --no-access-log --log-level warning *>&1 | ForEach-Object {
-            Rotate-RuntimeLog -Path $LogPath
-            Add-Content -LiteralPath $LogPath -Value $_ -Encoding utf8
-        }
+        # Avoid every PowerShell output relay for the long-running ASGI process.
+        # On Windows, redirected/piped child streams can leave Uvicorn listening
+        # while its synchronous request handlers stop receiving execution time.
+        Add-Content -LiteralPath $LogPath -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [paper-console] API process started" -Encoding utf8
     }
-    else {
-        & $env:AGENT_PYTHON -m uvicorn apps.api.main:app --host 127.0.0.1 --port $Port --no-access-log --log-level warning
-    }
+    & $env:AGENT_PYTHON -m apps.api.local_server --host 127.0.0.1 --port $Port --log-level warning
 }
 finally {
     $ErrorActionPreference = $previousErrorAction

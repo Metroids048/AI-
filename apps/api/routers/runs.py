@@ -11,10 +11,14 @@ from sqlalchemy.orm import Session
 from apps.api.config import settings
 from apps.api.http import api_error, collection_response, not_found
 from services.data import DataRepository
+from services.data.binance import BinanceCcxtClient
 from services.data.live_feed_bus import live_feed_bus
+from services.data.market import MarketQueryService
 from services.data.universe import FIXED_TOP20_SYMBOLS, exchange_to_platform_symbol
 from services.database import get_db_session
 from services.execution import (
+    BinanceSpotTestnetGateway,
+    CarryExecutionService,
     ExecutionGatekeeperService,
     LiveExecutionService,
     ManualTradingService,
@@ -25,6 +29,8 @@ from services.execution import (
 from services.execution.gateway import BinanceUsdtPerpetualGateway, probe_testnet_account
 from services.execution.manual_context import ManualTradingContextService
 from services.execution.scheduler import runtime_scheduler_status
+from services.execution.spot_gateway import spot_demo_credentials_configured
+from services.execution.testnet_acceptance import TestnetAcceptanceService
 from services.strategy_library import (
     AgentTaskRepository,
     ExecutionRepository,
@@ -39,9 +45,12 @@ from services.strategy_library import (
 from services.validation.admission import ValidationAdmissionService
 from shared.models import (
     AdjustLeverageRequest,
+    AgentTask,
     AutoTradingSettings,
     BinanceTestnetAccountStatus,
     CancelOrderRequest,
+    CarryExecutionRequest,
+    CarryExecutionStatus,
     ClosePositionRequest,
     CollectionResponse,
     ExchangeAccountSnapshot,
@@ -65,6 +74,9 @@ from shared.models import (
     RiskProfileUpdate,
     StrategyUpdate,
     TaskSubmission,
+    TestnetAcceptanceRunRequest,
+    TestnetAcceptanceRunResult,
+    TestnetAcceptanceRunStatus,
     TradingRuntimeStatus,
 )
 
@@ -134,6 +146,47 @@ def _manual_context_service(db: Session) -> ManualTradingContextService:
     )
 
 
+def _testnet_acceptance_service() -> TestnetAcceptanceService:
+    return TestnetAcceptanceService(gateway=BinanceUsdtPerpetualGateway(use_testnet=True))
+
+
+def _carry_execution_service() -> CarryExecutionService:
+    return CarryExecutionService(
+        spot_gateway=BinanceSpotTestnetGateway(),
+        perp_gateway=BinanceUsdtPerpetualGateway(use_testnet=True),
+    )
+
+
+def _carry_signal(db: Session, body: CarryExecutionRequest):  # noqa: ANN201
+    client = BinanceCcxtClient() if settings.binance_live_market_enabled else None
+    return MarketQueryService(DataRepository(db), binance_client=client).get_funding_arbitrage_signal(
+        symbol=body.symbol,
+        perp_symbol=body.perp_symbol,
+        timeframe=body.timeframe,
+    )
+
+
+def _acceptance_status(task: AgentTask) -> TestnetAcceptanceRunStatus:
+    result = TestnetAcceptanceRunResult.model_validate(task.output_payload) if task.output_payload else None
+    return TestnetAcceptanceRunStatus(
+        run_id=task.agent_task_id or "",
+        run_status=task.task_status,
+        result=result,
+        error_summary=task.error_summary,
+    )
+
+
+def _carry_status(task: AgentTask) -> CarryExecutionStatus:
+    if task.output_payload:
+        return CarryExecutionStatus.model_validate(task.output_payload)
+    return CarryExecutionStatus(
+        run_id=task.agent_task_id or "",
+        run_status=task.task_status,
+        carry_state="planned",
+        error_summary=task.error_summary,
+    )
+
+
 @router.get("/paper-runs", response_model=CollectionResponse[PaperRun])
 def list_paper_runs(db: Session = Depends(get_db_session)) -> CollectionResponse[PaperRun]:
     return collection_response(_paper_repo(db).list_paper_runs())
@@ -177,6 +230,190 @@ def get_trading_status() -> TradingRuntimeStatus:
         live_feed_status=live_feed_bus.status(),
         notes=notes,
     )
+
+
+@router.post(
+    "/testnet-acceptance-runs",
+    response_model=TestnetAcceptanceRunStatus,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_testnet_acceptance_run(
+    body: TestnetAcceptanceRunRequest,
+    db: Session = Depends(get_db_session),
+) -> TestnetAcceptanceRunStatus:
+    if (
+        not settings.binance_use_testnet
+        or settings.live_trading_enabled
+        or not settings.binance_api_key
+        or not settings.binance_api_secret
+    ):
+        raise api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="testnet_acceptance_preflight_failed",
+            message=(
+                "Testnet acceptance requires testnet mode, live trading disabled, "
+                "Binance Demo/Testnet credentials. A Binance proxy is optional."
+            ),
+        )
+    repo = AgentTaskRepository(db)
+    if body.idempotency_key:
+        existing = next(
+            (
+                task
+                for task in repo.list_tasks()
+                if task.task_type == "testnet_acceptance" and task.input_ref == body.idempotency_key
+            ),
+            None,
+        )
+        if existing is not None:
+            return _acceptance_status(existing)
+    task = repo.create_task(
+        AgentTask(
+            agent_type="execution_agent",
+            task_type="testnet_acceptance",
+            input_ref=body.idempotency_key,
+            input_payload=body.model_dump(mode="json"),
+            task_status="running",
+            executor_name="binance_testnet_acceptance",
+        )
+    )
+    try:
+        result = _testnet_acceptance_service().run(body)
+    except Exception as exc:  # noqa: BLE001
+        task = (
+            repo.update_task(
+                task.agent_task_id or "",
+                task_status="failed",
+                error_summary=str(exc),
+            )
+            or task
+        )
+        return _acceptance_status(task)
+    task = (
+        repo.update_task(
+            task.agent_task_id or "",
+            task_status=result.run_status,
+            output_payload=result.model_dump(mode="json"),
+            error_summary=result.error_summary,
+            schema_validation_status="valid",
+        )
+        or task
+    )
+    return _acceptance_status(task)
+
+
+@router.get("/testnet-acceptance-runs/{run_id}", response_model=TestnetAcceptanceRunStatus)
+def get_testnet_acceptance_run(
+    run_id: str,
+    db: Session = Depends(get_db_session),
+) -> TestnetAcceptanceRunStatus:
+    task = AgentTaskRepository(db).get_task(run_id)
+    if task is None or task.task_type != "testnet_acceptance":
+        raise not_found("testnet_acceptance_run", run_id)
+    return _acceptance_status(task)
+
+
+@router.post("/testnet-acceptance-runs/{run_id}/cancel", response_model=TestnetAcceptanceRunStatus)
+def cancel_testnet_acceptance_run(
+    run_id: str,
+    db: Session = Depends(get_db_session),
+) -> TestnetAcceptanceRunStatus:
+    repo = AgentTaskRepository(db)
+    task = repo.get_task(run_id)
+    if task is None or task.task_type != "testnet_acceptance":
+        raise not_found("testnet_acceptance_run", run_id)
+    if task.task_status not in {"queued", "running"}:
+        raise api_error(
+            status_code=status.HTTP_409_CONFLICT,
+            error_code="testnet_acceptance_not_cancellable",
+            message=f"Acceptance run cannot be cancelled from {task.task_status}.",
+        )
+    updated = repo.update_task(run_id, task_status="cancelled") or task
+    return _acceptance_status(updated)
+
+
+@router.post(
+    "/carry-executions",
+    response_model=CarryExecutionStatus,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_carry_execution(
+    body: CarryExecutionRequest,
+    db: Session = Depends(get_db_session),
+) -> CarryExecutionStatus:
+    if (
+        not settings.binance_use_testnet
+        or settings.live_trading_enabled
+        or not settings.binance_api_key
+        or not settings.binance_api_secret
+        or not spot_demo_credentials_configured()
+    ):
+        raise api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="carry_execution_preflight_failed",
+            message=(
+                "Dual-leg Carry requires the existing Binance Demo credentials (or an explicit "
+                "Spot override), testnet mode, and live trading disabled. A proxy is optional."
+            ),
+        )
+    repo = AgentTaskRepository(db)
+    if body.idempotency_key:
+        existing = next(
+            (
+                task
+                for task in repo.list_tasks()
+                if task.task_type == "carry_execution" and task.input_ref == body.idempotency_key
+            ),
+            None,
+        )
+        if existing is not None:
+            return _carry_status(existing)
+    task = repo.create_task(
+        AgentTask(
+            agent_type="execution_agent",
+            task_type="carry_execution",
+            input_ref=body.idempotency_key,
+            input_payload=body.model_dump(mode="json"),
+            task_status="running",
+            executor_name="binance_dual_leg_carry",
+        )
+    )
+    try:
+        signal = _carry_signal(db, body)
+        result = _carry_execution_service().run(body, signal=signal)
+    except Exception as exc:  # noqa: BLE001
+        task = (
+            repo.update_task(
+                task.agent_task_id or "",
+                task_status="failed",
+                error_summary=str(exc),
+            )
+            or task
+        )
+        return _carry_status(task)
+    result = result.model_copy(update={"run_id": task.agent_task_id or result.run_id})
+    task = (
+        repo.update_task(
+            task.agent_task_id or "",
+            task_status=result.run_status,
+            output_payload=result.model_dump(mode="json"),
+            error_summary=result.error_summary,
+            schema_validation_status="valid",
+        )
+        or task
+    )
+    return _carry_status(task)
+
+
+@router.get("/carry-executions/{run_id}", response_model=CarryExecutionStatus)
+def get_carry_execution(
+    run_id: str,
+    db: Session = Depends(get_db_session),
+) -> CarryExecutionStatus:
+    task = AgentTaskRepository(db).get_task(run_id)
+    if task is None or task.task_type != "carry_execution":
+        raise not_found("carry_execution", run_id)
+    return _carry_status(task)
 
 
 @router.get("/binance-testnet-account", response_model=BinanceTestnetAccountStatus)
@@ -441,20 +678,14 @@ def get_paper_run_order_sync(paper_run_id: str, db: Session = Depends(get_db_ses
     ]
     account = probe_testnet_account(order_limit=20, order_symbols=list(FIXED_TOP20_SYMBOLS))
     gateway_by_id = {str(order.order_id): order.model_dump(mode="json") for order in account.recent_orders}
-    local_gateway_ids = {
-        str(order["gateway_order_id"])
-        for order in local_orders
-        if order.get("gateway_order_id")
-    }
+    local_gateway_ids = {str(order["gateway_order_id"]) for order in local_orders if order.get("gateway_order_id")}
     unmatched_local_orders = [
         order
         for order in local_orders
         if order.get("gateway_order_id") and str(order.get("gateway_order_id")) not in gateway_by_id
     ]
     unmatched_gateway_orders = [
-        order
-        for gateway_id, order in gateway_by_id.items()
-        if gateway_id not in local_gateway_ids
+        order for gateway_id, order in gateway_by_id.items() if gateway_id not in local_gateway_ids
     ]
     symbol_summary = []
     for symbol in FIXED_TOP20_SYMBOLS:

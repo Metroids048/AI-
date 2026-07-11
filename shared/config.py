@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     # ---- Exchange / trading ----
     binance_api_key: str = ""
     binance_api_secret: str = ""
+    spot_testnet_api_key: str = ""
+    spot_testnet_api_secret: str = ""
     binance_use_testnet: bool = True
     # demo = Mock Trading (demo.binance.com, unified web entry)
     # testnet = legacy fapi host only (auto-fallback when demo API geo-blocked)

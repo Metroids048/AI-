@@ -8,10 +8,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from services.data.universe import platform_to_exchange_symbol
+from services.data.universe import FIXED_TOP20_SYMBOLS, platform_to_exchange_symbol
 from shared.binance_network import binance_ccxt_config
 from shared.config import settings
-from shared.models import ExchangeAccountSnapshot, ExchangeGatewayCapability, ExecutionOrderRequest
+from shared.models import ExchangeAccountSnapshot, ExchangeGatewayCapability, ExecutionOrderRequest, TradeSide
 from shared.models.execution_runtime import (
     BinanceTestnetAccountStatus,
     BinanceTestnetOrderView,
@@ -205,6 +205,123 @@ class BinanceUsdtPerpetualGateway:
             source_ref=self.capability.gateway_name,
         )
 
+    def preflight(self) -> dict[str, list[Any]]:
+        # CCXT rejects the high-rate-limit all-symbol endpoint. The acceptance
+        # workflow only trades this fixed universe, so inspect each contract.
+        open_orders = [
+            order
+            for symbol in FIXED_TOP20_SYMBOLS
+            for order in self.client.fetch_open_orders(_normalize_binance_symbol(symbol))
+        ]
+        return {
+            "open_orders": open_orders,
+            "open_positions": [position for position in self.client.fetch_positions() if _position_open(position)],
+        }
+
+    def final_state(self) -> dict[str, list[Any]]:
+        return self.preflight()
+
+    def account_equity(self) -> float:
+        snapshot = self.sync_account(live_run_id="testnet-acceptance-preflight")
+        return float(snapshot.margin_balance or snapshot.wallet_balance)
+
+    def fetch_last_price(self, symbol: str) -> float:
+        ticker = self.client.fetch_ticker(_normalize_binance_symbol(symbol))
+        price = ticker.get("last") or ticker.get("close") or ticker.get("mark")
+        if price is None or float(price) <= 0:
+            raise ValueError(f"unable to resolve positive last price for {symbol}")
+        return float(price)
+
+    def submit_acceptance_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        requested_notional: float,
+        reference_price: float,
+        reduce_only: bool,
+        stoploss_price: float | None,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        quantity = requested_notional / reference_price
+        result = self.submit_order(
+            live_run_id="testnet-acceptance",
+            order_request=ExecutionOrderRequest(
+                strategy_id="testnet_acceptance_only",
+                symbol=symbol,
+                direction=TradeSide.LONG,
+                entry_context={
+                    "order_type": "market",
+                    "quantity": quantity,
+                    "reference_price": reference_price,
+                    "requested_notional": requested_notional,
+                    "close_only_mode": reduce_only,
+                    "reduce_only": reduce_only,
+                },
+                stoploss_plan={"price": stoploss_price} if stoploss_price is not None else {},
+                idempotency_key=idempotency_key,
+            ),
+        )
+        return {
+            **result,
+            "gateway_status": "filled"
+            if result.get("gateway_status") in {"filled", "closed"}
+            else result.get("gateway_status"),
+            "side": side,
+            "quantity": quantity,
+            "requested_notional": requested_notional,
+            "reduce_only": reduce_only,
+        }
+
+    def submit_carry_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        notional_usdt: float,
+        quantity: float,
+        reduce_only: bool,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        result = self.submit_order(
+            live_run_id="funding-carry-testnet",
+            order_request=ExecutionOrderRequest(
+                strategy_id="funding_carry_dual_leg",
+                symbol=symbol,
+                direction=TradeSide.SHORT,
+                entry_context={
+                    "order_type": "market",
+                    "quantity": quantity,
+                    "requested_notional": notional_usdt,
+                    "close_only_mode": reduce_only,
+                    "reduce_only": reduce_only,
+                },
+                idempotency_key=idempotency_key,
+            ),
+        )
+        return {
+            **result,
+            "gateway_status": "filled"
+            if result.get("gateway_status") in {"filled", "closed"}
+            else result.get("gateway_status"),
+            "side": side,
+            "quantity": quantity,
+            "notional_usdt": notional_usdt,
+            "reduce_only": reduce_only,
+        }
+
+    def cancel_protection_order(self, *, symbol: str, gateway_order_id: str) -> None:
+        cancel_algo = getattr(self.client, "fapiPrivateDeleteAlgoOrder", None)
+        if callable(cancel_algo):
+            cancel_algo(
+                {
+                    "symbol": _binance_market_id(_normalize_binance_symbol(symbol)),
+                    "algoId": gateway_order_id,
+                }
+            )
+            return
+        self.client.cancel_order(gateway_order_id, _normalize_binance_symbol(symbol))
+
     def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict[str, Any]:
         symbol = _normalize_binance_symbol(order_request.symbol)
         if not gateway_symbol_available(gateway=self, symbol=order_request.symbol):
@@ -263,6 +380,9 @@ class BinanceUsdtPerpetualGateway:
             "gateway_order_id": _order_id(created),
             "gateway_status": _normalize_order_status(created.get("status")),
             "symbol": order_request.symbol,
+            "quantity": quantity,
+            "requested_notional": float(order_request.entry_context.get("requested_notional") or 0.0),
+            "reduce_only": close_only,
             "protection_order_refs": protection_refs,
         }
 
@@ -377,6 +497,7 @@ class BinanceUsdtPerpetualGateway:
         )
         return client
 
+
 MOCK_TRADING_WEB_URL = "https://demo.binance.com/en/futures/BTCUSDT"
 
 
@@ -476,10 +597,12 @@ class _UnavailableBinanceClient:
 
 
 def _normalize_binance_symbol(symbol: str) -> str:
-    if symbol.endswith(":USDT"):
-        return symbol
-    if symbol.endswith("/USDT"):
-        return f"{symbol}:USDT"
+    platform_symbol = symbol.replace(":USDT", "")
+    exchange_symbol = platform_to_exchange_symbol(platform_symbol)
+    if exchange_symbol.endswith("USDT"):
+        return f"{exchange_symbol.removesuffix('USDT')}/USDT:USDT"
+    if platform_symbol.endswith("/USDT"):
+        return f"{platform_symbol}:USDT"
     return symbol
 
 
@@ -609,10 +732,7 @@ def probe_testnet_account(
                 )
             )
         recent_orders: list[BinanceTestnetOrderView] = []
-        requested_symbols = {
-            platform_to_exchange_symbol(symbol)
-            for symbol in (order_symbols or ())
-        }
+        requested_symbols = {platform_to_exchange_symbol(symbol) for symbol in (order_symbols or ())}
         position_symbols = {p.symbol.replace(":USDT", "").replace("/", "") for p in positions}
         symbols = requested_symbols | position_symbols
         if not symbols:

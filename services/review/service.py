@@ -27,11 +27,13 @@ class ReviewService:
         strategy_id: str | None = None,
         idea_id: str | None = None,
         failure_type: str | None = None,
+        limit: int = 50,
     ) -> list[FailureRecord]:
         return self.review_repo.list_failures(
             strategy_id=strategy_id,
             idea_id=idea_id,
             failure_type=failure_type,
+            limit=limit,
         )
 
     def record_failure(self, record: FailureRecord) -> FailureRecord:

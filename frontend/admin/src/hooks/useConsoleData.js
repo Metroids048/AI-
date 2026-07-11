@@ -4,6 +4,7 @@ import { request, streamUrl } from "../api/client";
 
 const MAX_TRADES = 80;
 const asArray = (value) => (Array.isArray(value) ? value : []);
+const LOCAL_CONSOLE_API_ONLY = import.meta.env.VITE_LOCAL_CONSOLE_API_ONLY === "true";
 
 export function useConsoleData(symbol, perpSymbol, timeframe) {
   const [state, setState] = useState({
@@ -18,7 +19,6 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     manualContext: null,
     fundingSignal: null,
     intelligenceSignal: null,
-    orderBook: null,
     trades: null,
     decisionTrace: null,
     dataSources: null,
@@ -45,7 +45,6 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
             snapshot: null,
             candles: [],
             latestKline: null,
-            orderBook: null,
             trades: null,
             feedStatus: { status: "connecting", source: "websocket" },
             streamStatus: "connecting",
@@ -158,11 +157,6 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
       { reportError: true },
     );
     run(
-      `/api/v1/market/order-book?${new URLSearchParams({ symbol: perpSymbol, limit: "20" }).toString()}`,
-      (current, payload) => ({ ...current, orderBook: payload ?? current.orderBook, error: "" }),
-      { reportError: true },
-    );
-    run(
       `/api/v1/market/trades?${new URLSearchParams({ symbol: perpSymbol, limit: "50" }).toString()}`,
       (current, payload) => ({ ...current, trades: payload ?? current.trades, error: "" }),
       { reportError: true },
@@ -188,11 +182,13 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
       (current, payload) => ({ ...current, manualContext: payload ?? current.manualContext }),
       { showLoaded: false },
     );
-    run(
-      "/api/v1/execution/binance-testnet-account",
-      (current, payload) => ({ ...current, testnetAccount: payload ?? current.testnetAccount }),
-      { showLoaded: false },
-    );
+    if (!LOCAL_CONSOLE_API_ONLY) {
+      run(
+        "/api/v1/execution/binance-testnet-account",
+        (current, payload) => ({ ...current, testnetAccount: payload ?? current.testnetAccount }),
+        { showLoaded: false },
+      );
+    }
     run(
       `/api/v1/market/funding-arbitrage-signal?${params.toString()}`,
       (current, payload) => ({ ...current, fundingSignal: payload ?? current.fundingSignal }),
@@ -207,7 +203,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
   }, [symbol, perpSymbol, timeframe]);
 
   useEffect(() => {
-    if (state.error) return undefined;
+    if (state.error || LOCAL_CONSOLE_API_ONLY) return undefined;
     refresh();
     // When the WS stream is live, reduce polling to a 30s fallback to avoid
     // duplicating WS pushes (previously polled every 8s regardless of WS
@@ -218,7 +214,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
   }, [refresh, state.error, state.streamStatus]);
 
   useEffect(() => {
-    if (state.error) return undefined;
+    if (state.error || LOCAL_CONSOLE_API_ONLY) return undefined;
     const pollBinance = () => {
       request("/api/v1/execution/binance-testnet-account")
         .then((payload) => setState((current) => ({ ...current, testnetAccount: payload ?? current.testnetAccount })))
@@ -230,7 +226,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
   }, [state.error]);
 
   useEffect(() => {
-    if (state.error) {
+    if (state.error || LOCAL_CONSOLE_API_ONLY) {
       setState((current) => ({ ...current, streamStatus: "offline" }));
       return undefined;
     }
@@ -298,7 +294,6 @@ function applyStreamMessage(current, message, selection) {
       snapshot: payload.snapshot ?? current.snapshot,
       candles: payload.ohlcv?.candles ?? current.candles,
       candleSnapshotVersion: current.candleSnapshotVersion + 1,
-      orderBook: payload.order_book ?? current.orderBook,
       trades: payload.trades ?? current.trades,
       feedStatus: nextFeed,
       streamStatus: streamStatusFromFeed(nextFeed),
@@ -320,9 +315,6 @@ function applyStreamMessage(current, message, selection) {
       },
       streamStatus: "live",
     };
-  }
-  if (message?.event === "order_book") {
-    return { ...current, orderBook: payload, streamStatus: "live" };
   }
   if (message?.event === "trade") {
     const existing = Array.isArray(current.trades?.trades) ? current.trades.trades : [];

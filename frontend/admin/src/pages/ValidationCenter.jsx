@@ -18,6 +18,12 @@ export function ValidationCenter() {
   const queryClient = useQueryClient();
   const [actionMessage, setActionMessage] = useState("");
   const [submitForm, setSubmitForm] = useState({ strategy_id: "", execution_engine: "freqtrade" });
+  const [optimizationForm, setOptimizationForm] = useState({ strategy_id: "", optimization_method: "hyperopt" });
+  const strategies = useQuery({
+    queryKey: ["validation-strategies"],
+    queryFn: () => request("/api/v1/strategies"),
+    staleTime: 15000,
+  });
 
   const backtests = useQuery({
     queryKey: ["validation-backtests"],
@@ -43,6 +49,7 @@ export function ValidationCenter() {
   const backtestRows = asArray(backtests.data?.items);
   const optimizationRows = asArray(optimizations.data?.items);
   const hypothesisRows = asArray(hypotheses.data?.items);
+  const strategyRows = asArray(strategies.data?.items);
 
   const handleSubmitBacktest = async (event) => {
     event.preventDefault();
@@ -62,6 +69,21 @@ export function ValidationCenter() {
     }
   };
 
+  const handleSubmitOptimization = async (event) => {
+    event.preventDefault();
+    if (!optimizationForm.strategy_id) {
+      setActionMessage("提交优化需要先选择已物化策略。");
+      return;
+    }
+    try {
+      const payload = await request("/api/v1/optimizations", { method: "POST", body: JSON.stringify(optimizationForm) });
+      setActionMessage(`优化已排队：${payload.resource_id ?? payload.task_id}`);
+      await queryClient.invalidateQueries({ queryKey: ["validation-optimizations"] });
+    } catch (err) {
+      setActionMessage(`提交优化失败：${err.message}`);
+    }
+  };
+
   return (
     <main className="app-shell page-shell">
       <header className="page-header">
@@ -73,14 +95,18 @@ export function ValidationCenter() {
         <div className="action-line">数据加载失败：{backtests.error?.message ?? optimizations.error?.message}</div>
       ) : null}
 
-      <section className="exchange-panel form-panel">
+      <section className="records-grid">
+        <section className="exchange-panel form-panel">
         <div className="panel-title"><h2>提交回测</h2></div>
         <form className="form-row" onSubmit={handleSubmitBacktest}>
-          <input
-            placeholder="strategy_id"
+          <select
+            aria-label="回测策略"
             value={submitForm.strategy_id}
             onChange={(event) => setSubmitForm((current) => ({ ...current, strategy_id: event.target.value }))}
-          />
+          >
+            <option value="">选择已物化策略</option>
+            {strategyRows.map((strategy) => <option key={strategy.strategy_id} value={strategy.strategy_id}>{strategy.strategy_key ?? strategy.strategy_id}</option>)}
+          </select>
           <input
             placeholder="execution_engine"
             value={submitForm.execution_engine}
@@ -88,6 +114,22 @@ export function ValidationCenter() {
           />
           <button type="submit">提交</button>
         </form>
+        {strategyRows.length === 0 ? <div className="empty-list">暂无可回测策略，请先在策略库完成“研究想法、规则草稿、策略”的研究闭环。</div> : null}
+        </section>
+        <section className="exchange-panel form-panel">
+          <div className="panel-title"><h2>提交参数优化</h2></div>
+          <form className="form-row" onSubmit={handleSubmitOptimization}>
+            <select aria-label="优化策略" value={optimizationForm.strategy_id} onChange={(event) => setOptimizationForm((current) => ({ ...current, strategy_id: event.target.value }))}>
+              <option value="">选择已物化策略</option>
+              {strategyRows.map((strategy) => <option key={strategy.strategy_id} value={strategy.strategy_id}>{strategy.strategy_key ?? strategy.strategy_id}</option>)}
+            </select>
+            <select aria-label="优化方法" value={optimizationForm.optimization_method} onChange={(event) => setOptimizationForm((current) => ({ ...current, optimization_method: event.target.value }))}>
+              <option value="hyperopt">hyperopt</option>
+              <option value="grid_search">grid_search</option>
+            </select>
+            <button type="submit">提交</button>
+          </form>
+        </section>
       </section>
 
       <section className="funding-metrics">

@@ -1,5 +1,15 @@
 # Project Memory
 
+## Binance Testnet acceptance, dual-leg carry, and trading workbench (TASK-043, 2026-07-11)
+
+- Automatic execution settings now resolve asset tiers instead of applying one leverage/position cap to every symbol: BTC/ETH/SOL use `10x` with a `15%` equity-based notional cap; the other fixed Top20 symbols use `5x` with a `6%` cap. Leverage affects margin only and does not multiply the configured notional exposure.
+- Global execution constraints remain fail-closed: at most 5 positions, 50% aggregate exposure, 1% risk per trade, 4% daily loss, and 15% hard drawdown. Gatekeeper/protection checks, LLM veto, Market Intelligence, and the no-Martingale rule remain in force.
+- A persisted Futures Testnet acceptance service/API now performs preflight, clean-account checks, per-symbol leverage and precision sizing, protected market entry, reduce-only close, protection cleanup, compensation, idempotency, Binance-order evidence, and final zero-position/zero-order reconciliation for the fixed Top20.
+- Funding carry is now a separate dual-leg execution workflow: independent Binance Spot Testnet credentials, Spot long plus equal-notional Futures short, explicit leg/state evidence, second-leg compensation, two-leg close, and final net-exposure checks. It does not reuse or relabel the previous single-leg funding signal as arbitrage execution.
+- The Trading console is now a workbench: order book REST/WebSocket paths were removed, chart and order ticket remain primary, and a fixed-height internally scrollable record workspace exposes positions, orders, Binance account, automation, carry, decision, and risk/data evidence. Table wrapping and raw CCXT connection-error presentation were corrected.
+- Fresh verification: backend `232 passed, 1 skipped, 1 warning`; admin Vitest `9 files / 20 tests`; production build passed; mypy passed for 114 source files; directed Ruff passed; `git diff --check` passed. Chrome screenshots at desktop and `390x844` show the workbench without incoherent overlap.
+- External acceptance remains incomplete by design: `127.0.0.1:7890` is not listening and Spot Testnet credentials are absent. No 20-symbol/40-fill run, dual-leg BTC carry round trip, or official Binance history screenshots may be claimed until those prerequisites are supplied and the resulting account is reconciled flat.
+
 ## Binance Mock Top20 runtime remediation (TASK-042, 2026-07-11)
 
 - The July 9 API process was stale relative to the July 10 frontend/code. Local startup now migrates legacy SQLite safely, uses the global `AGENT_PYTHON`, validates the current API contract/build identifier, and no longer overrides the operator's `.env` execution choice.

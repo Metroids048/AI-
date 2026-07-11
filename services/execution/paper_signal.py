@@ -26,6 +26,8 @@ from shared.models import (
     TradeSide,
 )
 
+from .risk_tiers import resolve_asset_risk_tier
+
 
 class PaperSignalGenerator:
     """Create a candidate paper order; final approval always belongs to gatekeeper."""
@@ -75,10 +77,11 @@ class PaperSignalGenerator:
             strategy=strategy,
             atr=decision.atr,
         )
-        requested_leverage = self._requested_leverage(strategy=strategy, paper_run=paper_run)
+        requested_leverage = self._requested_leverage(strategy=strategy, paper_run=paper_run, symbol=symbol)
         requested_notional = self._requested_notional(
             strategy=strategy,
             paper_run=paper_run,
+            symbol=symbol,
             requested_leverage=requested_leverage,
             confidence_multiplier=decision.confidence_multiplier,
             reference_price=reference_price,
@@ -114,9 +117,7 @@ class PaperSignalGenerator:
                 "reference_price": str(reference_price),
                 "requested_notional": requested_notional,
                 "requested_leverage": requested_leverage,
-                "min_notional_usdt": float(
-                    strategy.rules.position_rules.get("min_notional_usdt", 50.0)
-                ),
+                "min_notional_usdt": float(strategy.rules.position_rules.get("min_notional_usdt", 50.0)),
                 "decision_pipeline": decision.trace,
                 "decision_reason": decision.reason,
                 "decision_bar_time": decision.bar_time.isoformat() if decision.bar_time else None,
@@ -209,12 +210,7 @@ class PaperSignalGenerator:
 
         if should_trade and signal.funding_rate is not None and signal.funding_rate > 0:
             direction = TradeSide.SHORT
-        elif (
-            should_trade
-            and signal.funding_rate is not None
-            and signal.funding_rate < 0
-            and not requires_positive
-        ):
+        elif should_trade and signal.funding_rate is not None and signal.funding_rate < 0 and not requires_positive:
             direction = TradeSide.LONG
         else:
             direction = TradeSide.SHORT
@@ -304,7 +300,10 @@ class PaperSignalGenerator:
         return stop_distance * reward
 
     @staticmethod
-    def _requested_leverage(*, strategy: StrategyContract, paper_run: PaperRun) -> float:
+    def _requested_leverage(*, strategy: StrategyContract, paper_run: PaperRun, symbol: str) -> float:
+        tier = resolve_asset_risk_tier(symbol, paper_run.execution_profile.get("asset_risk_tiers"))
+        if paper_run.execution_profile.get("asset_risk_tiers"):
+            return tier.leverage
         position_rules = strategy.rules.position_rules
         leverage = position_rules.get("max_leverage") or paper_run.execution_profile.get("max_leverage") or 1.0
         return float(leverage)
@@ -314,6 +313,7 @@ class PaperSignalGenerator:
         *,
         strategy: StrategyContract,
         paper_run: PaperRun,
+        symbol: str,
         requested_leverage: float,
         confidence_multiplier: float = 1.0,
         reference_price: Decimal | None = None,
@@ -336,8 +336,13 @@ class PaperSignalGenerator:
                 if stop_distance > 0 and float(reference_price) > 0:
                     quantity = risk_budget / stop_distance
                     volatility_sized_notional = quantity * float(reference_price)
-                    max_fraction = float(position_rules.get("max_position_fraction", 0.05))
-                    base = min(volatility_sized_notional, account_equity * max_fraction * max(requested_leverage, 1.0))
+                    tier = resolve_asset_risk_tier(symbol, paper_run.execution_profile.get("asset_risk_tiers"))
+                    max_fraction = (
+                        tier.max_position_fraction
+                        if paper_run.execution_profile.get("asset_risk_tiers")
+                        else float(position_rules.get("max_position_fraction", 0.05))
+                    )
+                    base = min(volatility_sized_notional, account_equity * max_fraction)
                     return base * max(confidence_multiplier, 0.0)
             base = float(risk_budget * max(requested_leverage, 1.0))
             return base * max(confidence_multiplier, 0.0)

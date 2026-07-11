@@ -1,17 +1,24 @@
-# One-click launcher — same pattern as 辅助面试/scripts/launch-experience.ps1
+param(
+    [int]$ApiPort = 8000,
+    [int]$FrontendPort = 5173,
+    [string]$DatabasePath = ".local_paper_console.db"
+)
+
+# One-click launcher - same pattern as 辅助面试/scripts/launch-experience.ps1
 $ErrorActionPreference = "Stop"
 
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location -LiteralPath $Root
 
-$ApiPort = 8000
-$FrontendPort = 5173
 $ApiHealthUrl = "http://127.0.0.1:$ApiPort/health"
 $FrontendUrl = "http://127.0.0.1:$FrontendPort/trading"
 $LogsDir = Join-Path $Root "logs"
 $ApiLog = Join-Path $LogsDir "api.log"
 $FrontendLog = Join-Path $LogsDir "frontend.log"
-$DbPath = Join-Path $Root ".local_paper_console.db"
+$StartupLog = Join-Path $LogsDir "startup-last.log"
+$ApiPidFile = Join-Path $LogsDir "api.pid"
+$FrontendPidFile = Join-Path $LogsDir "frontend.pid"
+$DbPath = Join-Path $Root $DatabasePath
 $SqliteUrl = "sqlite:///$($DbPath.Replace('\', '/'))"
 
 $env:NO_PROXY = "127.0.0.1,localhost"
@@ -28,6 +35,81 @@ function Test-EndpointReady([string]$Url) {
     }
 }
 
+function Write-Step([string]$Message) {
+    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [paper-console] $Message"
+    Write-Host $line
+    Add-Content -LiteralPath $StartupLog -Value $line -Encoding utf8
+}
+
+function Reset-LogFile([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) {
+        New-Item -ItemType File -Path $Path | Out-Null
+        return
+    }
+    try {
+        [System.IO.File]::WriteAllText($Path, "")
+    }
+    catch {
+        Write-Host "Log file is in use, continuing without reset: $Path"
+    }
+}
+
+function Stop-RecordedProcess([string]$PidFile, [int]$Port) {
+    if (Test-Path -LiteralPath $PidFile) {
+        $recordedPid = (Get-Content -LiteralPath $PidFile -Raw).Trim()
+        if ($recordedPid -match '^\d+$') {
+            $processInfo = Get-Process -Id ([int]$recordedPid) -ErrorAction SilentlyContinue
+            if ($processInfo) {
+                Write-Step "stopping prior launcher process on port $Port (pid $recordedPid)"
+                Stop-ProcessTree -RootPid ([int]$recordedPid)
+                Start-Sleep -Milliseconds 500
+            }
+        }
+        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+    }
+
+    $listeners = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if ($listeners) {
+        $owner = $listeners | Select-Object -First 1 -ExpandProperty OwningProcess
+        $ownerInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $owner" -ErrorAction SilentlyContinue
+        $commandLine = [string]$ownerInfo.CommandLine
+        if ($commandLine -match "apps\.api\.(main|local_server)" -or $commandLine -match "vite\.js") {
+            Write-Step "removing legacy project listener on port $Port (pid $owner)"
+            Stop-ProcessTree -RootPid ([int]$owner)
+            Start-Sleep -Milliseconds 500
+        }
+        else {
+            throw "Port $Port is already in use by pid $owner. The launcher will not stop an unrecorded process."
+        }
+    }
+}
+
+function Stop-ProcessTree([int]$RootPid) {
+    $children = Get-CimInstance Win32_Process -Filter "ParentProcessId = $RootPid" -ErrorAction SilentlyContinue
+    foreach ($child in $children) {
+        Stop-ProcessTree -RootPid $child.ProcessId
+    }
+    Stop-Process -Id $RootPid -Force -ErrorAction SilentlyContinue
+}
+
+function Save-ListenerPid([int]$Port, [string]$PidFile) {
+    $listener = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $listener) {
+        throw "No listener was found on port $Port after startup."
+    }
+    Set-Content -LiteralPath $PidFile -Value $listener.OwningProcess -Encoding ascii
+}
+
+function Test-ProjectListener([int]$Port) {
+    $listener = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $listener) { return $false }
+    $ownerInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)" -ErrorAction SilentlyContinue
+    $commandLine = [string]$ownerInfo.CommandLine
+    return $commandLine -match "apps\.api\.(main|local_server)" -or $commandLine -match "量化项目.*vite\.js"
+}
+
 function Open-Frontend([string]$Url) {
     foreach ($browser in @("msedge.exe", "chrome.exe")) {
         $command = Get-Command $browser -ErrorAction SilentlyContinue
@@ -41,18 +123,34 @@ function Open-Frontend([string]$Url) {
 }
 
 function Ensure-Runtime {
-    if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
-        throw "Python not found. Install Python 3.11+."
-    }
     if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
         throw "Node.js/npm not found."
     }
-    if (-not (Test-Path (Join-Path $Root "node_modules"))) {
-        Write-Host "Installing npm dependencies (first run)..."
-        npm install
-    }
     if (-not (Test-Path -LiteralPath $LogsDir)) {
         New-Item -ItemType Directory -Path $LogsDir | Out-Null
+    }
+    Reset-LogFile $StartupLog
+    Reset-LogFile $ApiLog
+    Reset-LogFile $FrontendLog
+
+    if (-not $env:AGENT_PYTHON -or -not (Test-Path -LiteralPath $env:AGENT_PYTHON)) {
+        $globalPython = Join-Path $HOME ".ai-workspace\venv\Scripts\python.exe"
+        if (Test-Path -LiteralPath $globalPython) {
+            $env:AGENT_PYTHON = $globalPython
+        }
+        else {
+            throw "AGENT_PYTHON is unavailable. Run verify-global-agent-stack.ps1."
+        }
+    }
+
+    Write-Step "checking frontend dependency versions"
+    npm ls --workspace frontend/admin --depth=0 *> $null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Step "frontend dependencies are missing or stale; running npm install"
+        npm install
+        if ($LASTEXITCODE -ne 0) {
+            throw "npm install failed. See npm output above."
+        }
     }
     . (Join-Path $PSScriptRoot "load-dotenv.ps1")
     $envPath = Join-Path $Root ".env"
@@ -62,43 +160,77 @@ function Ensure-Runtime {
     if (-not $env:BINANCE_HTTPS_PROXY -and $env:HTTPS_PROXY) {
         $env:BINANCE_HTTPS_PROXY = $env:HTTPS_PROXY
     }
+    if (-not $env:BINANCE_HTTPS_PROXY) {
+        $env:PAPER_CONSOLE_DISABLE_LIVE_WS = "true"
+        $env:PAPER_CONSOLE_SKIP_BACKGROUND_BOOTSTRAP = "true"
+        Write-Step "no Binance proxy configured; disabling live WebSocket collectors for startup stability"
+    }
+    else {
+        $env:PAPER_CONSOLE_DISABLE_LIVE_WS = "false"
+        $env:PAPER_CONSOLE_SKIP_BACKGROUND_BOOTSTRAP = "false"
+    }
     $env:POSTGRES_URL = $SqliteUrl
     $env:APP_ENV = "development"
     $env:BINANCE_USE_TESTNET = "true"
-    $env:RUNTIME_SCHEDULER_MODE = "inprocess"
-    $env:RUNTIME_SCHEDULER_AUTOSTART = "true"
+    $env:PAPER_CONSOLE_API_ONLY = "true"
+    $env:VITE_LOCAL_CONSOLE_API_ONLY = "true"
+    Write-Step "API scheduler isolation enabled; acceptance and Carry remain available on demand"
+}
+
+function Initialize-LocalDatabase {
+    Write-Step "preparing local database"
+    & $env:AGENT_PYTHON -c "from services.database import reset_database_caches; reset_database_caches()" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Local database cache reset failed." }
+    & $env:AGENT_PYTHON -c "from services.database import adopt_complete_legacy_sqlite_schema; print('legacy SQLite adopted' if adopt_complete_legacy_sqlite_schema('$SqliteUrl', head_revision='0006') else 'migration state unchanged')" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Legacy SQLite inspection failed; database was not modified." }
+    & $env:AGENT_PYTHON -m alembic upgrade head | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Database migration failed; API will not start against an unknown schema." }
+    & $env:AGENT_PYTHON -c "from services.database import create_local_runtime_schema; create_local_runtime_schema('$SqliteUrl')" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Local runtime schema initialization failed; API will not start against an incomplete schema." }
 }
 
 $apiReady = Test-EndpointReady $ApiHealthUrl
 $frontendReady = Test-EndpointReady "http://127.0.0.1:$FrontendPort/"
 
-if ($apiReady -and $frontendReady) {
-    Write-Host "Paper console already running."
-    Write-Host "Frontend: $FrontendUrl"
-    Write-Host "Opening browser..."
+if ($apiReady -and $frontendReady -and (Test-ProjectListener $ApiPort) -and (Test-ProjectListener $FrontendPort)) {
+    if (-not (Test-Path -LiteralPath $LogsDir)) { New-Item -ItemType Directory -Path $LogsDir | Out-Null }
+    if (-not (Test-Path -LiteralPath $StartupLog)) { New-Item -ItemType File -Path $StartupLog | Out-Null }
+    Write-Step "paper console already running"
+    Save-ListenerPid $ApiPort $ApiPidFile
+    Save-ListenerPid $FrontendPort $FrontendPidFile
+    Write-Step "frontend: $FrontendUrl"
+    Write-Step "opening browser"
     [void](Open-Frontend $FrontendUrl)
     exit 0
 }
 
 Ensure-Runtime
+Initialize-LocalDatabase
+
+if (-not $apiReady) { Stop-RecordedProcess $ApiPidFile $ApiPort }
+if (-not $frontendReady) { Stop-RecordedProcess $FrontendPidFile $FrontendPort }
 
 if (-not $apiReady) {
-    Write-Host "Starting API http://127.0.0.1:$ApiPort ..."
-    $runApi = Join-Path $PSScriptRoot "run-api-local.ps1"
-    Start-Process -FilePath "powershell.exe" `
-        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", $runApi, "-Root", $Root, "-PostgresUrl", $SqliteUrl, "-Port", $ApiPort, "-LogPath", $ApiLog) `
-        -WorkingDirectory $Root
+    Write-Step "starting API http://127.0.0.1:$ApiPort"
+    $apiProcess = Start-Process -FilePath $env:AGENT_PYTHON `
+        -ArgumentList @("-m", "apps.api.local_server", "--host", "127.0.0.1", "--port", $ApiPort, "--log-level", "warning", "--local-console") `
+        -WorkingDirectory $Root `
+        -PassThru
+    Set-Content -LiteralPath $ApiPidFile -Value $apiProcess.Id -Encoding ascii
 }
 
 if (-not $frontendReady) {
-    Write-Host "Starting frontend http://127.0.0.1:$FrontendPort ..."
-    $frontendCmd = "Set-Location -LiteralPath '$Root'; npm --workspace frontend/admin run dev -- --host 127.0.0.1 --port $FrontendPort *>> '$FrontendLog'"
-    Start-Process -FilePath "powershell.exe" `
-        -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", $frontendCmd) `
-        -WorkingDirectory $Root
+    Write-Step "starting frontend http://127.0.0.1:$FrontendPort"
+    $frontendCmd = "npm --workspace frontend/admin run dev -- --host 127.0.0.1 --port $FrontendPort >> `"$FrontendLog`" 2>&1"
+    $frontendProcess = Start-Process -FilePath "cmd.exe" `
+        -ArgumentList @("/d", "/s", "/c", $frontendCmd) `
+        -WorkingDirectory $Root `
+        -WindowStyle Hidden `
+        -PassThru
+    Set-Content -LiteralPath $FrontendPidFile -Value $frontendProcess.Id -Encoding ascii
 }
 
-Write-Host "Waiting for services (up to 90s)..."
+Write-Step "waiting for services (up to 90s)"
 $deadline = (Get-Date).AddSeconds(90)
 while ((Get-Date) -lt $deadline) {
     if (-not $apiReady) { $apiReady = Test-EndpointReady $ApiHealthUrl }
@@ -108,16 +240,19 @@ while ((Get-Date) -lt $deadline) {
 }
 
 if ($apiReady -and $frontendReady) {
-    Write-Host "Ready."
-    Write-Host "Frontend: $FrontendUrl"
-    Write-Host "API:      http://127.0.0.1:$ApiPort"
-    Write-Host "Opening browser..."
+    Save-ListenerPid $ApiPort $ApiPidFile
+    Save-ListenerPid $FrontendPort $FrontendPidFile
+    Write-Step "services ready"
+    Write-Step "frontend: $FrontendUrl"
+    Write-Step "API: http://127.0.0.1:$ApiPort"
+    Write-Step "opening browser"
     [void](Open-Frontend $FrontendUrl)
     exit 0
 }
 
-Write-Host "Startup failed."
-Write-Host "Check logs: $ApiLog ; $FrontendLog"
+Write-Step "startup failed"
+Write-Step "check logs: $ApiLog ; $FrontendLog"
+Remove-Item -LiteralPath $ApiPidFile,$FrontendPidFile -Force -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $ApiLog) {
     Write-Host "--- api.log (tail) ---"
     Get-Content -LiteralPath $ApiLog -Tail 15 -ErrorAction SilentlyContinue
@@ -126,5 +261,5 @@ if (Test-Path -LiteralPath $FrontendLog) {
     Write-Host "--- frontend.log (tail) ---"
     Get-Content -LiteralPath $FrontendLog -Tail 15 -ErrorAction SilentlyContinue
 }
-Write-Host "Browser was not opened because startup did not finish."
+Write-Step "browser was not opened because startup did not finish"
 exit 1

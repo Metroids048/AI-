@@ -6,9 +6,9 @@ import {
   AutoEngineStatusBadge,
   MarketList,
   ModeBanner,
-  OrderBookPanel,
   RecentTradesPanel,
   RuntimeControlPanel,
+  TestnetAccountPanel,
   TradingTicket,
 } from "./TradingConsolePanels";
 import { AppShell } from "./Common";
@@ -61,6 +61,12 @@ describe("Trading console panels", () => {
     expect(screen.getByText("24h")).toBeInTheDocument();
   });
 
+  it("keeps the Testnet account panel explicit when automatic polling is paused", () => {
+    render(<TestnetAccountPanel account={null} />);
+
+    expect(screen.getByText("按需探测")).toBeInTheDocument();
+  });
+
   it("shows an explicit loading state instead of a fake three-symbol universe", () => {
     const view = render(<MarketList selectedSymbol="BTC/USDT" universe={[]} onSelect={vi.fn()} />);
     const panel = within(view.container);
@@ -109,26 +115,16 @@ describe("Trading console panels", () => {
     expect(onAction).toHaveBeenCalledWith("adjustLeverage", expect.objectContaining({ symbol: "BTC/USDT" }));
   });
 
-  it("renders real order book and recent trades payloads", () => {
+  it("renders real recent trades payloads without an order book panel", () => {
     render(
-      <>
-        <OrderBookPanel
-          snapshot={{ spot_last_price: "61000" }}
-          orderBook={{
-            source: "binance_public_ws",
-            bids: [{ price: "61000", quantity: "0.1", total: "0.1" }],
-            asks: [{ price: "61010", quantity: "0.2", total: "0.2" }],
-          }}
-        />
-        <RecentTradesPanel
-          symbol="BTC/USDT:USDT"
-          trades={{ source: "binance_public_ws", trades: [{ trade_id: "1", price: "61000", quantity: "0.01", side: "buy" }] }}
-        />
-      </>,
+      <RecentTradesPanel
+        symbol="BTC/USDT:USDT"
+        trades={{ source: "binance_public_ws", trades: [{ trade_id: "1", price: "61000", quantity: "0.01", side: "buy" }] }}
+      />,
     );
 
-    expect(screen.getByText("盘口")).toBeInTheDocument();
-    expect(screen.getAllByText("Binance WS")).toHaveLength(2);
+    expect(screen.queryByText("盘口")).not.toBeInTheDocument();
+    expect(screen.getByText("Binance WS")).toBeInTheDocument();
     expect(screen.getByText("最新成交")).toBeInTheDocument();
   });
 
@@ -228,7 +224,7 @@ describe("Trading console panels", () => {
 
     const panel = within(view.container);
     expect(panel.getByLabelText("执行模式")).toHaveValue("binance_simulation_first");
-    expect(panel.getByLabelText("杠杆")).toHaveValue(5);
+    expect(panel.getByLabelText("杠杆")).toHaveValue(10);
     expect(panel.getByLabelText("ATR止损")).toHaveValue(2);
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();

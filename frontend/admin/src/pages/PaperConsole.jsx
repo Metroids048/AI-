@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { request } from "../api/client";
 import { AppShell } from "../components/Common";
 import { KlinePanel, MarketHeader } from "../components/MarketPanels";
+import { ExecutionAcceptancePanel, TradingRecordsWorkspace } from "../components/TradingRecordsWorkspace";
 import {
   AutoSettingsPanel,
   DecisionDebugPanel,
@@ -18,7 +19,6 @@ import {
   FundingPanel,
   MarketList,
   ModeBanner,
-  OrderBookPanel,
   OrdersTable,
   PositionsTable,
   RecentTradesPanel,
@@ -132,6 +132,26 @@ export function PaperConsole() {
         });
         setActionMessage("Carry 回测已提交。");
       }
+      if (type === "testnetAcceptance") {
+        const result = await request("/api/v1/execution/testnet-acceptance-runs", {
+          method: "POST",
+          body: JSON.stringify({ idempotency_key: `ui-acceptance-${Date.now()}` }),
+        });
+        setActionMessage(`Top20 验收：${result.run_status}，成交 ${result.result?.filled_order_count ?? 0} 笔。`);
+      }
+      if (type === "carryExecution") {
+        const result = await request("/api/v1/execution/carry-executions", {
+          method: "POST",
+          body: JSON.stringify({
+            symbol,
+            perp_symbol: perpSymbol,
+            notional_usdt: 1000,
+            close_immediately: true,
+            idempotency_key: `ui-carry-${Date.now()}`,
+          }),
+        });
+        setActionMessage(`双腿 Carry：${result.run_status} / ${result.carry_state}。`);
+      }
       await data.refresh();
     } catch (err) {
       setActionMessage(`操作失败：${err.message}`);
@@ -158,7 +178,7 @@ export function PaperConsole() {
         feedStatus={data.feedStatus}
         onTimeframeChange={(nextTimeframe) => updateSelection({ timeframe: nextTimeframe })}
       />
-      <section className="terminal-grid">
+      <section className="trading-workspace-grid">
         <div className="market-rail">
           <MarketList
             universe={data.universe}
@@ -166,6 +186,7 @@ export function PaperConsole() {
             selectedSymbol={symbol}
             onSelect={handleSelectSymbol}
           />
+          <RecentTradesPanel trades={data.trades} symbol={perpSymbol} />
         </div>
         <div className="chart-rail">
           <KlinePanel
@@ -177,17 +198,6 @@ export function PaperConsole() {
             timeframe={timeframe}
             streamStatus={data.streamStatus}
           />
-          <section className="records-grid compact-records">
-            <PositionsTable positions={data.overview?.positions} />
-            <OrdersTable
-              orders={data.overview?.orders}
-              onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })}
-            />
-          </section>
-        </div>
-        <div className="book-rail">
-          <OrderBookPanel orderBook={data.orderBook} snapshot={data.snapshot} />
-          <RecentTradesPanel trades={data.trades} symbol={perpSymbol} />
         </div>
         <div className="ticket-rail">
           <TradingTicket
@@ -201,35 +211,15 @@ export function PaperConsole() {
           />
         </div>
       </section>
-      <section className="execution-grid">
-        <TestnetAccountPanel account={data.testnetAccount} />
-        <RuntimeControlPanel
-          streamStatus={data.streamStatus}
-          tradingStatus={data.tradingStatus}
-          mirrorToGateway={mirrorToGateway}
-          onMirrorToggle={(enabled) => handleAction("toggleGatewayMirror", { enabled })}
-          onRunCycle={() => handleAction("runAllCycles")}
-        />
-        <AutoSettingsPanel
-          paperRunId={autoPaperRunId}
-          autoSettings={autoSettings}
-          onSave={(payload) => handleAction("saveAutoSettings", payload)}
-        />
-        <FundingPanel
-          signal={data.fundingSignal}
-          onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })}
-        />
-        <Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={data.tradingStatus} />
-        <DataSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} />
-        <MessageSourcesPanel
-          dataSources={data.dataSources}
-          intelligenceSignal={data.intelligenceSignal}
-          riskEvents={data.overview?.risk_events}
-        />
-        <OrderSyncPanel orderSync={data.orderSync} />
-        <MarketIntelligencePanel signal={data.intelligenceSignal} />
-        <DecisionDebugPanel decisionTrace={data.decisionTrace} />
-      </section>
+      <TradingRecordsWorkspace tabs={[
+        { id: "positions", label: "持仓", count: data.overview?.positions?.length ?? 0, content: <PositionsTable positions={data.overview?.positions} /> },
+        { id: "orders", label: "订单", count: data.overview?.orders?.length ?? 0, content: <OrdersTable orders={data.overview?.orders} onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })} /> },
+        { id: "account", label: "币安账户", content: <TestnetAccountPanel account={data.testnetAccount} /> },
+        { id: "automation", label: "自动交易", content: <div className="workspace-panel-grid"><RuntimeControlPanel streamStatus={data.streamStatus} tradingStatus={data.tradingStatus} mirrorToGateway={mirrorToGateway} onMirrorToggle={(enabled) => handleAction("toggleGatewayMirror", { enabled })} onRunCycle={() => handleAction("runAllCycles")} /><AutoSettingsPanel paperRunId={autoPaperRunId} autoSettings={autoSettings} onSave={(payload) => handleAction("saveAutoSettings", payload)} /><Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={data.tradingStatus} /></div> },
+        { id: "carry", label: "Carry", content: <div className="workspace-panel-grid"><FundingPanel signal={data.fundingSignal} onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })} /><ExecutionAcceptancePanel fundingSignal={data.fundingSignal} onRunAcceptance={() => handleAction("testnetAcceptance")} onRunCarry={() => handleAction("carryExecution")} /></div> },
+        { id: "decision", label: "决策链", content: <div className="workspace-panel-grid"><DecisionDebugPanel decisionTrace={data.decisionTrace} /><MarketIntelligencePanel signal={data.intelligenceSignal} /></div> },
+        { id: "risk-data", label: "风险与数据", content: <div className="workspace-panel-grid"><MessageSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} riskEvents={data.overview?.risk_events} /><DataSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} /><OrderSyncPanel orderSync={data.orderSync} /></div> },
+      ]} />
     </AppShell>
   );
 }

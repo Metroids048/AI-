@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from apps.api.http import collection_response, not_found
@@ -24,8 +24,11 @@ def _service(db: Session) -> AgentTaskService:
 
 
 @router.get("/tasks", response_model=CollectionResponse[AgentTask])
-def list_agent_tasks(db: Session = Depends(get_db_session)) -> CollectionResponse[AgentTask]:
-    return collection_response(_service(db).list_tasks())
+def list_agent_tasks(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db_session),
+) -> CollectionResponse[AgentTask]:
+    return collection_response(_service(db).list_tasks(limit=limit))
 
 
 @router.post("/tasks", response_model=TaskSubmission, status_code=status.HTTP_202_ACCEPTED)

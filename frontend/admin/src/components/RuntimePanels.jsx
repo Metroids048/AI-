@@ -4,7 +4,7 @@ import { asArray, formatNumber, formatTime } from "../utils/format";
 
 const DEFAULT_AUTO_SETTINGS = {
   execution_mode: "binance_simulation_first",
-  max_leverage: 5,
+  max_leverage: 10,
   risk_per_trade: 0.01,
   order_notional_usdt: "",
   max_open_positions: 5,
@@ -13,7 +13,11 @@ const DEFAULT_AUTO_SETTINGS = {
   max_total_exposure: 0.5,
   daily_loss_limit: 0.04,
   weekly_loss_limit: 0.08,
-  hard_stop_drawdown_limit: 0.2,
+  hard_stop_drawdown_limit: 0.15,
+  asset_risk_tiers: {
+    core: { tier: "core", symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT"], leverage: 10, max_position_fraction: 0.15 },
+    standard: { tier: "standard", symbols: [], leverage: 5, max_position_fraction: 0.06 },
+  },
   strategy_lanes: ["carry", "trend_breakout", "mean_reversion"],
   stoploss: { atr_multiple: 2, fixed_bps: 250 },
   takeprofit: { risk_reward: 2.5, trail_after_r: 1.5 },
@@ -290,6 +294,11 @@ export function AutoSettingsPanel({ paperRunId, autoSettings, onSave }) {
         <label>固定bps<input type="number" value={form.stoploss?.fixed_bps} onChange={(event) => updateNested("stoploss", "fixed_bps", event.target.value)} /></label>
         <label>盈亏比<input type="number" step="0.1" value={form.takeprofit?.risk_reward} onChange={(event) => updateNested("takeprofit", "risk_reward", event.target.value)} /></label>
         <label>移动止损R<input type="number" step="0.1" value={form.takeprofit?.trail_after_r} onChange={(event) => updateNested("takeprofit", "trail_after_r", event.target.value)} /></label>
+      </div>
+      <div className="risk-tier-preview" aria-label="有效资产风险档位">
+        <div><span>核心币 BTC/ETH/SOL</span><strong>10x · 单币 15%</strong></div>
+        <div><span>其余固定 Top20</span><strong>5x · 单币 6%</strong></div>
+        <div><span>全局强风控</span><strong>最多 5 仓 · 总敞口 50% · 硬回撤 15%</strong></div>
       </div>
       <div className="ticket-type-tabs">
         <button type="button" className={form.llm_veto_enabled ? "active" : ""} onClick={() => update("llm_veto_enabled", !form.llm_veto_enabled)}>LLM Veto</button>

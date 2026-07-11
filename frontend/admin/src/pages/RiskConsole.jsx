@@ -14,7 +14,7 @@ export function RiskConsole() {
   const [showCreateForm, setShowCreateForm] = useState(false);
 
   const profiles = useQuery({ queryKey: ["risk-profiles"], queryFn: () => request("/api/v1/risk/profiles"), staleTime: 15000 });
-  const events = useQuery({ queryKey: ["risk-events"], queryFn: () => request("/api/v1/risk/events?active_only=false"), refetchInterval: 10000 });
+  const events = useQuery({ queryKey: ["risk-events"], queryFn: () => request("/api/v1/risk/events?active_only=false&limit=50"), refetchInterval: 10000 });
   const profileRows = asArray(profiles.data?.items);
   const eventRows = asArray(events.data?.items);
 

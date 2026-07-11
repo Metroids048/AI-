@@ -506,8 +506,8 @@ class DataRepository:
         self.session.commit()
         return self.get_risk_event(risk_event_id)
 
-    def list_risk_events(self, *, active_only: bool = False) -> list[RiskEvent]:
-        stmt = select(risk_events).order_by(risk_events.c.created_at.desc())
+    def list_risk_events(self, *, active_only: bool = False, limit: int = 50) -> list[RiskEvent]:
+        stmt = select(risk_events).order_by(risk_events.c.created_at.desc()).limit(limit)
         rows = self.session.execute(stmt).all()
         now = datetime.now(UTC)
         events: list[RiskEvent] = []

@@ -123,11 +123,18 @@ class PaperRuntimeCycleRequest(PlatformModel):
     enable_decision_veto: bool = True
 
 
+class AssetRiskTierSettings(PlatformModel):
+    tier: str
+    symbols: list[str] = Field(default_factory=list)
+    leverage: float = Field(ge=1, le=125)
+    max_position_fraction: float = Field(gt=0, le=1)
+
+
 class AutoTradingSettings(PlatformModel):
     """Typed operator-editable automatic trading controls for a PaperRun."""
 
     execution_mode: str = Field(default="binance_simulation_first", pattern="^(paper_only|binance_simulation_first)$")
-    max_leverage: float = Field(default=5.0, ge=1, le=125)
+    max_leverage: float = Field(default=10.0, ge=1, le=125)
     risk_per_trade: float = Field(default=0.01, ge=0, le=0.10)
     order_notional_usdt: float | None = Field(default=None, gt=0)
     max_open_positions: int = Field(default=5, ge=1, le=20)
@@ -136,12 +143,98 @@ class AutoTradingSettings(PlatformModel):
     max_total_exposure: float = Field(default=0.50, ge=0, le=1)
     daily_loss_limit: float = Field(default=0.04, ge=0, le=1)
     weekly_loss_limit: float = Field(default=0.08, ge=0, le=1)
-    hard_stop_drawdown_limit: float = Field(default=0.20, ge=0, le=1)
+    hard_stop_drawdown_limit: float = Field(default=0.15, ge=0, le=1)
+    asset_risk_tiers: dict[str, AssetRiskTierSettings] = Field(
+        default_factory=lambda: {
+            "core": AssetRiskTierSettings(
+                tier="core",
+                symbols=["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+                leverage=10,
+                max_position_fraction=0.15,
+            ),
+            "standard": AssetRiskTierSettings(
+                tier="standard",
+                leverage=5,
+                max_position_fraction=0.06,
+            ),
+        }
+    )
     strategy_lanes: list[str] = Field(default_factory=lambda: ["carry", "trend_breakout", "mean_reversion"])
     stoploss: dict[str, Any] = Field(default_factory=lambda: {"atr_multiple": 2.0, "fixed_bps": 250})
     takeprofit: dict[str, Any] = Field(default_factory=lambda: {"risk_reward": 2.5, "trail_after_r": 1.5})
     llm_veto_enabled: bool = True
     market_intelligence_enabled: bool = True
+
+
+class TestnetAcceptanceRunRequest(PlatformModel):
+    symbols: list[str] = Field(default_factory=list, max_length=20)
+    stoploss_bps: float = Field(default=250, gt=0, le=1_000)
+    asset_risk_tiers: dict[str, AssetRiskTierSettings] = Field(default_factory=dict)
+    idempotency_key: str | None = None
+
+
+class TestnetAcceptanceOrderEvidence(PlatformModel):
+    gateway_order_id: str
+    gateway_status: str
+    symbol: str
+    side: str
+    action: str
+    quantity: float
+    requested_notional: float
+    leverage: float
+    reduce_only: bool = False
+
+
+class TestnetAcceptanceRunResult(PlatformModel):
+    run_status: str
+    requested_symbols: list[str] = Field(default_factory=list)
+    completed_symbols: list[str] = Field(default_factory=list)
+    failed_symbol: str | None = None
+    filled_order_count: int = 0
+    orders: list[TestnetAcceptanceOrderEvidence] = Field(default_factory=list)
+    compensation_attempted: bool = False
+    final_open_position_count: int = 0
+    final_open_order_count: int = 0
+    error_summary: str | None = None
+
+
+class TestnetAcceptanceRunStatus(PlatformModel):
+    run_id: str
+    run_status: str
+    result: TestnetAcceptanceRunResult | None = None
+    error_summary: str | None = None
+
+
+class CarryExecutionRequest(PlatformModel):
+    symbol: str = "BTC/USDT"
+    perp_symbol: str = "BTC/USDT:USDT"
+    notional_usdt: float = Field(default=1_000, gt=0)
+    timeframe: str = "1h"
+    min_net_edge_bps: float = Field(default=10, ge=0)
+    close_immediately: bool = True
+    idempotency_key: str | None = None
+
+
+class CarryExecutionLegResult(PlatformModel):
+    venue: str
+    gateway_order_id: str
+    gateway_status: str
+    symbol: str
+    side: str
+    quantity: float
+    notional_usdt: float
+    reduce_only: bool = False
+
+
+class CarryExecutionStatus(PlatformModel):
+    run_id: str
+    run_status: str
+    carry_state: str
+    state_history: list[str] = Field(default_factory=list)
+    signal: Any | None = None
+    legs: list[CarryExecutionLegResult] = Field(default_factory=list)
+    final_net_exposure_usdt: float = 0.0
+    error_summary: str | None = None
 
 
 class PaperRuntimeAction(PlatformModel):

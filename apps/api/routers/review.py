@@ -53,10 +53,16 @@ def list_failure_records(
     strategy_id: str | None = Query(default=None),
     idea_id: str | None = Query(default=None),
     failure_type: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db_session),
 ) -> CollectionResponse[FailureRecord]:
     return collection_response(
-        _service(db).list_failures(strategy_id=strategy_id, idea_id=idea_id, failure_type=failure_type)
+        _service(db).list_failures(
+            strategy_id=strategy_id,
+            idea_id=idea_id,
+            failure_type=failure_type,
+            limit=limit,
+        )
     )
 
 

@@ -1,5 +1,14 @@
 # Task History
 
+### [TASK-043] Implement Testnet Top20 acceptance, dual-leg funding carry, and the trading workbench
+- **Date**: 2026-07-11
+- **Type**: execution / risk / API / frontend / verification
+- **Summary**: Added tiered automatic risk settings (BTC/ETH/SOL `10x` and `15%`; other fixed Top20 `5x` and `6%`) with equity-based notional sizing and unchanged global kill limits. Added a persisted Binance Futures Testnet acceptance API that sequentially opens and reduce-only closes all fixed Top20 symbols with protection, leverage setup, idempotency, compensation, and reconciliation evidence. Added an independent Binance Spot Testnet gateway and dual-leg carry state machine for Spot long plus Futures short. Rebuilt the Trading console into a chart/order/workspace layout, removed order-book requests/subscriptions, added fixed scrollable evidence tabs and structured connection failures, and retained real empty/loading/error/action states across the research modules.
+- **Layer mapping**: Strategy Layer still owns signals; Validation Layer remains mandatory for strategy progression; Execution/Risk owns tier resolution, Testnet acceptance, Futures/Spot legs, protection, compensation, and reconciliation; Review/Ops owns evidence and operator visibility. The acceptance run is connectivity/execution proof only and cannot promote a strategy.
+- **Research loop served**: `research idea -> strategy draft/contract -> backtest/optimization -> admitted Paper/Testnet strategy -> risk-controlled execution -> reconciliation -> review`, plus a separately auditable `carry plan -> Spot/Futures hedge -> close/compensate -> review` path.
+- **Verification**: backend `232 passed, 1 skipped, 1 warning`; admin Vitest `9 files / 20 tests`; Vite production build passed; mypy passed for 114 source files; directed Ruff passed; `git diff --check` passed. Desktop and 390x844 Chrome screenshots confirmed the workbench layout and fixed record area render without incoherent overlap.
+- **Limits**: External Binance acceptance was not executed because `127.0.0.1:7890` refuses connections and `SPOT_TESTNET_API_KEY` / `SPOT_TESTNET_API_SECRET` are not configured. Therefore there is no claim yet of 40 Futures fills, a completed BTC carry round trip, or official Binance Futures/Spot history screenshots. The unrelated Freqtrade asset manifest timestamp refresh remains preserved in the dirty worktree.
+
 ### [TASK-042] Repair Binance Mock auto execution, fixed Top20 visibility, reconciliation, and runtime logging
 - **Date**: 2026-07-11
 - **Type**: runtime remediation / execution safety / frontend / observability

@@ -56,9 +56,10 @@ def update_risk_profile(
 @router.get("/events", response_model=CollectionResponse[RiskEvent])
 def list_risk_events(
     active_only: bool = Query(default=False),
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db_session),
 ) -> CollectionResponse[RiskEvent]:
-    return collection_response(_data_repo(db).list_risk_events(active_only=active_only))
+    return collection_response(_data_repo(db).list_risk_events(active_only=active_only, limit=limit))
 
 
 @router.post("/events", response_model=RiskEvent, status_code=status.HTTP_201_CREATED)

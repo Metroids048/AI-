@@ -133,13 +133,14 @@ def test_bootstrap_operator_experience_strategy_uses_valid_disabled_research_sta
     assert strategy.paper_status is RunStatus.NOT_STARTED
 
 
-def test_local_api_start_script_migrates_database_before_starting_uvicorn() -> None:
-    script = (Path(__file__).resolve().parents[2] / "scripts" / "run-api-local.ps1").read_text(encoding="utf-8")
+def test_console_launcher_migrates_database_before_starting_local_server() -> None:
+    script = (Path(__file__).resolve().parents[2] / "scripts" / "launch-paper-console.ps1").read_text(encoding="utf-8")
 
     assert "& $env:AGENT_PYTHON -m alembic upgrade head" in script
     assert script.index("& $env:AGENT_PYTHON -m alembic upgrade head") < script.index(
-        "& $env:AGENT_PYTHON -m uvicorn"
+        "Start-Process -FilePath $env:AGENT_PYTHON"
     )
+    assert '"--local-console"' in script
     assert "py -3" not in script
 
 
@@ -147,13 +148,14 @@ def test_console_startup_preserves_operator_auto_execute_setting_and_rotates_log
     root = Path(__file__).resolve().parents[2]
     console_script = (root / "scripts" / "start_paper_console.ps1").read_text(encoding="utf-8")
     api_script = (root / "scripts" / "run-api-local.ps1").read_text(encoding="utf-8")
+    launcher_script = (root / "scripts" / "launch-paper-console.ps1").read_text(encoding="utf-8")
 
     assert '$env:BINANCE_AUTO_EXECUTE = "false"' not in console_script.splitlines()
-    assert "Rotate-RuntimeLog" in api_script
+    assert "Reset-LogFile $ApiLog" in launcher_script
     assert '$env:LOG_LEVEL = "INFO"' in api_script
     assert "create_relational_schema" not in console_script
-    assert "adopt_complete_legacy_sqlite_schema" in api_script
-    assert "--no-access-log" in api_script
+    assert "adopt_complete_legacy_sqlite_schema" in launcher_script
+    assert "apps.api.local_server" in launcher_script
     assert "--log-level warning" in api_script
-    assert '$env:BINANCE_HTTPS_PROXY = $env:HTTPS_PROXY' in console_script
+    assert '$env:BINANCE_HTTPS_PROXY = $env:HTTPS_PROXY' in launcher_script
     assert "py -3" not in console_script

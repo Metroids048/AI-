@@ -27,15 +27,17 @@ export function BinanceSyncHero({ account }) {
   if (!account) {
     return (
       <section className="binance-sync-hero loading">
-        <strong>正在连接币安 Mock 账户 API…</strong>
+        <strong>Binance Mock 账户探测已暂停</strong>
+        <span>本地工作台不会自动重试受限交易所接口，验收操作会先执行一次显式预检。</span>
       </section>
     );
   }
   if (!account.connected) {
+    const issue = connectionIssue(account.error);
     return (
       <section className="binance-sync-hero error">
-        <strong>币安 API 未连接</strong>
-        <span>{account.error || "请检查 .env 中的 BINANCE_API_KEY / SECRET"}</span>
+        <strong>{issue.title}</strong>
+        <span>{issue.detail}</span>
       </section>
     );
   }
@@ -60,7 +62,14 @@ export function BinanceSyncHero({ account }) {
 }
 
 export function TestnetAccountPanel({ account }) {
-  if (!account) return null;
+  if (!account) {
+    return (
+      <section className="exchange-panel testnet-account-panel">
+        <PanelTitle title="Binance Testnet 账户" meta="按需探测" />
+        <div className="empty-list">本地工作台已暂停自动账户轮询，避免在交易所限流时阻塞操作台。</div>
+      </section>
+    );
+  }
   const positions = asArray(account.positions);
   const orders = asArray(account.recent_orders);
   const modeLabel = "Mock Trading (demo.binance.com)";
@@ -197,29 +206,6 @@ export function MarketList({ universe, universeStatus = "loading", selectedSymbo
             {universeStatus === "error" ? "固定 Top20 市场列表加载失败" : "正在加载固定 Top20 市场列表"}
           </div>
         )}
-      </div>
-    </section>
-  );
-}
-
-export function OrderBookPanel({ orderBook, snapshot }) {
-  const bids = asArray(orderBook?.bids).slice(0, 13);
-  const asks = asArray(orderBook?.asks).slice(0, 13).reverse();
-  const mid = Number(snapshot?.perp_last_price ?? snapshot?.spot_last_price ?? 0);
-  const source = sourceLabel(orderBook?.source);
-  return (
-    <section className="exchange-panel orderbook-panel">
-      <PanelTitle title="盘口" meta={source} />
-      <BookHeader />
-      <div className="book-side asks">
-        {asks.length ? asks.map((row) => <BookRow key={`ask-${row.price}`} row={row} side="ask" />) : <div className="empty-list">暂无卖盘</div>}
-      </div>
-      <div className="mid-price">
-        <strong>{formatNumber(mid)}</strong>
-        <span>标记价</span>
-      </div>
-      <div className="book-side bids">
-        {bids.length ? bids.map((row) => <BookRow key={`bid-${row.price}`} row={row} side="bid" />) : <div className="empty-list">暂无买盘</div>}
       </div>
     </section>
   );
@@ -568,28 +554,6 @@ export function PanelTitle({ title, meta }) {
   );
 }
 
-function BookHeader() {
-  return (
-    <div className="compact-table-header three">
-      <span>价格</span>
-      <span>数量</span>
-      <span>累计</span>
-    </div>
-  );
-}
-
-function BookRow({ row, side }) {
-  const depth = useMemo(() => Math.min(1, Number(row.total ?? 0) / Math.max(Number(row.quantity ?? 1) * 14, 1)), [row]);
-  return (
-    <div className="book-row">
-      <span className={side === "ask" ? "negative" : "positive"}>{formatNumber(row.price)}</span>
-      <span>{formatNumber(row.quantity, 5)}</span>
-      <span>{formatNumber(row.total, 4)}</span>
-      <i style={{ transform: `scaleX(${depth})` }} />
-    </div>
-  );
-}
-
 function MetricLine({ label, value, tone = "neutral" }) {
   return (
     <div className={`metric-line ${tone}`}>
@@ -604,6 +568,20 @@ function sourceLabel(source) {
   if (source === "binance_public_rest") return "Binance REST";
   if (source === "binance_public_rest_error") return "REST 异常";
   return "等待行情";
+}
+
+function connectionIssue(error) {
+  const detail = String(error || "");
+  if (/418|restricted countries|service unavailable from a restricted/i.test(detail)) {
+    return { title: "Binance 拒绝当前网络出口", detail: "项目代理未生效或出口地区受限，请确认 127.0.0.1:7890 正在运行。" };
+  }
+  if (/proxy|connection refused|127\.0\.0\.1:7890/i.test(detail)) {
+    return { title: "项目代理未连接", detail: "无法连接 BINANCE_HTTPS_PROXY，请先启动本地 HTTP 代理。" };
+  }
+  if (/timeout|timed out/i.test(detail)) {
+    return { title: "Binance 连接超时", detail: "网络请求未在限定时间完成，请检查代理和 Binance Testnet 状态。" };
+  }
+  return { title: "币安 API 未连接", detail: detail || "请检查 Testnet 凭证与项目代理配置。" };
 }
 
 function ticketHint({ missingContext, missingLimit, customStops, stoploss }) {

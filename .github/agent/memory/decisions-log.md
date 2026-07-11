@@ -1,5 +1,12 @@
 # Decisions Log
 
+## ADR-048: Testnet acceptance is isolated from strategy admission, and funding carry requires two real exchange legs
+- Date: 2026-07-11
+- Status: accepted
+- Context: The operator needs a deterministic Binance Mock/Testnet execution proof across the fixed Top20, more assertive but bounded asset-specific sizing, a true funding-rate carry round trip, and a complete operator workbench. The existing automatic strategy lane could not be repurposed for forced acceptance orders without confusing exchange-connectivity proof with Validation Layer evidence, and the earlier funding lane did not itself prove a Spot/Futures hedge.
+- Decision: Add two explicit, Testnet-only execution workflows. The Futures acceptance run requires Testnet, live disabled, a configured proxy and clean preflight state; it processes the fixed Top20 sequentially with per-symbol idempotency, core `10x/15%` and standard `5x/6%` tiers, mandatory protection, reduce-only closing, compensation, and final flat reconciliation. Add a separate Spot gateway and carry state machine for Spot long plus equal-notional Futures short, with independent Spot credentials and leg-level compensation. Neither workflow changes strategy backtest/paper admission status. Present both workflows and their evidence in a fixed-height trading record workspace while removing order-book ingestion from the frontend.
+- Consequences: The platform can prove exchange mechanics without fabricating strategy quality or bypassing Validation -> Execution -> Review. Mainnet remains disabled, acceptance fails closed on pre-existing account state, and official Binance screenshots remain an external acceptance artifact. The current implementation is locally verified, but external completion is blocked until the HTTP proxy listens on `127.0.0.1:7890` and Spot Testnet credentials are configured.
+
 ## ADR-047: Operator-armed Mock execution preserves fail-closed defaults and uses one fixed Top20 runtime contract
 - Date: 2026-07-11
 - Status: accepted

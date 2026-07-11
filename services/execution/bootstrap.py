@@ -7,6 +7,7 @@ from typing import Any
 
 from services.data.service import DEFAULT_BINANCE_TOP20
 from services.data.universe import fixed_top20_assets
+from services.execution.risk_tiers import default_asset_risk_tiers
 from shared.config import settings
 from shared.models.risk import MEDIUM_RISK_PROFILE_KEY, medium_risk_profile
 
@@ -30,7 +31,7 @@ AUTO_PAPER_STRATEGY_RULES: dict[str, Any] = {
     "takeprofit_rules": {"risk_reward": 3.0, "trail_after_r": 1.5},
     "position_rules": {
         "risk_per_trade": 0.01,
-        "max_leverage": 5,
+        "max_leverage": 10,
         "max_position_fraction": 0.15,
         "min_notional_usdt": 20,
     },
@@ -59,8 +60,8 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
     "takeprofit_rules": {"risk_reward": 2.5, "trail_after_r": 1.5},
     "position_rules": {
         "risk_per_trade": 0.01,
-        "max_leverage": 5,
-        "max_position_fraction": 0.05,
+        "max_leverage": 10,
+        "max_position_fraction": 0.15,
         "min_notional_usdt": 20,
     },
 }
@@ -250,9 +251,7 @@ def _ensure_auto_paper_run(
             )
 
         universe_assets = [asset.model_dump(mode="json") for asset in fixed_top20_assets()]
-        strategy_lanes = ["carry"] if strategy_lane == "carry" else list(
-            rules["entry_rules"].get("strategy_lanes", [])
-        )
+        strategy_lanes = ["carry"] if strategy_lane == "carry" else list(rules["entry_rules"].get("strategy_lanes", []))
         paper_run: PaperRun | None = None
         for paper_candidate in paper_repo.list_paper_runs():
             if (
@@ -271,6 +270,7 @@ def _ensure_auto_paper_run(
             "mirror_to_gateway": default_mirror_to_gateway(),
             "risk_profile_id": risk_profile_id,
             "max_leverage": rules["position_rules"]["max_leverage"],
+            "asset_risk_tiers": default_asset_risk_tiers(),
             "max_symbols": 20,
             "universe_mode": "fixed_top20",
             "universe_assets": universe_assets,
@@ -291,14 +291,17 @@ def _ensure_auto_paper_run(
             )
         else:
             profile = {**dict(paper_run.execution_profile), **execution_profile}
-            paper_run = paper_repo.update_paper_run(
-                paper_run.paper_run_id or "",
-                execution_profile=profile,
-                paper_status="running",
-                candidate_symbols=list(DEFAULT_BINANCE_TOP20),
-                symbol_scope=list(DEFAULT_BINANCE_TOP20),
-                selection_basis="fixed_operator_top20",
-            ) or paper_run
+            paper_run = (
+                paper_repo.update_paper_run(
+                    paper_run.paper_run_id or "",
+                    execution_profile=profile,
+                    paper_status="running",
+                    candidate_symbols=list(DEFAULT_BINANCE_TOP20),
+                    symbol_scope=list(DEFAULT_BINANCE_TOP20),
+                    selection_basis="fixed_operator_top20",
+                )
+                or paper_run
+            )
 
         session.commit()
         paper_run_id = paper_run.paper_run_id
