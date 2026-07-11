@@ -1,5 +1,15 @@
 # Project Memory
 
+## Binance Mock Top20 runtime remediation (TASK-042, 2026-07-11)
+
+- The July 9 API process was stale relative to the July 10 frontend/code. Local startup now migrates legacy SQLite safely, uses the global `AGENT_PYTHON`, validates the current API contract/build identifier, and no longer overrides the operator's `.env` execution choice.
+- The operator has explicitly armed local Binance Mock/Testnet execution with `BINANCE_AUTO_EXECUTE=true`, `BINANCE_USE_TESTNET=true`, and `LIVE_TRADING_ENABLED=false`. Effective execution still requires credentials, a Testnet boundary, and per-run `mirror_to_gateway=true`; mainnet remains hard-disabled.
+- Automatic bootstrap maintains exactly two active runs (`auto_paper_btc_funding` and `auto_paper_mature_templates`) over the fixed 20-symbol universe with `max_symbols=20` and `binance_simulation_first`. The duplicate legacy technical run is paused without deleting its orders or audit history.
+- Fixed Top20 is served immediately from the canonical server list. Binance `exchangeInfo` enriches tradability/precision/min-notional asynchronously; `PEPE` maps to `1000PEPEUSDT`. Exchange submission performs its own availability validation even while UI cache status is pending.
+- The Trading console no longer substitutes three fake fallback symbols. It distinguishes monitoring, armed execution, no qualifying signal, risk rejection, and exchange-unavailable states. Order reconciliation covers all Top20 symbols and exposes matched, unmatched, rejected, and protection-order evidence.
+- Logging is INFO by default with 10 MB / five-file rotation. CCXT, urllib3, websockets, httpx/httpcore wire output and Uvicorn query-bearing access logs are suppressed. Approximately 3.74 GB of authorized obsolete logs were deleted; current credentials were retained as requested.
+- Fresh verification: backend `213 passed, 1 deselected, 1 warning`; Ruff and mypy passed; admin Vitest `8 files / 19 tests` and production build passed; `git diff --check` passed. Runtime status was `scheduler running`, `auto armed`, `live/mainnet false`; both active runs scanned 20 symbols and Top20 reconciliation returned 20 summaries. No order was forced because current signals did not pass the existing strategy/validation/risk gates.
+
 ## Adversarial audit remediation baseline (TASK-041, 2026-07-10)
 - Local SQLite startup is a two-part contract: Alembic owns relational tables, while `create_local_runtime_schema()` creates the separately owned time-series/event tables needed outside Docker. `run-api-local.ps1` must perform both after setting `POSTGRES_URL`; production TimescaleDB remains owned by `infra/timescale/init.sql`.
 - Execution gateway startup fails closed for configured keys that expose `canWithdraw`; the credential-less placeholder gateway remains visible for operator capability status but cannot trade. Opening requests below exchange `min_notional` are rejected, and exchange submissions use a stable, length-bounded client order ID derived from the logical idempotency key.
