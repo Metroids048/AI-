@@ -12,6 +12,7 @@ from apps.api.config import settings
 from apps.api.http import api_error, collection_response, not_found
 from services.data import DataRepository
 from services.data.live_feed_bus import live_feed_bus
+from services.data.universe import FIXED_TOP20_SYMBOLS, exchange_to_platform_symbol
 from services.database import get_db_session
 from services.execution import (
     ExecutionGatekeeperService,
@@ -439,13 +440,59 @@ def get_paper_run_order_sync(paper_run_id: str, db: Session = Depends(get_db_ses
         position.model_dump(mode="json")
         for position in _execution_repo(db).list_latest_positions_for_run(run_type="paper", run_id=paper_run_id)
     ]
-    account = probe_testnet_account(order_limit=20)
+    account = probe_testnet_account(order_limit=20, order_symbols=list(FIXED_TOP20_SYMBOLS))
     gateway_by_id = {str(order.order_id): order.model_dump(mode="json") for order in account.recent_orders}
+    local_gateway_ids = {
+        str(order["gateway_order_id"])
+        for order in local_orders
+        if order.get("gateway_order_id")
+    }
+    unmatched_local_orders = [
+        order
+        for order in local_orders
+        if order.get("gateway_order_id") and str(order.get("gateway_order_id")) not in gateway_by_id
+    ]
+    unmatched_gateway_orders = [
+        order
+        for gateway_id, order in gateway_by_id.items()
+        if gateway_id not in local_gateway_ids
+    ]
+    symbol_summary = []
+    for symbol in FIXED_TOP20_SYMBOLS:
+        symbol_local = [order for order in local_orders if order.get("symbol") == symbol]
+        symbol_gateway = [
+            order
+            for order in gateway_by_id.values()
+            if exchange_to_platform_symbol(str(order.get("symbol", ""))) == symbol
+        ]
+        matched_ids = {
+            str(order.get("gateway_order_id"))
+            for order in symbol_local
+            if order.get("gateway_order_id") and str(order.get("gateway_order_id")) in gateway_by_id
+        }
+        symbol_summary.append(
+            {
+                "symbol": symbol,
+                "local_order_count": len(symbol_local),
+                "gateway_order_count": len(symbol_gateway),
+                "matched_order_count": len(matched_ids),
+                "unmatched_local_order_count": sum(
+                    1 for order in unmatched_local_orders if order.get("symbol") == symbol
+                ),
+                "unmatched_gateway_order_count": sum(
+                    1
+                    for order in unmatched_gateway_orders
+                    if exchange_to_platform_symbol(str(order.get("symbol", ""))) == symbol
+                ),
+            }
+        )
     return {
         "paper_run_id": paper_run_id,
         "execution_mode": run.execution_profile.get("execution_mode"),
         "local_orders": local_orders,
         "gateway_recent_orders": list(gateway_by_id.values()),
+        "matched_local_order_count": len(local_gateway_ids & gateway_by_id.keys()),
+        "symbol_summary": symbol_summary,
         "positions": positions,
         "protection_order_refs": [
             {
@@ -456,11 +503,8 @@ def get_paper_run_order_sync(paper_run_id: str, db: Session = Depends(get_db_ses
             for order in local_orders
             if order.get("entry_context", {}).get("protection_order_refs")
         ],
-        "unmatched_local_orders": [
-            order
-            for order in local_orders
-            if order.get("gateway_order_id") and str(order.get("gateway_order_id")) not in gateway_by_id
-        ],
+        "unmatched_local_orders": unmatched_local_orders,
+        "unmatched_gateway_orders": unmatched_gateway_orders,
         "account": account.model_dump(mode="json"),
     }
 

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from services.data.universe import platform_to_exchange_symbol
 from shared.binance_network import binance_ccxt_config
 from shared.config import settings
 from shared.models import ExchangeAccountSnapshot, ExchangeGatewayCapability, ExecutionOrderRequest
@@ -539,7 +540,11 @@ def _binance_mode_urls() -> tuple[str, str, str]:
     )
 
 
-def probe_testnet_account(*, order_limit: int = 10) -> BinanceTestnetAccountStatus:
+def probe_testnet_account(
+    *,
+    order_limit: int = 10,
+    order_symbols: list[str] | tuple[str, ...] | None = None,
+) -> BinanceTestnetAccountStatus:
     """Fetch live Binance Mock Trading balances, positions, and recent orders via API."""
     trading_mode, api_base, web_ui_url = _binance_mode_urls()
     warning = (
@@ -604,7 +609,14 @@ def probe_testnet_account(*, order_limit: int = 10) -> BinanceTestnetAccountStat
                 )
             )
         recent_orders: list[BinanceTestnetOrderView] = []
-        symbols = {p.symbol.replace(":USDT", "").replace("/", "") for p in positions} or {"BTCUSDT"}
+        requested_symbols = {
+            platform_to_exchange_symbol(symbol)
+            for symbol in (order_symbols or ())
+        }
+        position_symbols = {p.symbol.replace(":USDT", "").replace("/", "") for p in positions}
+        symbols = requested_symbols | position_symbols
+        if not symbols:
+            symbols = {"BTCUSDT"}
         for market_id in sorted(symbols):
             payload = client.fapiPrivateGetAllOrders({"symbol": market_id, "limit": order_limit})
             for raw in payload[-order_limit:]:

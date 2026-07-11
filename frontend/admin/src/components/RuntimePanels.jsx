@@ -304,6 +304,8 @@ export function OrderSyncPanel({ orderSync }) {
   const local = asArray(orderSync?.local_orders);
   const gateway = asArray(orderSync?.gateway_recent_orders);
   const refs = asArray(orderSync?.protection_order_refs);
+  const unmatchedLocal = asArray(orderSync?.unmatched_local_orders);
+  const unmatchedGateway = asArray(orderSync?.unmatched_gateway_orders);
   return (
     <section className="exchange-panel table-panel">
       <div className="panel-title">
@@ -314,6 +316,9 @@ export function OrderSyncPanel({ orderSync }) {
         <span>模式：{orderSync?.execution_mode ?? "-"}</span>
         <span>持仓：{asArray(orderSync?.positions).length}</span>
         <span>保护单：{refs.length}</span>
+        <span>已匹配：{orderSync?.matched_local_order_count ?? 0}</span>
+        <span>本地未匹配：{unmatchedLocal.length}</span>
+        <span>Binance 未匹配：{unmatchedGateway.length}</span>
       </div>
       <div className="compact-table">
         <div className="compact-table-row four header">

@@ -12,9 +12,9 @@ from services.strategy_library import (
     ValidationRepository,
 )
 from shared.models import (
+    BacktestEngine,
     BacktestReport,
     BacktestRun,
-    BacktestEngine,
     BinanceTestnetAccountStatus,
     BinanceTestnetOrderView,
     GateDecision,
@@ -284,7 +284,7 @@ def test_order_sync_reconciles_non_btc_orders_across_fixed_top20(api_client, db_
     monkeypatch.setattr(
         runs_router,
         "probe_testnet_account",
-        lambda order_limit=20: BinanceTestnetAccountStatus(
+        lambda order_limit=20, order_symbols=None: BinanceTestnetAccountStatus(
             connected=True,
             recent_orders=[
                 BinanceTestnetOrderView(

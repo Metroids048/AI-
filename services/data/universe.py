@@ -101,6 +101,8 @@ def platform_to_exchange_symbol(symbol: str) -> str:
 
 def exchange_to_platform_symbol(symbol: str) -> str:
     raw = symbol.upper()
+    if "/" in raw:
+        return raw.replace(":USDT", "")
     if raw in EXCHANGE_TO_PLATFORM_SYMBOL:
         return EXCHANGE_TO_PLATFORM_SYMBOL[raw]
     if raw.endswith("USDT"):
