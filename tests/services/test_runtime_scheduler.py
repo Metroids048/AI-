@@ -7,6 +7,10 @@ import pytest
 from services.execution.scheduler import RuntimeScheduler
 
 
+def _raise_runtime_error(message: str) -> None:
+    raise RuntimeError(message)
+
+
 @pytest.mark.asyncio
 async def test_runtime_scheduler_runs_periodic_jobs_and_stops() -> None:
     calls = {"paper": 0, "heartbeat": 0, "risk": 0, "notification": 0, "daily": 0}
@@ -38,3 +42,38 @@ async def test_runtime_scheduler_runs_periodic_jobs_and_stops() -> None:
     assert calls == stopped_at
     assert scheduler.status.running is False
     assert scheduler.status.last_auto_cycle_at is not None
+
+
+@pytest.mark.asyncio
+async def test_optional_source_failure_does_not_mark_scheduler_unhealthy() -> None:
+    scheduler = RuntimeScheduler()
+
+    await scheduler._run_once(
+        name="poll_macro_calendar",
+        runner=lambda: _raise_runtime_error("upstream returned 403"),
+        affects_scheduler_health=False,
+    )
+
+    assert scheduler.status.scheduler_error is None
+    assert scheduler.status.failure_counts["poll_macro_calendar"] == 1
+    assert scheduler.status.last_results["poll_macro_calendar"] == {
+        "status": "error",
+        "error": "upstream returned 403",
+    }
+
+
+@pytest.mark.asyncio
+async def test_core_task_failure_remains_visible_until_that_task_recovers() -> None:
+    scheduler = RuntimeScheduler()
+
+    await scheduler._run_once(
+        name="paper_runtime_cycle",
+        runner=lambda: _raise_runtime_error("database unavailable"),
+    )
+    await scheduler._run_once(name="market_data_heartbeat", runner=lambda: {"status": "ok"})
+
+    assert scheduler.status.scheduler_error == "paper_runtime_cycle: database unavailable"
+
+    await scheduler._run_once(name="paper_runtime_cycle", runner=lambda: {"status": "ok"})
+
+    assert scheduler.status.scheduler_error is None

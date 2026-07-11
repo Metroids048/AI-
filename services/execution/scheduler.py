@@ -88,6 +88,7 @@ class RuntimeScheduler:
         self._stop_event: asyncio.Event | None = None
         self._last_daily_review_date: date | None = None
         self._next_cycle_at: datetime | None = None
+        self._scheduler_errors: dict[str, str] = {}
 
     def start(self) -> None:
         if self.status.running:
@@ -96,6 +97,7 @@ class RuntimeScheduler:
         self.status.running = True
         self.status.started_at = datetime.now(UTC)
         self.status.scheduler_error = None
+        self._scheduler_errors.clear()
         self._tasks = [
             asyncio.create_task(
                 self._run_periodic(
@@ -117,6 +119,7 @@ class RuntimeScheduler:
                     name="poll_news_feeds",
                     interval_seconds=self.news_poll_seconds,
                     runner=self.news_poll_runner,
+                    affects_scheduler_health=False,
                 )
             ),
             asyncio.create_task(
@@ -124,6 +127,7 @@ class RuntimeScheduler:
                     name="poll_macro_calendar",
                     interval_seconds=self.macro_poll_seconds,
                     runner=self.macro_poll_runner,
+                    affects_scheduler_health=False,
                 )
             ),
             asyncio.create_task(
@@ -131,6 +135,7 @@ class RuntimeScheduler:
                     name="poll_social_watchlist",
                     interval_seconds=self.social_poll_seconds,
                     runner=self.social_poll_runner,
+                    affects_scheduler_health=False,
                 )
             ),
             asyncio.create_task(
@@ -145,6 +150,7 @@ class RuntimeScheduler:
                     name="notification_dispatch",
                     interval_seconds=self.notification_seconds,
                     runner=self.notification_runner,
+                    affects_scheduler_health=False,
                 )
             ),
             asyncio.create_task(self._run_daily_review_loop()),
@@ -172,6 +178,7 @@ class RuntimeScheduler:
         interval_seconds: float,
         runner: Runner,
         records_auto_cycle: bool = False,
+        affects_scheduler_health: bool = True,
     ) -> None:
         assert self._stop_event is not None
         while not self._stop_event.is_set():
@@ -179,7 +186,11 @@ class RuntimeScheduler:
             if records_auto_cycle:
                 self._next_cycle_at = started
                 self.status.next_cycle_eta_seconds = 0
-            await self._run_once(name=name, runner=runner)
+            await self._run_once(
+                name=name,
+                runner=runner,
+                affects_scheduler_health=affects_scheduler_health,
+            )
             if records_auto_cycle:
                 self.status.last_auto_cycle_at = datetime.now(UTC)
                 self._next_cycle_at = self.status.last_auto_cycle_at
@@ -189,15 +200,28 @@ class RuntimeScheduler:
                 elapsed = (datetime.now(UTC) - self._next_cycle_at).total_seconds()
                 self.status.next_cycle_eta_seconds = max(0, int(interval_seconds - elapsed))
 
-    async def _run_once(self, *, name: str, runner: Runner) -> None:
+    async def _run_once(
+        self,
+        *,
+        name: str,
+        runner: Runner,
+        affects_scheduler_health: bool = True,
+    ) -> None:
         try:
             result = await asyncio.to_thread(runner)
             self.status.run_counts[name] = self.status.run_counts.get(name, 0) + 1
             self.status.last_results[name] = result
-            self.status.scheduler_error = None
+            if affects_scheduler_health:
+                self._scheduler_errors.pop(name, None)
         except Exception as exc:  # pragma: no cover - defensive runtime guard
             self.status.failure_counts[name] = self.status.failure_counts.get(name, 0) + 1
-            self.status.scheduler_error = f"{name}: {exc}"
+            self.status.last_results[name] = {"status": "error", "error": str(exc)}
+            if affects_scheduler_health:
+                self._scheduler_errors[name] = str(exc)
+        self.status.scheduler_error = "; ".join(
+            f"{task_name}: {error}"
+            for task_name, error in sorted(self._scheduler_errors.items())
+        ) or None
 
     async def _run_daily_review_loop(self) -> None:
         assert self._stop_event is not None

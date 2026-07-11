@@ -33,6 +33,24 @@ _SENSITIVE_KEY_FRAGMENTS = (
 _REDACTED = "***REDACTED***"
 
 
+class _WebsocketTransportTracebackFilter(logging.Filter):
+    """Drop raw third-party websocket transport tracebacks from asyncio logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.exc_info is None:
+            return True
+        traceback = record.exc_info[2]
+        while traceback is not None:
+            filename = traceback.tb_frame.f_code.co_filename.replace("\\", "/").lower()
+            if "/site-packages/websockets/" in filename:
+                return False
+            traceback = traceback.tb_next
+        return True
+
+
+_WEBSOCKET_TRANSPORT_TRACEBACK_FILTER = _WebsocketTransportTracebackFilter()
+
+
 def _is_sensitive(key: str) -> bool:
     lowered = key.lower()
     return any(fragment in lowered for fragment in _SENSITIVE_KEY_FRAGMENTS)
@@ -75,6 +93,9 @@ def configure_external_library_loggers() -> None:
     """Prevent HTTP wire logs from exposing exchange authentication material."""
     for name in ("ccxt", "urllib3", "websockets", "httpx", "httpcore"):
         logging.getLogger(name).setLevel(logging.WARNING)
+    asyncio_logger = logging.getLogger("asyncio")
+    if _WEBSOCKET_TRANSPORT_TRACEBACK_FILTER not in asyncio_logger.filters:
+        asyncio_logger.addFilter(_WEBSOCKET_TRANSPORT_TRACEBACK_FILTER)
 
 
 def get_logger(name: str) -> logging.Logger:
