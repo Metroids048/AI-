@@ -61,6 +61,13 @@ describe("Trading console panels", () => {
     expect(screen.getByText("24h")).toBeInTheDocument();
   });
 
+  it("shows an explicit loading state instead of a fake three-symbol universe", () => {
+    render(<MarketList selectedSymbol="BTC/USDT" universe={[]} onSelect={vi.fn()} />);
+
+    expect(screen.getByText("正在加载固定 Top20 市场列表")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ETH\/USDT/ })).not.toBeInTheDocument();
+  });
+
   it("uses automatic Paper evidence and stoploss before open orders", () => {
     const onAction = vi.fn();
     render(
@@ -154,10 +161,21 @@ describe("Trading console panels", () => {
   });
 
   it("renders automatic engine scheduler status", () => {
-    render(<AutoEngineStatusBadge status={{ scheduler_running: true, scheduler_mode: "inprocess", next_cycle_eta_seconds: 42 }} />);
+    render(
+      <AutoEngineStatusBadge
+        status={{
+          scheduler_running: true,
+          scheduler_mode: "inprocess",
+          next_cycle_eta_seconds: 42,
+          auto_execution_state: "armed",
+          fixed_top20_count: 20,
+        }}
+      />,
+    );
 
     expect(screen.getByText("自动运行中")).toBeInTheDocument();
     expect(screen.getByText("inprocess / 下次 00:42")).toBeInTheDocument();
+    expect(screen.getByText("Mock 自动下单已武装 / Top20 监控中")).toBeInTheDocument();
   });
 
   it("shows an explicit unavailable state instead of implying REST polling", () => {

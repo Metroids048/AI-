@@ -26,6 +26,10 @@ def test_default_mirror_to_gateway_uses_safe_binance_simulation_boundary(monkeyp
     monkeypatch.setattr(settings, "binance_api_secret", "secret")
     monkeypatch.setattr(settings, "binance_use_testnet", True)
     monkeypatch.setattr(settings, "live_trading_enabled", False)
+    monkeypatch.setattr(settings, "binance_auto_execute", False)
+    assert default_mirror_to_gateway() is False
+
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
     assert default_mirror_to_gateway() is True
 
     monkeypatch.setattr(settings, "live_trading_enabled", True)
@@ -116,3 +120,13 @@ def test_local_api_start_script_migrates_database_before_starting_uvicorn() -> N
 
     assert "py -3 -m alembic upgrade head" in script
     assert script.index("py -3 -m alembic upgrade head") < script.index("py -3 -m uvicorn")
+
+
+def test_console_startup_preserves_operator_auto_execute_setting_and_rotates_logs() -> None:
+    root = Path(__file__).resolve().parents[2]
+    console_script = (root / "scripts" / "start_paper_console.ps1").read_text(encoding="utf-8")
+    api_script = (root / "scripts" / "run-api-local.ps1").read_text(encoding="utf-8")
+
+    assert '$env:BINANCE_AUTO_EXECUTE = "false"' not in console_script
+    assert "Rotate-RuntimeLog" in api_script
+    assert '$env:LOG_LEVEL = "INFO"' in api_script

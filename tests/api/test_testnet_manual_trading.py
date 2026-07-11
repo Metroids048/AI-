@@ -128,13 +128,26 @@ def test_trading_environment_rejects_mainnet_trading_in_paper_or_testnet_env() -
         validate_trading_environment(settings)
 
 
-def test_trading_status_api_never_returns_secret_material(api_client) -> None:
+def test_trading_status_api_reports_effective_mock_auto_execution(api_client, monkeypatch) -> None:
+    from apps.api.config import settings
+
+    monkeypatch.setattr(settings, "binance_api_key", "key")
+    monkeypatch.setattr(settings, "binance_api_secret", "secret")
+    monkeypatch.setattr(settings, "binance_use_testnet", True)
+    monkeypatch.setattr(settings, "live_trading_enabled", False)
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
+    monkeypatch.setattr(settings, "app_build_id", "test-build")
+
     response = api_client.get("/api/v1/execution/trading-status")
 
     assert response.status_code == 200
     body = response.json()
     assert body["exchange"] == "binance"
     assert body["live_trading_enabled"] is False
+    assert body["auto_execute_enabled"] is True
+    assert body["auto_execution_state"] == "armed"
+    assert body["fixed_top20_count"] == 20
+    assert body["backend_build_id"] == "test-build"
     assert "api_secret" not in str(body).lower()
     assert "api_key" not in str(body).lower()
 
