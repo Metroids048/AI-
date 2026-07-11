@@ -130,6 +130,7 @@ def test_trading_environment_rejects_mainnet_trading_in_paper_or_testnet_env() -
 
 def test_trading_status_api_reports_effective_mock_auto_execution(api_client, monkeypatch) -> None:
     from apps.api.config import settings
+    from apps.api.routers import runs as runs_router
 
     monkeypatch.setattr(settings, "binance_api_key", "key")
     monkeypatch.setattr(settings, "binance_api_secret", "secret")
@@ -137,6 +138,11 @@ def test_trading_status_api_reports_effective_mock_auto_execution(api_client, mo
     monkeypatch.setattr(settings, "live_trading_enabled", False)
     monkeypatch.setattr(settings, "binance_auto_execute", True)
     monkeypatch.setattr(settings, "app_build_id", "test-build")
+    monkeypatch.setattr(
+        runs_router,
+        "configured_gateways",
+        lambda: (_ for _ in ()).throw(AssertionError("status endpoint must not initialize a network gateway")),
+    )
 
     response = api_client.get("/api/v1/execution/trading-status")
 

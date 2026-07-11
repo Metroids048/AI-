@@ -151,3 +151,5 @@ def test_console_startup_preserves_operator_auto_execute_setting_and_rotates_log
     assert "create_relational_schema" not in console_script
     assert "adopt_complete_legacy_sqlite_schema" in api_script
     assert "--no-access-log" in api_script
+    assert "--log-level warning" in api_script
+    assert '$env:BINANCE_HTTPS_PROXY = $env:HTTPS_PROXY' in console_script
