@@ -1570,6 +1570,38 @@ class PaperRuntimeService:
                 if not refreshed:
                     raise ValueError("gateway_protection_refresh_failed")
         except Exception as exc:  # noqa: BLE001
+            # Exchange already flat: ReduceOnly rejects. Treat as reconcile success so
+            # local ghosts cannot retry forever and block new directional opens.
+            if bool(order.close_only_mode) and _is_reduce_only_already_flat(exc):
+                self._record_gateway_mirror_failure(paper_run=paper_run, order=order, exc=exc)
+                return (
+                    self.execution_repo.update_order(
+                        order.order_execution_id or "",
+                        execution_status="accepted",
+                        rejection_reason=None,
+                        rejection_codes=[
+                            code
+                            for code in order.rejection_codes
+                            if code != "binance_auto_execute_failed"
+                        ],
+                        gateway_status="exchange_already_flat",
+                        entry_context={
+                            **order.entry_context,
+                            "exchange_already_flat": True,
+                            "gateway_flat_error": str(exc),
+                        },
+                        lifecycle_history=[
+                            *order.lifecycle_history,
+                            {
+                                "at": datetime.now(UTC).isoformat(),
+                                "status": "exchange_already_flat",
+                                "event": "binance_auto_execute",
+                                "error": str(exc),
+                            },
+                        ],
+                    )
+                    or order
+                )
             self._record_gateway_mirror_failure(paper_run=paper_run, order=order, exc=exc)
             return (
                 self.execution_repo.update_order(
@@ -1932,6 +1964,11 @@ def _float_or_none(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _is_reduce_only_already_flat(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "-2022" in text or "reduceonly order is rejected" in text
 
 
 def _parse_datetime(value: object) -> datetime | None:

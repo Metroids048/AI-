@@ -1,0 +1,35 @@
+{
+  "paused": [],
+  "armed_directional": [
+    {
+      "paper_run_id": "457c6ecd-88a1-434a-b422-06769536773e",
+      "paper_status": "running",
+      "execution_mode": "binance_simulation_first",
+      "auto_paper_runtime_key": "auto_paper_mature_templates",
+      "cost_gate_verified": true
+    }
+  ],
+  "running": [
+    {
+      "paper_run_id": "fdf5a18f-02dc-45cd-8438-9fe0767ce85e",
+      "strategy_lane": "carry",
+      "execution_mode": "binance_simulation_first",
+      "auto_paper_runtime_key": "auto_paper_btc_funding"
+    },
+    {
+      "paper_run_id": "457c6ecd-88a1-434a-b422-06769536773e",
+      "strategy_lane": "directional",
+      "execution_mode": "binance_simulation_first",
+      "auto_paper_runtime_key": "auto_paper_mature_templates"
+    }
+  ],
+  "other_directional": [
+    {
+      "paper_run_id": "c2b5a1fa-abcb-416a-b86d-02debbd47ee3",
+      "paper_status": "paused",
+      "execution_mode": "binance_simulation_first",
+      "auto_paper_runtime_key": "auto_paper_btc_technical",
+      "cost_gate_verified": true
+    }
+  ]
+}

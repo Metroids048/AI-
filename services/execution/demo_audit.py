@@ -173,12 +173,13 @@ class BinanceDemoAuditService:
             _platform_symbol(position.symbol): position for position in account.positions if abs(position.quantity) > 0
         }
         target_run_ids = {context.paper_run_id}
-        # Prefer syncing into the audit run + mature directional run.
-        # Also rewrite any PaperRun that still shows open qty so stale mirrors
-        # (e.g. funding lane leftovers) cannot keep ghost holdings on the desk.
+        strategy_run_ids: set[str] = set()
+        # Audit run gets a full exchange mirror. Strategy/mature runs only get
+        # ghost cleanup — injecting Demo positions into them inflated portfolio
+        # risk and blocked directional opens (portfolio_initial_risk_exceeded).
         for run in self.paper_repo.list_paper_runs():
             run_id = run.paper_run_id or ""
-            if not run_id:
+            if not run_id or run_id == context.paper_run_id:
                 continue
             profile = run.execution_profile or {}
             armed_mature = profile.get("auto_paper_runtime_key") == "auto_paper_mature_templates" and (
@@ -194,10 +195,10 @@ class BinanceDemoAuditService:
                 )
             )
             if armed_mature or has_open:
-                target_run_ids.add(run_id)
+                strategy_run_ids.add(run_id)
 
         written = 0
-        for run_id in target_run_ids:
+        for run_id in target_run_ids | strategy_run_ids:
             latest = {
                 item.symbol: item
                 for item in self.execution_repo.list_latest_positions_for_run(
@@ -206,26 +207,46 @@ class BinanceDemoAuditService:
                     include_closed=True,
                 )
             }
-            seen: set[str] = set()
-            for symbol, position in exchange_by_symbol.items():
-                seen.add(symbol)
-                side = TradeSide.LONG if str(position.side).lower() in {"long", "buy"} else TradeSide.SHORT
-                self.execution_repo.create_position_snapshot(
-                    PositionSnapshot(
+            is_audit_run = run_id == context.paper_run_id
+            strategy_owned: set[str] = set()
+            if not is_audit_run:
+                for symbol, existing in latest.items():
+                    if abs(float(existing.quantity)) <= 0:
+                        continue
+                    entry = self.execution_repo.find_latest_filled_entry_order(
                         run_type="paper",
                         run_id=run_id,
                         symbol=symbol,
-                        side=side,
-                        quantity=float(position.quantity),
-                        entry_price=float(position.entry_price),
-                        mark_price=float(position.mark_price or position.entry_price),
-                        unrealized_pnl=float(position.unrealized_pnl or 0.0),
-                        snapshot_time=snapshot_time,
                     )
-                )
-                written += 1
+                    if entry is not None and entry.gateway_order_id:
+                        strategy_owned.add(symbol)
+            seen: set[str] = set()
+            if is_audit_run:
+                for symbol, position in exchange_by_symbol.items():
+                    seen.add(symbol)
+                    side = TradeSide.LONG if str(position.side).lower() in {"long", "buy"} else TradeSide.SHORT
+                    self.execution_repo.create_position_snapshot(
+                        PositionSnapshot(
+                            run_type="paper",
+                            run_id=run_id,
+                            symbol=symbol,
+                            side=side,
+                            quantity=float(position.quantity),
+                            entry_price=float(position.entry_price),
+                            mark_price=float(position.mark_price or position.entry_price),
+                            unrealized_pnl=float(position.unrealized_pnl or 0.0),
+                            snapshot_time=snapshot_time,
+                        )
+                    )
+                    written += 1
             for symbol, existing in latest.items():
-                if symbol in seen or abs(float(existing.quantity)) <= 0:
+                if abs(float(existing.quantity)) <= 0:
+                    continue
+                if is_audit_run:
+                    if symbol in seen:
+                        continue
+                elif symbol in strategy_owned and symbol in exchange_by_symbol:
+                    # Real strategy fill still open on exchange — keep.
                     continue
                 self.execution_repo.create_position_snapshot(
                     PositionSnapshot(

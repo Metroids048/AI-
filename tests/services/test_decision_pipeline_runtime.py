@@ -76,6 +76,7 @@ def test_paper_signal_uses_decision_pipeline_and_atr_stop(db_session) -> None:
 
     trace = order.entry_context["decision_pipeline"]
     assert trace["pipeline_status"] == "bet_taken"
+    assert trace["strategy_lane"] == "directional"
     assert order.signal_ensemble_id is not None
     assert order.meta_label_id is not None
     assert order.entry_context["paper_order_should_trade"] is True

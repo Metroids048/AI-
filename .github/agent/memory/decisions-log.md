@@ -1,5 +1,12 @@
 # Decisions Log
 
+## ADR-055: ATR% volatility asset risk tiers with core/standard fallback
+- Date: 2026-07-12
+- Status: accepted
+- Context: Fixed Top20 used only core (BTC/ETH/SOL) vs standard for leverage/position caps, so PEPE and LINK shared the same standard bucket despite very different volatility.
+- Decision: Weekly Celery task `refresh_volatility_asset_risk_tiers` scores Top20 30-day daily ATR%, splits into `vol_low`/`vol_mid`/`vol_high` terciles, and writes them into running PaperRun `execution_profile.asset_risk_tiers` (defaults: 15x/12%, 8x/6%, 4x/3%). `resolve_asset_risk_tier` prefers vol_* when those symbol lists are non-empty; otherwise keeps legacy core/standard. Meta stored at `volatility_tier_meta`.
+- Consequences: High-vol names get tighter caps without deleting the legacy two-tier fallback. Does not change strategy admission or mainnet policy.
+
 ## ADR-054: Acceptance verification and Binance-sim arming must survive task noise and bootstrap
 - Date: 2026-07-12
 - Status: accepted

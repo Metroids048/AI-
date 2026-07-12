@@ -94,6 +94,11 @@ celery_app.conf.beat_schedule = {
         "task": "services.review.tasks.generate_daily_review",
         "schedule": crontab(hour=settings.daily_review_hour_utc, minute=settings.daily_review_minute_utc),
     },
+    "volatility-asset-risk-tiers-weekly": {
+        "task": "services.execution.tasks.refresh_volatility_asset_risk_tiers",
+        "schedule": crontab(hour=3, minute=15, day_of_week="sun"),
+        "kwargs": {"lookback_days": 30},
+    },
 }
 celery_app.autodiscover_tasks(
     [

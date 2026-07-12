@@ -498,6 +498,83 @@ def test_binance_first_gateway_failure_blocks_local_close(db_session, monkeypatc
     assert "binance_auto_execute_failed" in rejected_order.rejection_codes
 
 
+class ReduceOnlyFlatGateway:
+    def __init__(self) -> None:
+        self.submitted: list[ExecutionOrderRequest] = []
+
+    def reconcile(self, *, live_run_id: str) -> dict:
+        return {"open_positions": []}
+
+    def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
+        self.submitted.append(order_request)
+        raise ValueError('binanceusdm {"code":-2022,"msg":"ReduceOnly Order is rejected."}')
+
+
+def test_reduce_only_already_flat_closes_local_ghost(db_session, monkeypatch) -> None:
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
+    gateway = ReduceOnlyFlatGateway()
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=90.0,
+        take_price=120.0,
+        mirror_to_gateway=True,
+        gateway=gateway,
+    )
+    # Reconcile empties first if exchange flat — seed bar then force protective path by
+    # making reconcile report the position still "present" would skip. Here reconcile is
+    # empty so ghost is cleared at reconcile stage before protective close.
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
+    )
+    assert result.closed_positions == 1
+    assert result.open_position_symbols == []
+    assert any(action.action.startswith("reconcile_flat_close_") for action in result.actions)
+
+
+def test_reduce_only_flat_on_protective_close_clears_local(db_session, monkeypatch) -> None:
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
+
+    class StickyExchangeGateway(ReduceOnlyFlatGateway):
+        def reconcile(self, *, live_run_id: str) -> dict:
+            # Pretend exchange still has the position so reconcile does not clear it;
+            # protective close then hits ReduceOnly -2022 (race / stale snapshot).
+            return {
+                "open_positions": [
+                    {"symbol": "BTC/USDT:USDT", "contracts": 1.0, "side": "long"},
+                ]
+            }
+
+    gateway = StickyExchangeGateway()
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=110.0,
+        mirror_to_gateway=True,
+        gateway=gateway,
+    )
+    _store_bar(db_session, low=94, high=100, close=96)
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
+    )
+
+    assert result.closed_positions == 1
+    assert result.open_position_symbols == []
+    assert result.rejected_orders == 0
+    closed_order = ExecutionRepository(db_session).list_orders()[-1]
+    assert closed_order.execution_status == "filled"
+    assert closed_order.entry_context.get("exchange_already_flat") is True
+    assert any("exchange_already_flat" in str(item.get("status", "")) for item in closed_order.lifecycle_history)
+
+
 def _runtime_with_position(
     db_session,
     *,

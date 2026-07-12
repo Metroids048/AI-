@@ -1,0 +1,596 @@
+{
+  "total_with_gateway": 84,
+  "by_paper_run": {
+    "6297d56f-1224-4ae5-8dae-2cf34e53a3f9": {
+      "count": 65,
+      "open": 34,
+      "close": 31,
+      "with_pipeline": 0,
+      "acceptance_like": 65
+    },
+    "fdf5a18f-02dc-45cd-8438-9fe0767ce85e": {
+      "count": 1,
+      "open": 1,
+      "close": 0,
+      "with_pipeline": 1,
+      "acceptance_like": 0
+    },
+    "3ab4cd1d-a8c5-42dd-becd-0bd4ad9002a8": {
+      "count": 13,
+      "open": 6,
+      "close": 7,
+      "with_pipeline": 13,
+      "acceptance_like": 0
+    },
+    "none": {
+      "count": 5,
+      "open": 5,
+      "close": 0,
+      "with_pipeline": 0,
+      "acceptance_like": 5
+    }
+  },
+  "with_decision_pipeline": 14,
+  "with_pipeline_status": 14,
+  "with_strategy_lane_carry": 0,
+  "with_strategy_lane_directional": 0,
+  "open_non_close_only": 46,
+  "samples": [
+    {
+      "order_execution_id": "4b330408-14fa-499c-ab07-8232eb46d4d2",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "BTC/USDT",
+      "gateway_order_id": "21154368315",
+      "close_only_mode": true,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "actual_avg_price",
+        "exchange_side",
+        "exchange_update_time",
+        "execution_kind",
+        "order_type",
+        "quantity",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 11:57:40"
+    },
+    {
+      "order_execution_id": "12800a58-4779-415f-832f-31f5ac13fc78",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "ETH/USDT",
+      "gateway_order_id": "13016055639",
+      "close_only_mode": true,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "actual_avg_price",
+        "exchange_side",
+        "exchange_update_time",
+        "execution_kind",
+        "order_type",
+        "quantity",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 11:57:40"
+    },
+    {
+      "order_execution_id": "567b8b40-19b1-4d8a-8483-24c04008d912",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "SOL/USDT",
+      "gateway_order_id": "3085377669",
+      "close_only_mode": true,
+      "execution_status": "submitted",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "actual_avg_price",
+        "exchange_side",
+        "exchange_update_time",
+        "execution_kind",
+        "order_type",
+        "quantity",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 11:57:40"
+    },
+    {
+      "order_execution_id": "1e11681a-2887-4182-b31c-683bbc321e95",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "BTC/USDT",
+      "gateway_order_id": "21154251064",
+      "close_only_mode": false,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "actual_avg_price",
+        "exchange_side",
+        "exchange_update_time",
+        "execution_kind",
+        "order_type",
+        "quantity",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 11:57:09"
+    },
+    {
+      "order_execution_id": "6da20ed1-95e7-4836-9b5e-6c316138a03b",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "ETH/USDT",
+      "gateway_order_id": "13015991262",
+      "close_only_mode": false,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "actual_avg_price",
+        "exchange_side",
+        "exchange_update_time",
+        "execution_kind",
+        "order_type",
+        "quantity",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 11:57:09"
+    },
+    {
+      "order_execution_id": "003832ae-c942-45a8-b12b-8b4f1d6fce17",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "SOL/USDT",
+      "gateway_order_id": "3085360960",
+      "close_only_mode": false,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "actual_avg_price",
+        "exchange_side",
+        "exchange_update_time",
+        "execution_kind",
+        "order_type",
+        "quantity",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 11:57:09"
+    },
+    {
+      "order_execution_id": "fdb70937-7fad-402e-977a-fc3be6a5b0cc",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "BTC/USDT",
+      "gateway_order_id": "21154197505",
+      "close_only_mode": false,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "actual_avg_price",
+        "exchange_side",
+        "exchange_update_time",
+        "execution_kind",
+        "order_type",
+        "quantity",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 11:56:46"
+    },
+    {
+      "order_execution_id": "97c93324-12ae-4f05-b6ca-07228cacff4d",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "ETH/USDT",
+      "gateway_order_id": "13015965205",
+      "close_only_mode": false,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "actual_avg_price",
+        "exchange_side",
+        "exchange_update_time",
+        "execution_kind",
+        "order_type",
+        "quantity",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 11:56:46"
+    },
+    {
+      "order_execution_id": "35a8f8b5-14cc-45c1-869e-d23f69c18d81",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "SOL/USDT",
+      "gateway_order_id": "3085354569",
+      "close_only_mode": false,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "actual_avg_price",
+        "exchange_side",
+        "exchange_update_time",
+        "execution_kind",
+        "order_type",
+        "quantity",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 11:56:46"
+    },
+    {
+      "order_execution_id": "362ae6db-f564-48ec-9e6c-39634d124c6b",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "SOL/USDT",
+      "gateway_order_id": "3079599993",
+      "close_only_mode": true,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "actual_avg_price",
+        "exchange_side",
+        "exchange_update_time",
+        "execution_kind",
+        "order_type",
+        "quantity",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 11:51:05"
+    },
+    {
+      "order_execution_id": "475fcbcc-602f-48be-aca1-7eb7f9d1dc76",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "ETH/USDT",
+      "gateway_order_id": "13015370212",
+      "close_only_mode": false,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "actual_avg_price",
+        "exchange_side",
+        "exchange_update_time",
+        "execution_kind",
+        "order_type",
+        "quantity",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 11:51:05"
+    },
+    {
+      "order_execution_id": "cf65de42-2245-49e9-a02c-c8958731940e",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "SOL/USDT",
+      "gateway_order_id": "3085202301",
+      "close_only_mode": false,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "actual_avg_price",
+        "exchange_side",
+        "exchange_update_time",
+        "execution_kind",
+        "order_type",
+        "quantity",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 11:51:05"
+    },
+    {
+      "order_execution_id": "3b3aec08-6761-415e-8677-2ccc04fa8ba7",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "BTC/USDT",
+      "gateway_order_id": "21153127030",
+      "close_only_mode": false,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "actual_avg_price",
+        "exchange_side",
+        "exchange_update_time",
+        "execution_kind",
+        "order_type",
+        "quantity",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 11:50:49"
+    },
+    {
+      "order_execution_id": "a5c5aab4-17fe-4dd7-9003-8027107eaef1",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "PEPE/USDT",
+      "gateway_order_id": "646301291",
+      "close_only_mode": true,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "acceptance_action",
+        "acceptance_run_id",
+        "exchange_side",
+        "execution_kind",
+        "quantity",
+        "requested_leverage",
+        "requested_notional",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 08:10:05"
+    },
+    {
+      "order_execution_id": "f65dbaec-a2bc-481e-b7a9-3bb2c824260a",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "PEPE/USDT",
+      "gateway_order_id": "646301219",
+      "close_only_mode": false,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "acceptance_action",
+        "acceptance_run_id",
+        "exchange_side",
+        "execution_kind",
+        "quantity",
+        "requested_leverage",
+        "requested_notional",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 08:10:05"
+    },
+    {
+      "order_execution_id": "04611155-adb6-419d-ab64-a071b48064d8",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "RENDER/USDT",
+      "gateway_order_id": "191879763",
+      "close_only_mode": true,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "acceptance_action",
+        "acceptance_run_id",
+        "exchange_side",
+        "execution_kind",
+        "quantity",
+        "requested_leverage",
+        "requested_notional",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 08:10:05"
+    },
+    {
+      "order_execution_id": "e1f3f481-fde4-4cd4-b4e8-a0cc0ce9c1f6",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "RENDER/USDT",
+      "gateway_order_id": "191879731",
+      "close_only_mode": false,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "acceptance_action",
+        "acceptance_run_id",
+        "exchange_side",
+        "execution_kind",
+        "quantity",
+        "requested_leverage",
+        "requested_notional",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 08:10:05"
+    },
+    {
+      "order_execution_id": "30b70e48-284b-45c3-aa3d-5df9167d598d",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "FET/USDT",
+      "gateway_order_id": "240134163",
+      "close_only_mode": true,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "acceptance_action",
+        "acceptance_run_id",
+        "exchange_side",
+        "execution_kind",
+        "quantity",
+        "requested_leverage",
+        "requested_notional",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 08:10:05"
+    },
+    {
+      "order_execution_id": "d906bb7e-dc38-450f-a423-08d545e304c1",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "FET/USDT",
+      "gateway_order_id": "240134006",
+      "close_only_mode": false,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "acceptance_action",
+        "acceptance_run_id",
+        "exchange_side",
+        "execution_kind",
+        "quantity",
+        "requested_leverage",
+        "requested_notional",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 08:10:05"
+    },
+    {
+      "order_execution_id": "558d63be-0893-4bd3-a072-f808821a8202",
+      "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+      "symbol": "TAO/USDT",
+      "gateway_order_id": "434403500",
+      "close_only_mode": true,
+      "execution_status": "filled",
+      "has_decision_pipeline": false,
+      "pipeline_status": null,
+      "strategy_lane": null,
+      "entry_context_keys": [
+        "acceptance_action",
+        "acceptance_run_id",
+        "exchange_side",
+        "execution_kind",
+        "quantity",
+        "requested_leverage",
+        "requested_notional",
+        "strategy_performance_eligible"
+      ],
+      "created_at": "2026-07-12 08:10:05"
+    }
+  ],
+  "paper_run_meta": {
+    "3ab4cd1d-a8c5-42dd-becd-0bd4ad9002a8": {
+      "strategy_id": "62c398ac-2c8e-41ab-b360-71b5478dd5ec",
+      "strategy_lane": null,
+      "execution_mode": null,
+      "cost_gate_verified": null,
+      "mirror_to_gateway": true,
+      "runtime_key": null
+    },
+    "fdf5a18f-02dc-45cd-8438-9fe0767ce85e": {
+      "strategy_id": "7129ff42-cc1f-4315-9103-cca00b40f369",
+      "strategy_lane": "carry",
+      "execution_mode": "binance_simulation_first",
+      "cost_gate_verified": true,
+      "mirror_to_gateway": true,
+      "runtime_key": null
+    },
+    "c2b5a1fa-abcb-416a-b86d-02debbd47ee3": {
+      "strategy_id": "17d48c91-ac63-4f08-94f4-d20c3bb4b81c",
+      "strategy_lane": "directional",
+      "execution_mode": null,
+      "cost_gate_verified": null,
+      "mirror_to_gateway": false,
+      "runtime_key": null
+    },
+    "457c6ecd-88a1-434a-b422-06769536773e": {
+      "strategy_id": "88555b06-1a22-4b06-9edf-7957bdd90e3d",
+      "strategy_lane": "directional",
+      "execution_mode": "binance_simulation_first",
+      "cost_gate_verified": true,
+      "mirror_to_gateway": true,
+      "runtime_key": null
+    },
+    "6297d56f-1224-4ae5-8dae-2cf34e53a3f9": {
+      "strategy_id": "b309c42d-68e6-410c-96e8-3e9478cc44f4",
+      "strategy_lane": null,
+      "execution_mode": null,
+      "cost_gate_verified": null,
+      "mirror_to_gateway": false,
+      "runtime_key": null
+    }
+  },
+  "directional_run_457c6ecd": {
+    "total": 50,
+    "with_gateway": 0,
+    "with_pipeline": 18,
+    "samples": [
+      {
+        "id": "0a99b8ee-a999-4625-b559-ca3f224736ed",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": null,
+        "close_only": true,
+        "pipeline_status": null,
+        "strategy_lane": null
+      },
+      {
+        "id": "02fb19b8-bdae-48b0-b275-b2ec6ad8b259",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": null,
+        "close_only": true,
+        "pipeline_status": null,
+        "strategy_lane": null
+      },
+      {
+        "id": "5dd1feac-aa2d-4e34-846d-0e654c9bc8aa",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": null,
+        "close_only": true,
+        "pipeline_status": null,
+        "strategy_lane": null
+      },
+      {
+        "id": "2cab01bf-7386-4bd3-860d-111a6e238092",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": null,
+        "close_only": true,
+        "pipeline_status": null,
+        "strategy_lane": null
+      },
+      {
+        "id": "7891e815-c519-4cbd-9ab4-71a6727e6170",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": null,
+        "close_only": true,
+        "pipeline_status": null,
+        "strategy_lane": null
+      },
+      {
+        "id": "d36b644f-abc8-465f-b86d-ed229284a9b5",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": null,
+        "close_only": true,
+        "pipeline_status": null,
+        "strategy_lane": null
+      },
+      {
+        "id": "cb82913a-3926-43ff-a843-5cbaac36a8ab",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": null,
+        "close_only": true,
+        "pipeline_status": null,
+        "strategy_lane": null
+      },
+      {
+        "id": "c876634b-5e19-4f40-a753-8395c550a9b1",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": null,
+        "close_only": true,
+        "pipeline_status": null,
+        "strategy_lane": null
+      },
+      {
+        "id": "8ea34e75-94c3-44fb-b224-dcc72bae9184",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": null,
+        "close_only": true,
+        "pipeline_status": null,
+        "strategy_lane": null
+      },
+      {
+        "id": "99dcfc3a-1150-4f4f-8a7a-5b55345c9a7a",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": null,
+        "close_only": true,
+        "pipeline_status": null,
+        "strategy_lane": null
+      }
+    ]
+  }
+}

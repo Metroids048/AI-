@@ -251,6 +251,7 @@ class DecisionPipeline:
             meta_label=meta_label,
             veto_result=veto_result,
             volatility=volatility,
+            strategy_lane="directional",
         )
         trace.update(
             {
@@ -540,6 +541,7 @@ class DecisionPipeline:
                 meta_label=meta_label,
                 veto_result=None,
                 volatility=volatility,
+                strategy_lane="directional",
             ),
         )
 
@@ -687,9 +689,11 @@ def _trace(
     meta_label: MetaLabel | None,
     veto_result: DecisionVetoResult | None,
     volatility: dict[str, Any],
+    strategy_lane: str = "directional",
 ) -> dict[str, Any]:
     return {
         "pipeline_status": status,
+        "strategy_lane": strategy_lane,
         "signals": [signal.model_dump(mode="json") for signal in signals],
         "ensemble": ensemble.model_dump(mode="json") if ensemble is not None else None,
         "meta_label": meta_label.model_dump(mode="json") if meta_label is not None else None,

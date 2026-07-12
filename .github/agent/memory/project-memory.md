@@ -1,5 +1,12 @@
 # Project Memory
 
+## Auto open/close gap closure Phases A–D + ops unblock (TASK-052/053, 2026-07-12)
+
+- Directional mechanical path unblocked: ghost Demo injection + ReduceOnly `-2022` loop fixed; mature directional `457c6ecd` is the sole running directional run (`binance_simulation_first`, cost gate verified); duplicate `c2b5a1fa` paused.
+- Live mirror proof: manual open+reduceOnly close on Testnet for `457c6ecd` → LINK `gateway_order_id` open `813722666` / close `813722823` (`docs/audits/_directional_manual_mirror_proof.json`, verdict `directional_mirror_ok`).
+- Auto cycle still often skips (`multi_timeframe_disagreement` / `ensemble_discarded` / `skip_duplicate_cycle`) — expected filter behavior, not a gateway crash. Paper engine API `http://127.0.0.1:8016` + `.local_paper_console.db`.
+- ExitLadder offline comparison worse than fixed 2R on net expectancy — no auto promotion. Vol tiers ADR-055 remain mechanical only. Top20 OOS still failed — do not enable strategies/mainnet.
+
 ## Strategy Playbook, ecosystem research, and current-state audit (TASK-046, 2026-07-12)
 
 - Completed a code-and-test-backed current-state review at `docs/audits/2026-07-12-current-state-review.md`. The review maps all eight technical signals, multi-timeframe confirmation, correlation discounting, MetaLabel, LLM veto, Gatekeeper, exits, and position sizing to file/line evidence. It distinguishes the scoped `0.50`/`0.45` MetaLabel values and `3x`/`5x`/`10x` leverage contexts; no core trading/data blocker was found.

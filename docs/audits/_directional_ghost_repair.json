@@ -1,0 +1,18 @@
+{
+  "database": "C:\\Users\\Windows11\\Desktop\\量化项目\\.local_paper_console.db",
+  "cleared": [
+    {
+      "paper_run_id": "457c6ecd-88a1-434a-b422-06769536773e",
+      "symbol": "BTC/USDT"
+    },
+    {
+      "paper_run_id": "457c6ecd-88a1-434a-b422-06769536773e",
+      "symbol": "ETH/USDT"
+    },
+    {
+      "paper_run_id": "457c6ecd-88a1-434a-b422-06769536773e",
+      "symbol": "SOL/USDT"
+    }
+  ],
+  "repaired_at": "2026-07-12T15:07:15.840392+00:00"
+}

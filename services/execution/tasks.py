@@ -137,3 +137,65 @@ def risk_profile_sweep() -> dict:
         return {"checked_paper_runs": checked, "risk_events": events}
     finally:
         session.close()
+
+
+@shared_task(name="services.execution.tasks.refresh_volatility_asset_risk_tiers", queue="ops_queue")
+def refresh_volatility_asset_risk_tiers(*, lookback_days: int = 30) -> dict:
+    """Weekly: recompute Top20 ATR% tercile tiers and write into running PaperRuns."""
+
+    from datetime import UTC, datetime, timedelta
+
+    from services.data.service import DEFAULT_BINANCE_TOP20
+    from services.execution.risk_tiers import (
+        atr_pct_from_daily_bars,
+        build_volatility_asset_risk_tiers,
+        volatility_tier_meta,
+    )
+
+    session = get_session_factory()()
+    try:
+        data_repo = DataRepository(session)
+        paper_repo = PaperRunRepository(session)
+        end_at = datetime.now(UTC)
+        start_at = end_at - timedelta(days=lookback_days + 5)
+        scores: dict[str, float] = {}
+        missing: list[str] = []
+        for symbol in DEFAULT_BINANCE_TOP20:
+            bars = data_repo.list_ohlcv_bars(
+                symbol=symbol,
+                timeframe="1d",
+                start_at=start_at,
+                end_at=end_at,
+            )
+            atr_pct = atr_pct_from_daily_bars(bars)
+            if atr_pct is None:
+                missing.append(symbol)
+                continue
+            scores[symbol] = atr_pct
+        if not scores:
+            return {
+                "updated_paper_runs": 0,
+                "scored_symbols": 0,
+                "missing_symbols": missing,
+                "skipped_reason": "insufficient_daily_bars",
+            }
+        tiers = build_volatility_asset_risk_tiers(scores)
+        meta = volatility_tier_meta(scores, lookback_days=lookback_days)
+        updated = 0
+        for run in paper_repo.list_paper_runs():
+            if run.paper_status != "running" or run.paper_run_id is None:
+                continue
+            profile = dict(run.execution_profile or {})
+            profile["asset_risk_tiers"] = tiers
+            profile["volatility_tier_meta"] = meta
+            paper_repo.update_paper_run(run.paper_run_id, execution_profile=profile)
+            updated += 1
+        session.commit()
+        return {
+            "updated_paper_runs": updated,
+            "scored_symbols": len(scores),
+            "missing_symbols": missing,
+            "tiers": {name: tiers[name]["symbols"] for name in ("vol_low", "vol_mid", "vol_high")},
+        }
+    finally:
+        session.close()

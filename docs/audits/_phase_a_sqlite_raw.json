@@ -1,0 +1,279 @@
+[
+  {
+    "path": ".dev_ai_quant.db",
+    "size": 270336,
+    "tables": [
+      "strategy_ideas",
+      "strategies",
+      "ingestion_jobs",
+      "risk_profiles",
+      "review_reports",
+      "agent_tasks",
+      "signal_ensembles",
+      "position_snapshots",
+      "strategy_drafts",
+      "strategy_versions",
+      "meta_labels",
+      "backtest_runs",
+      "paper_runs",
+      "optimization_runs",
+      "failure_records",
+      "live_runs",
+      "order_executions",
+      "ohlcv_bars",
+      "market_extras",
+      "risk_events"
+    ],
+    "paper_runs": [],
+    "orders_sample": [],
+    "order_executions_gateway_count_recent100": 0,
+    "order_executions_directional_gateway_recent100": 0
+  },
+  {
+    "path": ".local_paper_console.db",
+    "size": 434499584,
+    "tables": [
+      "strategy_ideas",
+      "strategies",
+      "ingestion_jobs",
+      "risk_profiles",
+      "notification_outbox",
+      "review_reports",
+      "decision_memory_entries",
+      "agent_tasks",
+      "signal_ensembles",
+      "position_snapshots",
+      "hypotheses",
+      "strategy_drafts",
+      "strategy_versions",
+      "meta_labels",
+      "backtest_runs",
+      "paper_runs",
+      "optimization_runs",
+      "failure_records",
+      "live_runs",
+      "exchange_account_snapshots",
+      "reconciliation_records",
+      "order_executions",
+      "ohlcv_bars",
+      "market_extras",
+      "risk_events",
+      "news_items",
+      "macro_events",
+      "alembic_version",
+      "strategy_roadmap_states"
+    ],
+    "paper_runs": [
+      {
+        "paper_run_id": "3ab4cd1d-a8c5-42dd-becd-0bd4ad9002a8",
+        "strategy_id": "62c398ac-2c8e-41ab-b360-71b5478dd5ec",
+        "status": null,
+        "execution_mode": null,
+        "mirror_to_gateway": true,
+        "cost_gate_verified": null,
+        "strategy_lane": null
+      },
+      {
+        "paper_run_id": "fdf5a18f-02dc-45cd-8438-9fe0767ce85e",
+        "strategy_id": "7129ff42-cc1f-4315-9103-cca00b40f369",
+        "status": null,
+        "execution_mode": "binance_simulation_first",
+        "mirror_to_gateway": true,
+        "cost_gate_verified": true,
+        "strategy_lane": "carry"
+      },
+      {
+        "paper_run_id": "c2b5a1fa-abcb-416a-b86d-02debbd47ee3",
+        "strategy_id": "17d48c91-ac63-4f08-94f4-d20c3bb4b81c",
+        "status": null,
+        "execution_mode": null,
+        "mirror_to_gateway": false,
+        "cost_gate_verified": null,
+        "strategy_lane": "directional"
+      },
+      {
+        "paper_run_id": "457c6ecd-88a1-434a-b422-06769536773e",
+        "strategy_id": "88555b06-1a22-4b06-9edf-7957bdd90e3d",
+        "status": null,
+        "execution_mode": "binance_simulation_first",
+        "mirror_to_gateway": true,
+        "cost_gate_verified": true,
+        "strategy_lane": "directional"
+      },
+      {
+        "paper_run_id": "6297d56f-1224-4ae5-8dae-2cf34e53a3f9",
+        "strategy_id": "b309c42d-68e6-410c-96e8-3e9478cc44f4",
+        "status": null,
+        "execution_mode": null,
+        "mirror_to_gateway": false,
+        "cost_gate_verified": null,
+        "strategy_lane": null
+      }
+    ],
+    "orders_sample": [
+      {
+        "id": "4b330408-14fa-499c-ab07-8232eb46d4d2",
+        "symbol": "BTC/USDT",
+        "gateway_order_id": "21154368315",
+        "strategy_lane": null,
+        "pipeline_status": null,
+        "close_only": 1,
+        "status": null
+      },
+      {
+        "id": "12800a58-4779-415f-832f-31f5ac13fc78",
+        "symbol": "ETH/USDT",
+        "gateway_order_id": "13016055639",
+        "strategy_lane": null,
+        "pipeline_status": null,
+        "close_only": 1,
+        "status": null
+      },
+      {
+        "id": "567b8b40-19b1-4d8a-8483-24c04008d912",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": "3085377669",
+        "strategy_lane": null,
+        "pipeline_status": null,
+        "close_only": 1,
+        "status": null
+      },
+      {
+        "id": "1e11681a-2887-4182-b31c-683bbc321e95",
+        "symbol": "BTC/USDT",
+        "gateway_order_id": "21154251064",
+        "strategy_lane": null,
+        "pipeline_status": null,
+        "close_only": 0,
+        "status": null
+      },
+      {
+        "id": "6da20ed1-95e7-4836-9b5e-6c316138a03b",
+        "symbol": "ETH/USDT",
+        "gateway_order_id": "13015991262",
+        "strategy_lane": null,
+        "pipeline_status": null,
+        "close_only": 0,
+        "status": null
+      },
+      {
+        "id": "003832ae-c942-45a8-b12b-8b4f1d6fce17",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": "3085360960",
+        "strategy_lane": null,
+        "pipeline_status": null,
+        "close_only": 0,
+        "status": null
+      },
+      {
+        "id": "fdb70937-7fad-402e-977a-fc3be6a5b0cc",
+        "symbol": "BTC/USDT",
+        "gateway_order_id": "21154197505",
+        "strategy_lane": null,
+        "pipeline_status": null,
+        "close_only": 0,
+        "status": null
+      },
+      {
+        "id": "97c93324-12ae-4f05-b6ca-07228cacff4d",
+        "symbol": "ETH/USDT",
+        "gateway_order_id": "13015965205",
+        "strategy_lane": null,
+        "pipeline_status": null,
+        "close_only": 0,
+        "status": null
+      },
+      {
+        "id": "35a8f8b5-14cc-45c1-869e-d23f69c18d81",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": "3085354569",
+        "strategy_lane": null,
+        "pipeline_status": null,
+        "close_only": 0,
+        "status": null
+      },
+      {
+        "id": "362ae6db-f564-48ec-9e6c-39634d124c6b",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": "3079599993",
+        "strategy_lane": null,
+        "pipeline_status": null,
+        "close_only": 1,
+        "status": null
+      },
+      {
+        "id": "475fcbcc-602f-48be-aca1-7eb7f9d1dc76",
+        "symbol": "ETH/USDT",
+        "gateway_order_id": "13015370212",
+        "strategy_lane": null,
+        "pipeline_status": null,
+        "close_only": 0,
+        "status": null
+      },
+      {
+        "id": "cf65de42-2245-49e9-a02c-c8958731940e",
+        "symbol": "SOL/USDT",
+        "gateway_order_id": "3085202301",
+        "strategy_lane": null,
+        "pipeline_status": null,
+        "close_only": 0,
+        "status": null
+      },
+      {
+        "id": "3b3aec08-6761-415e-8677-2ccc04fa8ba7",
+        "symbol": "BTC/USDT",
+        "gateway_order_id": "21153127030",
+        "strategy_lane": null,
+        "pipeline_status": null,
+        "close_only": 0,
+        "status": null
+      }
+    ],
+    "order_executions_gateway_count_recent100": 13,
+    "order_executions_directional_gateway_recent100": 13
+  },
+  {
+    "path": ".browser_paper_smoke.db",
+    "size": 430080,
+    "tables": [
+      "strategy_ideas",
+      "strategies",
+      "ingestion_jobs",
+      "risk_profiles",
+      "notification_outbox",
+      "review_reports",
+      "decision_memory_entries",
+      "agent_tasks",
+      "signal_ensembles",
+      "position_snapshots",
+      "hypotheses",
+      "strategy_drafts",
+      "strategy_versions",
+      "meta_labels",
+      "backtest_runs",
+      "paper_runs",
+      "optimization_runs",
+      "failure_records",
+      "live_runs",
+      "exchange_account_snapshots",
+      "reconciliation_records",
+      "order_executions",
+      "ohlcv_bars",
+      "market_extras",
+      "risk_events",
+      "news_items",
+      "macro_events"
+    ],
+    "paper_runs": [],
+    "orders_sample": [],
+    "order_executions_gateway_count_recent100": 0,
+    "order_executions_directional_gateway_recent100": 0
+  },
+  {
+    "path": ".local/test-runtime/paper_console.db",
+    "size": 0,
+    "tables": [],
+    "paper_runs": [],
+    "orders_sample": []
+  }
+]

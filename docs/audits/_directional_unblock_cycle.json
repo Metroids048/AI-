@@ -1,0 +1,320 @@
+{
+  "generated_at": "2026-07-12T15:14:44.956816+00:00",
+  "ghost_repair": {
+    "database": "C:\\Users\\Windows11\\Desktop\\量化项目\\.local_paper_console.db",
+    "cleared": [],
+    "repaired_at": "2026-07-12T15:14:44.956816+00:00"
+  },
+  "armed": [
+    {
+      "paper_run_id": "fdf5a18f-02dc-45cd-8438-9fe0767ce85e",
+      "strategy_lane": "carry",
+      "execution_mode": "binance_simulation_first",
+      "cost_gate_verified": true
+    },
+    {
+      "paper_run_id": "c2b5a1fa-abcb-416a-b86d-02debbd47ee3",
+      "strategy_lane": "directional",
+      "execution_mode": "binance_simulation_first",
+      "cost_gate_verified": true
+    },
+    {
+      "paper_run_id": "457c6ecd-88a1-434a-b422-06769536773e",
+      "strategy_lane": "directional",
+      "execution_mode": "binance_simulation_first",
+      "cost_gate_verified": true
+    }
+  ],
+  "probe": {
+    "connected": true,
+    "error": null,
+    "position_count": 3,
+    "positions": [
+      {
+        "symbol": "BTC/USDT:USDT",
+        "quantity": 0.0023,
+        "side": "long"
+      },
+      {
+        "symbol": "ETH/USDT:USDT",
+        "quantity": 0.055,
+        "side": "long"
+      },
+      {
+        "symbol": "SOL/USDT:USDT",
+        "quantity": 1.03,
+        "side": "long"
+      }
+    ]
+  },
+  "cycles": [
+    {
+      "paper_run_id": "c2b5a1fa-abcb-416a-b86d-02debbd47ee3",
+      "opened": 0,
+      "closed": 0,
+      "rejected": 0,
+      "open_symbols": [],
+      "actions": [
+        {
+          "symbol": "BTC/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "ETH/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "multi_timeframe_disagreement",
+          "close_only": false
+        },
+        {
+          "symbol": "BNB/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "SOL/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "XRP/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "DOGE/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "multi_timeframe_disagreement",
+          "close_only": false
+        },
+        {
+          "symbol": "ADA/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "multi_timeframe_disagreement",
+          "close_only": false
+        },
+        {
+          "symbol": "TRX/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "AVAX/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "LINK/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "DOT/USDT",
+          "action": "skip_no_market_data",
+          "reason": "latest market bar is unavailable",
+          "close_only": false
+        },
+        {
+          "symbol": "MATIC/USDT",
+          "action": "skip_no_market_data",
+          "reason": "latest market bar is unavailable",
+          "close_only": false
+        },
+        {
+          "symbol": "LTC/USDT",
+          "action": "skip_no_market_data",
+          "reason": "latest market bar is unavailable",
+          "close_only": false
+        },
+        {
+          "symbol": "BCH/USDT",
+          "action": "skip_no_market_data",
+          "reason": "latest market bar is unavailable",
+          "close_only": false
+        },
+        {
+          "symbol": "UNI/USDT",
+          "action": "skip_no_market_data",
+          "reason": "latest market bar is unavailable",
+          "close_only": false
+        },
+        {
+          "symbol": "ATOM/USDT",
+          "action": "skip_no_market_data",
+          "reason": "latest market bar is unavailable",
+          "close_only": false
+        },
+        {
+          "symbol": "ETC/USDT",
+          "action": "skip_no_market_data",
+          "reason": "latest market bar is unavailable",
+          "close_only": false
+        },
+        {
+          "symbol": "FIL/USDT",
+          "action": "skip_no_market_data",
+          "reason": "latest market bar is unavailable",
+          "close_only": false
+        },
+        {
+          "symbol": "APT/USDT",
+          "action": "skip_no_market_data",
+          "reason": "latest market bar is unavailable",
+          "close_only": false
+        },
+        {
+          "symbol": "ARB/USDT",
+          "action": "skip_no_market_data",
+          "reason": "latest market bar is unavailable",
+          "close_only": false
+        }
+      ],
+      "new_orders": [],
+      "local_positions": []
+    },
+    {
+      "paper_run_id": "457c6ecd-88a1-434a-b422-06769536773e",
+      "opened": 0,
+      "closed": 0,
+      "rejected": 0,
+      "open_symbols": [],
+      "actions": [
+        {
+          "symbol": "BTC/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "technical_signals_insufficient",
+          "close_only": false
+        },
+        {
+          "symbol": "ETH/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "multi_timeframe_disagreement",
+          "close_only": false
+        },
+        {
+          "symbol": "SOL/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "XRP/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "BNB/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "HYPE/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "SUI/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "LINK/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "TRX/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "ensemble_discarded",
+          "close_only": false
+        },
+        {
+          "symbol": "AVAX/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "multi_timeframe_disagreement",
+          "close_only": false
+        },
+        {
+          "symbol": "TON/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "DOGE/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "multi_timeframe_disagreement",
+          "close_only": false
+        },
+        {
+          "symbol": "ADA/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "multi_timeframe_disagreement",
+          "close_only": false
+        },
+        {
+          "symbol": "HBAR/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "multi_timeframe_disagreement",
+          "close_only": false
+        },
+        {
+          "symbol": "ONDO/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "multi_timeframe_disagreement",
+          "close_only": false
+        },
+        {
+          "symbol": "ENA/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "multi_timeframe_disagreement",
+          "close_only": false
+        },
+        {
+          "symbol": "TAO/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "multi_timeframe_disagreement",
+          "close_only": false
+        },
+        {
+          "symbol": "FET/USDT",
+          "action": "skip_no_trade_decision",
+          "reason": "ensemble_discarded",
+          "close_only": false
+        },
+        {
+          "symbol": "RENDER/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        },
+        {
+          "symbol": "PEPE/USDT",
+          "action": "skip_duplicate_cycle",
+          "reason": "symbol already processed for this closed bar",
+          "close_only": false
+        }
+      ],
+      "new_orders": [],
+      "local_positions": []
+    }
+  ],
+  "post_open_positions": {},
+  "verdict": "cycle_ran_no_new_gateway_open",
+  "market_refresh": {
+    "bars_written": 1600,
+    "risk_events_cleared": 0
+  }
+}

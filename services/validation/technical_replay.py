@@ -20,11 +20,22 @@ from typing import Any, cast
 
 from services.data import DataRepository
 from services.execution.decision_pipeline import DecisionPipeline, DecisionPipelineResult
+from services.execution.exit_ladder import (
+    ExitLadderState,
+    apply_level_fill,
+    close_quantity_for_level,
+    initialize_exit_ladder,
+    level_hit,
+    level_trigger_price,
+    next_pending_level,
+)
 from services.execution.paper_signal import PaperSignalGenerator
 from services.validation.metrics import annualized_sharpe, max_drawdown_from_pnls, profit_factor, win_rate
 from services.validation.policy import default_policy
 from shared.models import OHLCVBar, StrategyContract, StrategyRules, TradeSide
 
+EXIT_MODE_FIXED_2R = "fixed_2r"
+EXIT_MODE_EXIT_LADDER = "exit_ladder"
 PipelineFactory = Callable[["HistoricalMarketDataView"], Any]
 MarketData = dict[str, dict[str, list[OHLCVBar | dict[str, Any]]]]
 
@@ -45,6 +56,8 @@ class ReplayTrade:
     fee_bps: float
     slippage_bps: float
     r_multiple: float
+    quantity_fraction: float = 1.0
+    ladder_r: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -62,6 +75,8 @@ class ReplayTrade:
             "fee_bps": self.fee_bps,
             "slippage_bps": self.slippage_bps,
             "r_multiple": self.r_multiple,
+            "quantity_fraction": self.quantity_fraction,
+            "ladder_r": self.ladder_r,
         }
 
 
@@ -75,6 +90,8 @@ class ReplayMetrics:
     average_win: float
     average_loss: float
     average_r: float
+    average_hold_hours: float
+    ladder_level_hits: dict[str, int]
     gross_return: float
     net_return: float
     net_expectancy: float
@@ -88,17 +105,21 @@ class ReplayMetrics:
     evaluation_end: datetime | None
     data_issues: list[str]
     trades: tuple[ReplayTrade, ...]
+    exit_mode: str = EXIT_MODE_FIXED_2R
 
     def as_dict(self, *, include_trades: bool = False) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "strategy_key": self.strategy_key,
             "entry_timeframe": self.entry_timeframe,
+            "exit_mode": self.exit_mode,
             "total_trades": self.total_trades,
             "signal_count": self.signal_count,
             "win_rate": self.win_rate,
             "average_win": self.average_win,
             "average_loss": self.average_loss,
             "average_r": self.average_r,
+            "average_hold_hours": self.average_hold_hours,
+            "ladder_level_hits": self.ladder_level_hits,
             "gross_return": self.gross_return,
             "net_return": self.net_return,
             "net_expectancy": self.net_expectancy,
@@ -211,7 +232,7 @@ class TechnicalStrategyComparisonReport:
             "- Decision source: production DecisionPipeline over a read-only historical data view.",
             "- LLM veto and market-intelligence votes: disabled for deterministic historical replay.",
             "- Entry-signal prescreen only; no automatic promotion.",
-            "- Exit model: both policies use the same fixed stoploss and fixed 2R takeprofit.",
+            f"- Exit model: {self.methodology.get('exit_model', 'shared fixed stoploss and fixed 2R takeprofit')}.",
             "",
             "## Comparison",
             "",
@@ -322,6 +343,10 @@ class _OpenPosition:
     take_price: float
     fee_bps: float
     slippage_bps: float
+    original_stop: float
+    remaining_fraction: float = 1.0
+    ladder: Any | None = None
+    trail_after_r: float | None = None
 
 
 class TechnicalStrategyValidationService:
@@ -335,7 +360,10 @@ class TechnicalStrategyValidationService:
         oos_fraction: float = 0.30,
         walk_forward_windows: int = 3,
         max_workers: int = 4,
+        exit_mode: str = EXIT_MODE_FIXED_2R,
     ) -> None:
+        if exit_mode not in {EXIT_MODE_FIXED_2R, EXIT_MODE_EXIT_LADDER}:
+            raise ValueError(f"unsupported exit_mode: {exit_mode}")
         self._uses_default_pipeline = pipeline_factory is None
         self.pipeline_factory = pipeline_factory or (
             lambda view: DecisionPipeline(data_repo=cast(DataRepository, view))
@@ -344,6 +372,7 @@ class TechnicalStrategyValidationService:
         self.oos_fraction = oos_fraction
         self.walk_forward_windows = walk_forward_windows
         self.max_workers = max_workers
+        self.exit_mode = exit_mode
 
     def replay(
         self,
@@ -371,6 +400,7 @@ class TechnicalStrategyValidationService:
                     self.warmup_bars,
                     self.oos_fraction,
                     self.walk_forward_windows,
+                    self.exit_mode,
                 )
                 for symbol in symbols
             ]
@@ -498,7 +528,12 @@ class TechnicalStrategyValidationService:
                 "warmup_bars": self.warmup_bars,
                 "oos_fraction": self.oos_fraction,
                 "cost_model": "current strategy core/standard fee and slippage rules, round trip",
-                "exit_model": "shared fixed stoploss and fixed 2R takeprofit",
+                "exit_model": (
+                    "exit_ladder partial take-profit + break-even + remainder trail"
+                    if self.exit_mode == EXIT_MODE_EXIT_LADDER
+                    else "shared fixed stoploss and fixed 2R takeprofit"
+                ),
+                "exit_mode": self.exit_mode,
                 "decision_use": "entry-signal prescreen only; no automatic promotion",
                 "prescreen_rule": "OOS net expectancy > 0, >=20% improvement, Validation thresholds",
                 "external_votes": "market intelligence and LLM veto disabled for deterministic replay",
@@ -531,20 +566,10 @@ class TechnicalStrategyValidationService:
                 continue
             view.set_cutoff(bar.timestamp)
             if position is not None:
-                exit_price, exit_reason = self._protective_exit(position=position, bar=bar)
-                if exit_price is not None:
-                    trades.append(
-                        self._close(
-                            position=position,
-                            closed_at=bar.timestamp,
-                            exit_price=exit_price,
-                            reason=exit_reason,
-                        )
-                    )
-                    position = None
+                closed, position = self._advance_open_position(position=position, bar=bar)
+                trades.extend(closed)
+                if position is not None:
                     continue
-            if position is not None:
-                continue
             decision = pipeline.evaluate(
                 strategy=strategy,
                 symbol=symbol,
@@ -569,17 +594,36 @@ class TechnicalStrategyValidationService:
                 atr=decision.atr,
             )
             fee_bps, slippage_bps = self._round_trip_costs(strategy=strategy, symbol=symbol)
+            ladder = None
+            trail_after_r = None
+            effective_take = float(take_price)
+            if self.exit_mode == EXIT_MODE_EXIT_LADDER:
+                ladder = initialize_exit_ladder(
+                    symbol=symbol,
+                    side=decision.direction,
+                    entry_price=entry_price,
+                    quantity=1.0,
+                    stop_price=float(stop_price),
+                    takeprofit_rules=dict(strategy.rules.takeprofit_rules),
+                )
+                if ladder is not None:
+                    effective_take = 0.0
+                    trail_after_r = None
             position = _OpenPosition(
                 symbol=symbol,
                 side=decision.direction,
                 opened_at=bar.timestamp,
                 entry_price=entry_price,
                 stop_price=float(stop_price),
-                take_price=float(take_price),
+                take_price=effective_take,
                 fee_bps=fee_bps,
                 slippage_bps=slippage_bps,
+                original_stop=float(stop_price),
+                remaining_fraction=1.0,
+                ladder=ladder,
+                trail_after_r=trail_after_r,
             )
-        if position is not None:
+        if position is not None and position.remaining_fraction > 0:
             latest = next((bar for bar in reversed(bars) if bar.timestamp >= start_at), None)
             if latest is not None:
                 trades.append(
@@ -588,33 +632,208 @@ class TechnicalStrategyValidationService:
                         closed_at=latest.timestamp,
                         exit_price=float(latest.close),
                         reason="end_of_window",
+                        quantity_fraction=position.remaining_fraction,
                     )
                 )
         return trades, signal_count
+
+    def _advance_open_position(
+        self,
+        *,
+        position: _OpenPosition,
+        bar: OHLCVBar,
+    ) -> tuple[list[ReplayTrade], _OpenPosition | None]:
+        if position.ladder is None or self.exit_mode != EXIT_MODE_EXIT_LADDER:
+            exit_price, exit_reason = self._protective_exit(position=position, bar=bar)
+            if exit_price is None:
+                return [], position
+            return (
+                [
+                    self._close(
+                        position=position,
+                        closed_at=bar.timestamp,
+                        exit_price=exit_price,
+                        reason=exit_reason,
+                        quantity_fraction=position.remaining_fraction,
+                    )
+                ],
+                None,
+            )
+
+        closed: list[ReplayTrade] = []
+        ladder = position.ladder
+        stop_price = float(ladder.current_stop_price)
+        # Stop first (including BE / locked stops after partials).
+        if position.side == TradeSide.LONG and float(bar.low) <= stop_price:
+            closed.append(
+                self._close(
+                    position=position,
+                    closed_at=bar.timestamp,
+                    exit_price=stop_price,
+                    reason="stoploss",
+                    quantity_fraction=position.remaining_fraction,
+                    stop_override=stop_price,
+                )
+            )
+            return closed, None
+        if position.side == TradeSide.SHORT and float(bar.high) >= stop_price:
+            closed.append(
+                self._close(
+                    position=position,
+                    closed_at=bar.timestamp,
+                    exit_price=stop_price,
+                    reason="stoploss",
+                    quantity_fraction=position.remaining_fraction,
+                    stop_override=stop_price,
+                )
+            )
+            return closed, None
+
+        pending = next_pending_level(ladder)
+        if pending is not None and level_hit(
+            state=ladder, level=pending, bar_high=float(bar.high), bar_low=float(bar.low)
+        ):
+            trigger = level_trigger_price(ladder, pending)
+            qty = close_quantity_for_level(ladder, pending)
+            fraction = qty / ladder.original_quantity if ladder.original_quantity else 0.0
+            closed.append(
+                self._close(
+                    position=position,
+                    closed_at=bar.timestamp,
+                    exit_price=trigger,
+                    reason=f"exit_ladder_{pending.r_multiple:g}r",
+                    quantity_fraction=fraction,
+                    stop_override=float(ladder.initial_stop_price),
+                    take_override=trigger,
+                    ladder_r=pending.r_multiple,
+                )
+            )
+            ladder = apply_level_fill(ladder, level=pending, trigger_price=trigger, closed_quantity=qty)
+            remaining = max(0.0, position.remaining_fraction - fraction)
+            if remaining <= 1e-12 or ladder.remaining_quantity <= 0:
+                return closed, None
+            trail_after = ladder.remainder_trail_after_r if ladder.all_levels_executed else None
+            return closed, _OpenPosition(
+                symbol=position.symbol,
+                side=position.side,
+                opened_at=position.opened_at,
+                entry_price=position.entry_price,
+                stop_price=float(ladder.current_stop_price),
+                take_price=0.0,
+                fee_bps=position.fee_bps,
+                slippage_bps=position.slippage_bps,
+                original_stop=float(ladder.initial_stop_price),
+                remaining_fraction=remaining,
+                ladder=ladder,
+                trail_after_r=trail_after,
+            )
+
+        # Remainder trail: once all ladder levels filled, ratchet stop to entry after trail_after_r.
+        if ladder.all_levels_executed and position.trail_after_r is not None:
+            initial_distance = abs(position.entry_price - float(ladder.initial_stop_price))
+            if initial_distance > 0:
+                if position.side == TradeSide.LONG:
+                    favorable = float(bar.high) - position.entry_price
+                    if favorable >= position.trail_after_r * initial_distance:
+                        next_stop = max(float(ladder.current_stop_price), position.entry_price)
+                        if next_stop > float(ladder.current_stop_price):
+                            ladder = ExitLadderState(
+                                symbol=ladder.symbol,
+                                side=ladder.side,
+                                entry_price=ladder.entry_price,
+                                original_quantity=ladder.original_quantity,
+                                remaining_quantity=ladder.remaining_quantity,
+                                initial_stop_price=ladder.initial_stop_price,
+                                current_stop_price=next_stop,
+                                levels=ladder.levels,
+                                remainder_trail_after_r=ladder.remainder_trail_after_r,
+                                locked_level1_price=ladder.locked_level1_price,
+                            )
+                            position = _OpenPosition(
+                                symbol=position.symbol,
+                                side=position.side,
+                                opened_at=position.opened_at,
+                                entry_price=position.entry_price,
+                                stop_price=next_stop,
+                                take_price=0.0,
+                                fee_bps=position.fee_bps,
+                                slippage_bps=position.slippage_bps,
+                                original_stop=position.original_stop,
+                                remaining_fraction=position.remaining_fraction,
+                                ladder=ladder,
+                                trail_after_r=position.trail_after_r,
+                            )
+                else:
+                    favorable = position.entry_price - float(bar.low)
+                    if favorable >= position.trail_after_r * initial_distance:
+                        next_stop = min(float(ladder.current_stop_price), position.entry_price)
+                        if next_stop < float(ladder.current_stop_price):
+                            ladder = ExitLadderState(
+                                symbol=ladder.symbol,
+                                side=ladder.side,
+                                entry_price=ladder.entry_price,
+                                original_quantity=ladder.original_quantity,
+                                remaining_quantity=ladder.remaining_quantity,
+                                initial_stop_price=ladder.initial_stop_price,
+                                current_stop_price=next_stop,
+                                levels=ladder.levels,
+                                remainder_trail_after_r=ladder.remainder_trail_after_r,
+                                locked_level1_price=ladder.locked_level1_price,
+                            )
+                            position = _OpenPosition(
+                                symbol=position.symbol,
+                                side=position.side,
+                                opened_at=position.opened_at,
+                                entry_price=position.entry_price,
+                                stop_price=next_stop,
+                                take_price=0.0,
+                                fee_bps=position.fee_bps,
+                                slippage_bps=position.slippage_bps,
+                                original_stop=position.original_stop,
+                                remaining_fraction=position.remaining_fraction,
+                                ladder=ladder,
+                                trail_after_r=position.trail_after_r,
+                            )
+        return closed, position
 
     @staticmethod
     def _protective_exit(*, position: _OpenPosition, bar: OHLCVBar) -> tuple[float | None, str]:
         if position.side == TradeSide.LONG:
             if float(bar.low) <= position.stop_price:
                 return position.stop_price, "stoploss"
-            if float(bar.high) >= position.take_price:
+            if position.take_price > 0 and float(bar.high) >= position.take_price:
                 return position.take_price, "takeprofit"
         else:
             if float(bar.high) >= position.stop_price:
                 return position.stop_price, "stoploss"
-            if float(bar.low) <= position.take_price:
+            if position.take_price > 0 and float(bar.low) <= position.take_price:
                 return position.take_price, "takeprofit"
         return None, ""
 
     @staticmethod
-    def _close(*, position: _OpenPosition, closed_at: datetime, exit_price: float, reason: str) -> ReplayTrade:
+    def _close(
+        *,
+        position: _OpenPosition,
+        closed_at: datetime,
+        exit_price: float,
+        reason: str,
+        quantity_fraction: float = 1.0,
+        stop_override: float | None = None,
+        take_override: float | None = None,
+        ladder_r: float | None = None,
+    ) -> ReplayTrade:
+        fraction = max(0.0, min(1.0, quantity_fraction))
         gross_return = (
             (exit_price - position.entry_price) / position.entry_price
             if position.side == TradeSide.LONG
             else (position.entry_price - exit_price) / position.entry_price
         )
-        net_return = gross_return - (position.fee_bps + position.slippage_bps) / 10_000
-        initial_risk = abs(position.entry_price - position.stop_price) / position.entry_price
+        gross_return *= fraction
+        fee_bps = position.fee_bps * fraction
+        slippage_bps = position.slippage_bps * fraction
+        net_return = gross_return - (fee_bps + slippage_bps) / 10_000
+        stop_ref = stop_override if stop_override is not None else position.original_stop
+        initial_risk = abs(position.entry_price - stop_ref) / position.entry_price
         return ReplayTrade(
             symbol=position.symbol,
             side=position.side,
@@ -622,14 +841,16 @@ class TechnicalStrategyValidationService:
             closed_at=closed_at,
             entry_price=position.entry_price,
             exit_price=exit_price,
-            stop_price=position.stop_price,
-            take_price=position.take_price,
+            stop_price=stop_ref,
+            take_price=take_override if take_override is not None else position.take_price,
             exit_reason=reason,
             gross_return=gross_return,
             net_return=net_return,
-            fee_bps=position.fee_bps,
-            slippage_bps=position.slippage_bps,
-            r_multiple=gross_return / initial_risk if initial_risk > 0 else 0.0,
+            fee_bps=fee_bps,
+            slippage_bps=slippage_bps,
+            r_multiple=(gross_return / fraction / initial_risk) if initial_risk > 0 and fraction > 0 else 0.0,
+            quantity_fraction=fraction,
+            ladder_r=ladder_r,
         )
 
     def _metrics(
@@ -651,6 +872,13 @@ class TechnicalStrategyValidationService:
         gross_profit = sum(value for value in gross_returns if value > 0)
         total_cost = sum((trade.fee_bps + trade.slippage_bps) / 10_000 for trade in ordered)
         periods_per_year = 365 * 24 / _timeframe_hours(entry_timeframe)
+        hold_hours = [
+            max(0.0, (trade.closed_at - trade.opened_at).total_seconds() / 3600.0) for trade in ordered
+        ]
+        ladder_hits: dict[str, int] = {}
+        for trade in ordered:
+            if trade.exit_reason.startswith("exit_ladder_"):
+                ladder_hits[trade.exit_reason] = ladder_hits.get(trade.exit_reason, 0) + 1
         return ReplayMetrics(
             strategy_key=strategy_key,
             entry_timeframe=entry_timeframe,
@@ -660,6 +888,8 @@ class TechnicalStrategyValidationService:
             average_win=mean(wins) if wins else 0.0,
             average_loss=mean(losses) if losses else 0.0,
             average_r=mean([trade.r_multiple for trade in ordered]) if ordered else 0.0,
+            average_hold_hours=mean(hold_hours) if hold_hours else 0.0,
+            ladder_level_hits=ladder_hits,
             gross_return=sum(gross_returns),
             net_return=sum(net_returns),
             net_expectancy=mean(net_returns) if net_returns else 0.0,
@@ -675,6 +905,7 @@ class TechnicalStrategyValidationService:
             evaluation_end=evaluation_end,
             data_issues=list(issues),
             trades=ordered,
+            exit_mode=self.exit_mode,
         )
 
     def _metrics_for_period(self, metrics: ReplayMetrics, *, start_at: datetime, end_at: datetime) -> ReplayMetrics:
@@ -837,6 +1068,7 @@ def _replay_symbol_worker(
         int,
         float,
         int,
+        str,
     ],
 ) -> tuple[list[ReplayTrade], int, list[str]]:
     (
@@ -850,12 +1082,14 @@ def _replay_symbol_worker(
         warmup_bars,
         oos_fraction,
         walk_forward_windows,
+        exit_mode,
     ) = payload
     service = TechnicalStrategyValidationService(
         warmup_bars=warmup_bars,
         oos_fraction=oos_fraction,
         walk_forward_windows=walk_forward_windows,
         max_workers=1,
+        exit_mode=exit_mode,
     )
     return service._replay_symbol_data(
         market_data=market_data,

@@ -1,5 +1,19 @@
 # Task History
 
+### [TASK-053] Unblock directional Binance path: ghost positions + ReduceOnly loop
+- **Date**: 2026-07-12
+- **Type**: Execution repair + ops closeout
+- **Summary**: Directional run was armed but opens died on `portfolio_initial_risk_exceeded` (Demo BTC/ETH injected into mature PaperRun) and close loops on `-2022 ReduceOnly` (local SOL ghost kept forever). Fixed exchange-already-flat close path, stopped injecting Demo positions into strategy runs (audit-only mirror), repaired local directional ghosts BTC/ETH/SOL. Ops closeout: engine on `:8016`, sole mature directional `457c6ecd` running, duplicate paused, Testnet open+close mirror proven (`directional_mirror_ok`).
+- **Verification**: focused pytest 59 passed (`paper_runtime`/`mirror_lane`/`exit_ladder`/`gatekeeper`/`gateway`/`paper_runtime_api`); mirror proof LINK open `813722666` close `813722823`; API `/health` ok.
+- **Limits**: Auto signal filters still sparse (no continuous auto gateway opens claimed); Top20 OOS / ExitLadder promotion still failed — no strategy/mainnet enablement.
+
+### [TASK-052] Auto open/close gap plan Phases A–D
+- **Date**: 2026-07-12
+- **Type**: Execution / Validation
+- **Summary**: (A) Confirmed directional run `457c6ecd` is armed but has **0** `gateway_order_id` — Testnet fills are mostly acceptance/carry, not directional DecisionPipeline (`docs/audits/2026-07-12-directional-binance-reachability.md`). (B) `_trace` now writes `strategy_lane=directional`; mirror gate tests added. (C) Replay supports `exit_mode=exit_ladder|fixed_2r`; Top20 comparison shows ExitLadder worse net expectancy than fixed 2R — no auto promotion (`docs/audits/2026-07-12-exitladder-replay-comparison.md`). (D) ATR% vol_low/mid/high tiers + weekly Celery refresh with core/standard fallback (ADR-055).
+- **Verification**: focused pytest 18 passed (asset tiers, mirror lane, technical replay, celery schedule).
+- **Limits**: Directional Testnet reachability still needs live cycle proof after arming; ExitLadder remains mechanical capability only; OOS gates still failed.
+
 ### [TASK-051] Desk Positions/Orders tabs now use Binance Demo as source of truth
 - **Date**: 2026-07-12
 - **Type**: Execution / frontend sync

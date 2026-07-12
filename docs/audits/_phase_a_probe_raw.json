@@ -1,0 +1,35 @@
+{
+  "env": {
+    "binance_auto_execute": true,
+    "binance_use_testnet": true,
+    "live_trading_enabled": false,
+    "credentials_configured": true,
+    "postgres_url_set": true
+  },
+  "code_path": {
+    "default_mirror_to_gateway": false,
+    "directional_trace_writes_strategy_lane": false,
+    "should_execute_non_carry_rule": "pipeline_status truthy AND no rejection_codes (when mirror armed + cost_gate_verified + env gates)",
+    "carry_rule": "estimated_net_edge_bps >= min_estimated_net_edge_bps",
+    "sample_trace_keys": [
+      "ensemble",
+      "meta_label",
+      "pipeline_status",
+      "signals",
+      "veto_result",
+      "volatility"
+    ]
+  },
+  "paper_runs": [],
+  "directional_orders_with_gateway": [],
+  "probe": {
+    "connected": true,
+    "trading_mode": "demo",
+    "error": null,
+    "position_count": 3,
+    "order_count": 5
+  },
+  "verdict": "武装不全",
+  "verdict_reason": "No directional paper run with binance_simulation_first/mirror + cost_gate_verified.",
+  "db_error": "(psycopg.OperationalError) failed to resolve host 'timescaledb': [Errno 11001] getaddrinfo failed\n(Background on this error at: https://sqlalche.me/e/20/e3q8)"
+}

@@ -1,7 +1,12 @@
 from decimal import Decimal
 
 from services.execution.paper_signal import PaperSignalGenerator
-from services.execution.risk_tiers import default_asset_risk_tiers, resolve_asset_risk_tier
+from services.execution.risk_tiers import (
+    atr_pct_from_daily_bars,
+    build_volatility_asset_risk_tiers,
+    default_asset_risk_tiers,
+    resolve_asset_risk_tier,
+)
 from shared.models import PaperRun, StrategyContract, StrategyRules
 from shared.models.risk import medium_risk_profile
 
@@ -44,6 +49,47 @@ def test_default_asset_risk_tiers_separate_core_and_standard_symbols() -> None:
     assert standard.tier == "standard"
     assert standard.leverage == 10
     assert standard.max_position_fraction == 0.06
+
+
+def test_dynamic_volatility_tiers_preferred_when_present() -> None:
+    tiers = build_volatility_asset_risk_tiers(
+        {
+            "BTC/USDT": 0.01,
+            "ETH/USDT": 0.015,
+            "SOL/USDT": 0.02,
+            "LINK/USDT": 0.03,
+            "AVAX/USDT": 0.035,
+            "DOGE/USDT": 0.06,
+            "PEPE/USDT": 0.09,
+            "ENA/USDT": 0.08,
+            "ONDO/USDT": 0.04,
+        }
+    )
+
+    btc = resolve_asset_risk_tier("BTC/USDT", tiers)
+    pepe = resolve_asset_risk_tier("PEPE/USDT", tiers)
+
+    assert btc.tier == "vol_low"
+    assert btc.leverage == 15
+    assert pepe.tier == "vol_high"
+    assert pepe.leverage == 4
+    assert pepe.max_position_fraction == 0.03
+
+
+def test_resolve_falls_back_to_core_standard_without_dynamic_tiers() -> None:
+    tiers = default_asset_risk_tiers()
+    assert resolve_asset_risk_tier("BTC/USDT", tiers).tier == "core"
+    assert resolve_asset_risk_tier("PEPE/USDT", tiers).tier == "standard"
+
+
+def test_atr_pct_from_daily_bars_needs_enough_history() -> None:
+    bars = [
+        {"high": 110 + i, "low": 100 + i, "close": 105 + i}
+        for i in range(20)
+    ]
+    assert atr_pct_from_daily_bars(bars[:5]) is None
+    value = atr_pct_from_daily_bars(bars)
+    assert value is not None and value > 0
 
 
 def test_tier_position_fraction_caps_notional_without_multiplying_leverage() -> None:

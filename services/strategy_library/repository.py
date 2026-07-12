@@ -470,7 +470,7 @@ def _position_snapshot_from_orm(row: models.PositionSnapshot) -> PositionSnapsho
         entry_price=row.entry_price,
         mark_price=row.mark_price,
         unrealized_pnl=row.unrealized_pnl,
-        snapshot_time=row.snapshot_time,
+        snapshot_time=_ensure_utc(row.snapshot_time) or _utcnow(),
     )
 
 
@@ -1444,7 +1444,9 @@ class ExecutionRepository:
         latest_by_symbol: dict[str, PositionSnapshot] = {}
         for snapshot in self.list_positions_for_run(run_type=run_type, run_id=run_id):
             current = latest_by_symbol.get(snapshot.symbol)
-            if current is None or snapshot.snapshot_time >= current.snapshot_time:
+            snap_time = _ensure_utc(snapshot.snapshot_time) or _utcnow()
+            current_time = _ensure_utc(current.snapshot_time) if current is not None else None
+            if current is None or current_time is None or snap_time >= current_time:
                 latest_by_symbol[snapshot.symbol] = snapshot
         positions = list(latest_by_symbol.values())
         if include_closed:

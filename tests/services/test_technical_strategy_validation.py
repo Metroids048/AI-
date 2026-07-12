@@ -180,6 +180,96 @@ def test_comparison_templates_use_shared_simple_exits_without_mutating_runtime_r
     assert runtime_rules_before == AUTO_PAPER_TECHNICAL_RULES
 
 
+def test_exit_ladder_mode_records_partial_closes_and_hold_hours() -> None:
+    symbol = "BTC/USDT"
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    bars_1h = []
+    # Warmup flat, then signal bar, then climb through 1R and 1.5R.
+    for index in range(100):
+        if index < 80:
+            close = Decimal("100")
+            high = Decimal("100.2")
+            low = Decimal("99.8")
+        elif index == 80:
+            close = Decimal("100")
+            high = Decimal("100.2")
+            low = Decimal("99.8")
+        elif index == 81:
+            # Hit 1.0R = +1 (fixed_bps 100 → stop distance 1.0)
+            close = Decimal("101.1")
+            high = Decimal("101.2")
+            low = Decimal("100.5")
+        elif index == 82:
+            # Hit 1.5R = +1.5
+            close = Decimal("101.6")
+            high = Decimal("101.7")
+            low = Decimal("101.0")
+        else:
+            close = Decimal("101.2")
+            high = Decimal("101.3")
+            low = Decimal("100.9")
+        bars_1h.append(
+            {
+                "symbol": symbol,
+                "exchange": "binance",
+                "timeframe": "1h",
+                "time": start + timedelta(hours=index),
+                "open": Decimal("100"),
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": Decimal("100"),
+            }
+        )
+    data = {
+        symbol: {
+            "1h": bars_1h,
+            "15m": _bars(symbol=symbol, timeframe="15m"),
+            "4h": _bars(symbol=symbol, timeframe="4h"),
+        }
+    }
+    signal_at = bars_1h[80]["time"]
+    strategy = StrategyContract(
+        strategy_id="ladder",
+        strategy_key="ladder",
+        source="test",
+        core_thesis="ladder replay",
+        rules=StrategyRules(
+            entry_rules={
+                "entry_timeframe": "1h",
+                "enabled_signals": ["ema_trend"],
+                "market_intelligence_enabled": False,
+                "core_fee_bps": 10.0,
+                "core_slippage_bps": 0.0,
+            },
+            stoploss_rules={"fixed_bps": 100},
+            takeprofit_rules={
+                "risk_reward": 2.0,
+                "exit_ladder": [
+                    {"r_multiple": 1.0, "close_fraction": 0.4},
+                    {"r_multiple": 1.5, "close_fraction": 0.3},
+                ],
+                "remainder_trail_after_r": 2.5,
+            },
+            position_rules={},
+        ),
+    )
+    result = TechnicalStrategyValidationService(
+        pipeline_factory=lambda view: _ScheduledPipeline(view, {signal_at}),
+        warmup_bars=80,
+        exit_mode="exit_ladder",
+    ).replay(strategy=strategy, market_data=data)
+
+    reasons = [trade.exit_reason for trade in result.trades]
+    assert "exit_ladder_1r" in reasons
+    assert "exit_ladder_1.5r" in reasons
+    assert result.ladder_level_hits.get("exit_ladder_1r", 0) >= 1
+    assert result.average_hold_hours >= 0
+    assert abs(sum(trade.quantity_fraction for trade in result.trades) - 1.0) < 1e-6 or sum(
+        trade.quantity_fraction for trade in result.trades
+    ) >= 0.7
+
+
 def test_historical_view_reuses_slices_until_the_replay_time_changes() -> None:
     symbol = "BTC/USDT"
     bars = _bars(symbol=symbol, timeframe="15m", count=4)

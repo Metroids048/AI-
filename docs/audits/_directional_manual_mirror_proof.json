@@ -1,0 +1,17 @@
+{
+  "opened": {
+    "symbol": "LINK/USDT",
+    "quantity": 7.0,
+    "status": "accepted",
+    "gateway_order_id": "813722666",
+    "rejection": null,
+    "paper_run_id": "457c6ecd-88a1-434a-b422-06769536773e"
+  },
+  "closed": {
+    "status": "filled",
+    "gateway_order_id": "813722823",
+    "rejection": null
+  },
+  "error": null,
+  "verdict": "directional_mirror_ok"
+}
