@@ -157,6 +157,92 @@ class BinanceDemoAuditService:
             )
         )
 
+    def record_exchange_positions(self, account: BinanceTestnetAccountStatus) -> int:
+        """Mirror Binance Demo positions into local Paper runs so desk + risk share one truth."""
+        if not account.connected or account.error:
+            return 0
+        # A connected-but-empty payload right after process start can be a false flat.
+        # Only clear local opens when the probe also returned a wallet snapshot.
+        if not account.positions and account.wallet_balance is None:
+            return 0
+        from shared.models import PositionSnapshot
+
+        context = self._context()
+        snapshot_time = account.synced_at or datetime.now(UTC)
+        exchange_by_symbol = {
+            _platform_symbol(position.symbol): position for position in account.positions if abs(position.quantity) > 0
+        }
+        target_run_ids = {context.paper_run_id}
+        # Prefer syncing into the audit run + mature directional run.
+        # Also rewrite any PaperRun that still shows open qty so stale mirrors
+        # (e.g. funding lane leftovers) cannot keep ghost holdings on the desk.
+        for run in self.paper_repo.list_paper_runs():
+            run_id = run.paper_run_id or ""
+            if not run_id:
+                continue
+            profile = run.execution_profile or {}
+            armed_mature = profile.get("auto_paper_runtime_key") == "auto_paper_mature_templates" and (
+                profile.get("cost_gate_verified")
+                or profile.get("mirror_to_gateway")
+                or profile.get("execution_mode") == "binance_simulation_first"
+            )
+            has_open = any(
+                abs(float(item.quantity)) > 0
+                for item in self.execution_repo.list_latest_positions_for_run(
+                    run_type="paper",
+                    run_id=run_id,
+                )
+            )
+            if armed_mature or has_open:
+                target_run_ids.add(run_id)
+
+        written = 0
+        for run_id in target_run_ids:
+            latest = {
+                item.symbol: item
+                for item in self.execution_repo.list_latest_positions_for_run(
+                    run_type="paper",
+                    run_id=run_id,
+                    include_closed=True,
+                )
+            }
+            seen: set[str] = set()
+            for symbol, position in exchange_by_symbol.items():
+                seen.add(symbol)
+                side = TradeSide.LONG if str(position.side).lower() in {"long", "buy"} else TradeSide.SHORT
+                self.execution_repo.create_position_snapshot(
+                    PositionSnapshot(
+                        run_type="paper",
+                        run_id=run_id,
+                        symbol=symbol,
+                        side=side,
+                        quantity=float(position.quantity),
+                        entry_price=float(position.entry_price),
+                        mark_price=float(position.mark_price or position.entry_price),
+                        unrealized_pnl=float(position.unrealized_pnl or 0.0),
+                        snapshot_time=snapshot_time,
+                    )
+                )
+                written += 1
+            for symbol, existing in latest.items():
+                if symbol in seen or abs(float(existing.quantity)) <= 0:
+                    continue
+                self.execution_repo.create_position_snapshot(
+                    PositionSnapshot(
+                        run_type="paper",
+                        run_id=run_id,
+                        symbol=symbol,
+                        side=existing.side,
+                        quantity=0.0,
+                        entry_price=float(existing.entry_price),
+                        mark_price=float(existing.mark_price or existing.entry_price),
+                        unrealized_pnl=0.0,
+                        snapshot_time=snapshot_time,
+                    )
+                )
+                written += 1
+        return written
+
     def _context(self) -> BinanceDemoAuditContext:
         strategy = next(
             (item for item in self.strategy_repo.list_strategies() if item.strategy_key == BINANCE_DEMO_AUDIT_KEY),

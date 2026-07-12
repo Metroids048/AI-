@@ -91,6 +91,7 @@ class BinanceTestnetAccountStatus(PlatformModel):
     unrealized_pnl: float | None = None
     open_position_count: int = 0
     positions: list[BinanceTestnetPositionView] = Field(default_factory=list)
+    open_orders: list[BinanceTestnetOrderView] = Field(default_factory=list)
     recent_orders: list[BinanceTestnetOrderView] = Field(default_factory=list)
     web_ui_url: str = "https://demo.binance.com/en/futures/BTCUSDT"
     api_backend: str | None = None

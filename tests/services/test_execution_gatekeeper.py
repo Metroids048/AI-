@@ -232,6 +232,25 @@ def test_gatekeeper_rejection_appends_review_memory(db_session) -> None:
     assert any(item["failure_summary"].startswith("Gatekeeper rejected") for item in strategy.iteration_history)
 
 
+def test_gatekeeper_rejects_two_high_correlation_peers(db_session) -> None:
+    gatekeeper, strategy_id, backtest_run_id = _seed_gatekeeper_context(db_session)
+
+    order = gatekeeper.submit_order(
+        _order_request(
+            strategy_id,
+            backtest_run_id,
+            risk_state=_risk_state(
+                high_correlation_peer_count=2,
+                correlated_cluster_exposure=0.10,
+                requested_notional=100.0,
+            ),
+        )
+    )
+
+    assert order.execution_status == "rejected"
+    assert "correlated_exposure_limit_exceeded" in order.rejection_codes
+
+
 def test_gatekeeper_rejects_correlated_cluster_and_net_directional_exposure(db_session) -> None:
     gatekeeper, strategy_id, backtest_run_id = _seed_gatekeeper_context(db_session)
 
@@ -250,6 +269,46 @@ def test_gatekeeper_rejects_correlated_cluster_and_net_directional_exposure(db_s
     assert order.execution_status == "rejected"
     assert "correlated_cluster_exposure_exceeded" in order.rejection_codes
     assert "net_directional_exposure_exceeded" in order.rejection_codes
+
+
+def test_gatekeeper_rejects_negative_net_edge_after_cost(db_session) -> None:
+    gatekeeper, strategy_id, backtest_run_id = _seed_gatekeeper_context(db_session)
+
+    rejected = gatekeeper.submit_order(
+        _order_request(
+            strategy_id,
+            backtest_run_id,
+            entry_context={
+                "timeframe": "1h",
+                "decision_pipeline": {"pipeline_status": "bet_taken"},
+                "meta_label_win_rate": 0.40,
+                "meta_label_average_win": 0.01,
+                "meta_label_average_loss": 0.02,
+                "round_trip_fee_rate": 0.002,
+                "round_trip_slippage_rate": 0.001,
+            },
+        )
+    )
+    accepted = gatekeeper.submit_order(
+        _order_request(
+            strategy_id,
+            backtest_run_id,
+            entry_context={
+                "timeframe": "1h",
+                "decision_pipeline": {"pipeline_status": "bet_taken"},
+                "meta_label_win_rate": 0.60,
+                "meta_label_average_win": 0.03,
+                "meta_label_average_loss": 0.01,
+                "round_trip_fee_rate": 0.0016,
+                "round_trip_slippage_rate": 0.0,
+            },
+        )
+    )
+
+    assert "net_edge_after_cost_negative" in rejected.rejection_codes
+    assert rejected.entry_context["estimated_net_edge_after_cost"] < 0
+    assert accepted.execution_status == "accepted"
+    assert "net_edge_after_cost_negative" not in accepted.rejection_codes
 
 
 def test_gatekeeper_rejects_missing_portfolio_correlation_for_new_order_but_not_close(db_session) -> None:

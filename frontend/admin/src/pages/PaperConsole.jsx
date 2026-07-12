@@ -33,6 +33,71 @@ const DEFAULT_SYMBOL = "BTC/USDT";
 const DEFAULT_PERP = "BTC/USDT:USDT";
 const DEFAULT_TIMEFRAME = "1m";
 
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function platformSymbol(symbol) {
+  return String(symbol || "").replace(":USDT", "");
+}
+
+/** Map Binance Demo positions into the desk PositionsTable shape. */
+export function deskPositionsFromAccount(account) {
+  if (!account?.connected) return null;
+  const syncedAt = account.synced_at ?? new Date().toISOString();
+  return asArray(account.positions)
+    .filter((position) => Math.abs(Number(position.quantity) || 0) > 0)
+    .map((position) => ({
+      position_snapshot_id: `binance:${position.symbol}:${position.side}`,
+      symbol: platformSymbol(position.symbol),
+      side: position.side,
+      quantity: position.quantity,
+      entry_price: position.entry_price,
+      mark_price: position.mark_price,
+      unrealized_pnl: position.unrealized_pnl,
+      snapshot_time: syncedAt,
+      source: "binance_exchange",
+    }));
+}
+
+/** Prefer open exchange orders, then recent fills, for the desk Orders tab. */
+export function deskOrdersFromAccount(account) {
+  if (!account?.connected) return null;
+  const openRows = asArray(account.open_orders).map((order) => ({
+    order_execution_id: `binance-open:${order.order_id}`,
+    symbol: platformSymbol(order.symbol),
+    direction: String(order.side || "").toLowerCase() === "sell" ? "short" : "long",
+    execution_status: String(order.status || "open").toLowerCase(),
+    gateway_order_id: order.order_id,
+    gateway_name: "binance_usdt_perpetual",
+    entry_context: {
+      execution_kind: "binance_open_order",
+      order_type: order.order_type,
+      quantity: order.quantity,
+      actual_avg_price: order.avg_price,
+    },
+    created_at: order.update_time ? new Date(order.update_time).toISOString() : account.synced_at,
+  }));
+  const recentRows = asArray(account.recent_orders).map((order) => ({
+    order_execution_id: `binance:${order.order_id}`,
+    symbol: platformSymbol(order.symbol),
+    direction: String(order.side || "").toLowerCase() === "sell" ? "short" : "long",
+    execution_status: String(order.status || "").toLowerCase() === "filled" ? "filled" : String(order.status || "submitted").toLowerCase(),
+    gateway_order_id: order.order_id,
+    gateway_name: "binance_usdt_perpetual",
+    entry_context: {
+      execution_kind: "binance_demo_reconciliation",
+      order_type: order.order_type,
+      quantity: order.quantity,
+      actual_avg_price: order.avg_price,
+      strategy_performance_eligible: false,
+    },
+    created_at: order.update_time ? new Date(order.update_time).toISOString() : account.synced_at,
+  }));
+  const seen = new Set(openRows.map((row) => row.gateway_order_id));
+  return [...openRows, ...recentRows.filter((row) => !seen.has(row.gateway_order_id))];
+}
+
 export function PaperConsole() {
   const [searchParams, setSearchParams] = useSearchParams();
   const symbol = searchParams.get("symbol") || DEFAULT_SYMBOL;
@@ -50,9 +115,19 @@ export function PaperConsole() {
   const mirrorToGateway = Boolean(
     (data.decisionTrace?.execution_profile ?? latestPaperRun?.execution_profile)?.mirror_to_gateway,
   );
+  const deskPositions = useMemo(() => {
+    const fromExchange = deskPositionsFromAccount(data.testnetAccount);
+    if (fromExchange) return fromExchange;
+    return data.overview?.positions ?? [];
+  }, [data.testnetAccount, data.overview?.positions]);
+  const deskOrders = useMemo(() => {
+    const fromExchange = deskOrdersFromAccount(data.testnetAccount);
+    if (fromExchange && fromExchange.length) return fromExchange;
+    return data.overview?.orders ?? [];
+  }, [data.testnetAccount, data.overview?.orders]);
   const latestPosition = useMemo(
-    () => (data.overview?.positions ?? []).find((position) => position.symbol === symbol && Math.abs(Number(position.quantity)) > 0),
-    [data.overview?.positions, symbol],
+    () => deskPositions.find((position) => position.symbol === symbol && Math.abs(Number(position.quantity)) > 0),
+    [deskPositions, symbol],
   );
   const latestPrice = Number(data.snapshot?.perp_last_price ?? data.snapshot?.spot_last_price ?? data.latestKline?.close ?? 0);
 
@@ -217,8 +292,8 @@ export function PaperConsole() {
         </div>
       </section>
       <TradingRecordsWorkspace tabs={[
-        { id: "positions", label: "持仓", count: data.overview?.positions?.length ?? 0, content: <PositionsTable positions={data.overview?.positions} /> },
-        { id: "orders", label: "订单", count: data.overview?.orders?.length ?? 0, content: <OrdersTable orders={data.overview?.orders} onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })} /> },
+        { id: "positions", label: "持仓", count: deskPositions.length, content: <PositionsTable positions={deskPositions} /> },
+        { id: "orders", label: "订单", count: deskOrders.length, content: <OrdersTable orders={deskOrders} onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })} /> },
         { id: "account", label: "币安账户", content: <><BinanceSyncHero account={data.testnetAccount} /><TestnetAccountPanel account={data.testnetAccount} /></> },
         { id: "automation", label: "自动交易", content: <><ModeBanner status={data.tradingStatus} /><div className="workspace-panel-grid"><RuntimeControlPanel streamStatus={data.streamStatus} tradingStatus={data.tradingStatus} mirrorToGateway={mirrorToGateway} onMirrorToggle={(enabled) => handleAction("toggleGatewayMirror", { enabled })} onRunCycle={() => handleAction("runAllCycles")} /><AutoSettingsPanel paperRunId={autoPaperRunId} autoSettings={autoSettings} onSave={(payload) => handleAction("saveAutoSettings", payload)} /><Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={data.tradingStatus} /></div></> },
         { id: "carry", label: "Carry", content: <div className="workspace-panel-grid"><FundingPanel signal={data.fundingSignal} onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })} /><ExecutionAcceptancePanel fundingSignal={data.fundingSignal} onRunAcceptance={() => handleAction("testnetAcceptance")} onRunCarry={() => handleAction("carryExecution")} /></div> },

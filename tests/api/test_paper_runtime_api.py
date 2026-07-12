@@ -34,7 +34,13 @@ def _create_validated_paper_run(api_client, db_session) -> tuple[str, str]:
             "source": "open_source:freqtrade",
             "core_thesis": "runtime should auto-monitor candidate symbols and keep paper trading inside gates",
             "rules": {
-                "entry_rules": {"ema_fast": 20, "ema_slow": 50, "macd_confirmation": True},
+                "entry_rules": {
+                    "ema_fast": 20,
+                    "ema_slow": 50,
+                    "macd_confirmation": True,
+                    "fee_bps": 0,
+                    "slippage_bps": 0,
+                },
                 "exit_rules": {"max_hold_bars": 48},
                 "stoploss_rules": {"fixed_bps": 5000},
                 "takeprofit_rules": {"risk_reward": 2},

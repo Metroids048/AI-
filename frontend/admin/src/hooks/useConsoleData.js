@@ -189,13 +189,12 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
       (current, payload) => ({ ...current, manualContext: payload ?? current.manualContext }),
       { showLoaded: false },
     );
-    if (!LOCAL_CONSOLE_API_ONLY) {
-      run(
-        "/api/v1/execution/binance-testnet-account",
-        (current, payload) => ({ ...current, testnetAccount: payload ?? current.testnetAccount }),
-        { showLoaded: false },
-      );
-    }
+    // Desk positions/orders must follow Binance Demo when connected — not local paper ghosts.
+    run(
+      "/api/v1/execution/binance-testnet-account",
+      (current, payload) => ({ ...current, testnetAccount: payload ?? current.testnetAccount }),
+      { showLoaded: false },
+    );
     run(
       `/api/v1/market/funding-arbitrage-signal?${params.toString()}`,
       (current, payload) => ({ ...current, fundingSignal: payload ?? current.fundingSignal }),
@@ -210,27 +209,30 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
   }, [symbol, perpSymbol, timeframe]);
 
   useEffect(() => {
-    if (state.error || LOCAL_CONSOLE_API_ONLY) return undefined;
+    // Keep retrying after transient API restarts. A sticky error used to stop
+    // all polling forever, leaving the console on "服务不可用" until hard refresh.
+    if (LOCAL_CONSOLE_API_ONLY) return undefined;
     refresh();
     // When the WS stream is live, reduce polling to a 30s fallback to avoid
     // duplicating WS pushes (previously polled every 8s regardless of WS
     // state, wasting bandwidth). When polling-only (WS down), refresh every 8s.
-    const interval = state.streamStatus === "live" ? 30000 : 8000;
+    // While recovering from an error, poll faster so the desk comes back quickly.
+    const interval = state.error ? 5000 : state.streamStatus === "live" ? 30000 : 8000;
     const timer = window.setInterval(refresh, interval);
     return () => window.clearInterval(timer);
   }, [refresh, state.error, state.streamStatus]);
 
   useEffect(() => {
-    if (state.error || LOCAL_CONSOLE_API_ONLY) return undefined;
+    // Always poll Binance Demo account so Positions/Orders tabs stay in sync.
     const pollBinance = () => {
       request("/api/v1/execution/binance-testnet-account")
         .then((payload) => setState((current) => ({ ...current, testnetAccount: payload ?? current.testnetAccount })))
         .catch(() => undefined);
     };
     pollBinance();
-    const timer = window.setInterval(pollBinance, 30000);
+    const timer = window.setInterval(pollBinance, 15000);
     return () => window.clearInterval(timer);
-  }, [state.error]);
+  }, []);
 
   useEffect(() => {
     if (state.error) {

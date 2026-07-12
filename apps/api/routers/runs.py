@@ -288,14 +288,7 @@ def get_trading_status(db: Session = Depends(get_db_session)) -> TradingRuntimeS
     blocking_risk = DataRepository(db).has_blocking_risk_event(scope=None, reference_time=datetime.now(UTC))
     if blocking_risk:
         blockers.append("blocking_risk_event")
-    acceptance_verified = any(
-        task.task_type == "testnet_acceptance"
-        and task.task_status == "completed"
-        and task.output_payload.get("final_open_position_count") == 0
-        and task.output_payload.get("final_open_order_count") == 0
-        and len(task.output_payload.get("completed_symbols", [])) == 20
-        for task in AgentTaskRepository(db).list_tasks()
-    )
+    acceptance_verified = AgentTaskRepository(db).has_verified_testnet_acceptance()
     if not acceptance_verified:
         blockers.append("testnet_acceptance_not_verified")
     execution_ready = not blockers
@@ -535,6 +528,7 @@ def get_binance_testnet_account(db: Session = Depends(get_db_session)) -> Binanc
     audit_service = _demo_audit_service(db)
     audit_service.record_account_snapshot(account)
     audit_service.record_recent_account_orders(account)
+    audit_service.record_exchange_positions(account)
     return account
 
 

@@ -132,6 +132,35 @@ export function TestnetAccountPanel({ account }) {
           ) : (
             <div className="empty-list">币安当前无持仓</div>
           )}
+          <div className="subpanel-title">当前挂单（币安 Open Orders）</div>
+          {asArray(account.open_orders).length ? (
+            <table className="compact-table">
+              <thead>
+                <tr>
+                  <th>订单 ID</th>
+                  <th>交易对</th>
+                  <th>方向</th>
+                  <th>类型</th>
+                  <th>数量</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {asArray(account.open_orders).map((order) => (
+                  <tr key={`open-${order.order_id}`}>
+                    <td>{order.order_id}</td>
+                    <td>{order.symbol}</td>
+                    <td>{sideLabel(order.side)}</td>
+                    <td>{order.order_type}</td>
+                    <td>{formatNumber(order.quantity, 4)}</td>
+                    <td>{orderStatusLabel(order.status)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="empty-list">币安当前无挂单</div>
+          )}
           <div className="subpanel-title">最近订单（币安 orderId）</div>
           {orders.length ? (
             <table className="compact-table">

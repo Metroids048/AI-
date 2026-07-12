@@ -1245,6 +1245,33 @@ class AgentTaskRepository:
         rows = self.session.query(models.AgentTask).order_by(models.AgentTask.created_at.desc()).limit(limit).all()
         return [_agent_task_from_orm(row) for row in rows]
 
+    def has_verified_testnet_acceptance(self) -> bool:
+        """Acceptance proof must not depend on the generic recent-task window.
+
+        Trading status used to scan only the latest 50 AgentTasks. Once other
+        tasks pushed the completed Top20 acceptance out of that window, automatic
+        Binance simulation stayed blocked even though acceptance had passed.
+        """
+        rows = (
+            self.session.query(models.AgentTask)
+            .filter(
+                models.AgentTask.task_type == "testnet_acceptance",
+                models.AgentTask.task_status == "completed",
+            )
+            .order_by(models.AgentTask.created_at.desc())
+            .limit(20)
+            .all()
+        )
+        for row in rows:
+            payload = row.output_payload if isinstance(row.output_payload, dict) else {}
+            if (
+                payload.get("final_open_position_count") == 0
+                and payload.get("final_open_order_count") == 0
+                and len(payload.get("completed_symbols") or []) == 20
+            ):
+                return True
+        return False
+
     def get_task(self, agent_task_id: str) -> AgentTask | None:
         row = self.session.get(models.AgentTask, agent_task_id)
         return _agent_task_from_orm(row) if row else None

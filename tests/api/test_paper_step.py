@@ -25,7 +25,13 @@ def _create_validated_strategy_and_paper_run(api_client, db_session) -> tuple[st
             "core_thesis": "open-source seeded trend following",
             "symbol_scope": ["BTC/USDT"],
             "rules": {
-                "entry_rules": {"ema_fast": 20, "ema_slow": 50, "macd_confirmation": True},
+                "entry_rules": {
+                    "ema_fast": 20,
+                    "ema_slow": 50,
+                    "macd_confirmation": True,
+                    "fee_bps": 0,
+                    "slippage_bps": 0,
+                },
                 "exit_rules": {"max_hold_bars": 48},
                 "stoploss_rules": {"atr_multiple": 2},
                 "takeprofit_rules": {"risk_reward": 2},

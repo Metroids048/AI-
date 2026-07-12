@@ -370,11 +370,13 @@ class BinanceUsdtPerpetualGateway:
                     "origClientOrderId": client_order_id,
                 }
             )
-        protection_refs = self._submit_protection_algo_orders(
-            order_request=order_request,
-            side=side,
-            quantity=quantity,
-        )
+        protection_refs: list[dict[str, Any]] = []
+        if not close_only:
+            protection_refs = self._submit_protection_algo_orders(
+                order_request=order_request,
+                side=side,
+                quantity=quantity,
+            )
         return {
             "live_run_id": live_run_id,
             "gateway_order_id": _order_id(created),
@@ -394,15 +396,37 @@ class BinanceUsdtPerpetualGateway:
         }
 
     def reconcile(self, *, live_run_id: str) -> dict[str, Any]:
-        open_orders = list(self.client.fetch_open_orders())
+        options = getattr(self.client, "options", None)
+        if isinstance(options, dict):
+            options["warnOnFetchOpenOrdersWithoutSymbol"] = False
+        open_orders: list[Any] = []
+        open_orders_error: str | None = None
+        try:
+            open_orders = list(self.client.fetch_open_orders())
+        except Exception as exc:  # noqa: BLE001
+            # Position flatness is what clears local ghosts; do not fail closed on
+            # open-order scan warnings/rate-limit advisories from CCXT.
+            open_orders_error = str(exc)
         positions = list(self.client.fetch_positions())
+        open_positions = [position for position in positions if _position_open(position)]
         mismatches = [position for position in positions if not _position_open(position)]
+        notes = ["binance gateway reconciliation snapshot"]
+        if open_orders_error:
+            notes.append(f"open_orders_scan_failed:{open_orders_error}")
         return {
             "live_run_id": live_run_id,
-            "reconciliation_status": "warning" if mismatches else "ok",
+            "reconciliation_status": "warning" if mismatches or open_orders_error else "ok",
             "open_order_count": len(open_orders),
             "position_mismatches": mismatches,
-            "notes": ["binance gateway reconciliation snapshot"],
+            "open_positions": [
+                {
+                    "symbol": str(position.get("symbol") or ""),
+                    "contracts": float(position.get("contracts") or 0.0),
+                    "side": str(position.get("side") or ""),
+                }
+                for position in open_positions
+            ],
+            "notes": notes,
         }
 
     def set_leverage(self, *, symbol: str, leverage: float) -> dict[str, Any]:
@@ -421,6 +445,38 @@ class BinanceUsdtPerpetualGateway:
             "gateway_status": "acknowledged",
             "raw": result,
         }
+
+    def refresh_protection_orders(
+        self,
+        *,
+        order_request: ExecutionOrderRequest,
+        quantity: float,
+        previous_refs: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Cancel prior conditional protection and re-arm STOP for remaining size.
+
+        Fail-closed: returns empty list when refresh cannot be confirmed.
+        """
+        symbol = _normalize_binance_symbol(order_request.symbol)
+        for ref in previous_refs or []:
+            algo_id = ref.get("algoId") or ref.get("orderId") or ref.get("id")
+            if algo_id is None:
+                continue
+            cancel = getattr(self.client, "fapiPrivateDeleteAlgoOrder", None)
+            if callable(cancel):
+                with contextlib.suppress(Exception):
+                    cancel({"algoId": algo_id, "symbol": _binance_market_id(symbol)})
+            else:
+                with contextlib.suppress(Exception):
+                    self.cancel_order(gateway_order_id=str(algo_id))
+        open_side = str(order_request.entry_context.get("open_side") or order_request.direction).lower()
+        entry_side = "buy" if open_side in {"long", "buy"} else "sell"
+        refs = self._submit_protection_algo_orders(
+            order_request=order_request,
+            side=entry_side,
+            quantity=quantity,
+        )
+        return refs
 
     def _submit_protection_algo_orders(
         self,
@@ -491,6 +547,8 @@ class BinanceUsdtPerpetualGateway:
                         "adjustForTimeDifference": True,
                         "defaultType": "future",
                         "fetchCurrencies": False,
+                        # Account-level reconcile must scan all symbols; CCXT otherwise raises.
+                        "warnOnFetchOpenOrdersWithoutSymbol": False,
                     },
                 }
             )
@@ -669,6 +727,23 @@ def probe_testnet_account(
     order_symbols: list[str] | tuple[str, ...] | None = None,
 ) -> BinanceTestnetAccountStatus:
     """Fetch live Binance Mock Trading balances, positions, and recent orders via API."""
+    # First call after process start can race with demo/testnet URL selection and
+    # time-sync; retry once so the desk does not briefly show flat while Binance
+    # still has live Demo positions.
+    first = _probe_testnet_account_once(order_limit=order_limit, order_symbols=order_symbols)
+    if first.connected and (first.positions or first.open_position_count > 0 or first.error):
+        return first
+    if not first.connected and first.error and "credentials" in str(first.error).lower():
+        return first
+    return _probe_testnet_account_once(order_limit=order_limit, order_symbols=order_symbols)
+
+
+def _probe_testnet_account_once(
+    *,
+    order_limit: int = 10,
+    order_symbols: list[str] | tuple[str, ...] | None = None,
+) -> BinanceTestnetAccountStatus:
+    """Single-shot Binance Demo account probe."""
     trading_mode, api_base, web_ui_url = _binance_mode_urls()
     warning = (
         "币安网页 Login 报 restricted countries 时，API 仍可正常交易。"
@@ -731,6 +806,9 @@ def probe_testnet_account(
                     ),
                 )
             )
+        # Prefer the concrete position list over a stale sync counter.
+        if positions and snapshot.open_position_count != len(positions):
+            snapshot = snapshot.model_copy(update={"open_position_count": len(positions)})
         recent_orders: list[BinanceTestnetOrderView] = []
         requested_symbols = {platform_to_exchange_symbol(symbol) for symbol in (order_symbols or ())}
         position_symbols = {p.symbol.replace(":USDT", "").replace("/", "") for p in positions}
@@ -754,6 +832,47 @@ def probe_testnet_account(
                     )
                 )
         recent_orders.sort(key=lambda item: item.update_time or 0, reverse=True)
+        open_orders: list[BinanceTestnetOrderView] = []
+        options = getattr(client, "options", None)
+        if isinstance(options, dict):
+            options["warnOnFetchOpenOrdersWithoutSymbol"] = False
+        try:
+            for raw in client.fetch_open_orders() or []:
+                open_orders.append(
+                    BinanceTestnetOrderView(
+                        order_id=str(raw.get("id") or raw.get("orderId") or ""),
+                        symbol=str(raw.get("symbol") or ""),
+                        side=str(raw.get("side") or ""),
+                        order_type=str(raw.get("type") or ""),
+                        status=str(raw.get("status") or "open"),
+                        quantity=float(raw.get("amount") or raw.get("remaining") or 0),
+                        avg_price=float(raw["average"]) if raw.get("average") else None,
+                        reduce_only=bool((raw.get("info") or {}).get("reduceOnly", False)),
+                        update_time=int(raw["timestamp"]) if raw.get("timestamp") else None,
+                    )
+                )
+        except Exception:  # noqa: BLE001 - open-order scan is best-effort for desk sync
+            pass
+        # Conditional TP/SL on USDM are algo orders; web UI "Open Orders" includes them.
+        try:
+            open_algo = getattr(client, "fapiPrivateGetOpenAlgoOrders", None)
+            payload = open_algo({}) if callable(open_algo) else []
+            for raw in payload or []:
+                open_orders.append(
+                    BinanceTestnetOrderView(
+                        order_id=str(raw.get("algoId") or raw.get("clientAlgoId") or ""),
+                        symbol=str(raw.get("symbol") or ""),
+                        side=str(raw.get("side") or ""),
+                        order_type=str(raw.get("orderType") or raw.get("type") or "CONDITIONAL"),
+                        status=str(raw.get("algoStatus") or raw.get("status") or "NEW"),
+                        quantity=float(raw.get("quantity") or 0),
+                        avg_price=None,
+                        reduce_only=bool(raw.get("reduceOnly", False)),
+                        update_time=int(raw["updateTime"]) if raw.get("updateTime") else None,
+                    )
+                )
+        except Exception:  # noqa: BLE001
+            pass
         status_api_base = (
             client.urls["api"].get("fapiPrivate", api_base) if isinstance(client.urls.get("api"), dict) else api_base
         )
@@ -764,8 +883,9 @@ def probe_testnet_account(
             wallet_balance=snapshot.wallet_balance,
             available_balance=snapshot.available_balance,
             unrealized_pnl=snapshot.unrealized_pnl,
-            open_position_count=snapshot.open_position_count,
+            open_position_count=len(positions),
             positions=positions,
+            open_orders=open_orders,
             recent_orders=recent_orders[:order_limit],
             web_ui_url=web_ui_url,
             api_backend=api_backend,

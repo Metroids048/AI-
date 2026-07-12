@@ -112,8 +112,10 @@ export function KlinePanel({ candles, latestKline, snapshotVersion, orders, symb
     for (const line of priceLinesRef.current) {
       seriesRef.current.removePriceLine(line);
     }
-    priceLinesRef.current = buildRiskPriceLines(orders).map((line) => seriesRef.current.createPriceLine(line));
-  }, [orders]);
+    priceLinesRef.current = buildRiskPriceLines(orders, { chartSymbol: symbol }).map((line) =>
+      seriesRef.current.createPriceLine(line),
+    );
+  }, [orders, symbol]);
 
   const rejectedOrders = (orders ?? []).filter((order) => order.execution_status === "rejected");
   const streamLabel = streamStatus === "live" ? "实时" : streamStatus === "connecting" ? "连接中" : "REST 轮询";
@@ -135,9 +137,20 @@ export function KlinePanel({ candles, latestKline, snapshotVersion, orders, symb
   );
 }
 
-export function buildRiskPriceLines(orders) {
+export function buildRiskPriceLines(orders, { chartSymbol } = {}) {
   const lines = [];
   for (const order of orders ?? []) {
+    const status = String(order?.execution_status || "").toLowerCase();
+    if (status === "rejected" || status === "cancelled" || status === "canceled") {
+      continue;
+    }
+    if (chartSymbol) {
+      const orderSymbol = String(order?.symbol || "");
+      const chartBase = String(chartSymbol).replace(":USDT", "");
+      if (orderSymbol && orderSymbol !== chartSymbol && orderSymbol !== chartBase) {
+        continue;
+      }
+    }
     const stoploss = Number(order?.stoploss_plan?.price);
     const takeprofit = Number(order?.takeprofit_plan?.price);
     if (Number.isFinite(stoploss) && stoploss > 0) {

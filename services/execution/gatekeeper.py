@@ -26,6 +26,7 @@ from shared.models import (
 )
 
 from .kill_switch import KillSwitch, get_kill_switch
+from .net_edge import net_edge_rejection_codes
 from .paper import PaperOrchestrationService
 
 
@@ -150,6 +151,8 @@ class ExecutionGatekeeperService:
         if self.data_repo.has_blocking_risk_event(scope=request.symbol, reference_time=reference_time):
             rejection_reasons.append("blocking_risk_event")
 
+        rejection_reasons.extend(net_edge_rejection_codes(request.entry_context))
+
         order = OrderExecution(
             order_execution_id=str(uuid.uuid4()),
             strategy_id=request.strategy_id,
@@ -203,6 +206,8 @@ class ExecutionGatekeeperService:
             rejection_reasons.append("max_total_exposure_exceeded")
         if not risk_state.portfolio_correlation_available:
             rejection_reasons.append("portfolio_correlation_unavailable")
+        elif risk_state.high_correlation_peer_count >= 2:
+            rejection_reasons.append("correlated_exposure_limit_exceeded")
         elif risk_state.correlated_cluster_exposure + requested_fraction > 0.35:
             rejection_reasons.append("correlated_cluster_exposure_exceeded")
         if abs(risk_state.net_directional_exposure + requested_signed_fraction) > 0.40:

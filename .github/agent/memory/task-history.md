@@ -1,5 +1,46 @@
 # Task History
 
+### [TASK-051] Desk Positions/Orders tabs now use Binance Demo as source of truth
+- **Date**: 2026-07-12
+- **Type**: Execution / frontend sync
+- **Summary**: Operator saw Binance Demo Positions(3)/Open Orders(4) while desk bottom tabs showed 持仓 0 and local paper orders. Root cause: hero/account panels read `/binance-testnet-account`, but Positions/Orders tabs read local `overview` paper snapshots. Fixed by (1) mapping exchange positions/open+recent orders into desk tabs, (2) always polling Binance account, (3) writing exchange positions into audit+armed PaperRuns via `record_exchange_positions`, (4) probing algo open orders, (5) retrying false-flat first probe after API start, (6) deduping overview by symbol.
+- **Verification**: API probe `open_position_count=3`, `open_orders=4` (STOP_MARKET), overview positions=3; frontend deskSync + useConsoleData tests passed.
+- **Limits**: Conditional algo orders depend on `fapiPrivateGetOpenAlgoOrders`; public market REST 418 can still block auto readiness separately.
+
+### [TASK-050] Fix desk data lock + ghost holdings display; prove Binance Demo opens
+- **Date**: 2026-07-12
+- **Type**: Execution / frontend ops repair
+- **Summary**: Operator saw "服务不可用"/empty chart and uncleared ghost holdings/SL-TP overlays. Fixed sticky `useConsoleData` error that stopped all polling after API restarts; filtered chart SL/TP to non-rejected current-symbol orders; console overview now lists latest open positions per PaperRun instead of raw historical snapshot tail; Vite default proxy target `8016`. Opened real Binance Demo longs BTC/ETH/SOL for dual-platform proof (`gateway_order_id` filled). Remaining: public market REST hit HTTP 418 on some symbols so auto `execution_ready` can stay blocked by `data_stale` until ban cools.
+- **Verification**: frontend MarketPanels/useConsoleData tests passed; overview positions `0`; Binance account `open_position_count=3` after trim; BTC OHLCV returns candles.
+- **Limits**: Do not force-clear live `data_stale` while Binance public REST is 418-banned; auto cycles remain fail-closed.
+
+### [TASK-049] Unblock Binance-sim auto trading: acceptance window, bootstrap clobber, reconcile CCXT
+- **Date**: 2026-07-12
+- **Type**: Execution / Ops repair
+- **Summary**: Operator saw hours of no new Binance Demo fills and 10 local rejects (`portfolio_initial_risk_exceeded`). Root causes: (1) trading-status only scanned latest 50 AgentTasks so completed Top20 acceptance fell out of window; (2) bootstrap overwrote armed `cost_gate_verified`/`mirror` back to `paper_only`; (3) gateway reconcile crashed on CCXT `fetch_open_orders` without-symbol warning, so exchange-flat local ghosts never cleared; (4) portfolio initial-risk cap 5% vs 2%×N positions rejected after ~2 opens. Fixed query/bootstrap/reconcile/risk budget, re-armed funding+mature runs, cleared local open positions, restored `execution_ready=true`.
+- **Layer mapping**: Execution/Risk owns gate + reconcile + arming; Validation admission unchanged; no mainnet.
+- **Research loop served**: acceptance proof → armed sim mirror → exchange-flat reconcile → Top20 scan/decision evidence.
+- **Verification**: targeted pytest 3 passed (`acceptance window`, `bootstrap preserve`, `reconcile survives open-orders warning`); live status `execution_ready=true`, blockers `[]`, both auto runs open positions `[]`, `binance_simulation_first` armed.
+- **Limits**: Current 15m bar may show `skip_duplicate_cycle` until the next candle; continuous fills still require passing ensemble/MetaLabel/net-edge gates. Top20 OOS promotion remains failed.
+
+### [TASK-048] ExitLadder + correlation tighten + reconcile decouple + Binance sim smoke
+- **Date**: 2026-07-12
+- **Type**: Execution Layer / Risk / audit
+- **Summary**: Implemented multi-level ExitLadder for Paper (defaults in AUTO_PAPER_TECHNICAL_RULES), reduceOnly partial closes with fail-closed protection refresh on Binance sim, correlation discount + dual-peer reject, and exchange-flat reconcile independent of entry cycle_key. Added read-only sim smoke + boundary audit. Did not enable strategies or mainnet.
+- **Layer mapping**: Execution owns ladder/runtime/gateway; Risk/Gatekeeper owns correlation admission; Review owns audit artifact. Validation admission unchanged.
+- **Research loop served**: paper protection mechanics → optional testnet mirror → reconcile → review evidence. Strategy promotion still blocked by prior OOS failure.
+- **Verification**: `pytest -q` -> `291 passed, 1 skipped`; Ruff passed; mypy passed on touched execution modules; `git diff --check` passed; `scripts/smoke_binance_simulation_path.py` connected (`testnet-fallback`, live_trading_enabled=false).
+- **Limits**: Trailing ratchet remains break-even floor style (pre-existing); full ATR trail not in this slice. Smoke does not place new acceptance orders.
+
+### [TASK-047] Complete fixed Top20 entry-policy prescreen against a one-hour baseline
+- **Date**: 2026-07-12
+- **Type**: Validation Layer / Data Layer / audit
+- **Summary**: Corrected the offline comparison to use a reconstructed 1h baseline versus the current `4h direction -> 1h state -> 15m entry` policy. Both policies share fixed stoploss and fixed 2R takeprofit, making the report an entry-signal prescreen only. Added read-only historical slice caching and per-symbol multiprocessing so the full replay retains every 15m decision and every protective bar without interactive timeout.
+- **Research loop served**: fixed Top20 OHLCV -> production DecisionPipeline replay -> cost-adjusted OOS/walk-forward metrics -> immutable audit evidence. No Strategy, PaperRun, Testnet, risk, or gateway configuration was changed.
+- **Result**: 20 symbols, 15m/1h/4h, 2026-04-26 through 2026-07-12, no data gaps. Candidate signal density `1.0236x`; OOS net expectancy `-0.000005` versus baseline `0.001473`; Profit Factor `1.1036`; maximum drawdown `72.98%`. Prescreen failed and no promotion occurred.
+- **Verification**: real replay completed in 298.9 seconds and wrote `docs/audits/2026-07-12-top20-technical-validation.md`; `pytest -q` -> `281 passed, 1 skipped`; Ruff passed; mypy passed for 122 files; `git diff --check` passed.
+- **Limits**: This fixed-exit experiment isolates entry quality and is not evidence for the existing partial-profit/trailing state machine. Prompt 2-6 remain separate, user-confirmed slices.
+
 ### [TASK-046] Audit current behavior and add Strategy Library Playbook + ecosystem roadmap
 - **Date**: 2026-07-12
 - **Type**: audit / docs / Strategy Layer API / frontend / persistence

@@ -176,6 +176,123 @@ def test_runtime_locks_and_closes_positions_at_hard_drawdown(db_session) -> None
     assert result.actions[0].action == "hard_drawdown_close_long"
 
 
+def test_runtime_exit_ladder_level1_partial_and_moves_stop_to_breakeven(db_session) -> None:
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+        takeprofit_rules={
+            "exit_ladder": [
+                {"r_multiple": 1.0, "close_fraction": 0.4},
+                {"r_multiple": 1.5, "close_fraction": 0.3},
+            ],
+            "remainder_trail_after_r": 2.5,
+        },
+    )
+    _store_bar(db_session, low=100, high=106, close=105, timeframe="1m")
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="15m", enable_decision_veto=False),
+    )
+
+    assert result.actions[0].action == "exit_ladder_partial_long"
+    assert result.actions[0].reference_price == 105.0
+    position = ExecutionRepository(db_session).list_latest_positions_for_run(
+        run_type="paper", run_id=paper_run.paper_run_id or ""
+    )[0]
+    assert abs(position.quantity - 0.6) < 1e-9
+    updated = PaperRunRepository(db_session).get_paper_run(paper_run.paper_run_id or "")
+    assert updated is not None
+    ladder = updated.paper_metrics_summary["exit_ladder"]["BTC/USDT"]
+    assert ladder["current_stop_price"] == 100.0
+    assert ladder["levels"][0]["executed"] is True
+    assert updated.paper_metrics_summary["protective_trailing"]["BTC/USDT"]["stop_price"] == 100.0
+
+
+def test_runtime_exit_ladder_level2_then_remainder_trails(db_session) -> None:
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+        takeprofit_rules={
+            "exit_ladder": [
+                {"r_multiple": 1.0, "close_fraction": 0.4},
+                {"r_multiple": 1.5, "close_fraction": 0.3},
+            ],
+            "remainder_trail_after_r": 2.5,
+        },
+    )
+    # Seed level1 already done.
+    PaperRunRepository(db_session).update_paper_run(
+        paper_run.paper_run_id or "",
+        paper_metrics_summary={
+            "exit_ladder": {
+                "BTC/USDT": {
+                    "symbol": "BTC/USDT",
+                    "side": "long",
+                    "entry_price": 100.0,
+                    "original_quantity": 1.0,
+                    "remaining_quantity": 0.6,
+                    "initial_stop_price": 95.0,
+                    "current_stop_price": 100.0,
+                    "remainder_trail_after_r": 2.5,
+                    "locked_level1_price": 105.0,
+                    "levels": [
+                        {"r_multiple": 1.0, "close_fraction": 0.4, "executed": True, "trigger_price": 105.0},
+                        {"r_multiple": 1.5, "close_fraction": 0.3, "executed": False, "trigger_price": None},
+                    ],
+                }
+            },
+            "protective_trailing": {
+                "BTC/USDT": {"stop_price": 100.0, "original_stop_price": 95.0, "entry_price": 100.0}
+            },
+        },
+    )
+    ExecutionRepository(db_session).create_position_snapshot(
+        PositionSnapshot(
+            run_type="paper",
+            run_id=paper_run.paper_run_id or "",
+            symbol="BTC/USDT",
+            side=TradeSide.LONG,
+            quantity=0.6,
+            entry_price=100.0,
+            mark_price=105.0,
+            unrealized_pnl=3.0,
+            snapshot_time=datetime.now(UTC) - timedelta(minutes=5),
+        )
+    )
+    _store_bar(db_session, low=104, high=108, close=107.5, timeframe="1m")
+
+    first = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="15m", enable_decision_veto=False),
+    )
+    assert first.actions[0].action == "exit_ladder_partial_long"
+    position = ExecutionRepository(db_session).list_latest_positions_for_run(
+        run_type="paper", run_id=paper_run.paper_run_id or ""
+    )[0]
+    assert abs(position.quantity - 0.3) < 1e-9
+    updated = PaperRunRepository(db_session).get_paper_run(paper_run.paper_run_id or "")
+    assert updated is not None
+    ladder = updated.paper_metrics_summary["exit_ladder"]["BTC/USDT"]
+    assert ladder["current_stop_price"] == 105.0
+    assert ladder["levels"][1]["executed"] is True
+
+    # Favorable move beyond 2.5R from entry (112.5) should ratchet stop to BE floor already locked at 105.
+    _store_bar(db_session, low=110, high=113, close=112.5, timeframe="1m", offset_hours=1)
+    second = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="15m", enable_decision_veto=False),
+    )
+    assert second.closed_positions == 0
+    trailing = PaperRunRepository(db_session).get_paper_run(paper_run.paper_run_id or "")
+    assert trailing is not None
+    assert trailing.paper_metrics_summary["protective_trailing"]["BTC/USDT"]["stop_price"] >= 105.0
+
+
 def test_runtime_partially_takes_profit_at_two_r_and_keeps_trailing_remainder(db_session) -> None:
     runtime, paper_run = _runtime_with_position(
         db_session,
@@ -292,6 +409,55 @@ def test_runtime_trailing_stop_ratchets_to_entry_after_configured_r_multiple(db_
     assert second.closed_positions == 1
     assert second.actions[0].action == "stoploss_close_long"
     assert second.actions[0].reference_price == 100.0
+
+
+def test_runtime_reconciles_local_close_when_exchange_flat_even_if_entry_cycle_already_processed(
+    db_session,
+) -> None:
+    class FlatGateway:
+        capability = type("Cap", (), {"gateway_name": "flat_gateway"})()
+
+        def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
+            raise AssertionError("reconcile path must not submit new orders")
+
+        def reconcile(self, *, live_run_id: str) -> dict:
+            return {
+                "live_run_id": live_run_id,
+                "reconciliation_status": "ok",
+                "open_order_count": 0,
+                "position_mismatches": [],
+                "open_positions": [],
+            }
+
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+        mirror_to_gateway=True,
+        gateway=FlatGateway(),
+    )
+    _store_bar(db_session, low=99, high=101, close=100, timeframe="1m")
+    latest = DataRepository(db_session).get_latest_ohlcv_bar(symbol="BTC/USDT", timeframe="1m")
+    assert latest is not None
+    # Entry cycle already processed — reconcile must still close local vs exchange flat.
+    PaperRunRepository(db_session).update_paper_run(
+        paper_run.paper_run_id or "",
+        paper_metrics_summary={
+            "processed_cycle_keys": [
+                f"{paper_run.paper_run_id}:BTC/USDT:15m:{latest.timestamp.isoformat()}"
+            ]
+        },
+    )
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="15m", enable_decision_veto=False),
+    )
+
+    assert result.closed_positions == 1
+    assert result.actions[0].action == "reconcile_flat_close_long"
+    assert result.open_position_symbols == []
 
 
 def test_binance_first_gateway_failure_blocks_local_close(db_session, monkeypatch) -> None:

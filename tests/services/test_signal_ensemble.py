@@ -90,3 +90,65 @@ def test_meta_label_rejects_cold_start_even_when_short_history_is_positive() -> 
 
     assert label.bet_decision.value == "bet_skipped"
     assert label.position_size_fraction is None
+
+
+def _layered_signal(
+    strategy_id: str,
+    *,
+    direction: str,
+    weight: float = 1.0,
+    confidence: float = 0.8,
+) -> dict:
+    series = [float(i % 7) for i in range(220)]
+    return {
+        "strategy_id": strategy_id,
+        "direction": direction,
+        "weight": weight,
+        "confidence": confidence,
+        "validation_score": confidence,
+        "series": series,
+    }
+
+
+def test_layered_fusion_requires_direction_agreement_before_any_entry_trigger() -> None:
+    request = SignalEnsembleRequest(
+        fusion_method="layered_regime_entry",
+        min_history=200,
+        signals=[
+            _layered_signal("technical_dow_trend:long", direction="long"),
+            _layered_signal("technical_ema_trend:long", direction="long"),
+            _layered_signal("technical_adx:short", direction="short"),
+            _layered_signal("technical_macd:long", direction="long"),
+            _layered_signal("technical_rsi:long", direction="long"),
+            _layered_signal("price_action_pin_bar:long", direction="long"),
+        ],
+    )
+
+    ensemble = SignalEnsembleService().create_ensemble(request)
+
+    assert ensemble.fused_direction is None
+    assert ensemble.ensemble_status.value == "discarded_low_confidence"
+    assert ensemble.raw_votes == []
+    assert "allowed_direction=none" in (ensemble.correlation_matrix_ref or "")
+
+
+def test_layered_fusion_ignores_counter_trend_entry_votes() -> None:
+    request = SignalEnsembleRequest(
+        fusion_method="layered_regime_entry",
+        min_history=200,
+        signals=[
+            _layered_signal("technical_dow_trend:long", direction="long"),
+            _layered_signal("technical_ema_trend:long", direction="long"),
+            _layered_signal("technical_adx:long", direction="long"),
+            _layered_signal("technical_macd:long", direction="long", confidence=0.9),
+            _layered_signal("technical_rsi:short", direction="short", confidence=0.95),
+            _layered_signal("price_action_false_breakout:short", direction="short", confidence=0.95),
+            _layered_signal("technical_vwap:short", direction="short", confidence=0.99),
+        ],
+    )
+
+    ensemble = SignalEnsembleService().create_ensemble(request)
+
+    assert ensemble.fused_direction == "long"
+    assert {vote.strategy_id for vote in ensemble.raw_votes} == {"technical_macd:long"}
+    assert "allowed_direction=long" in (ensemble.correlation_matrix_ref or "")

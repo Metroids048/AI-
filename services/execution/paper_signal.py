@@ -99,6 +99,7 @@ class PaperSignalGenerator:
             reference_price=reference_price,
             stoploss_price=stoploss,
         )
+        requested_notional = risk_state.requested_notional
         veto_result = decision.veto_result
         if not decision.should_trade and veto_result is None:
             pipeline_status = str(decision.trace.get("pipeline_status", ""))
@@ -131,6 +132,11 @@ class PaperSignalGenerator:
                 "decision_reason": decision.reason,
                 "decision_bar_time": decision.bar_time.isoformat() if decision.bar_time else None,
                 "paper_order_should_trade": decision.should_trade,
+                "meta_label_win_rate": decision.trace.get("meta_label_win_rate"),
+                "meta_label_average_win": decision.trace.get("meta_label_average_win"),
+                "meta_label_average_loss": decision.trace.get("meta_label_average_loss"),
+                "round_trip_fee_rate": decision.trace.get("round_trip_fee_rate"),
+                "round_trip_slippage_rate": decision.trace.get("round_trip_slippage_rate"),
             },
             stoploss_plan={"price": float(stoploss), "basis": "strategy_rule_or_atr_required_stop"},
             takeprofit_plan={"price": float(takeprofit), "basis": "strategy_rule_or_atr_takeprofit"},
@@ -386,13 +392,17 @@ class PaperSignalGenerator:
             abs(position.quantity * position.mark_price) for position in positions if position.symbol == symbol
         )
         denominator = account_equity if account_equity > 0 else 1.0
-        active_positions = [position for position in positions if position.quantity > 0]
+        active_positions = [position for position in positions if abs(position.quantity) > 0]
         candidate_returns = close_returns(
             [float(bar.close) for bar in self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe="1h", limit=61)]
         )
         correlation_available = not active_positions or candidate_returns is not None
         correlated_cluster_exposure = 0.0
+        high_correlation_peer_count = 0
+        max_peer_correlation = 0.0
         for position in active_positions:
+            if position.symbol == symbol:
+                continue
             existing_returns = close_returns(
                 [
                     float(bar.close)
@@ -407,14 +417,22 @@ class PaperSignalGenerator:
             if coefficient is None:
                 correlation_available = False
                 continue
-            if coefficient >= 0.70 and position.side == direction:
+            if coefficient > 0.70 and position.side == direction:
+                high_correlation_peer_count += 1
+                max_peer_correlation = max(max_peer_correlation, coefficient)
                 correlated_cluster_exposure += abs(signed_exposure(position, account_equity=denominator))
+        # Prompt 5: discount risk budget by (1-corr) when any same-side peer corr > 0.7.
+        correlation_risk_discount = 1.0
+        discounted_notional = float(requested_notional)
+        if high_correlation_peer_count > 0 and max_peer_correlation > 0.70:
+            correlation_risk_discount = max(0.0, 1.0 - max_peer_correlation)
+            discounted_notional = float(requested_notional) * correlation_risk_discount
         net_directional_exposure = sum(
             signed_exposure(position, account_equity=denominator) for position in active_positions
         )
         requested_stop_risk_fraction = 0.0
         if account_equity > 0 and reference_price > 0:
-            requested_quantity = requested_notional / float(reference_price)
+            requested_quantity = discounted_notional / float(reference_price)
             requested_stop_risk_fraction = (
                 requested_quantity * abs(float(reference_price - stoploss_price)) / account_equity
             )
@@ -429,9 +447,11 @@ class PaperSignalGenerator:
             open_positions=len(positions),
             symbol_exposure=float(symbol_notional / denominator),
             total_exposure=float(total_notional / denominator),
-            requested_notional=float(requested_notional),
+            requested_notional=float(discounted_notional),
             requested_leverage=float(requested_leverage),
             correlated_cluster_exposure=correlated_cluster_exposure,
+            high_correlation_peer_count=high_correlation_peer_count,
+            correlation_risk_discount=correlation_risk_discount,
             net_directional_exposure=net_directional_exposure,
             portfolio_correlation_available=correlation_available,
             requested_stop_risk_fraction=requested_stop_risk_fraction,

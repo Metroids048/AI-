@@ -20,6 +20,11 @@ from shared.models import (
     TripleBarrierOutcome,
 )
 
+DIRECTION_SOURCES = frozenset({"technical_dow_trend", "technical_ema_trend", "technical_adx"})
+ENTRY_SOURCES = frozenset({"technical_macd", "technical_rsi", "market_intelligence"})
+RANGE_SOURCES = frozenset({"technical_vwap", "technical_bollinger"})
+LAYERED_FUSION_METHOD = "layered_regime_entry"
+
 
 class SignalEnsembleService:
     """Fuse low-correlation signal candidates into a single trade candidate."""
@@ -27,6 +32,11 @@ class SignalEnsembleService:
     def create_ensemble(self, request: SignalEnsembleRequest) -> SignalEnsemble:
         if not request.signals:
             raise ValueError("at least one signal is required")
+        if request.fusion_method == LAYERED_FUSION_METHOD:
+            return self._create_layered_ensemble(request)
+        return self._create_weighted_ensemble(request)
+
+    def _create_weighted_ensemble(self, request: SignalEnsembleRequest) -> SignalEnsemble:
         adjusted = self._correlation_filter(
             request.signals,
             threshold=request.correlation_threshold,
@@ -42,6 +52,60 @@ class SignalEnsembleService:
             for signal, weight in adjusted
             if weight > 0
         ]
+        return self._finalize_votes(
+            request=request,
+            votes=votes,
+            audit={
+                "correlation_threshold": request.correlation_threshold,
+                "min_history": request.min_history,
+                "input_count": len(request.signals),
+                "kept_count": len(votes),
+            },
+            correlation_prefix="correlation_filter",
+        )
+
+    def _create_layered_ensemble(self, request: SignalEnsembleRequest) -> SignalEnsemble:
+        allowed_direction = self._resolve_allowed_direction(request.signals)
+        eligible = self._eligible_layered_signals(request.signals, allowed_direction=allowed_direction)
+        adjusted = self._correlation_filter(
+            eligible,
+            threshold=request.correlation_threshold,
+            min_history=request.min_history,
+        )
+        votes = [
+            SignalVote(
+                strategy_id=signal.strategy_id,
+                direction=signal.direction,
+                weight=weight,
+                confidence=signal.confidence,
+            )
+            for signal, weight in adjusted
+            if weight > 0
+        ]
+        direction_label = "none" if allowed_direction is None else str(allowed_direction.value)
+        return self._finalize_votes(
+            request=request,
+            votes=votes,
+            audit={
+                "fusion_method": LAYERED_FUSION_METHOD,
+                "allowed_direction": direction_label,
+                "correlation_threshold": request.correlation_threshold,
+                "min_history": request.min_history,
+                "input_count": len(request.signals),
+                "eligible_count": len(eligible),
+                "kept_count": len(votes),
+            },
+            correlation_prefix=f"layered_regime_entry:allowed_direction={direction_label}",
+        )
+
+    def _finalize_votes(
+        self,
+        *,
+        request: SignalEnsembleRequest,
+        votes: list[SignalVote],
+        audit: dict[str, object],
+        correlation_prefix: str,
+    ) -> SignalEnsemble:
         if not votes:
             return SignalEnsemble(
                 ensemble_id=str(uuid.uuid4()),
@@ -49,7 +113,7 @@ class SignalEnsembleService:
                 fusion_method=request.fusion_method,
                 raw_votes=[],
                 ensemble_status=EnsembleStatus.DISCARDED_LOW_CONFIDENCE,
-                correlation_matrix_ref="all_candidates_filtered",
+                correlation_matrix_ref=f"{correlation_prefix}:{audit}",
                 created_at=datetime.now(UTC),
             )
         long_score = sum(v.weight * (v.confidence or 1.0) for v in votes if v.direction == TradeSide.LONG)
@@ -61,17 +125,11 @@ class SignalEnsembleService:
         else:
             direction = TradeSide.SHORT
             confidence = short_score / total_score if total_score else 0.0
-        audit = {
-            "correlation_threshold": request.correlation_threshold,
-            "min_history": request.min_history,
-            "input_count": len(request.signals),
-            "kept_count": len(votes),
-        }
         return SignalEnsemble(
             ensemble_id=str(uuid.uuid4()),
             strategy_refs=[vote.strategy_id for vote in votes],
             fusion_method=request.fusion_method,
-            correlation_matrix_ref=f"correlation_filter:{audit}",
+            correlation_matrix_ref=f"{correlation_prefix}:{audit}",
             raw_votes=votes,
             fused_direction=direction,
             fused_confidence=confidence,
@@ -143,6 +201,59 @@ class SignalEnsembleService:
             return "empty_training_window"
         ordered = sorted(sample.sample_time for sample in request.training_samples)
         return f"{ordered[0].isoformat()}..{ordered[-1].isoformat()}:{len(ordered)}"
+
+    @staticmethod
+    def _signal_source(strategy_id: str) -> str:
+        return strategy_id.split(":", 1)[0]
+
+    @classmethod
+    def _signal_layer(cls, strategy_id: str) -> str:
+        source = cls._signal_source(strategy_id)
+        if source in DIRECTION_SOURCES:
+            return "direction"
+        if source in RANGE_SOURCES:
+            return "range"
+        if source in ENTRY_SOURCES or source.startswith("price_action"):
+            return "entry"
+        return "entry"
+
+    @classmethod
+    def _resolve_allowed_direction(cls, signals: list[CandidateSignalSeries]) -> TradeSide | None:
+        by_source: dict[str, TradeSide] = {}
+        for signal in signals:
+            source = cls._signal_source(signal.strategy_id)
+            if source not in DIRECTION_SOURCES:
+                continue
+            existing = by_source.get(source)
+            if existing is not None and existing != signal.direction:
+                return None
+            by_source[source] = signal.direction
+        if set(by_source) != DIRECTION_SOURCES:
+            return None
+        directions = set(by_source.values())
+        if len(directions) != 1:
+            return None
+        return next(iter(directions))
+
+    @classmethod
+    def _eligible_layered_signals(
+        cls,
+        signals: list[CandidateSignalSeries],
+        *,
+        allowed_direction: TradeSide | None,
+    ) -> list[CandidateSignalSeries]:
+        eligible: list[CandidateSignalSeries] = []
+        for signal in signals:
+            layer = cls._signal_layer(signal.strategy_id)
+            if layer == "direction":
+                continue
+            if allowed_direction is None:
+                if layer == "range":
+                    eligible.append(signal)
+                continue
+            if layer == "entry" and signal.direction == allowed_direction:
+                eligible.append(signal)
+        return eligible
 
 
 def _pearson(left: list[float], right: list[float]) -> float:

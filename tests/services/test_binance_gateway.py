@@ -342,3 +342,20 @@ def test_binance_gateway_recovers_timeout_by_querying_client_order_id() -> None:
 
     assert result["gateway_order_id"] == "recovered-order"
     assert result["gateway_status"] == "filled"
+
+
+def test_binance_gateway_reconcile_survives_open_orders_warning() -> None:
+    class OpenOrdersWarnClient(StubCcxtClient):
+        def fetch_open_orders(self, symbol=None):  # noqa: ANN001
+            raise RuntimeError("fetchOpenOrders() WARNING: specify a symbol")
+
+        def fetch_positions(self):
+            return []
+
+    gateway = BinanceUsdtPerpetualGateway(client=OpenOrdersWarnClient(), use_testnet=True)
+    snapshot = gateway.reconcile(live_run_id="paper-testnet:ghost-clear")
+
+    assert snapshot["open_positions"] == []
+    assert snapshot["open_order_count"] == 0
+    assert snapshot["reconciliation_status"] == "warning"
+    assert any(note.startswith("open_orders_scan_failed:") for note in snapshot["notes"])

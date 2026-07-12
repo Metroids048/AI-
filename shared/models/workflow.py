@@ -348,6 +348,8 @@ class ExecutionRiskState(PlatformModel):
     requested_notional: float = 0.0
     requested_leverage: float = 1.0
     correlated_cluster_exposure: float = 0.0
+    high_correlation_peer_count: int = 0
+    correlation_risk_discount: float = 1.0
     net_directional_exposure: float = 0.0
     portfolio_correlation_available: bool = True
     requested_stop_risk_fraction: float = 0.0

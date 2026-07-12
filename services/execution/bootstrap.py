@@ -56,6 +56,7 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
             "bollinger",
         ],
         "meta_label_min_win_rate": 0.50,
+        "fusion_method": "layered_regime_entry",
         "core_fee_bps": 10.0,
         "core_slippage_bps": 0.0,
         "standard_fee_bps": 18.0,
@@ -70,10 +71,18 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
         "partial_take_profit_r": 2.0,
         "partial_close_fraction": 0.5,
         "atr_trailing_multiple": 2.0,
+        "exit_ladder": [
+            {"r_multiple": 1.0, "close_fraction": 0.4},
+            {"r_multiple": 1.5, "close_fraction": 0.3},
+        ],
+        "remainder_trail_after_r": 2.5,
     },
     "position_rules": {
+        # Align with medium RiskProfile: up to 5 opens at 2% stop-risk each.
+        # Previous 5% portfolio cap rejected new opens after ~2 positions
+        # (portfolio_initial_risk_exceeded), so Top20 scanning looked "dead".
         "risk_per_trade": 0.02,
-        "max_portfolio_initial_risk_fraction": 0.05,
+        "max_portfolio_initial_risk_fraction": 0.10,
         "max_leverage": 20,
         "max_position_fraction": 0.15,
         "min_notional_usdt": 20,
@@ -305,7 +314,17 @@ def _ensure_auto_paper_run(
                 )
             )
         else:
-            profile = {**dict(paper_run.execution_profile), **execution_profile}
+            # Preserve operator-armed Testnet gates. Bootstrap used to clobber
+            # cost_gate_verified/mirror flags back to paper_only on every restart.
+            previous = dict(paper_run.execution_profile)
+            preserved_keys = (
+                "cost_gate_verified",
+                "mirror_to_gateway",
+                "execution_mode",
+                "testnet_acceptance_verified_at",
+            )
+            preserved = {key: previous[key] for key in preserved_keys if key in previous}
+            profile = {**previous, **execution_profile, **preserved}
             paper_run = (
                 paper_repo.update_paper_run(
                     paper_run.paper_run_id or "",

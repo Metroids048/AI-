@@ -131,6 +131,85 @@ def test_bootstrap_creates_carry_and_directional_runs(db_session, monkeypatch) -
     assert "funding_threshold_bps" not in technical_strategy.rules.entry_rules
 
 
+def test_bootstrap_preserves_armed_testnet_cost_gate(db_session, monkeypatch) -> None:
+    from services.strategy_library import PaperRunRepository
+
+    monkeypatch.setattr(settings, "binance_api_key", "key")
+    monkeypatch.setattr(settings, "binance_api_secret", "secret")
+    monkeypatch.setattr(settings, "binance_use_testnet", True)
+    monkeypatch.setattr(settings, "live_trading_enabled", False)
+
+    run_id = bootstrap_auto_trading_technical_paper_run()
+    assert run_id is not None
+    repo = PaperRunRepository(db_session)
+    run = repo.get_paper_run(run_id)
+    assert run is not None
+    repo.update_paper_run(
+        run_id,
+        execution_profile={
+            **run.execution_profile,
+            "execution_mode": "binance_simulation_first",
+            "mirror_to_gateway": True,
+            "cost_gate_verified": True,
+            "testnet_acceptance_verified_at": "2026-07-12T00:00:00+00:00",
+        },
+    )
+
+    again = bootstrap_auto_trading_technical_paper_run()
+    assert again == run_id
+    refreshed = repo.get_paper_run(run_id)
+    assert refreshed is not None
+    assert refreshed.execution_profile.get("cost_gate_verified") is True
+    assert refreshed.execution_profile.get("mirror_to_gateway") is True
+    assert refreshed.execution_profile.get("execution_mode") == "binance_simulation_first"
+    assert refreshed.execution_profile.get("testnet_acceptance_verified_at") == "2026-07-12T00:00:00+00:00"
+    assert refreshed.execution_profile.get("max_symbols") == 20
+
+
+def test_has_verified_testnet_acceptance_ignores_recent_task_window(db_session) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from services.strategy_library import AgentTaskRepository, models
+    from shared.models import AgentTask
+
+    repo = AgentTaskRepository(db_session)
+    acceptance = repo.create_task(
+        AgentTask(
+            agent_type="execution",
+            task_type="testnet_acceptance",
+            task_status="completed",
+            input_ref="acceptance-proof",
+            output_payload={
+                "run_status": "completed",
+                "completed_symbols": [f"S{i}" for i in range(20)],
+                "filled_order_count": 40,
+                "final_open_position_count": 0,
+                "final_open_order_count": 0,
+            },
+        )
+    )
+    # Force acceptance outside the generic recent-task window.
+    row = db_session.get(models.AgentTask, acceptance.agent_task_id)
+    assert row is not None
+    row.created_at = datetime.now(UTC) - timedelta(days=2)
+    db_session.commit()
+
+    for index in range(60):
+        repo.create_task(
+            AgentTask(
+                agent_type="review",
+                task_type="noise",
+                task_status="completed",
+                input_ref=f"noise-{index}",
+                output_payload={"index": index},
+            )
+        )
+
+    assert repo.has_verified_testnet_acceptance() is True
+    recent = repo.list_tasks(limit=50)
+    assert all(task.task_type != "testnet_acceptance" for task in recent)
+
+
 def test_bootstrap_operator_experience_strategy_uses_valid_disabled_research_state(db_session) -> None:
     from services.strategy_library import StrategyRepository
 

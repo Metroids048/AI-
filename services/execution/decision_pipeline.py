@@ -12,6 +12,7 @@ import pandas as pd
 from services.agents import AgentTaskService, build_configured_llm_runtime
 from services.data import DataRepository
 from services.data.market_intelligence import MarketIntelligenceService
+from services.execution.net_edge import meta_label_edge_stats
 from services.strategy_library import (
     AgentTaskRepository,
     ExecutionRepository,
@@ -190,7 +191,10 @@ class DecisionPipeline:
         volatility = {**volatility, "multi_timeframe": multi_timeframe}
 
         ensemble = self.ensemble_service.create_ensemble(
-            SignalEnsembleRequest(signals=[_candidate_from_signal(signal, bars) for signal in signals])
+            SignalEnsembleRequest(
+                signals=[_candidate_from_signal(signal, bars) for signal in signals],
+                fusion_method=str(strategy.rules.entry_rules.get("fusion_method", "weighted_vote")),
+            )
         )
         if self.execution_repo is not None:
             ensemble = self.execution_repo.create_signal_ensemble(ensemble)
@@ -205,11 +209,12 @@ class DecisionPipeline:
                 volatility=volatility,
             )
 
+        training_samples = _meta_label_samples(bars, direction=ensemble.fused_direction)
         meta_label = self.ensemble_service.create_meta_label(
             MetaLabelRequest(
                 ensemble_id=ensemble.ensemble_id,
                 signal_time=latest.timestamp if latest else None,
-                training_samples=_meta_label_samples(bars, direction=ensemble.fused_direction),
+                training_samples=training_samples,
                 min_win_rate=float(strategy.rules.entry_rules.get("meta_label_min_win_rate", 0.45)),
             )
         )
@@ -237,6 +242,8 @@ class DecisionPipeline:
             volatility=volatility,
             enable_decision_veto=enable_decision_veto,
         )
+        fee_bps, slippage_bps = _fee_slippage_bps(strategy=strategy, symbol=symbol)
+        edge_stats = meta_label_edge_stats([sample.net_return for sample in training_samples])
         trace = _trace(
             status="vetoed" if veto_result is not None and veto_result.veto else "bet_taken",
             signals=signals,
@@ -244,6 +251,18 @@ class DecisionPipeline:
             meta_label=meta_label,
             veto_result=veto_result,
             volatility=volatility,
+        )
+        trace.update(
+            {
+                "meta_label_win_rate": edge_stats["win_rate"],
+                "meta_label_average_win": edge_stats["average_win"],
+                "meta_label_average_loss": edge_stats["average_loss"],
+                "meta_label_sample_count": edge_stats["sample_count"],
+                "round_trip_fee_rate": (2.0 * fee_bps) / 10_000.0,
+                "round_trip_slippage_rate": (2.0 * slippage_bps) / 10_000.0,
+                "taker_fee_bps": fee_bps,
+                "estimated_slippage_bps": slippage_bps,
+            }
         )
         confidence = float(ensemble.fused_confidence or 1.0)
         size_fraction = float(meta_label.position_size_fraction or 1.0)
@@ -618,6 +637,16 @@ def _signal_weight(signal: TradeSignal) -> float:
     elif signal.source == "market_intelligence":
         base = min(settings.market_intelligence_vote_weight_cap, 0.30)
     return base * float(signal.confidence or 0.0)
+
+
+def _fee_slippage_bps(*, strategy: StrategyContract, symbol: str) -> tuple[float, float]:
+    rules = strategy.rules.entry_rules
+    is_core = symbol.replace(":USDT", "") in {"BTC/USDT", "ETH/USDT", "SOL/USDT"}
+    fee = float(rules.get("core_fee_bps" if is_core else "standard_fee_bps", rules.get("fee_bps", 8.0)))
+    slippage = float(
+        rules.get("core_slippage_bps" if is_core else "standard_slippage_bps", rules.get("slippage_bps", 6.0))
+    )
+    return fee, slippage
 
 
 def _meta_label_samples(bars: list[OHLCVBar], *, direction: TradeSide) -> list[MetaLabelSample]:

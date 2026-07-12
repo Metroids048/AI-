@@ -1,5 +1,34 @@
 # Decisions Log
 
+## ADR-054: Acceptance verification and Binance-sim arming must survive task noise and bootstrap
+- Date: 2026-07-12
+- Status: accepted
+- Context: Auto execution stayed `blocked_testnet_acceptance_not_verified` even after a completed Top20 acceptance (20 symbols / 40 fills / flat). Trading-status scanned only `list_tasks(limit=50)`, so newer AgentTasks hid acceptance. Bootstrap also merged profiles with `cost_gate_verified=False`, wiping prior arming. Gateway reconcile raised on CCXT's fetchOpenOrders-without-symbol warning and never cleared local ghosts; portfolio initial-risk 5% conflicted with 5×2% position budget.
+- Decision: Add `AgentTaskRepository.has_verified_testnet_acceptance()` filtered by `task_type=testnet_acceptance`. Preserve `cost_gate_verified` / `mirror_to_gateway` / `execution_mode` / `testnet_acceptance_verified_at` across bootstrap. Make `BinanceUsdtPerpetualGateway.reconcile` suppress/survive open-order scan failures and still return positions. Raise default `max_portfolio_initial_risk_fraction` to `0.10` to align with medium profile `max_open_positions=5` at 2% stop-risk. Operator repair script: `scripts/repair_binance_sim_auto_arm.py`.
+- Consequences: Local Paper and Binance Demo can stay flat-synced when exchange is flat; automatic cycles can reach the gateway again after acceptance. Does not promote OOS-failed strategies or enable mainnet.
+
+## ADR-053: ExitLadder multi-level paper exits with fail-closed Binance protection refresh
+- Date: 2026-07-12
+- Status: accepted
+- Context: Single-tier `partial_close_fraction` could not express the operator exit path (batch TP → break-even → lock → trail remainder). Exchange partial closes also risk leaving stale STOP/TP quantity after reduceOnly.
+- Decision: Add `services/execution/exit_ladder.py` state machine stored under `paper_metrics_summary.exit_ladder`. Default ladder in `AUTO_PAPER_TECHNICAL_RULES`: 1.0R close 40% then stop→entry; 1.5R close 30% then stop→L1 trigger; remainder uses `remainder_trail_after_r=2.5` with fixed take cleared. Legacy single partial path remains when `exit_ladder` is absent. Binance sim partials use reduceOnly market size from order context; after each ladder fill, cancel prior algo refs and re-arm STOP for remaining quantity (`refresh_protection_orders`). Refresh failure rejects the cycle action (fail-closed). Correlation: same-side peer corr>0.7 discounts notional/stop-risk by `1-corr`; ≥2 high-corr peers reject with `correlated_exposure_limit_exceeded`. Gateway reconcile runs every paper cycle when mirror is armed and is independent of entry `cycle_key`.
+- Consequences: Improves Execution mechanical correctness without admitting strategies. Top20 OOS gates remain failed; auto-enable and mainnet stay off. Evidence: `docs/audits/2026-07-12-exitladder-binance-sim-boundary.md`.
+
+## ADR-052: Technical SignalEnsemble uses regime filter then entry trigger
+- Date: 2026-07-12
+- Status: accepted
+- Context: Prompt 1 showed the current 4h/1h/15m policy did not beat a 1h baseline under shared fixed exits. One structural cause is that direction and entry triggers still share one flat weighted vote, so trend confirmation and precise entries dilute each other.
+- Decision: Keep the eight technical generators unchanged. Add fusion method `layered_regime_entry` used by DecisionPipeline: direction layer requires `dow_trend`, `ema_trend`, and `adx` to agree or else `allowed_direction=none`; entry layer votes (`macd`, `rsi`, `price_action*`, plus market intelligence) only count when aligned with that direction; `vwap` and `bollinger` vote only in the range case (`none`). Default API fusion remains `weighted_vote` for backward compatibility. No automatic promotion from this change alone.
+- Consequences: Offline Top20 prescreen must be re-run after the layering lands. Later ExitLadder / Binance-sim work still waits on that re-validation gate.
+
+## ADR-051: Top20 technical validation compares the current automatic policy against a one-hour baseline without execution mutation
+- Date: 2026-07-12
+- Status: accepted
+- Context: The requested redesign proposed validating `operator_experience_4h_15m_v1` before automatic use. The repository already has two different concepts: ADR-046 keeps that named strategy disabled as a research candidate, while ADR-023 defines the current automatic directional policy as `4h trend -> 1h state -> 15m entry -> 1m protection`. Treating the named research record as the automatic candidate would create overlapping strategy authority and would not answer whether the actual current main policy improves on the former one-hour behavior.
+- Decision: Keep all automatic Paper/Testnet settings unchanged. The validation slice compares a reconstructed one-hour directional baseline with a read-only reconstruction of the current automatic directional policy. It reuses closed historical bars, DecisionPipeline signal logic, and existing risk-price calculation, deducts round-trip fees and slippage, records OOS windows, and writes only an audit report. Missing data or any threshold failure is non-promotable. The legacy named operator-experience strategy remains disabled and outside this comparison.
+- Consequences: The result can supply evidence for a later admission review but cannot itself alter a Strategy, PaperRun, risk profile, execution profile, or gateway. Any subsequent change to live automatic behavior requires a separate explicit decision after the existing Paper evidence gate.
+- Outcome: The fixed Top20 replay covering 2026-04-26 through 2026-07-12 found candidate OOS net expectancy `-0.000005` versus baseline `0.001473`, with Profit Factor `1.1036` and maximum drawdown `72.98%`. All prescreen gates failed, so no automatic configuration or strategy eligibility was changed. Evidence: `docs/audits/2026-07-12-top20-technical-validation.md`.
+
 ## ADR-050: Strategy Playbook is a code-backed snapshot with separately persisted, audited roadmap state
 - Date: 2026-07-12
 - Status: accepted

@@ -10,6 +10,16 @@ from typing import Any
 
 from services.data import DataRepository
 from services.data.service import DEFAULT_BINANCE_TOP20
+from services.execution.exit_ladder import (
+    ExitLadderState,
+    apply_level_fill,
+    close_quantity_for_level,
+    initialize_exit_ladder,
+    ladder_config_from_rules,
+    level_hit,
+    level_trigger_price,
+    next_pending_level,
+)
 from services.execution.gatekeeper import ExecutionGatekeeperService
 from services.execution.gateway import ExchangeGateway, gateway_symbol_available
 from services.execution.paper_signal import PaperSignalGenerator
@@ -104,6 +114,7 @@ class PaperRuntimeService:
         actions: list[PaperRuntimeAction] = []
         metrics = dict(paper_run.paper_metrics_summary)
         protective_trailing = dict(metrics.get("protective_trailing", {}))
+        exit_ladder_metrics = dict(metrics.get("exit_ladder", {}))
         processed_keys = set(metrics.get("processed_cycle_keys", []))
         new_processed_keys = list(processed_keys)
         realized_total = float(metrics.get("net_realized_pnl_total", metrics.get("realized_pnl_total", 0.0)))
@@ -118,6 +129,25 @@ class PaperRuntimeService:
         rejected_orders = 0
         skipped_symbols = 0
         hard_drawdown_locked = self._is_hard_drawdown_locked(paper_run=paper_run, metrics=metrics)
+
+        if self._gateway_mirror_armed(paper_run) and active_positions:
+            reconcile_result = self._reconcile_local_positions_with_exchange(
+                paper_run=paper_run,
+                strategy=strategy,
+                paper_run_id=paper_run_id,
+                active_positions=active_positions,
+                exit_ladder_metrics=exit_ladder_metrics,
+                protective_trailing=protective_trailing,
+                cycle_time=cycle_time,
+            )
+            actions.extend(reconcile_result["actions"])
+            closed_positions += int(reconcile_result["closed"])
+            realized_total += float(reconcile_result["net_pnl"])
+            gross_realized_total += float(reconcile_result["gross_pnl"])
+            estimated_fee_total += float(reconcile_result["fee_cost"])
+            estimated_slippage_total += float(reconcile_result["slippage_cost"])
+            daily_realized_pnl += float(reconcile_result["net_pnl"])
+            weekly_realized_pnl += float(reconcile_result["net_pnl"])
 
         for symbol in scanned_symbols:
             current_position = active_positions.get(symbol)
@@ -184,11 +214,140 @@ class PaperRuntimeService:
             latest_bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=runtime_timeframe)
             protection_bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe="1m")
             if current_position is not None and protection_bar is not None:
+                metrics["exit_ladder"] = exit_ladder_metrics
+                ladder = self._ensure_exit_ladder(
+                    paper_run=paper_run,
+                    strategy=strategy,
+                    position=current_position,
+                    exit_ladder_metrics=exit_ladder_metrics,
+                )
+                if ladder is not None:
+                    pending = next_pending_level(ladder)
+                    if pending is not None and level_hit(
+                        state=ladder,
+                        level=pending,
+                        bar_high=float(protection_bar.high),
+                        bar_low=float(protection_bar.low),
+                    ):
+                        trigger_price = level_trigger_price(ladder, pending)
+                        close_abs = close_quantity_for_level(ladder, pending)
+                        sign = 1.0 if current_position.side == TradeSide.LONG else -1.0
+                        partial_quantity = sign * close_abs
+                        remaining_quantity = current_position.quantity - partial_quantity
+                        predicted_ladder = apply_level_fill(
+                            ladder,
+                            level=pending,
+                            trigger_price=trigger_price,
+                            closed_quantity=close_abs,
+                        )
+                        close_order = self._close_order_request(
+                            base_order=self._protection_order_request(
+                                paper_run=paper_run,
+                                strategy=strategy,
+                                position=current_position,
+                            ),
+                            current_position=current_position,
+                            close_price=trigger_price,
+                            close_reason="exit_ladder_partial",
+                            close_quantity=abs(partial_quantity),
+                        )
+                        close_order = close_order.model_copy(
+                            update={
+                                "stoploss_plan": {"price": predicted_ladder.current_stop_price},
+                                "entry_context": {
+                                    **close_order.entry_context,
+                                    "remaining_quantity": predicted_ladder.remaining_quantity,
+                                    "refresh_protection": True,
+                                    "protection_stop_price": predicted_ladder.current_stop_price,
+                                    "open_side": current_position.side.value
+                                    if hasattr(current_position.side, "value")
+                                    else str(current_position.side),
+                                },
+                            }
+                        )
+                        order = self.gatekeeper.submit_order(close_order)
+                        if order.execution_status == "accepted":
+                            if self._should_execute_on_binance(paper_run, order=order):
+                                order = self._ensure_binance_execution(
+                                    paper_run=paper_run,
+                                    order=order,
+                                    order_request=close_order,
+                                    position=current_position,
+                                    refresh_protection=True,
+                                )
+                                if order.execution_status != "accepted":
+                                    rejected_orders += 1
+                                    actions.append(
+                                        PaperRuntimeAction(
+                                            symbol=symbol,
+                                            action="rejected",
+                                            direction=current_position.side,
+                                            reason=order.rejection_reason,
+                                            order_execution_id=order.order_execution_id,
+                                            reference_price=trigger_price,
+                                            close_only=True,
+                                        )
+                                    )
+                                    continue
+                            order = self._fill_order(order=order, cycle_time=cycle_time)
+                            partial_position = current_position.model_copy(update={"quantity": partial_quantity})
+                            realized = self._close_position(
+                                paper_run_id=paper_run_id,
+                                position=partial_position,
+                                mark_price=trigger_price,
+                                cycle_time=cycle_time,
+                                strategy=strategy,
+                                remaining_quantity=remaining_quantity,
+                            )
+                            self._record_estimated_order_cost(order=order, strategy=strategy, price=trigger_price)
+                            if not self._should_execute_on_binance(paper_run):
+                                self._maybe_mirror_to_gateway(
+                                    paper_run=paper_run,
+                                    order=order,
+                                    order_request=close_order,
+                                    position=current_position,
+                                )
+                            realized_total += realized.net_pnl
+                            gross_realized_total += realized.gross_pnl
+                            estimated_fee_total += realized.fee_cost
+                            estimated_slippage_total += realized.slippage_cost
+                            updated_ladder = predicted_ladder
+                            exit_ladder_metrics[symbol] = updated_ladder.as_dict()
+                            metrics["exit_ladder"] = exit_ladder_metrics
+                            remaining = current_position.model_copy(
+                                update={"quantity": remaining_quantity, "mark_price": trigger_price}
+                            )
+                            active_positions[symbol] = remaining
+                            protective_trailing[symbol] = {
+                                "stop_price": updated_ladder.current_stop_price,
+                                "original_stop_price": updated_ladder.initial_stop_price,
+                                "entry_price": current_position.entry_price,
+                                "updated_at": cycle_time.isoformat(),
+                                "exit_ladder_level": pending.r_multiple,
+                            }
+                            actions.append(
+                                PaperRuntimeAction(
+                                    symbol=symbol,
+                                    action=f"exit_ladder_partial_{current_position.side}",
+                                    direction=current_position.side,
+                                    order_execution_id=order.order_execution_id,
+                                    reference_price=trigger_price,
+                                    close_only=True,
+                                    decision_trace={
+                                        "exit_ladder_r": pending.r_multiple,
+                                        "close_fraction": pending.close_fraction,
+                                        "remaining_quantity": abs(remaining_quantity),
+                                        "protection_timeframe": "1m",
+                                    },
+                                )
+                            )
+                            continue
                 levels = self._resolve_protective_levels(
                     paper_run=paper_run,
                     strategy=strategy,
                     position=current_position,
                     metrics=metrics,
+                    exit_ladder=ladder,
                 )
                 if levels is not None:
                     levels = self._apply_trailing_ratchet(
@@ -206,11 +365,15 @@ class PaperRuntimeService:
                         bar=protection_bar,
                     )
                     if trigger is not None:
-                        partial_fraction = self._partial_takeprofit_fraction(
-                            strategy=strategy,
-                            trigger=trigger,
-                            position=current_position,
-                            levels=levels,
+                        partial_fraction = (
+                            None
+                            if ladder is not None
+                            else self._partial_takeprofit_fraction(
+                                strategy=strategy,
+                                trigger=trigger,
+                                position=current_position,
+                                levels=levels,
+                            )
                         )
                         if partial_fraction is not None:
                             partial_quantity = current_position.quantity * partial_fraction
@@ -306,6 +469,8 @@ class PaperRuntimeService:
                             consecutive_losses = consecutive_losses + 1 if realized.net_pnl < 0 else 0
                             closed_positions += 1
                             active_positions.pop(symbol, None)
+                            exit_ladder_metrics.pop(symbol, None)
+                            protective_trailing.pop(symbol, None)
                             actions.append(
                                 PaperRuntimeAction(
                                     symbol=symbol,
@@ -746,6 +911,16 @@ class PaperRuntimeService:
                 order=order,
                 cycle_time=cycle_time,
             )
+            ladder_state = initialize_exit_ladder(
+                symbol=position.symbol,
+                side=position.side,
+                entry_price=position.entry_price,
+                quantity=abs(position.quantity),
+                stop_price=float(order.stoploss_plan.get("price") or 0.0),
+                takeprofit_rules=strategy.rules.takeprofit_rules,
+            )
+            if ladder_state is not None:
+                exit_ladder_metrics[position.symbol] = ladder_state.as_dict()
             order = self._record_estimated_order_cost(
                 order=order,
                 strategy=strategy,
@@ -796,6 +971,7 @@ class PaperRuntimeService:
             "last_runtime_timeframe": runtime_timeframe,
             "last_action_counts": last_action_counts,
             "protective_trailing": protective_trailing,
+            "exit_ladder": exit_ladder_metrics,
             "last_cycle_actions": [action.model_dump(mode="json") for action in actions],
             "last_cycle_decisions": [
                 {
@@ -895,7 +1071,9 @@ class PaperRuntimeService:
         current_position: PositionSnapshot,
         close_price: float,
         close_reason: str,
+        close_quantity: float | None = None,
     ) -> ExecutionOrderRequest:
+        quantity = abs(current_position.quantity) if close_quantity is None else abs(close_quantity)
         risk_state = (
             base_order.risk_state.model_copy(
                 update={
@@ -914,14 +1092,174 @@ class PaperRuntimeService:
                     "close_only_mode": True,
                     "paper_runtime_action": close_reason,
                     "reference_price": str(close_price),
-                    "requested_notional": abs(current_position.quantity) * close_price,
-                    "quantity": abs(current_position.quantity),
+                    "requested_notional": quantity * close_price,
+                    "quantity": quantity,
+                    "reduce_only": True,
                 },
                 "stoploss_plan": {},
                 "takeprofit_plan": {},
                 "risk_state": risk_state,
             }
         )
+
+    def _gateway_mirror_armed(self, paper_run: PaperRun) -> bool:
+        execution_mode = str(paper_run.execution_profile.get("execution_mode", "paper_only"))
+        legacy_mirror_enabled = bool(paper_run.execution_profile.get("mirror_to_gateway", False))
+        return (
+            self.gateway is not None
+            and (execution_mode == "binance_simulation_first" or legacy_mirror_enabled)
+            and bool(paper_run.execution_profile.get("cost_gate_verified", False))
+        )
+
+    def _reconcile_local_positions_with_exchange(
+        self,
+        *,
+        paper_run: PaperRun,
+        strategy: StrategyContract,
+        paper_run_id: str,
+        active_positions: dict[str, PositionSnapshot],
+        exit_ladder_metrics: dict[str, Any],
+        protective_trailing: dict[str, Any],
+        cycle_time: datetime,
+    ) -> dict[str, Any]:
+        empty = {
+            "actions": [],
+            "closed": 0,
+            "net_pnl": 0.0,
+            "gross_pnl": 0.0,
+            "fee_cost": 0.0,
+            "slippage_cost": 0.0,
+        }
+        gateway = self.gateway
+        if gateway is None:
+            return empty
+        try:
+            snapshot = gateway.reconcile(live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}")
+        except Exception as exc:  # noqa: BLE001
+            if self.review_repo is not None:
+                self.review_repo.create_failure(
+                    FailureRecord(
+                        strategy_id=paper_run.strategy_id,
+                        version_id=paper_run.version_id,
+                        origin_run_type="paper",
+                        origin_run_id=paper_run.paper_run_id or "",
+                        failure_type="gateway_reconcile_failed",
+                        failure_summary=f"Gateway reconcile failed: {exc}",
+                        evidence_refs=[],
+                        recommended_change="Inspect Binance simulation connectivity before trusting local positions.",
+                    )
+                )
+            return empty
+        if "open_positions" not in snapshot:
+            return empty
+        exchange_qty_by_platform: dict[str, float] = {}
+        for item in snapshot.get("open_positions", []) or []:
+            if not isinstance(item, dict):
+                continue
+            raw_symbol = str(item.get("symbol") or "")
+            platform_symbol = raw_symbol.replace(":USDT", "")
+            exchange_qty_by_platform[platform_symbol] = abs(float(item.get("contracts") or 0.0))
+        actions: list[PaperRuntimeAction] = []
+        closed = 0
+        net_pnl = 0.0
+        gross_pnl = 0.0
+        fee_cost = 0.0
+        slippage_cost = 0.0
+        for symbol, position in list(active_positions.items()):
+            exchange_qty = exchange_qty_by_platform.get(symbol, 0.0)
+            if exchange_qty > 0:
+                continue
+            mark_price = float(position.mark_price or position.entry_price)
+            realized = self._close_position(
+                paper_run_id=paper_run_id,
+                position=position,
+                mark_price=mark_price,
+                cycle_time=cycle_time,
+                strategy=strategy,
+            )
+            net_pnl += realized.net_pnl
+            gross_pnl += realized.gross_pnl
+            fee_cost += realized.fee_cost
+            slippage_cost += realized.slippage_cost
+            closed += 1
+            active_positions.pop(symbol, None)
+            exit_ladder_metrics.pop(symbol, None)
+            protective_trailing.pop(symbol, None)
+            actions.append(
+                PaperRuntimeAction(
+                    symbol=symbol,
+                    action=f"reconcile_flat_close_{position.side}",
+                    direction=position.side,
+                    reference_price=mark_price,
+                    close_only=True,
+                    decision_trace={
+                        "exit_reason": "exchange_position_flat",
+                        "reconcile_decoupled_from_entry_cycle": True,
+                    },
+                )
+            )
+        return {
+            "actions": actions,
+            "closed": closed,
+            "net_pnl": net_pnl,
+            "gross_pnl": gross_pnl,
+            "fee_cost": fee_cost,
+            "slippage_cost": slippage_cost,
+        }
+
+    def _ensure_exit_ladder(
+        self,
+        *,
+        paper_run: PaperRun,
+        strategy: StrategyContract,
+        position: PositionSnapshot,
+        exit_ladder_metrics: dict[str, Any],
+    ) -> ExitLadderState | None:
+        from services.execution.exit_ladder import exit_ladder_from_dict
+
+        existing = exit_ladder_metrics.get(position.symbol)
+        if isinstance(existing, dict):
+            state = exit_ladder_from_dict(existing)
+            if abs(state.remaining_quantity - abs(position.quantity)) > 1e-9:
+                state = ExitLadderState(
+                    symbol=state.symbol,
+                    side=state.side,
+                    entry_price=state.entry_price,
+                    original_quantity=state.original_quantity,
+                    remaining_quantity=abs(position.quantity),
+                    initial_stop_price=state.initial_stop_price,
+                    current_stop_price=state.current_stop_price,
+                    levels=state.levels,
+                    remainder_trail_after_r=state.remainder_trail_after_r,
+                    locked_level1_price=state.locked_level1_price,
+                )
+                exit_ladder_metrics[position.symbol] = state.as_dict()
+            return state
+        if ladder_config_from_rules(strategy.rules.takeprofit_rules) is None:
+            return None
+        if paper_run.paper_run_id is None:
+            return None
+        entry_order = self.execution_repo.find_latest_filled_entry_order(
+            run_type="paper",
+            run_id=paper_run.paper_run_id,
+            symbol=position.symbol,
+        )
+        if entry_order is None:
+            return None
+        stop_price = _float_or_none(entry_order.stoploss_plan.get("price"))
+        if stop_price is None:
+            return None
+        initialized = initialize_exit_ladder(
+            symbol=position.symbol,
+            side=position.side,
+            entry_price=position.entry_price,
+            quantity=abs(position.quantity),
+            stop_price=stop_price,
+            takeprofit_rules=strategy.rules.takeprofit_rules,
+        )
+        if initialized is not None:
+            exit_ladder_metrics[position.symbol] = initialized.as_dict()
+        return initialized
 
     def _resolve_protective_levels(
         self,
@@ -930,6 +1268,7 @@ class PaperRuntimeService:
         strategy: StrategyContract,
         position: PositionSnapshot,
         metrics: dict[str, Any],
+        exit_ladder=None,
     ) -> ProtectiveLevels | None:
         if paper_run.paper_run_id is None:
             return None
@@ -942,6 +1281,16 @@ class PaperRuntimeService:
             return None
         stop_price = _float_or_none(entry_order.stoploss_plan.get("price"))
         take_price = _float_or_none(entry_order.takeprofit_plan.get("price"))
+        original_stop = stop_price
+        trail_after_r = _float_or_none(strategy.rules.takeprofit_rules.get("trail_after_r"))
+        if exit_ladder is not None:
+            stop_price = exit_ladder.current_stop_price
+            original_stop = exit_ladder.initial_stop_price
+            # Ladder levels replace fixed take; remainder uses trail only.
+            take_price = None
+            trail_after_r = (
+                exit_ladder.remainder_trail_after_r if exit_ladder.all_levels_executed else None
+            )
         if stop_price is None and take_price is None:
             return None
         trailing = dict(metrics.get("protective_trailing", {})).get(position.symbol, {})
@@ -954,9 +1303,9 @@ class PaperRuntimeService:
         return ProtectiveLevels(
             stop_price=stop_price,
             take_price=take_price,
-            original_stop_price=_float_or_none(entry_order.stoploss_plan.get("price")),
+            original_stop_price=original_stop,
             entry_order_id=entry_order.order_execution_id,
-            trail_after_r=_float_or_none(strategy.rules.takeprofit_rules.get("trail_after_r")),
+            trail_after_r=trail_after_r,
         )
 
     def _apply_trailing_ratchet(
@@ -1178,6 +1527,7 @@ class PaperRuntimeService:
         order: OrderExecution,
         order_request: ExecutionOrderRequest,
         position: PositionSnapshot | None,
+        refresh_protection: bool = False,
     ) -> OrderExecution:
         if not self._should_execute_on_binance(paper_run, order=order):
             return order
@@ -1190,6 +1540,35 @@ class PaperRuntimeService:
                 live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}",
                 order_request=mirror_request,
             )
+            if refresh_protection or bool(order_request.entry_context.get("refresh_protection")):
+                remaining = float(order_request.entry_context.get("remaining_quantity") or 0.0)
+                stop_price = order_request.entry_context.get("protection_stop_price")
+                refresh = getattr(gateway, "refresh_protection_orders", None)
+                if not callable(refresh):
+                    raise ValueError("gateway_protection_refresh_unsupported")
+                if remaining <= 0 or stop_price is None:
+                    raise ValueError("gateway_protection_refresh_missing_levels")
+                protection_request = mirror_request.model_copy(
+                    update={
+                        "stoploss_plan": {"price": float(stop_price)},
+                        "takeprofit_plan": {},
+                        "entry_context": {
+                            **mirror_request.entry_context,
+                            "close_only_mode": False,
+                            "reduce_only": False,
+                            "quantity": remaining,
+                        },
+                    }
+                )
+                refreshed = refresh(
+                    order_request=protection_request,
+                    quantity=remaining,
+                    previous_refs=order.entry_context.get("protection_order_refs")
+                    or gateway_result.get("protection_order_refs"),
+                )
+                gateway_result["protection_order_refs"] = refreshed
+                if not refreshed:
+                    raise ValueError("gateway_protection_refresh_failed")
         except Exception as exc:  # noqa: BLE001
             self._record_gateway_mirror_failure(paper_run=paper_run, order=order, exc=exc)
             return (
@@ -1261,7 +1640,8 @@ class PaperRuntimeService:
                 context.get("reference_price") or position.mark_price or position.entry_price or reference_price
             )
         if close_only and position is not None:
-            quantity = abs(position.quantity)
+            context_qty = float(context.get("quantity") or 0.0)
+            quantity = context_qty if context_qty > 0 else abs(position.quantity)
             direction = TradeSide.SHORT if position.side == TradeSide.LONG else TradeSide.LONG
         else:
             quantity = float(context.get("quantity") or 0)
