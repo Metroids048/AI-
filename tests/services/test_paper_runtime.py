@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from services.data import DataRepository
 from services.execution.gatekeeper import ExecutionGatekeeperService
-from services.execution.paper_runtime import PaperRuntimeService
+from services.execution.paper_runtime import PaperRuntimeService, _estimated_transaction_cost
 from services.strategy_library import (
     AgentTaskRepository,
     ExecutionRepository,
@@ -87,6 +87,118 @@ def test_runtime_stoploss_wins_when_stoploss_and_takeprofit_hit_same_bar(db_sess
     assert result.actions[0].reference_price == 95.0
 
 
+def test_runtime_checks_open_position_stoploss_even_when_entry_bar_is_already_processed(db_session) -> None:
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+    )
+    _store_bar(db_session, low=94, high=101, close=96)
+    latest = DataRepository(db_session).get_latest_ohlcv_bar(symbol="BTC/USDT", timeframe="1h")
+    assert latest is not None
+    PaperRunRepository(db_session).update_paper_run(
+        paper_run.paper_run_id or "",
+        paper_metrics_summary={
+            "processed_cycle_keys": [
+                f"{paper_run.paper_run_id}:BTC/USDT:1h:{latest.timestamp.isoformat()}"
+            ]
+        },
+    )
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
+    )
+
+    assert result.closed_positions == 1
+    assert result.actions[0].action == "stoploss_close_long"
+
+
+def test_runtime_uses_1m_protection_when_entry_timeframe_data_is_missing(db_session) -> None:
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+    )
+    _store_bar(db_session, low=94, high=101, close=96, timeframe="1m")
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="15m", enable_decision_veto=False),
+    )
+
+    assert result.closed_positions == 1
+    assert result.actions[0].action == "stoploss_close_long"
+
+
+def test_runtime_exits_stagnant_position_after_24_hours_below_half_r(db_session) -> None:
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+        exit_rules={"time_exit_hours": 24, "time_exit_min_r": 0.5},
+        position_age_hours=25,
+    )
+    _store_bar(db_session, low=100, high=102, close=101, timeframe="1m")
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="15m", enable_decision_veto=False),
+    )
+
+    assert result.closed_positions == 1
+    assert result.actions[0].action == "time_exit_close_long"
+
+
+def test_runtime_locks_and_closes_positions_at_hard_drawdown(db_session) -> None:
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+    )
+    PaperRunRepository(db_session).update_paper_run(
+        paper_run.paper_run_id or "",
+        paper_metrics_summary={"account_equity": 7_900, "equity_peak": 10_000},
+    )
+    _store_bar(db_session, low=98, high=102, close=99, timeframe="1m")
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="15m", enable_decision_veto=False),
+    )
+
+    assert result.paper_status == "locked"
+    assert result.closed_positions == 1
+    assert result.actions[0].action == "hard_drawdown_close_long"
+
+
+def test_runtime_partially_takes_profit_at_two_r_and_keeps_trailing_remainder(db_session) -> None:
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=110.0,
+        takeprofit_rules={"risk_reward": 2.0, "partial_close_fraction": 0.5},
+    )
+    _store_bar(db_session, low=106, high=111, close=110, timeframe="1m")
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="15m", enable_decision_veto=False),
+    )
+
+    assert result.closed_positions == 0
+    assert result.actions[0].action == "partial_takeprofit_long"
+    position = ExecutionRepository(db_session).list_latest_positions_for_run(
+        run_type="paper", run_id=paper_run.paper_run_id or ""
+    )[0]
+    assert position.quantity == 0.5
+
+
 def test_runtime_realized_pnl_includes_configured_transaction_costs(db_session) -> None:
     runtime, paper_run = _runtime_with_position(
         db_session,
@@ -110,6 +222,35 @@ def test_runtime_realized_pnl_includes_configured_transaction_costs(db_session) 
     assert updated.paper_metrics_summary["estimated_fee_total"] == 1.95
     assert updated.paper_metrics_summary["net_realized_pnl_total"] == -6.95
     assert updated.paper_metrics_summary["account_equity"] == 9993.05
+
+
+def test_transaction_cost_uses_core_and_standard_pressure_tiers(db_session) -> None:
+    strategy = StrategyRepository(db_session).create_strategy(
+        StrategyCreate(
+            strategy_key="tiered-costs",
+            source="test",
+            core_thesis="Costs must be conservative by asset liquidity tier.",
+            rules={
+                "entry_rules": {
+                    "core_fee_bps": 10,
+                    "standard_fee_bps": 18,
+                    "core_slippage_bps": 0,
+                    "standard_slippage_bps": 0,
+                },
+                "stoploss_rules": {"fixed_bps": 250},
+                "takeprofit_rules": {"risk_reward": 2},
+                "position_rules": {},
+            },
+        )
+    )
+
+    core = _estimated_transaction_cost(price=100, quantity=1, strategy=strategy, symbol="BTC/USDT")
+    standard = _estimated_transaction_cost(price=100, quantity=1, strategy=strategy, symbol="XRP/USDT")
+
+    assert core.fee_bps == 10
+    assert standard.fee_bps == 18
+    assert core.total_cost == 0.10
+    assert standard.total_cost == 0.18
 
 
 def test_runtime_trailing_stop_ratchets_to_entry_after_configured_r_multiple(db_session) -> None:
@@ -198,10 +339,12 @@ def _runtime_with_position(
     stop_price: float,
     take_price: float,
     takeprofit_rules: dict | None = None,
+    exit_rules: dict | None = None,
     fee_bps: float = 8.0,
     slippage_bps: float = 6.0,
     mirror_to_gateway: bool = False,
     gateway=None,
+    position_age_hours: int = 0,
 ) -> tuple[PaperRuntimeService, PaperRun]:
     strategy = StrategyRepository(db_session).create_strategy(
         StrategyCreate(
@@ -210,7 +353,7 @@ def _runtime_with_position(
             core_thesis="Protective orders must close paper positions before signal handling.",
             rules={
                 "entry_rules": {"funding_threshold_bps": 1, "fee_bps": fee_bps, "slippage_bps": slippage_bps},
-                "exit_rules": {},
+                "exit_rules": exit_rules or {},
                 "stoploss_rules": {"fixed_bps": 500},
                 "takeprofit_rules": takeprofit_rules or {"risk_reward": 2.0},
                 "position_rules": {"notional_usdt": 100, "max_leverage": 1},
@@ -275,7 +418,7 @@ def _runtime_with_position(
             entry_price=100.0,
             mark_price=100.0,
             unrealized_pnl=0.0,
-            snapshot_time=datetime.now(UTC) - timedelta(minutes=5),
+            snapshot_time=datetime.now(UTC) - timedelta(minutes=5) - timedelta(hours=position_age_hours),
         )
     )
     runtime = PaperRuntimeService(
@@ -307,6 +450,7 @@ def _store_bar(
     high: float,
     close: float,
     offset_hours: int = 0,
+    timeframe: str = "1h",
 ) -> None:
     now = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=offset_hours)
     DataRepository(db_session).store_ohlcv_bars(
@@ -314,7 +458,7 @@ def _store_bar(
             {
                 "symbol": "BTC/USDT",
                 "exchange": "binance",
-                "timeframe": "1h",
+                "timeframe": timeframe,
                 "time": now,
                 "open": Decimal("100"),
                 "high": Decimal(str(high)),

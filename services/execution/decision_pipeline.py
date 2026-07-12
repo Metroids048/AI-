@@ -302,6 +302,40 @@ class DecisionPipeline:
         main_signals: list[TradeSignal],
         enabled_signals: set[str] | frozenset[str],
     ) -> dict[str, Any]:
+        main_direction = _dominant_signal_direction(main_signals)
+        state_timeframe = strategy.rules.entry_rules.get("state_timeframe")
+        state_confirmation: dict[str, Any] | None = None
+        if state_timeframe and str(state_timeframe) != timeframe:
+            state_bars = self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=str(state_timeframe), limit=240)
+            state_signals = self._technical_signals(
+                frame=_bars_to_frame(state_bars),
+                symbol=symbol,
+                enabled_signals=enabled_signals,
+            )
+            state_direction = _dominant_signal_direction(state_signals)
+            if not state_bars or not state_signals or main_direction is None or state_direction is None:
+                return {
+                    "passed": False,
+                    "status": "state_confirmation_unavailable_fail_closed",
+                    "main_timeframe": timeframe,
+                    "state_timeframe": str(state_timeframe),
+                    "state_signal_count": len(state_signals),
+                }
+            state_confirmation = {
+                "timeframe": str(state_timeframe),
+                "direction": str(state_direction),
+                "signal_count": len(state_signals),
+            }
+            if main_direction != state_direction:
+                return {
+                    "passed": False,
+                    "status": "state_confirmation_disagreed",
+                    "main_timeframe": timeframe,
+                    "state_timeframe": str(state_timeframe),
+                    "main_direction": str(main_direction),
+                    "state_direction": str(state_direction),
+                    "state_signal_count": len(state_signals),
+                }
         confirm_timeframe = _confirmation_timeframe(strategy=strategy, entry_timeframe=timeframe)
         if confirm_timeframe == timeframe:
             return {
@@ -317,7 +351,6 @@ class DecisionPipeline:
             symbol=symbol,
             enabled_signals=enabled_signals,
         )
-        main_direction = _dominant_signal_direction(main_signals)
         confirm_direction = _dominant_signal_direction(confirm_signals)
         if not confirm_bars or not confirm_signals or main_direction is None or confirm_direction is None:
             return {
@@ -335,6 +368,7 @@ class DecisionPipeline:
             "main_direction": str(main_direction),
             "confirm_direction": str(confirm_direction),
             "confirm_signal_count": len(confirm_signals),
+            **({"state_confirmation": state_confirmation} if state_confirmation else {}),
         }
 
     def _run_decision_veto(
@@ -357,8 +391,8 @@ class DecisionPipeline:
             )
         if self.agent_repo is None or self.strategy_repo is None:
             return DecisionVetoResult(
-                veto=True,
-                veto_reason="decision veto agent repository unavailable -> fail closed",
+                veto=False,
+                veto_reason="decision veto agent repository unavailable -> advisory unavailable",
                 checked_at=datetime.now(UTC),
             )
         if _daily_veto_calls(self.agent_repo, datetime.now(UTC).date()) >= settings.decision_veto_daily_budget:
@@ -374,8 +408,8 @@ class DecisionPipeline:
                     schema_validation_status="budget_exceeded",
                     output_payload={
                         "veto_result": {
-                            "veto": True,
-                            "veto_reason": "decision veto daily budget exceeded -> fail closed",
+                            "veto": False,
+                            "veto_reason": "decision veto daily budget exceeded -> advisory unavailable",
                         }
                     },
                 )
@@ -392,8 +426,8 @@ class DecisionPipeline:
                     )
                 )
             return DecisionVetoResult(
-                veto=True,
-                veto_reason="decision veto daily budget exceeded -> fail closed",
+                veto=False,
+                veto_reason="decision veto daily budget exceeded -> advisory unavailable",
                 checked_at=datetime.now(UTC),
                 agent_task_ref=task.agent_task_id,
             )
@@ -436,13 +470,21 @@ class DecisionPipeline:
         payload = task.output_payload.get("veto_result", {})
         if not isinstance(payload, dict):
             return DecisionVetoResult(
-                veto=True,
-                veto_reason="invalid veto payload -> fail closed",
+                veto=False,
+                veto_reason="invalid veto payload -> advisory unavailable",
                 agent_task_ref=task.agent_task_id,
             )
+        high_risk_events = self.data_repo.has_blocking_risk_event(
+            scope=symbol,
+            reference_time=datetime.now(UTC),
+        )
         return DecisionVetoResult(
-            veto=bool(payload.get("veto", True)),
-            veto_reason=str(payload.get("veto_reason", "missing veto reason -> fail closed")),
+            veto=bool(high_risk_events),
+            veto_reason=(
+                "high severity risk event present"
+                if high_risk_events
+                else str(payload.get("veto_reason", "llm advisory completed"))
+            ),
             checked_at=datetime.now(UTC),
             agent_task_ref=task.agent_task_id,
         )

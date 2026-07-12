@@ -63,13 +63,13 @@ export function KlinePanel({ candles, latestKline, snapshotVersion, orders, symb
     if (!container) return undefined;
     const chart = createChart(container, {
       autoSize: true,
-      layout: { background: { color: "#080d12" }, textColor: "#9aa7b6" },
+      layout: { background: { color: "#ffffff" }, textColor: "#707a8a" },
       grid: {
-        vertLines: { color: "rgba(148, 163, 184, 0.08)" },
-        horzLines: { color: "rgba(148, 163, 184, 0.08)" },
+        vertLines: { color: "rgba(112, 122, 138, 0.10)" },
+        horzLines: { color: "rgba(112, 122, 138, 0.10)" },
       },
-      rightPriceScale: { borderColor: "rgba(148, 163, 184, 0.20)" },
-      timeScale: { borderColor: "rgba(148, 163, 184, 0.20)" },
+      rightPriceScale: { borderColor: "#eaecef" },
+      timeScale: { borderColor: "#eaecef" },
       crosshair: { mode: 0 },
     });
     const series = chart.addSeries(CandlestickSeries, {

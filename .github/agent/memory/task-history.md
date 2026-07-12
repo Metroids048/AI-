@@ -420,3 +420,20 @@
 - **Summary**: Fixed CCXT Binance USDM Testnet integration (manual testnet URLs instead of deprecated `set_sandbox_mode`), algo protection orders (`algoType=CONDITIONAL`), paper mirror min-notional bump (50 USDT), and dev relaxed signal filters. Verified live K-line feed, testnet balance sync (~5256 USDT), manual testnet orders, and paper auto-cycle mirror (`gateway_order_id` on recent fills).
 - **Files changed**: `services/execution/{gateway.py,paper_runtime.py,decision_pipeline.py,paper_signal.py}`, `shared/config.py`, `apps/api/celery_app.py`, `.env.example`, `tests/services/test_binance_gateway.py`
 - **Verification**: `py -3 -m pytest tests/services/test_binance_gateway.py tests/services/test_paper_bootstrap.py -q` -> 4 passed; API `trading-status` credentials+gateway+scheduler+live feed OK; testnet manual order `gateway_order_id=20127948601`; paper mirror orders `20128622805` / `20128804499`.
+
+## 2026-07-12 — Fixed Top20 directional Paper execution and cost-risk controls
+
+- **Summary**: Reworked the automatic directional Paper lane around `4h trend -> 1h state -> 15m entry -> 1m protection`. The fixed Top20 remains intact; heartbeat now maintains all four closed-bar timeframes. Existing positions receive 1m stop, time-exit, partial-profit, and drawdown protection even when entry bars are stale or already processed.
+- **Risk policy**: BTC/ETH/SOL use 20x caps; the other fixed Top20 symbols use 10x caps. Position size remains stop-distance risk based at 2% per trade, with a 5% aggregate initial-stop-risk cap, 5% daily new-entry halt, and 20% hard-drawdown close-and-lock action. All work remains Paper-only.
+- **Exit/cost policy**: +1R break-even ratchet, +2R partial 50% exit, trailing remainder, and 24-hour exit below +0.5R. Core assets model 10bps per side; other symbols 18bps per side, with the existing transaction-cost ledger retaining fee/slippage evidence.
+- **LLM boundary**: LLM/RAG remains structured audit and research input. Only persisted high/critical risk events hard-veto entries; model budget/runtime/schema failures are recorded as advisory unavailability and cannot weaken deterministic gates.
+- **Verification**: `pytest -q` -> 274 passed, 1 skipped; `ruff check .`; `mypy`; `npm --workspace frontend/admin run build`; `git diff --check` all passed. Vite retains its pre-existing >500kB bundle warning.
+- [project: C:\Users\Windows11\Desktop\量化项目] 2026-07-12 Fixed Top20 Binance Testnet acceptance connected end-to-end
+  - **内容**: 先定位到直接调用 `TestnetAcceptanceService` 不会写回平台验收状态的断点；随后通过正式 API `/api/v1/execution/testnet-acceptance-runs` 执行固定 20 币顺序开仓/平仓验收。
+  - **验收证据**: `run_status=completed`、20/20 币完成、40 笔成交、无失败币、`final_open_position_count=0`、`final_open_order_count=0`；API `trading-status` 已回写 `testnet_acceptance_verified=true`、`auto_execution_state=ready`、`execution_ready=true`、调度器运行中。
+  - **边界**: 仅 Binance Futures Testnet/Mock，主网保持关闭；预检确认账户初始 0 持仓/0 挂单。正式验收 run id: `02c25bdd-be98-4060-a816-e625c61e7b24`。
+- [project: C:\Users\Windows11\Desktop\量化项目] 2026-07-12 Trading console strategy/audit boundary and browser sync fix
+  - **结论**: 固定 Top20 的 40 笔 Binance Testnet 成交属于 `testnet_acceptance` 基础设施验收，不属于量化策略收益或策略开平逻辑；自动 Paper 周期按既定资金费成本门禁拒绝当前信号，未产生策略新仓。
+  - **故障**: 本地启动脚本将行情接口强制置为 API-only，外部行情读取超时会污染整页错误；更关键的是 CORS `OPTIONS` 预检被 Bearer 认证中间件拦截，浏览器拿不到任何数据，命令行带 Token 却正常。
+  - **修复/验证**: 本地控制台继续使用隔离调度器缓存；行情可选请求失败不再升级成全局错误；认证中间件放行 `OPTIONS`，启动器注入 `http://127.0.0.1:5173`/`localhost:5173` CORS 白名单。预检返回 200，后端健康测试 8 passed，前端 Vitest 30 passed，API overview/market endpoints 全部 200。
+  - **同步边界**: 账户 API 已能读取 Binance 最近订单与 0 持仓；主交易表展示本地执行/审计记录，策略订单与验收审计继续分开，避免把验收单计入策略表现。

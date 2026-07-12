@@ -37,6 +37,8 @@ def _default_token_used_outside_local_env() -> bool:
 
 async def admin_token_middleware(request: Request, call_next):
     path = request.url.path
+    if request.method == "OPTIONS":
+        return await call_next(request)
     if not path.startswith("/api/v1") or path in PUBLIC_PATHS:
         return await call_next(request)
 

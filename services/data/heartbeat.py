@@ -43,6 +43,19 @@ class MarketDataHeartbeatService:
                 )
             )
             freshness["risk_event_id"] = event.risk_event_id
+        else:
+            resolved = 0
+            for event in self.data_repo.list_risk_events(active_only=True, limit=200):
+                if event.event_type != RiskEventType.DATA_STALE:
+                    continue
+                if event.affected_scope != [symbol] or event.risk_event_id is None:
+                    continue
+                self.data_repo.update_risk_event_resolution(
+                    risk_event_id=event.risk_event_id,
+                    resolution_status="resolved",
+                )
+                resolved += 1
+            freshness["resolved_stale_event_count"] = resolved
         return freshness
 
     def check_symbols(

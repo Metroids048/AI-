@@ -409,6 +409,14 @@
 - 独立 `scripts/run-local-paper-scheduler.py` 持续执行行情心跳和自动 Paper 周期，写回同一 SQLite。状态 API 用 `logs/scheduler.pid` 显示该外部调度是否存活。
 - 这属于 Data -> Execution -> Review 闭环：接口读取不中断、自动周期持续写入、币安验收成交与外部账户快照继续作为独立审计记录留存。
 
+## Directional Paper Runtime (2026-07-12)
+
+- Directional auto execution is Paper-only and scans the fixed Binance Top20. Its mandatory timeline is `4h trend -> 1h state -> 15m closed-bar entry`; `1m` is reserved for position protection and does not create entries.
+- Existing positions must always be protected from a fresh 1m bar, even if entry-frame data is stale or the 15m entry bar was already processed. Missing multi-timeframe data blocks only new entries.
+- Risk defaults for this lane: BTC/ETH/SOL max 20x; remaining Top20 max 10x; 2% stop-risk per trade; 5% aggregate initial stop risk; 5% daily loss blocks new entries; 20% peak drawdown force-closes and locks the PaperRun pending manual recovery.
+- Profit exits: break-even at +1R, close 50% at +2R, retain the balance under a ratcheting stop, and close after 24 hours if favorable movement is below +0.5R. Costs are 10bps/side for core symbols and 18bps/side otherwise; stress validation still requires 1.5x cost evidence before Testnet promotion.
+- LLM/RAG may enrich decision evidence and review data but cannot set direction, price, leverage, sizing, or stops. Only persisted high/critical `RiskEvent`s veto an entry; LLM unavailability is auditable but cannot bypass deterministic risk gates or itself halt a valid rule entry.
+
 ## Phase-0 开发前完整方案包 (TASK-007, 2026-07-02)
 
 用户要求做第二轮全局查缺补漏，并交付一整套开发前方案文档（技术架构/PRD/模块功能清单/

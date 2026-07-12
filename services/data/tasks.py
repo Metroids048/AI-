@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import re
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from celery import shared_task
@@ -125,10 +126,58 @@ def enqueue_binance_ingestion(job_payload: dict, *, client=None) -> dict:
         session.close()
 
 
+_HEARTBEAT_TIMEFRAMES = ("1m", "15m", "1h", "4h")
+_HEARTBEAT_MAX_AGE_SECONDS = {
+    "1m": 120,
+    "15m": 20 * 60,
+    "1h": 80 * 60,
+    "4h": 5 * 60 * 60,
+}
+_SECONDARY_TIMEFRAME_INDEX = 0
+
+
+def _heartbeat_timeframes_to_refresh(
+    *, data_repo: DataRepository, symbol: str, primary_timeframe: str, secondary_timeframe: str | None
+) -> list[str]:
+    """Refresh the primary feed every cycle and one due higher frame per cycle.
+
+    The old behavior requested all higher frames for every symbol at once,
+    creating a Testnet burst.  A secondary frame is now rotated across cycles:
+    1m remains fresh for execution health while 1h/15m/4h restore gradually.
+    """
+
+    due = [primary_timeframe]
+    now = datetime.now(UTC)
+    if secondary_timeframe is None or secondary_timeframe == primary_timeframe:
+        return due
+    freshness = data_repo.check_freshness(
+        symbol=symbol,
+        timeframe=secondary_timeframe,
+        reference_time=now,
+        max_delay=timedelta(seconds=_HEARTBEAT_MAX_AGE_SECONDS[secondary_timeframe]),
+    )
+    if not freshness["is_fresh"]:
+        due.append(secondary_timeframe)
+    return due
+
+
+def _rate_limit_retry_after_seconds(error: Exception) -> int | None:
+    """Extract Binance's ban-until timestamp from an HTTP 418 response."""
+
+    message = str(error)
+    if "418" not in message or "banned until" not in message:
+        return None
+    match = re.search(r"banned until\s+(\d{13})", message)
+    if match is None:
+        return None
+    ban_until_ms = int(match.group(1))
+    remaining = (ban_until_ms / 1000) - datetime.now(UTC).timestamp()
+    return max(1, int(remaining) + 1)
+
+
 @shared_task(name="services.data.tasks.market_data_heartbeat", queue="ops_queue")
 def market_data_heartbeat(symbols: list[str] | None = None, timeframe: str = "1m") -> dict:
-    from services.data.binance import BinanceCcxtClient
-    from shared.config import settings
+    from services.data.binance import BinanceCcxtClient, resolve_usdm_public_rest_base
 
     session = get_session_factory()()
     try:
@@ -136,24 +185,49 @@ def market_data_heartbeat(symbols: list[str] | None = None, timeframe: str = "1m
         from services.data.service import DEFAULT_BINANCE_TOP20
 
         target_symbols = list(symbols or DEFAULT_BINANCE_TOP20)
-        client = BinanceCcxtClient()
-        # Refresh bars before stale checks — directional lane gatekeeper needs 15m/4h.
+        global _SECONDARY_TIMEFRAME_INDEX
+        secondary_candidates = [candidate for candidate in _HEARTBEAT_TIMEFRAMES if candidate != timeframe]
+        secondary_timeframe = secondary_candidates[_SECONDARY_TIMEFRAME_INDEX % len(secondary_candidates)]
+        _SECONDARY_TIMEFRAME_INDEX += 1
+        client = BinanceCcxtClient(usdm_base_url=resolve_usdm_public_rest_base())
+        failures: dict[str, dict[str, str | int]] = {}
+        retry_after_seconds: int | None = None
+        # Refresh bars before stale checks.  The 1m feed is refreshed every
+        # heartbeat; 15m/4h are refreshed only when they become stale.
         for symbol in target_symbols:
-            for tf in ("1m", "15m", "4h"):
+            for tf in _heartbeat_timeframes_to_refresh(
+                data_repo=data_repo,
+                symbol=symbol,
+                primary_timeframe=timeframe,
+                secondary_timeframe=secondary_timeframe,
+            ):
                 try:
-                    bars = client.fetch_recent_ohlcv(symbol=symbol, timeframe=tf, limit=60)
+                    bars = client.fetch_recent_usdm_ohlcv(symbol=symbol, timeframe=tf, limit=60)
                     data_repo.store_ohlcv_bars(bars)
-                except Exception:
-                    pass
+                except Exception as exc:  # noqa: BLE001 - preserve exchange evidence for the ops UI
+                    retry_after_seconds = _rate_limit_retry_after_seconds(exc)
+                    failures[f"{symbol}:{tf}"] = {
+                        "error": str(exc),
+                        **({"retry_after_seconds": retry_after_seconds} if retry_after_seconds else {}),
+                    }
+                    if retry_after_seconds is not None:
+                        # A ban applies to the full endpoint/IP, so continuing
+                        # the loop only creates noise and can extend the ban.
+                        break
+            if retry_after_seconds is not None:
+                break
         session.commit()
-        if settings.app_env.lower() in {"development", "test", "dev"}:
-            from services.execution.bootstrap import bootstrap_clear_stale_blocking_risk_events
-
-            bootstrap_clear_stale_blocking_risk_events()
-        return MarketDataHeartbeatService(data_repo=data_repo).check_symbols(
+        result = MarketDataHeartbeatService(data_repo=data_repo).check_symbols(
             symbols=target_symbols,
             timeframe=timeframe,
         )
+        if failures:
+            result["refresh_failures"] = failures
+        if retry_after_seconds is not None:
+            result["status"] = "rate_limited"
+            result["retry_after_seconds"] = retry_after_seconds
+        result["secondary_timeframe"] = secondary_timeframe
+        return result
     finally:
         session.close()
 

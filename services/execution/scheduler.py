@@ -15,6 +15,8 @@ from typing import Any
 
 from shared.config import settings
 
+from .runtime_state import write_external_scheduler_state
+
 Runner = Callable[[], Any]
 
 
@@ -129,6 +131,13 @@ class RuntimeScheduler:
             ),
             asyncio.create_task(
                 self._run_periodic(
+                    name="exchange_info_refresh",
+                    interval_seconds=max(self.heartbeat_seconds, 60.0),
+                    runner=_default_exchange_info_refresh_runner,
+                )
+            ),
+            asyncio.create_task(
+                self._run_periodic(
                     name="poll_news_feeds",
                     interval_seconds=self.news_poll_seconds,
                     runner=self.news_poll_runner,
@@ -183,6 +192,7 @@ class RuntimeScheduler:
         self._tasks = []
         self.status.running = False
         self.status.next_cycle_eta_seconds = None
+        self._publish_external_state()
 
     async def _run_periodic(
         self,
@@ -199,7 +209,7 @@ class RuntimeScheduler:
             if records_auto_cycle:
                 self._next_cycle_at = started
                 self.status.next_cycle_eta_seconds = 0
-            await self._run_once(
+            result = await self._run_once(
                 name=name,
                 runner=runner,
                 affects_scheduler_health=affects_scheduler_health,
@@ -207,8 +217,14 @@ class RuntimeScheduler:
             if records_auto_cycle:
                 self.status.last_auto_cycle_at = datetime.now(UTC)
                 self._next_cycle_at = self.status.last_auto_cycle_at
+            retry_after_seconds = (
+                float(result.get("retry_after_seconds", 0))
+                if isinstance(result, dict)
+                else 0.0
+            )
+            wait_seconds = max(interval_seconds, retry_after_seconds, 0.01)
             with suppress(TimeoutError):
-                await asyncio.wait_for(self._stop_event.wait(), timeout=max(interval_seconds, 0.01))
+                await asyncio.wait_for(self._stop_event.wait(), timeout=wait_seconds)
             if records_auto_cycle and self._next_cycle_at is not None:
                 elapsed = (datetime.now(UTC) - self._next_cycle_at).total_seconds()
                 self.status.next_cycle_eta_seconds = max(0, int(interval_seconds - elapsed))
@@ -219,7 +235,7 @@ class RuntimeScheduler:
         name: str,
         runner: Runner,
         affects_scheduler_health: bool = True,
-    ) -> None:
+    ) -> Any:
         try:
             result = await asyncio.to_thread(runner)
             self.status.run_counts[name] = self.status.run_counts.get(name, 0) + 1
@@ -237,6 +253,33 @@ class RuntimeScheduler:
             f"{task_name}: {error}"
             for task_name, error in sorted(self._scheduler_errors.items())
         ) or None
+        self._publish_external_state()
+        return self.status.last_results[name]
+
+    def _publish_external_state(self) -> None:
+        """Persist scheduler health for the separately hosted desktop API."""
+        heartbeat = self.status.last_results.get("market_data_heartbeat", {})
+        checked_symbols = heartbeat.get("checked_symbols", []) if isinstance(heartbeat, dict) else []
+        stale_symbols = heartbeat.get("stale_symbols", []) if isinstance(heartbeat, dict) else []
+        exchange_info = self.status.last_results.get("exchange_info_refresh", {})
+        write_external_scheduler_state(
+            {
+                "running": self.status.running,
+                "heartbeat_at": datetime.now(UTC).isoformat(),
+                "top20_coverage_count": len(checked_symbols),
+                "exchange_info_ready": bool(exchange_info.get("ready"))
+                if isinstance(exchange_info, dict)
+                else False,
+                "data_fresh": bool(checked_symbols) and not stale_symbols,
+                "last_auto_cycle_at": self.status.last_auto_cycle_at.isoformat()
+                if self.status.last_auto_cycle_at
+                else None,
+                "scheduler_error": self.status.scheduler_error,
+                "task_run_counts": self.status.run_counts,
+                "task_failure_counts": self.status.failure_counts,
+                "task_last_results": self.status.last_results,
+            }
+        )
 
     async def _run_daily_review_loop(self) -> None:
         assert self._stop_event is not None
@@ -328,6 +371,28 @@ def _default_heartbeat_runner() -> dict:
     from services.data.tasks import market_data_heartbeat
 
     return market_data_heartbeat.run(list(DEFAULT_BINANCE_TOP20), "1m")
+
+
+def _default_exchange_info_refresh_runner() -> dict:
+    from services.data.binance import fetch_usdm_exchange_info_symbols, resolve_usdm_public_rest_base
+    from services.data.universe import fixed_top20_assets
+    from services.execution.bootstrap import refresh_fixed_top20_runtime_universe
+
+    base_url = resolve_usdm_public_rest_base()
+    symbols = fetch_usdm_exchange_info_symbols()
+    assets = fixed_top20_assets(symbols)
+    ready = len(assets) == 20 and all(
+        asset.tradable_status == "trading" and asset.precision and asset.min_notional is not None
+        for asset in assets
+    )
+    updated_runs = refresh_fixed_top20_runtime_universe(symbols) if ready else 0
+    return {
+        "ready": ready,
+        "base_url": base_url,
+        "symbol_count": len(symbols),
+        "updated_runs": updated_runs,
+        "assets": [asset.model_dump(mode="json") for asset in assets],
+    }
 
 
 def _default_news_poll_runner() -> dict:

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from services.execution.runtime_state import (
+    load_external_scheduler_state,
+    write_external_scheduler_state,
+)
 from services.execution.scheduler import RuntimeScheduler, _preload_celery_task_api
 
 
@@ -13,6 +18,43 @@ def _raise_runtime_error(message: str) -> None:
 
 def test_scheduler_preloads_celery_task_api_before_starting_threads() -> None:
     _preload_celery_task_api()
+
+
+def test_external_scheduler_state_requires_fresh_heartbeat(monkeypatch, tmp_path) -> None:
+    state_path = tmp_path / "scheduler-state.json"
+    monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(state_path))
+    now = datetime.now(UTC)
+    write_external_scheduler_state(
+        {
+            "running": True,
+            "heartbeat_at": (now - timedelta(seconds=121)).isoformat(),
+            "top20_coverage_count": 20,
+            "exchange_info_ready": True,
+            "data_fresh": True,
+            "last_auto_cycle_at": now.isoformat(),
+        }
+    )
+
+    stale = load_external_scheduler_state(max_age_seconds=120, now=now)
+
+    assert stale.running is False
+    assert stale.reason == "scheduler_heartbeat_stale"
+
+    write_external_scheduler_state(
+        {
+            "running": True,
+            "heartbeat_at": now.isoformat(),
+            "top20_coverage_count": 20,
+            "exchange_info_ready": True,
+            "data_fresh": True,
+            "last_auto_cycle_at": now.isoformat(),
+        }
+    )
+    healthy = load_external_scheduler_state(max_age_seconds=120, now=now)
+
+    assert healthy.running is True
+    assert healthy.top20_coverage_count == 20
+    assert healthy.exchange_info_ready is True
 
 
 @pytest.mark.asyncio
@@ -64,6 +106,23 @@ async def test_optional_source_failure_does_not_mark_scheduler_unhealthy() -> No
         "status": "error",
         "error": "upstream returned 403",
     }
+
+
+@pytest.mark.asyncio
+async def test_scheduler_respects_task_retry_after_before_next_cycle() -> None:
+    calls = 0
+
+    def rate_limited_runner() -> dict:
+        nonlocal calls
+        calls += 1
+        return {"status": "rate_limited", "retry_after_seconds": 60}
+
+    scheduler = RuntimeScheduler(heartbeat_seconds=0.01, heartbeat_runner=rate_limited_runner)
+    scheduler.start()
+    await asyncio.sleep(0.05)
+    await scheduler.stop()
+
+    assert calls == 1
 
 
 @pytest.mark.asyncio

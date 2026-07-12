@@ -522,7 +522,7 @@ class DataRepository:
             events.append(event)
         return events
 
-    def has_blocking_risk_event(self, *, scope: str, reference_time: datetime) -> bool:
+    def has_blocking_risk_event(self, *, scope: str | None, reference_time: datetime) -> bool:
         stmt = select(risk_events).where(
             risk_events.c.level.in_(["high", "critical"]),
             risk_events.c.resolution_status.in_(["detected", "acknowledged"]),
@@ -533,7 +533,7 @@ class DataRepository:
             if expires_at is not None and expires_at < reference_time:
                 continue
             affected = row.affected_symbols
-            if affected is None or scope in affected:
+            if affected is None or scope is None or scope in affected:
                 return True
         return False
 

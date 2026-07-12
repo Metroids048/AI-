@@ -40,9 +40,11 @@ AUTO_PAPER_STRATEGY_RULES: dict[str, Any] = {
 AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
     "entry_rules": {
         "technical_pipeline": True,
-        "strategy_lanes": ["trend_breakout", "mean_reversion", "volatility_filtered_breakout"],
-        "timeframe_model": "validated_template_1h",
-        "entry_timeframe": "1h",
+        "strategy_lanes": ["trend_breakout", "volatility_filtered_breakout"],
+        "timeframe_model": "4h_direction_15m_entry",
+        "direction_timeframe": "4h",
+        "state_timeframe": "1h",
+        "entry_timeframe": "15m",
         "enabled_signals": [
             "macd",
             "dow_trend",
@@ -54,13 +56,25 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
             "bollinger",
         ],
         "meta_label_min_win_rate": 0.50,
+        "core_fee_bps": 10.0,
+        "core_slippage_bps": 0.0,
+        "standard_fee_bps": 18.0,
+        "standard_slippage_bps": 0.0,
+        "minimum_net_reward_r": 1.0,
     },
-    "exit_rules": {"close_on_opposite_signal": True, "max_hold_bars": 96},
+    "exit_rules": {"close_on_opposite_signal": True, "time_exit_hours": 24, "time_exit_min_r": 0.5},
     "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
-    "takeprofit_rules": {"risk_reward": 2.5, "trail_after_r": 1.5},
+    "takeprofit_rules": {
+        "risk_reward": 2.0,
+        "break_even_after_r": 1.0,
+        "partial_take_profit_r": 2.0,
+        "partial_close_fraction": 0.5,
+        "atr_trailing_multiple": 2.0,
+    },
     "position_rules": {
-        "risk_per_trade": 0.01,
-        "max_leverage": 10,
+        "risk_per_trade": 0.02,
+        "max_portfolio_initial_risk_fraction": 0.05,
+        "max_leverage": 20,
         "max_position_fraction": 0.15,
         "min_notional_usdt": 20,
     },
@@ -122,32 +136,37 @@ def bootstrap_paper_testnet_mirror() -> int:
 
 
 def bootstrap_clear_stale_blocking_risk_events() -> int:
-    """Resolve high/critical risk events that block gatekeeper in local development."""
-    if settings.app_env.lower() not in {"development", "test", "dev"}:
-        return 0
+    """Deprecated: stale events are resolved only after a fresh heartbeat confirms data."""
+    return 0
 
-    from services.data.repository import DataRepository
+
+def refresh_fixed_top20_runtime_universe(exchange_info_symbols: list[dict[str, Any]]) -> int:
+    """Replace stale bootstrap contract metadata only after Binance confirms it."""
+    from services.data.universe import fixed_top20_assets
     from services.database import get_session_factory
+    from services.strategy_library import PaperRunRepository
 
-    cleared = 0
+    assets = [asset.model_dump(mode="json") for asset in fixed_top20_assets(exchange_info_symbols)]
+    if not all(
+        asset["tradable_status"] == "trading"
+        and asset["precision"]
+        and asset["min_notional"] is not None
+        for asset in assets
+    ):
+        return 0
+    updated = 0
     with get_session_factory()() as session:
-        repo = DataRepository(session)
-        for event in repo.list_risk_events():
-            if event.severity not in {"high", "critical"}:
+        repo = PaperRunRepository(session)
+        for run in repo.list_paper_runs():
+            if run.execution_profile.get("universe_mode") != "fixed_top20":
                 continue
-            if event.resolution_status not in {"detected", "acknowledged"}:
-                continue
-            if event.risk_event_id is None:
-                continue
-            repo.update_risk_event_resolution(
-                risk_event_id=event.risk_event_id,
-                resolution_status="resolved",
+            repo.update_paper_run(
+                run.paper_run_id or "",
+                execution_profile={**run.execution_profile, "universe_assets": assets},
             )
-            cleared += 1
+            updated += 1
         session.commit()
-    if cleared:
-        logger.info("resolved %s blocking risk event(s) for local development", cleared)
-    return cleared
+    return updated
 
 
 def _sync_auto_paper_strategy(strategy_repo, strategy, *, rules: dict[str, Any]) -> None:  # noqa: ANN001

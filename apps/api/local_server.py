@@ -24,6 +24,8 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.local_console:
+        # Keep the API responsive by disabling in-process bootstrap, while
+        # allowing explicit market requests to reach the Binance public feed.
         os.environ["PAPER_CONSOLE_API_ONLY"] = "true"
         os.environ["RUNTIME_SCHEDULER_AUTOSTART"] = "false"
         os.environ["BINANCE_LIVE_WS_ENABLED"] = "false"

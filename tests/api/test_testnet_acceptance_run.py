@@ -88,6 +88,52 @@ def test_testnet_acceptance_api_accepts_direct_demo_network(api_client, monkeypa
     assert response.json()["run_status"] == "completed"
 
 
+def test_full_top20_acceptance_arms_auto_paper_runs(api_client, db_session, monkeypatch) -> None:
+    from apps.api.routers import runs as runs_router
+    from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY
+    from services.strategy_library import PaperRunRepository
+    from shared.models import PaperRun
+
+    symbols = [f"ASSET{index}/USDT" for index in range(20)]
+
+    class FullAcceptanceService:
+        def run(self, request):  # noqa: ANN001
+            return AcceptanceResult(
+                run_status="completed",
+                requested_symbols=symbols,
+                completed_symbols=symbols,
+                filled_order_count=40,
+                final_open_position_count=0,
+                final_open_order_count=0,
+            )
+
+    monkeypatch.setattr(settings, "binance_use_testnet", True)
+    monkeypatch.setattr(settings, "live_trading_enabled", False)
+    monkeypatch.setattr(settings, "binance_api_key", "key")
+    monkeypatch.setattr(settings, "binance_api_secret", "secret")
+    monkeypatch.setattr(runs_router, "_testnet_acceptance_service", lambda: FullAcceptanceService())
+    technical_run = PaperRunRepository(db_session).create_paper_run(
+        PaperRun(
+            strategy_id="technical-strategy",
+            execution_profile={
+                "auto_paper_runtime_key": AUTO_PAPER_TECHNICAL_KEY,
+                "execution_mode": "paper_only",
+                "mirror_to_gateway": False,
+                "cost_gate_verified": False,
+            },
+            paper_status="running",
+        )
+    )
+
+    response = api_client.post("/api/v1/execution/testnet-acceptance-runs", json={"symbols": symbols})
+
+    assert response.status_code == 201
+    promoted = PaperRunRepository(db_session).get_paper_run(technical_run.paper_run_id)
+    assert promoted is not None
+    assert promoted.execution_profile["cost_gate_verified"] is True
+    assert promoted.execution_profile["execution_mode"] == "binance_simulation_first"
+
+
 def test_binance_testnet_account_probe_persists_a_local_balance_snapshot(api_client, db_session, monkeypatch) -> None:
     from apps.api.routers import runs as runs_router
 

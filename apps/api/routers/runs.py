@@ -32,6 +32,7 @@ from services.execution import (
 from services.execution.demo_audit import BinanceDemoAuditService
 from services.execution.gateway import BinanceUsdtPerpetualGateway, probe_testnet_account
 from services.execution.manual_context import ManualTradingContextService
+from services.execution.runtime_state import load_external_scheduler_state
 from services.execution.scheduler import runtime_scheduler_status
 from services.execution.spot_gateway import spot_demo_credentials_configured
 from services.execution.testnet_acceptance import TestnetAcceptanceService
@@ -200,6 +201,38 @@ def _carry_status(task: AgentTask) -> CarryExecutionStatus:
     )
 
 
+def _is_complete_top20_acceptance(result: TestnetAcceptanceRunResult) -> bool:
+    return (
+        result.run_status == "completed"
+        and len(result.completed_symbols) == 20
+        and result.filled_order_count >= 40
+        and result.final_open_position_count == 0
+        and result.final_open_order_count == 0
+    )
+
+
+def _arm_auto_testnet_runs_after_acceptance(db: Session, result: TestnetAcceptanceRunResult) -> None:
+    if not _is_complete_top20_acceptance(result):
+        return
+    repo = PaperRunRepository(db)
+    for run in repo.list_paper_runs():
+        if run.execution_profile.get("auto_paper_runtime_key") not in {
+            "auto_paper_btc_funding",
+            "auto_paper_mature_templates",
+        }:
+            continue
+        repo.update_paper_run(
+            run.paper_run_id or "",
+            execution_profile={
+                **run.execution_profile,
+                "execution_mode": "binance_simulation_first",
+                "mirror_to_gateway": True,
+                "cost_gate_verified": True,
+                "testnet_acceptance_verified_at": datetime.now(UTC).isoformat(),
+            },
+        )
+
+
 def _local_scheduler_process_running() -> bool:
     """Expose the separately launched desktop scheduler without any network probe."""
 
@@ -231,24 +264,47 @@ def list_paper_runs(db: Session = Depends(get_db_session)) -> CollectionResponse
 
 
 @router.get("/trading-status", response_model=TradingRuntimeStatus)
-def get_trading_status() -> TradingRuntimeStatus:
+def get_trading_status(db: Session = Depends(get_db_session)) -> TradingRuntimeStatus:
     credentials_configured = bool(settings.binance_api_key and settings.binance_api_secret)
     gateway_available = credentials_configured and BinanceUsdtPerpetualGateway.capability.supports_order_submit
+    external_state = load_external_scheduler_state()
+    blockers: list[str] = []
     if not settings.binance_use_testnet or settings.live_trading_enabled:
-        auto_execution_state = "blocked_safety_boundary"
-    elif not credentials_configured:
-        auto_execution_state = "blocked_missing_credentials"
-    elif not gateway_available:
-        auto_execution_state = "blocked_gateway_unavailable"
-    elif not settings.binance_auto_execute:
-        auto_execution_state = "monitoring_only"
-    else:
-        auto_execution_state = "armed"
+        blockers.append("safety_boundary")
+    if not credentials_configured:
+        blockers.append("missing_credentials")
+    if not gateway_available:
+        blockers.append("gateway_unavailable")
+    if not settings.binance_auto_execute:
+        blockers.append("auto_execute_disabled")
+    if not external_state.running:
+        blockers.append(external_state.reason or "scheduler_offline")
+    if external_state.top20_coverage_count != 20:
+        blockers.append("top20_coverage_incomplete")
+    if not external_state.exchange_info_ready:
+        blockers.append("exchange_info_not_ready")
+    if not external_state.data_fresh:
+        blockers.append("market_data_stale")
+    blocking_risk = DataRepository(db).has_blocking_risk_event(scope=None, reference_time=datetime.now(UTC))
+    if blocking_risk:
+        blockers.append("blocking_risk_event")
+    acceptance_verified = any(
+        task.task_type == "testnet_acceptance"
+        and task.task_status == "completed"
+        and task.output_payload.get("final_open_position_count") == 0
+        and task.output_payload.get("final_open_order_count") == 0
+        and len(task.output_payload.get("completed_symbols", [])) == 20
+        for task in AgentTaskRepository(db).list_tasks()
+    )
+    if not acceptance_verified:
+        blockers.append("testnet_acceptance_not_verified")
+    execution_ready = not blockers
+    auto_execution_state = "ready" if execution_ready else "blocked_" + blockers[0]
     notes = ["secrets are never returned by this endpoint"]
     if not settings.binance_use_testnet:
         notes.append("binance_use_testnet is false; manual testnet trading is disabled by policy")
     scheduler_status = runtime_scheduler_status()
-    external_scheduler_running = _local_scheduler_process_running()
+    external_scheduler_running = external_state.running and _local_scheduler_process_running()
     heartbeat = scheduler_status.last_results.get("market_data_heartbeat", {})
     heartbeat_symbols = heartbeat.get("checked_symbols", []) if isinstance(heartbeat, dict) else []
     return TradingRuntimeStatus(
@@ -261,19 +317,22 @@ def get_trading_status() -> TradingRuntimeStatus:
         gateway_available=gateway_available,
         auto_execute_enabled=settings.binance_auto_execute,
         auto_execution_state=auto_execution_state,
+        execution_ready=execution_ready,
+        execution_blockers=blockers,
+        testnet_acceptance_verified=acceptance_verified,
         fixed_top20_count=20,
         backend_build_id=settings.app_build_id,
         scheduler_mode="external_local" if external_scheduler_running else scheduler_status.mode,
         scheduler_running=external_scheduler_running or scheduler_status.running,
-        last_auto_cycle_at=scheduler_status.last_auto_cycle_at,
+        last_auto_cycle_at=external_state.last_auto_cycle_at or scheduler_status.last_auto_cycle_at,
         next_cycle_eta_seconds=scheduler_status.next_cycle_eta_seconds,
         scheduler_error=scheduler_status.scheduler_error,
-        task_run_counts=dict(scheduler_status.run_counts),
-        task_failure_counts=dict(scheduler_status.failure_counts),
-        task_last_results=dict(scheduler_status.last_results),
+        task_run_counts=external_state.task_run_counts or dict(scheduler_status.run_counts),
+        task_failure_counts=external_state.task_failure_counts or dict(scheduler_status.failure_counts),
+        task_last_results=external_state.task_last_results or dict(scheduler_status.last_results),
         task_last_success_at=dict(scheduler_status.last_success_at),
         task_last_failure_at=dict(scheduler_status.last_failure_at),
-        top20_coverage_count=len(heartbeat_symbols) if isinstance(heartbeat_symbols, list) else 0,
+        top20_coverage_count=external_state.top20_coverage_count if external_state.running else len(heartbeat_symbols),
         queue_backlog_status="not_probed",
         live_feed_status=live_feed_bus.status(),
         notes=notes,
@@ -341,6 +400,7 @@ def create_testnet_acceptance_run(
         acceptance_run_id=task.agent_task_id or "",
         result=result,
     )
+    _arm_auto_testnet_runs_after_acceptance(db, result)
     task = (
         repo.update_task(
             task.agent_task_id or "",

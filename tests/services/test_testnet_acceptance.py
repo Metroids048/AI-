@@ -72,10 +72,10 @@ def test_acceptance_run_completes_twenty_round_trips_with_tiered_risk() -> None:
     assert result.completed_symbols == list(FIXED_TOP20_SYMBOLS)
     assert result.filled_order_count == 40
     assert len(gateway.orders) == 40
-    assert gateway.leverages["BTC/USDT"] == 10
-    assert gateway.leverages["ETH/USDT"] == 10
-    assert gateway.leverages["SOL/USDT"] == 10
-    assert gateway.leverages["XRP/USDT"] == 5
+    assert gateway.leverages["BTC/USDT"] == 20
+    assert gateway.leverages["ETH/USDT"] == 20
+    assert gateway.leverages["SOL/USDT"] == 20
+    assert gateway.leverages["XRP/USDT"] == 10
     assert gateway.orders[0]["requested_notional"] == 120
     assert gateway.orders[6]["requested_notional"] == 120
     assert result.final_open_position_count == 0

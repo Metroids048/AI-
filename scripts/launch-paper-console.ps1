@@ -18,6 +18,9 @@ $FrontendLog = Join-Path $LogsDir "frontend.log"
 $StartupLog = Join-Path $LogsDir "startup-last.log"
 $ApiPidFile = Join-Path $LogsDir "api.pid"
 $SchedulerPidFile = Join-Path $LogsDir "scheduler.pid"
+$SchedulerStateFile = Join-Path $LogsDir "scheduler-state.json"
+$SchedulerLog = Join-Path $LogsDir "scheduler.log"
+$SchedulerErrorLog = Join-Path $LogsDir "scheduler-error.log"
 $FrontendPidFile = Join-Path $LogsDir "frontend.pid"
 $DbPath = Join-Path $Root $DatabasePath
 $SqliteUrl = "sqlite:///$($DbPath.Replace('\', '/'))"
@@ -127,6 +130,25 @@ function Stop-RecordedScheduler {
     Remove-Item -LiteralPath $SchedulerPidFile -Force -ErrorAction SilentlyContinue
 }
 
+function Test-SchedulerHealthy {
+    if (-not (Test-Path -LiteralPath $SchedulerPidFile) -or -not (Test-Path -LiteralPath $SchedulerStateFile)) {
+        return $false
+    }
+    $schedulerPid = (Get-Content -LiteralPath $SchedulerPidFile -Raw).Trim()
+    if ($schedulerPid -notmatch '^\d+$' -or -not (Get-Process -Id ([int]$schedulerPid) -ErrorAction SilentlyContinue)) {
+        return $false
+    }
+    try {
+        $state = Get-Content -LiteralPath $SchedulerStateFile -Raw | ConvertFrom-Json
+        if (-not $state.running -or -not $state.heartbeat_at) { return $false }
+        $heartbeat = [datetimeoffset]::Parse($state.heartbeat_at)
+        return ((([datetimeoffset]::UtcNow - $heartbeat).TotalSeconds) -le 120)
+    }
+    catch {
+        return $false
+    }
+}
+
 function Open-Frontend([string]$Url) {
     foreach ($browser in @("msedge.exe", "chrome.exe")) {
         $command = Get-Command $browser -ErrorAction SilentlyContinue
@@ -188,6 +210,7 @@ function Ensure-Runtime {
     }
     $env:POSTGRES_URL = $SqliteUrl
     $env:VITE_API_BASE_URL = "http://127.0.0.1:$ApiPort"
+    $env:CORS_ALLOWED_ORIGINS = "http://127.0.0.1:$FrontendPort,http://localhost:$FrontendPort"
     $env:APP_ENV = "development"
     $env:BINANCE_USE_TESTNET = "true"
     $env:LIVE_TRADING_ENABLED = "false"
@@ -196,6 +219,8 @@ function Ensure-Runtime {
     $env:BINANCE_LIVE_UNIVERSE_ENABLED = "true"
     $env:BINANCE_LIVE_MARKET_ENABLED = "true"
     $env:BINANCE_LIVE_WS_ENABLED = if ($env:PAPER_CONSOLE_DISABLE_LIVE_WS -eq "true") { "false" } else { "true" }
+    # The isolated scheduler owns background work; foreground market endpoints
+    # must still be allowed to read Binance REST data for the trading console.
     $env:PAPER_CONSOLE_API_ONLY = "true"
     Remove-Item Env:VITE_LOCAL_CONSOLE_API_ONLY -ErrorAction SilentlyContinue
     Write-Step "starting isolated Paper scheduler; Testnet mirror remains cost-gated"
@@ -211,6 +236,25 @@ $apiReady = Test-EndpointReady $ApiHealthUrl
 $frontendReady = Test-EndpointReady "http://127.0.0.1:$FrontendPort/"
 
 if ($apiReady -and $frontendReady -and (Test-ProjectListener $ApiPort) -and (Test-ProjectListener $FrontendPort)) {
+    if (-not (Test-SchedulerHealthy)) {
+        Ensure-Runtime
+        Stop-RecordedScheduler
+        Reset-LogFile $SchedulerLog
+        Reset-LogFile $SchedulerErrorLog
+        $schedulerScript = Join-Path $PSScriptRoot "run-local-paper-scheduler.py"
+        $schedulerProcess = Start-Process -FilePath $env:AGENT_PYTHON `
+            -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl) `
+            -WorkingDirectory $Root `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $SchedulerLog `
+            -RedirectStandardError $SchedulerErrorLog `
+            -PassThru
+        Set-Content -LiteralPath $SchedulerPidFile -Value $schedulerProcess.Id -Encoding ascii
+        Start-Sleep -Seconds 2
+        if (-not (Test-SchedulerHealthy)) {
+            throw "Paper scheduler failed its startup health check. See $SchedulerLog"
+        }
+    }
     if (-not (Test-Path -LiteralPath $LogsDir)) { New-Item -ItemType Directory -Path $LogsDir | Out-Null }
     if (-not (Test-Path -LiteralPath $StartupLog)) { New-Item -ItemType File -Path $StartupLog | Out-Null }
     Write-Step "paper console already running"
@@ -241,11 +285,15 @@ if (-not $apiReady) {
 }
 
 Stop-RecordedScheduler
+Reset-LogFile $SchedulerLog
+Reset-LogFile $SchedulerErrorLog
 $schedulerScript = Join-Path $PSScriptRoot "run-local-paper-scheduler.py"
 $schedulerProcess = Start-Process -FilePath $env:AGENT_PYTHON `
     -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl) `
     -WorkingDirectory $Root `
     -WindowStyle Hidden `
+    -RedirectStandardOutput $SchedulerLog `
+    -RedirectStandardError $SchedulerErrorLog `
     -PassThru
 Set-Content -LiteralPath $SchedulerPidFile -Value $schedulerProcess.Id -Encoding ascii
 

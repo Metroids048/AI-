@@ -16,13 +16,13 @@ def default_asset_risk_tiers() -> dict[str, dict[str, Any]]:
         "core": AssetRiskTierSettings(
             tier="core",
             symbols=list(CORE_SYMBOLS),
-            leverage=10,
+            leverage=20,
             max_position_fraction=0.15,
         ).model_dump(mode="json"),
         "standard": AssetRiskTierSettings(
             tier="standard",
             symbols=[],
-            leverage=5,
+            leverage=10,
             max_position_fraction=0.06,
         ).model_dump(mode="json"),
     }
@@ -45,6 +45,6 @@ def resolve_asset_risk_tier(
             return tier
     return fallback or AssetRiskTierSettings(
         tier="standard",
-        leverage=5,
+        leverage=10,
         max_position_fraction=0.06,
     )

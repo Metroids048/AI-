@@ -8,6 +8,48 @@ from services.data import DataRepository
 from services.data.binance import BinanceUniverseSelector
 
 
+def test_exchange_info_falls_back_to_legacy_testnet_when_demo_endpoint_fails(monkeypatch) -> None:
+    from services.data import binance
+
+    calls: list[str] = []
+
+    def fetch(url: str):
+        calls.append(url)
+        if "demo-fapi" in url:
+            raise TimeoutError("demo endpoint timed out")
+        return {"symbols": [{"symbol": "BTCUSDT", "status": "TRADING"}]}
+
+    monkeypatch.setattr(binance, "binance_urlopen_json", fetch)
+    monkeypatch.setattr(binance.settings, "binance_usdm_rest_base", "https://demo-fapi.binance.com")
+
+    symbols = binance.fetch_usdm_exchange_info_symbols()
+
+    assert symbols == [{"symbol": "BTCUSDT", "status": "TRADING"}]
+    assert any("testnet.binancefuture.com" in url for url in calls)
+
+
+def test_usdm_public_rest_ohlcv_falls_back_to_legacy_testnet_when_demo_fails(monkeypatch) -> None:
+    from services.data.binance import BinancePublicRestExchange
+
+    calls: list[str] = []
+
+    def fetch(url: str):
+        calls.append(url)
+        if "demo-fapi" in url:
+            raise TimeoutError("demo endpoint timed out")
+        return [[1_700_000_000_000, "100", "101", "99", "100.5", "10"]]
+
+    monkeypatch.setattr("services.data.binance.binance_urlopen_json", fetch)
+    exchange = BinancePublicRestExchange(market_type="usdm", base_url="https://demo-fapi.binance.com")
+
+    rows = exchange.fetch_ohlcv("BTC/USDT", "1m", limit=1)
+    exchange.fetch_ohlcv("ETH/USDT", "1m", limit=1)
+
+    assert len(rows) == 1
+    assert len([url for url in calls if "demo-fapi" in url]) == 1
+    assert len([url for url in calls if "testnet.binancefuture.com" in url]) == 2
+
+
 def test_usdm_top20_selector_ranks_by_quote_volume_and_filters_non_usdt() -> None:
     tickers = [
         {"symbol": "ETHUSDT", "quoteVolume": "2000"},

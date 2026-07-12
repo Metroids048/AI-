@@ -42,9 +42,9 @@ def test_medium_risk_profile_supports_top20_auto_trading() -> None:
     assert profile.risk_profile_id == MEDIUM_RISK_PROFILE_KEY
     assert profile.max_open_positions == 5
     assert profile.max_total_exposure == 0.50
-    assert profile.max_leverage == 10
-    assert profile.daily_loss_limit == 0.04
-    assert profile.hard_stop_drawdown_limit == 0.15
+    assert profile.max_leverage == 20
+    assert profile.daily_loss_limit == 0.05
+    assert profile.hard_stop_drawdown_limit == 0.20
 
 
 def test_bootstrap_medium_risk_profile_is_idempotent(db_session) -> None:

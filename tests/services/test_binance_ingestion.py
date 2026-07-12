@@ -254,6 +254,9 @@ def test_binance_ingestion_task_writes_ohlcv_and_funding(api_client) -> None:
 class _HeartbeatClient:
     calls: list[tuple[str, str]] = []
 
+    def __init__(self, **_kwargs) -> None:
+        pass
+
     def fetch_recent_ohlcv(self, *, symbol, timeframe, limit=300):
         self.calls.append((symbol, timeframe))
         return normalize_ohlcv_rows(
@@ -262,18 +265,49 @@ class _HeartbeatClient:
             timeframe=timeframe,
         )
 
+    def fetch_recent_usdm_ohlcv(self, *, symbol, timeframe, limit=300):
+        self.calls.append((f"{symbol}:USDM", timeframe))
+        return self.fetch_recent_ohlcv(symbol=symbol, timeframe=timeframe, limit=limit)
+
 
 def test_market_data_heartbeat_refreshes_all_fixed_top20_timeframes(monkeypatch) -> None:
     from services.data import binance as binance_module
+    from services.data import tasks as tasks_module
     from services.data.service import DEFAULT_BINANCE_TOP20
     from services.data.tasks import market_data_heartbeat
 
     _HeartbeatClient.calls = []
+    monkeypatch.setattr(tasks_module, "_SECONDARY_TIMEFRAME_INDEX", 0)
     monkeypatch.setattr(binance_module, "BinanceCcxtClient", _HeartbeatClient)
+    monkeypatch.setattr(binance_module, "resolve_usdm_public_rest_base", lambda: "https://testnet.binancefuture.com")
 
     result = market_data_heartbeat(symbols=list(DEFAULT_BINANCE_TOP20), timeframe="15m")
 
     assert result["checked_symbols"] == list(DEFAULT_BINANCE_TOP20)
-    assert len(_HeartbeatClient.calls) == len(DEFAULT_BINANCE_TOP20) * 3
+    assert len(_HeartbeatClient.calls) == len(DEFAULT_BINANCE_TOP20) * 4
+    assert all(symbol.endswith(":USDM") for symbol, _ in _HeartbeatClient.calls[::2])
     assert ("PEPE/USDT", "15m") in _HeartbeatClient.calls
-    assert ("PEPE/USDT", "4h") in _HeartbeatClient.calls
+    assert ("PEPE/USDT", "1m") in _HeartbeatClient.calls
+    assert result["secondary_timeframe"] == "1m"
+
+
+def test_market_data_heartbeat_stops_after_binance_rate_limit(monkeypatch) -> None:
+    from services.data import binance as binance_module
+    from services.data.service import DEFAULT_BINANCE_TOP20
+    from services.data.tasks import market_data_heartbeat
+
+    class _RateLimitedHeartbeatClient(_HeartbeatClient):
+        def fetch_recent_usdm_ohlcv(self, *, symbol, timeframe, limit=300):
+            self.calls.append((f"{symbol}:USDM", timeframe))
+            raise RuntimeError('binanceusdm 418 {"msg":"IP banned until 1783833658716"}')
+
+    _RateLimitedHeartbeatClient.calls = []
+    monkeypatch.setattr("services.data.tasks._SECONDARY_TIMEFRAME_INDEX", 0)
+    monkeypatch.setattr(binance_module, "BinanceCcxtClient", _RateLimitedHeartbeatClient)
+    monkeypatch.setattr(binance_module, "resolve_usdm_public_rest_base", lambda: "https://testnet.binancefuture.com")
+
+    result = market_data_heartbeat(symbols=list(DEFAULT_BINANCE_TOP20), timeframe="1m")
+
+    assert result["status"] == "rate_limited"
+    assert result["retry_after_seconds"] > 0
+    assert len(_RateLimitedHeartbeatClient.calls) == 1

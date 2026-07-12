@@ -7,6 +7,7 @@ import pytest
 
 from services.data import DataRepository
 from services.execution.gatekeeper import ExecutionGatekeeperService
+from services.execution.portfolio_risk import close_returns, correlation
 from services.strategy_library import (
     ExecutionRepository,
     HypothesisRepository,
@@ -107,6 +108,9 @@ def _risk_state(**overrides) -> ExecutionRiskState:
         "total_exposure": 0.0,
         "requested_notional": 100.0,
         "requested_leverage": 1.0,
+        "correlated_cluster_exposure": 0.0,
+        "net_directional_exposure": 0.0,
+        "portfolio_correlation_available": True,
     }
     payload.update(overrides)
     return ExecutionRiskState(**payload)
@@ -226,3 +230,52 @@ def test_gatekeeper_rejection_appends_review_memory(db_session) -> None:
     assert failures
     assert any("max_symbol_exposure_exceeded" in reason for reason in strategy.failure_reasons)
     assert any(item["failure_summary"].startswith("Gatekeeper rejected") for item in strategy.iteration_history)
+
+
+def test_gatekeeper_rejects_correlated_cluster_and_net_directional_exposure(db_session) -> None:
+    gatekeeper, strategy_id, backtest_run_id = _seed_gatekeeper_context(db_session)
+
+    order = gatekeeper.submit_order(
+        _order_request(
+            strategy_id,
+            backtest_run_id,
+            risk_state=_risk_state(
+                correlated_cluster_exposure=0.30,
+                net_directional_exposure=0.36,
+                requested_notional=1000.0,
+            ),
+        )
+    )
+
+    assert order.execution_status == "rejected"
+    assert "correlated_cluster_exposure_exceeded" in order.rejection_codes
+    assert "net_directional_exposure_exceeded" in order.rejection_codes
+
+
+def test_gatekeeper_rejects_missing_portfolio_correlation_for_new_order_but_not_close(db_session) -> None:
+    gatekeeper, strategy_id, backtest_run_id = _seed_gatekeeper_context(db_session)
+    unavailable = _risk_state(portfolio_correlation_available=False)
+
+    opening = gatekeeper.submit_order(
+        _order_request(strategy_id, backtest_run_id, risk_state=unavailable)
+    )
+    closing = gatekeeper.submit_order(
+        _order_request(
+            strategy_id,
+            backtest_run_id,
+            risk_state=unavailable,
+            entry_context={"timeframe": "1h", "close_only_mode": True},
+            stoploss_plan={},
+        )
+    )
+
+    assert "portfolio_correlation_unavailable" in opening.rejection_codes
+    assert "portfolio_correlation_unavailable" not in closing.rejection_codes
+
+
+def test_portfolio_return_correlation_requires_full_60_bar_window() -> None:
+    assert close_returns([100.0] * 60) is None
+    left = [100.0 + index for index in range(61)]
+    right = [200.0 + (index * 2) for index in range(61)]
+
+    assert correlation(close_returns(left) or [], close_returns(right) or []) == pytest.approx(1.0)

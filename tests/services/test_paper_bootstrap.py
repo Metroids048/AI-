@@ -153,8 +153,14 @@ def test_console_launcher_migrates_database_without_relaying_api_streams() -> No
     assert '"--log-level", "warning"' in script
     assert '"--log-level", "warning", "--local-console")' in script
     assert "run-api-local.ps1" not in script
-    assert "-RedirectStandardOutput" not in script
-    assert "-RedirectStandardError" not in script
+    # API is launched directly without a PowerShell stream relay.  The separate
+    # scheduler deliberately owns stdout/stderr files for health diagnostics.
+    api_start = script.index('"-m", "apps.api.local_server"')
+    api_block = script[api_start : script.index("Set-Content -LiteralPath $ApiPidFile", api_start)]
+    assert "-RedirectStandardOutput" not in api_block
+    assert "-RedirectStandardError" not in api_block
+    assert "-RedirectStandardOutput $SchedulerLog" in script
+    assert "-RedirectStandardError $SchedulerErrorLog" in script
     assert 'return $commandLine -match "--local-console"' in script
     assert "py -3" not in script
 

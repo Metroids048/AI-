@@ -131,7 +131,7 @@ class ExecutionGatekeeperService:
                 profile = stored_profile
 
         risk_state = request.risk_state
-        if risk_state is None:
+        if risk_state is None and not close_only_mode:
             rejection_reasons.append("missing_risk_state")
         else:
             rejection_reasons.extend(self._evaluate_numeric_risk(profile=profile, request=request))
@@ -192,6 +192,7 @@ class ExecutionGatekeeperService:
             return ["invalid_risk_state"]
         rejection_reasons: list[str] = []
         requested_fraction = risk_state.requested_notional / risk_state.account_equity
+        requested_signed_fraction = requested_fraction if request.direction.value == "long" else -requested_fraction
         projected_symbol_exposure = risk_state.symbol_exposure + requested_fraction
         projected_total_exposure = risk_state.total_exposure + requested_fraction
         drawdown = max(0.0, (risk_state.equity_peak - risk_state.account_equity) / risk_state.equity_peak)
@@ -200,10 +201,21 @@ class ExecutionGatekeeperService:
             rejection_reasons.append("max_symbol_exposure_exceeded")
         if projected_total_exposure > profile.max_total_exposure:
             rejection_reasons.append("max_total_exposure_exceeded")
+        if not risk_state.portfolio_correlation_available:
+            rejection_reasons.append("portfolio_correlation_unavailable")
+        elif risk_state.correlated_cluster_exposure + requested_fraction > 0.35:
+            rejection_reasons.append("correlated_cluster_exposure_exceeded")
+        if abs(risk_state.net_directional_exposure + requested_signed_fraction) > 0.40:
+            rejection_reasons.append("net_directional_exposure_exceeded")
         if risk_state.open_positions >= profile.max_open_positions:
             rejection_reasons.append("max_open_positions_exceeded")
         if risk_state.requested_leverage > profile.max_leverage:
             rejection_reasons.append("max_leverage_exceeded")
+        if risk_state.requested_stop_risk_fraction > profile.single_trade_risk_limit:
+            rejection_reasons.append("single_trade_stop_risk_exceeded")
+        portfolio_risk_limit = float(request.entry_context.get("max_portfolio_initial_risk_fraction", 0.05))
+        if risk_state.portfolio_initial_risk_fraction + risk_state.requested_stop_risk_fraction > portfolio_risk_limit:
+            rejection_reasons.append("portfolio_initial_risk_exceeded")
         if abs(min(risk_state.daily_realized_pnl, 0.0)) >= risk_state.account_equity * profile.daily_loss_limit:
             rejection_reasons.append("daily_loss_limit_breached")
         if abs(min(risk_state.weekly_realized_pnl, 0.0)) >= risk_state.account_equity * profile.weekly_loss_limit:

@@ -95,7 +95,37 @@ def test_market_data_heartbeat_writes_data_stale_risk_event(db_session) -> None:
     assert events[0].event_type == RiskEventType.DATA_STALE
 
 
-def test_decision_veto_budget_exceeded_fails_closed(db_session, monkeypatch) -> None:
+def test_market_data_heartbeat_resolves_only_matching_data_stale_event_after_recovery(db_session) -> None:
+    repo = DataRepository(db_session)
+    heartbeat = MarketDataHeartbeatService(data_repo=repo)
+    heartbeat.check_symbol(symbol="BTC/USDT", timeframe="1m", max_delay_seconds=120)
+    heartbeat.check_symbol(symbol="ETH/USDT", timeframe="1m", max_delay_seconds=120)
+    now = datetime.now(UTC).replace(microsecond=0)
+    repo.store_ohlcv_bars(
+        [
+            {
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "timeframe": "1m",
+                "time": now - timedelta(minutes=1),
+                "open": Decimal("100"),
+                "high": Decimal("101"),
+                "low": Decimal("99"),
+                "close": Decimal("100"),
+                "volume": Decimal("10"),
+            }
+        ]
+    )
+
+    result = heartbeat.check_symbol(symbol="BTC/USDT", timeframe="1m", max_delay_seconds=120)
+
+    assert result["is_fresh"] is True
+    active = repo.list_risk_events(active_only=True)
+    assert any(event.affected_scope == ["ETH/USDT"] for event in active)
+    assert not any(event.affected_scope == ["BTC/USDT"] for event in active)
+
+
+def test_decision_veto_budget_exceeded_is_audited_without_overriding_rule_entry(db_session, monkeypatch) -> None:
     monkeypatch.setattr("services.execution.decision_pipeline.settings.decision_veto_daily_budget", 0)
     data_repo = DataRepository(db_session)
     data_repo.store_ohlcv_bars(_bars(datetime.now(UTC).replace(microsecond=0) - timedelta(hours=59)))
@@ -121,7 +151,7 @@ def test_decision_veto_budget_exceeded_fails_closed(db_session, monkeypatch) -> 
     )
 
     assert order.veto_result is not None
-    assert order.veto_result.veto is True
+    assert order.veto_result.veto is False
     assert "budget exceeded" in (order.veto_result.veto_reason or "")
     assert NotificationRepository(db_session).get_notification("llm_budget:" + datetime.now(UTC).date().isoformat())
 
@@ -334,3 +364,56 @@ def test_configured_multi_timeframe_confirmation_fails_closed_when_4h_data_is_mi
     assert order.entry_context["paper_order_should_trade"] is False
     assert trace["pipeline_status"] == "multi_timeframe_disagreement"
     assert confirmation["status"] == "confirmation_unavailable_fail_closed"
+
+
+def test_operator_timeframe_model_requires_fresh_1h_state_confirmation(db_session) -> None:
+    data_repo = DataRepository(db_session)
+    now = datetime.now(UTC).replace(microsecond=0)
+    entry_rows = []
+    for index in range(60):
+        price = Decimal("100") + Decimal(index)
+        entry_rows.append(
+            {
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "timeframe": "15m",
+                "time": now - timedelta(minutes=15 * (59 - index)),
+                "open": price - Decimal("0.5"),
+                "high": price + Decimal("0.5"),
+                "low": price - Decimal("1"),
+                "close": price,
+                "volume": Decimal("100"),
+            }
+        )
+    data_repo.store_ohlcv_bars(entry_rows)
+    strategy = StrategyContract(
+        strategy_id="operator-mtf",
+        strategy_key="operator-mtf",
+        source="test",
+        core_thesis="15m entries require 1h state and 4h trend confirmation.",
+        rules=StrategyRules(
+            entry_rules={
+                "enabled_signals": ["ema_trend"],
+                "timeframe_model": "operator_experience_4h_15m_v1",
+                "entry_timeframe": "15m",
+                "state_timeframe": "1h",
+                "direction_timeframe": "4h",
+            }
+        ),
+    )
+
+    order = PaperSignalGenerator(data_repo=data_repo).generate_order(
+        paper_run=PaperRun(
+            paper_run_id="operator-mtf-run",
+            strategy_id=strategy.strategy_id,
+            gate_decision_ref="backtest-1",
+            execution_profile={"account_equity": 10_000, "equity_peak": 10_000},
+        ),
+        strategy=strategy,
+        request=PaperRunStepRequest(symbol="BTC/USDT", timeframe="15m", enable_decision_veto=False),
+        positions=[],
+    )
+
+    confirmation = order.entry_context["decision_pipeline"]["volatility"]["multi_timeframe"]
+    assert order.entry_context["paper_order_should_trade"] is False
+    assert confirmation["status"] == "state_confirmation_unavailable_fail_closed"

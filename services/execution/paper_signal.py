@@ -26,6 +26,7 @@ from shared.models import (
     TradeSide,
 )
 
+from .portfolio_risk import close_returns, correlation, signed_exposure
 from .risk_tiers import resolve_asset_risk_tier
 
 
@@ -89,10 +90,14 @@ class PaperSignalGenerator:
         )
         risk_state = self._build_risk_state(
             paper_run=paper_run,
+            strategy=strategy,
             positions=positions,
             symbol=symbol,
+            direction=direction,
             requested_notional=requested_notional,
             requested_leverage=requested_leverage,
+            reference_price=reference_price,
+            stoploss_price=stoploss,
         )
         veto_result = decision.veto_result
         if not decision.should_trade and veto_result is None:
@@ -117,6 +122,10 @@ class PaperSignalGenerator:
                 "reference_price": str(reference_price),
                 "requested_notional": requested_notional,
                 "requested_leverage": requested_leverage,
+                "estimated_round_trip_cost_bps": self._round_trip_cost_bps(strategy=strategy, symbol=symbol),
+                "max_portfolio_initial_risk_fraction": float(
+                    strategy.rules.position_rules.get("max_portfolio_initial_risk_fraction", 0.05)
+                ),
                 "min_notional_usdt": float(strategy.rules.position_rules.get("min_notional_usdt", 50.0)),
                 "decision_pipeline": decision.trace,
                 "decision_reason": decision.reason,
@@ -349,14 +358,18 @@ class PaperSignalGenerator:
             return base * max(confidence_multiplier, 0.0)
         return min(account_equity * 0.05, 1_000.0) * max(confidence_multiplier, 0.0)
 
-    @staticmethod
     def _build_risk_state(
+        self,
         *,
         paper_run: PaperRun,
+        strategy: StrategyContract,
         positions: list[PositionSnapshot],
         symbol: str,
+        direction: TradeSide,
         requested_notional: float,
         requested_leverage: float,
+        reference_price: Decimal,
+        stoploss_price: Decimal,
     ) -> ExecutionRiskState:
         account_equity = float(
             paper_run.paper_metrics_summary.get("account_equity")
@@ -373,6 +386,39 @@ class PaperSignalGenerator:
             abs(position.quantity * position.mark_price) for position in positions if position.symbol == symbol
         )
         denominator = account_equity if account_equity > 0 else 1.0
+        active_positions = [position for position in positions if position.quantity > 0]
+        candidate_returns = close_returns(
+            [float(bar.close) for bar in self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe="1h", limit=61)]
+        )
+        correlation_available = not active_positions or candidate_returns is not None
+        correlated_cluster_exposure = 0.0
+        for position in active_positions:
+            existing_returns = close_returns(
+                [
+                    float(bar.close)
+                    for bar in self.data_repo.list_ohlcv_bars(
+                        symbol=position.symbol,
+                        timeframe="1h",
+                        limit=61,
+                    )
+                ]
+            )
+            coefficient = correlation(candidate_returns or [], existing_returns or [])
+            if coefficient is None:
+                correlation_available = False
+                continue
+            if coefficient >= 0.70 and position.side == direction:
+                correlated_cluster_exposure += abs(signed_exposure(position, account_equity=denominator))
+        net_directional_exposure = sum(
+            signed_exposure(position, account_equity=denominator) for position in active_positions
+        )
+        requested_stop_risk_fraction = 0.0
+        if account_equity > 0 and reference_price > 0:
+            requested_quantity = requested_notional / float(reference_price)
+            requested_stop_risk_fraction = (
+                requested_quantity * abs(float(reference_price - stoploss_price)) / account_equity
+            )
+        assumed_existing_risk = len(active_positions) * float(strategy.rules.position_rules.get("risk_per_trade", 0.0))
         return ExecutionRiskState(
             account_equity=account_equity,
             equity_peak=max(equity_peak, account_equity),
@@ -385,7 +431,22 @@ class PaperSignalGenerator:
             total_exposure=float(total_notional / denominator),
             requested_notional=float(requested_notional),
             requested_leverage=float(requested_leverage),
+            correlated_cluster_exposure=correlated_cluster_exposure,
+            net_directional_exposure=net_directional_exposure,
+            portfolio_correlation_available=correlation_available,
+            requested_stop_risk_fraction=requested_stop_risk_fraction,
+            portfolio_initial_risk_fraction=assumed_existing_risk,
         )
+
+    @staticmethod
+    def _round_trip_cost_bps(*, strategy: StrategyContract, symbol: str) -> float:
+        rules = strategy.rules.entry_rules
+        is_core = symbol.replace(":USDT", "") in {"BTC/USDT", "ETH/USDT", "SOL/USDT"}
+        fee = float(rules.get("core_fee_bps" if is_core else "standard_fee_bps", rules.get("fee_bps", 8.0)))
+        slippage = float(
+            rules.get("core_slippage_bps" if is_core else "standard_slippage_bps", rules.get("slippage_bps", 6.0))
+        )
+        return 2 * (fee + slippage)
 
 
 def _is_carry_strategy(*, rules, paper_run: PaperRun | None) -> bool:  # noqa: ANN001

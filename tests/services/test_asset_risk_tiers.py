@@ -39,10 +39,10 @@ def test_default_asset_risk_tiers_separate_core_and_standard_symbols() -> None:
     standard = resolve_asset_risk_tier("XRP/USDT", tiers)
 
     assert core.tier == "core"
-    assert core.leverage == 10
+    assert core.leverage == 20
     assert core.max_position_fraction == 0.15
     assert standard.tier == "standard"
-    assert standard.leverage == 5
+    assert standard.leverage == 10
     assert standard.max_position_fraction == 0.06
 
 
@@ -67,12 +67,12 @@ def test_tier_position_fraction_caps_notional_without_multiplying_leverage() -> 
         strategy=strategy,
         paper_run=paper_run,
         symbol="XRP/USDT",
-        requested_leverage=5,
+        requested_leverage=10,
         reference_price=Decimal("1"),
         stoploss_price=Decimal("0.975"),
     )
 
-    assert core_leverage == 10
+    assert core_leverage == 20
     assert core_notional == 1_500
     assert standard_notional == 600
 
@@ -80,9 +80,9 @@ def test_tier_position_fraction_caps_notional_without_multiplying_leverage() -> 
 def test_medium_risk_profile_allows_core_tier_but_keeps_hard_limits() -> None:
     profile = medium_risk_profile()
 
-    assert profile.max_leverage == 10
+    assert profile.max_leverage == 20
     assert profile.max_symbol_exposure == 0.15
     assert profile.max_total_exposure == 0.50
     assert profile.max_open_positions == 5
-    assert profile.daily_loss_limit == 0.04
-    assert profile.hard_stop_drawdown_limit == 0.15
+    assert profile.daily_loss_limit == 0.05
+    assert profile.hard_stop_drawdown_limit == 0.20

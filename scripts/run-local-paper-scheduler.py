@@ -12,6 +12,8 @@ async def run_scheduler(database_url: str) -> None:
     os.environ["APP_ENV"] = "development"
     os.environ["BINANCE_USE_TESTNET"] = "true"
     os.environ["LIVE_TRADING_ENABLED"] = "false"
+    if not os.environ.get("BINANCE_HTTPS_PROXY") and not os.environ.get("BINANCE_HTTP_PROXY"):
+        os.environ["BINANCE_LIVE_WS_ENABLED"] = "false"
 
     from services.execution.bootstrap import bootstrap_local_paper_runtime
     from services.execution.scheduler import RuntimeScheduler
@@ -19,6 +21,7 @@ async def run_scheduler(database_url: str) -> None:
     bootstrap_local_paper_runtime(seed_ohlcv=False)
     scheduler = RuntimeScheduler()
     scheduler.start()
+    scheduler._publish_external_state()
     try:
         await asyncio.Event().wait()
     finally:

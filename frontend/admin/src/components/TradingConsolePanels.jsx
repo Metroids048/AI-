@@ -436,12 +436,13 @@ export function AutoEngineStatusBadge({ status }) {
   const etaLabel = Number.isFinite(Number(eta)) ? ` / 下次 ${formatEta(Number(eta))}` : "";
   const error = status?.scheduler_error ? ` / ${status.scheduler_error}` : "";
   const executionLabel = {
+    ready: `Mock 自动下单可执行 / Top${status?.fixed_top20_count ?? 20} 数据、风控与验收均已通过`,
     armed: `Mock 自动下单已武装 / Top${status?.fixed_top20_count ?? 20} 监控中`,
     monitoring_only: "仅监控，Mock 自动下单未开启",
     blocked_missing_credentials: "缺少 Mock API 凭据",
     blocked_gateway_unavailable: "Mock 下单网关不可用",
     blocked_safety_boundary: "安全边界阻止自动下单",
-  }[status?.auto_execution_state];
+  }[status?.auto_execution_state] ?? (status?.execution_blockers?.length ? `自动下单阻断：${status.execution_blockers.join("、")}` : null);
   return (
     <div className={`auto-engine-badge ${running ? "positive" : "neutral"}`}>
       <span>{running ? "自动运行中" : "自动引擎停止"}</span>
@@ -571,6 +572,45 @@ function sourceLabel(source) {
   if (source === "binance_public_rest") return "币安 REST";
   if (source === "binance_public_rest_error") return "REST 异常";
   return "等待行情";
+}
+
+export function OrderBookPanel({ orderBook, symbol }) {
+  const asks = asArray(orderBook?.asks).slice(0, 10).reverse();
+  const bids = asArray(orderBook?.bids).slice(0, 10);
+  const maxQuantity = Math.max(
+    1,
+    ...asks.map((row) => Number(row.quantity ?? row[1] ?? 0)),
+    ...bids.map((row) => Number(row.quantity ?? row[1] ?? 0)),
+  );
+  const bestAsk = Number(asks.at(-1)?.price ?? asks.at(-1)?.[0]);
+  const bestBid = Number(bids[0]?.price ?? bids[0]?.[0]);
+  const midPrice = Number.isFinite(bestAsk) && Number.isFinite(bestBid) ? (bestAsk + bestBid) / 2 : null;
+
+  const rows = (items, side) => items.map((row, index) => {
+    const price = Number(row.price ?? row[0]);
+    const quantity = Number(row.quantity ?? row[1]);
+    return (
+      <div className="book-row" key={`${side}-${price}-${index}`}>
+        <i style={{ transform: `scaleX(${Math.min(1, quantity / maxQuantity)})` }} />
+        <span className={side === "ask" ? "negative" : "positive"}>{formatNumber(price)}</span>
+        <span>{formatNumber(quantity, 4)}</span>
+        <span>{formatNumber(price * quantity, 2)}</span>
+      </div>
+    );
+  });
+
+  return (
+    <section className="exchange-panel order-book-panel">
+      <PanelTitle title="盘口" meta={orderBook?.source ? sourceLabel(orderBook.source) : symbol} />
+      <div className="book-header"><span>价格 (USDT)</span><span>数量</span><span>合计</span></div>
+      <div className="book-side asks">{asks.length ? rows(asks, "ask") : <div className="empty-list">暂无卖盘</div>}</div>
+      <div className="mid-price">
+        <strong>{midPrice ? formatNumber(midPrice) : "--"}</strong>
+        <span>{symbol}</span>
+      </div>
+      <div className="book-side bids">{bids.length ? rows(bids, "bid") : <div className="empty-list">暂无买盘</div>}</div>
+    </section>
+  );
 }
 
 function sideLabel(side) {

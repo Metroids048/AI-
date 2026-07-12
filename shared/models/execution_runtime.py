@@ -33,6 +33,9 @@ class TradingRuntimeStatus(PlatformModel):
     gateway_available: bool
     auto_execute_enabled: bool = False
     auto_execution_state: str = "monitoring_only"
+    execution_ready: bool = False
+    execution_blockers: list[str] = Field(default_factory=list)
+    testnet_acceptance_verified: bool = False
     fixed_top20_count: int = 20
     backend_build_id: str = "development"
     supported_modes: list[str] = Field(default_factory=lambda: ["paper", "testnet"])

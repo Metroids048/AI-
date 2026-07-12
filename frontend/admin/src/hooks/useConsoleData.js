@@ -20,6 +20,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     fundingSignal: null,
     intelligenceSignal: null,
     trades: null,
+    orderBook: null,
     decisionTrace: null,
     dataSources: null,
     orderSync: null,
@@ -46,6 +47,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
             candles: [],
             latestKline: null,
             trades: null,
+            orderBook: null,
             feedStatus: { status: "connecting", source: "websocket" },
             streamStatus: "connecting",
             loading: true,
@@ -141,7 +143,7 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     run(
       `/api/v1/market/snapshot?${params.toString()}`,
       (current, payload) => ({ ...current, snapshot: payload, error: "" }),
-      { reportError: true },
+      { reportError: false },
     );
     run(
       `/api/v1/market/ohlcv?${new URLSearchParams({ symbol, timeframe, limit: "300" }).toString()}`,
@@ -154,12 +156,17 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
           current.streamStatus === "live" ? current.candleSnapshotVersion : current.candleSnapshotVersion + 1,
         error: "",
       }),
-      { reportError: true },
+      { reportError: false },
     );
     run(
       `/api/v1/market/trades?${new URLSearchParams({ symbol: perpSymbol, limit: "50" }).toString()}`,
       (current, payload) => ({ ...current, trades: payload ?? current.trades, error: "" }),
-      { reportError: true },
+      { reportError: false },
+    );
+    run(
+      `/api/v1/market/order-book?${new URLSearchParams({ symbol: perpSymbol, limit: "20" }).toString()}`,
+      (current, payload) => ({ ...current, orderBook: payload ?? current.orderBook, error: "" }),
+      { reportError: false },
     );
     run(
       "/api/v1/market/universe?limit=20&mode=fixed_top20",
@@ -295,6 +302,7 @@ function applyStreamMessage(current, message, selection) {
       candles: payload.ohlcv?.candles ?? current.candles,
       candleSnapshotVersion: current.candleSnapshotVersion + 1,
       trades: payload.trades ?? current.trades,
+      orderBook: payload.order_book ?? current.orderBook,
       feedStatus: nextFeed,
       streamStatus: streamStatusFromFeed(nextFeed),
       loading: false,
@@ -327,6 +335,13 @@ function applyStreamMessage(current, message, selection) {
         source: payload.source ?? "binance_public_ws",
         trades: [payload, ...existing].slice(0, MAX_TRADES),
       },
+      streamStatus: "live",
+    };
+  }
+  if (message?.event === "order_book") {
+    return {
+      ...current,
+      orderBook: payload,
       streamStatus: "live",
     };
   }

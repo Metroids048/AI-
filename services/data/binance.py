@@ -64,6 +64,7 @@ BINANCE_SPOT_WS_BASE = "wss://stream.binance.com:9443/ws"
 BINANCE_USDM_WS_BASE = "wss://fstream.binance.com/ws"
 BINANCE_SPOT_REST_BASE = "https://api.binance.com"
 BINANCE_USDM_REST_BASE = "https://fapi.binance.com"
+LEGACY_TESTNET_USDM_REST_BASE = "https://testnet.binancefuture.com"
 TIMEFRAME_TO_SECONDS = {
     "1m": 60,
     "5m": 5 * 60,
@@ -154,9 +155,26 @@ def platform_symbol_to_binance_raw(symbol: str) -> str:
 def fetch_usdm_exchange_info_symbols() -> list[dict[str, Any]]:
     """Fetch Binance USD-M exchangeInfo symbols without requiring CCXT."""
 
-    payload = binance_urlopen_json(f"{binance_usdm_rest_base()}/fapi/v1/exchangeInfo")
+    payload, _ = _fetch_usdm_public_json("/fapi/v1/exchangeInfo")
     symbols = payload.get("symbols") if isinstance(payload, Mapping) else None
     return symbols if isinstance(symbols, list) else []
+
+
+def _fetch_usdm_public_json(path: str) -> tuple[Any, str]:
+    """Use the configured demo endpoint first, then its verified legacy Testnet fallback."""
+    primary = binance_usdm_rest_base()
+    try:
+        return binance_urlopen_json(f"{primary}{path}"), primary
+    except Exception:
+        if primary.rstrip("/") == LEGACY_TESTNET_USDM_REST_BASE:
+            raise
+        return binance_urlopen_json(f"{LEGACY_TESTNET_USDM_REST_BASE}{path}"), LEGACY_TESTNET_USDM_REST_BASE
+
+
+def resolve_usdm_public_rest_base() -> str:
+    """Return the working public USD-M endpoint for this scheduler process."""
+    _, base_url = _fetch_usdm_public_json("/fapi/v1/exchangeInfo")
+    return base_url
 
 
 def stream_symbol(symbol: str) -> str:
@@ -308,6 +326,7 @@ class BinancePublicRestExchange:
             self.base_url = base_url.rstrip("/")
         else:
             self.base_url = binance_usdm_rest_base() if market_type == "usdm" else binance_spot_rest_base()
+        self._fallback_base_url: str | None = None
 
     def load_markets(self) -> None:
         return None
@@ -402,7 +421,15 @@ class BinancePublicRestExchange:
 
     def _get(self, path: str, params: Mapping[str, Any]) -> Any:
         query = urlencode({key: value for key, value in params.items() if value is not None})
-        return binance_urlopen_json(f"{self.base_url}{path}?{query}")
+        active_base_url = self._fallback_base_url or self.base_url
+        url = f"{active_base_url}{path}?{query}"
+        try:
+            return binance_urlopen_json(url)
+        except Exception:
+            if self.market_type != "usdm" or active_base_url == LEGACY_TESTNET_USDM_REST_BASE:
+                raise
+            self._fallback_base_url = LEGACY_TESTNET_USDM_REST_BASE
+            return binance_urlopen_json(f"{self._fallback_base_url}{path}?{query}")
 
 
 @dataclass
@@ -423,6 +450,7 @@ class BinanceCcxtClient:
         *,
         spot_exchange: CcxtLikeExchange | None = None,
         usdm_exchange: CcxtLikeExchange | None = None,
+        usdm_base_url: str | None = None,
     ):
         if spot_exchange is None or usdm_exchange is None:
             with contextlib.suppress(ImportError):
@@ -434,7 +462,7 @@ class BinanceCcxtClient:
         )
         self.usdm_exchange = usdm_exchange or BinancePublicRestExchange(
             market_type="usdm",
-            base_url=binance_usdm_rest_base(),
+            base_url=usdm_base_url or binance_usdm_rest_base(),
         )
         self._markets_loaded = False
 
@@ -534,6 +562,13 @@ class BinanceCcxtClient:
         self.load_markets()
         safe_limit = max(1, min(limit, DEFAULT_BACKFILL_LIMIT))
         rows = self._exchange_for_symbol(symbol).fetch_ohlcv(symbol, timeframe, None, safe_limit)
+        return normalize_ohlcv_rows(rows=rows, symbol=symbol, timeframe=timeframe)
+
+    def fetch_recent_usdm_ohlcv(self, *, symbol: str, timeframe: str, limit: int = 300) -> list[OHLCVBar]:
+        """Fetch USD-M perpetual candles even when platform symbols omit the CCXT suffix."""
+        self.load_markets()
+        safe_limit = max(1, min(limit, DEFAULT_BACKFILL_LIMIT))
+        rows = self.usdm_exchange.fetch_ohlcv(symbol, timeframe, None, safe_limit)
         return normalize_ohlcv_rows(rows=rows, symbol=symbol, timeframe=timeframe)
 
     def fetch_live_order_book(self, *, symbol: str, limit: int = 20) -> MarketOrderBookResponse:

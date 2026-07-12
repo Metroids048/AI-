@@ -131,6 +131,7 @@ def test_trading_environment_rejects_mainnet_trading_in_paper_or_testnet_env() -
 def test_trading_status_api_reports_effective_mock_auto_execution(api_client, monkeypatch) -> None:
     from apps.api.config import settings
     from apps.api.routers import runs as runs_router
+    from services.execution.runtime_state import ExternalSchedulerState
 
     monkeypatch.setattr(settings, "binance_api_key", "key")
     monkeypatch.setattr(settings, "binance_api_secret", "secret")
@@ -143,6 +144,11 @@ def test_trading_status_api_reports_effective_mock_auto_execution(api_client, mo
         "configured_gateways",
         lambda: (_ for _ in ()).throw(AssertionError("status endpoint must not initialize a network gateway")),
     )
+    monkeypatch.setattr(
+        runs_router,
+        "load_external_scheduler_state",
+        lambda: ExternalSchedulerState(reason="scheduler_state_missing"),
+    )
 
     response = api_client.get("/api/v1/execution/trading-status")
 
@@ -151,7 +157,8 @@ def test_trading_status_api_reports_effective_mock_auto_execution(api_client, mo
     assert body["exchange"] == "binance"
     assert body["live_trading_enabled"] is False
     assert body["auto_execute_enabled"] is True
-    assert body["auto_execution_state"] == "armed"
+    assert body["auto_execution_state"] == "blocked_scheduler_state_missing"
+    assert "scheduler_state_missing" in body["execution_blockers"]
     assert body["fixed_top20_count"] == 20
     assert body["backend_build_id"] == "test-build"
     assert "task_run_counts" in body
@@ -164,8 +171,19 @@ def test_trading_status_api_reports_effective_mock_auto_execution(api_client, mo
 
 def test_trading_status_reports_external_desktop_scheduler(api_client, monkeypatch) -> None:
     from apps.api.routers import runs as runs_router
+    from services.execution.runtime_state import ExternalSchedulerState
 
     monkeypatch.setattr(runs_router, "_local_scheduler_process_running", lambda: True)
+    monkeypatch.setattr(
+        runs_router,
+        "load_external_scheduler_state",
+        lambda: ExternalSchedulerState(
+            running=True,
+            top20_coverage_count=20,
+            exchange_info_ready=True,
+            data_fresh=True,
+        ),
+    )
 
     response = api_client.get("/api/v1/execution/trading-status")
 

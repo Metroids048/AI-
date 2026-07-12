@@ -117,8 +117,53 @@ class PaperRuntimeService:
         closed_positions = 0
         rejected_orders = 0
         skipped_symbols = 0
+        hard_drawdown_locked = self._is_hard_drawdown_locked(paper_run=paper_run, metrics=metrics)
 
         for symbol in scanned_symbols:
+            current_position = active_positions.get(symbol)
+            if hard_drawdown_locked and current_position is not None:
+                protection_bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe="1m")
+                if protection_bar is not None:
+                    close_order = self._close_order_request(
+                        base_order=self._protection_order_request(
+                            paper_run=paper_run,
+                            strategy=strategy,
+                            position=current_position,
+                        ),
+                        current_position=current_position,
+                        close_price=float(protection_bar.close),
+                        close_reason="hard_drawdown",
+                    )
+                    order = self.gatekeeper.submit_order(close_order)
+                    if order.execution_status == "accepted":
+                        order = self._fill_order(order=order, cycle_time=cycle_time)
+                        realized = self._close_position(
+                            paper_run_id=paper_run_id,
+                            position=current_position,
+                            mark_price=float(protection_bar.close),
+                            cycle_time=cycle_time,
+                            strategy=strategy,
+                        )
+                        realized_total += realized.net_pnl
+                        gross_realized_total += realized.gross_pnl
+                        estimated_fee_total += realized.fee_cost
+                        estimated_slippage_total += realized.slippage_cost
+                        daily_realized_pnl += realized.net_pnl
+                        weekly_realized_pnl += realized.net_pnl
+                        closed_positions += 1
+                        active_positions.pop(symbol, None)
+                        actions.append(
+                            PaperRuntimeAction(
+                                symbol=symbol,
+                                action=f"hard_drawdown_close_{current_position.side}",
+                                direction=current_position.side,
+                                order_execution_id=order.order_execution_id,
+                                reference_price=float(protection_bar.close),
+                                close_only=True,
+                                decision_trace={"exit_reason": "hard_drawdown_lock"},
+                            )
+                        )
+                continue
             tradable_skip_reason = _fixed_universe_skip_reason(paper_run, symbol)
             if tradable_skip_reason is not None:
                 skipped_symbols += 1
@@ -137,6 +182,195 @@ class PaperRuntimeService:
                 )
                 continue
             latest_bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=runtime_timeframe)
+            protection_bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe="1m")
+            if current_position is not None and protection_bar is not None:
+                levels = self._resolve_protective_levels(
+                    paper_run=paper_run,
+                    strategy=strategy,
+                    position=current_position,
+                    metrics=metrics,
+                )
+                if levels is not None:
+                    levels = self._apply_trailing_ratchet(
+                        paper_run=paper_run,
+                        strategy=strategy,
+                        position=current_position,
+                        levels=levels,
+                        bar=protection_bar,
+                        trailing_state=protective_trailing,
+                        cycle_time=cycle_time,
+                    )
+                    trigger = self._check_protective_trigger(
+                        position=current_position,
+                        levels=levels,
+                        bar=protection_bar,
+                    )
+                    if trigger is not None:
+                        partial_fraction = self._partial_takeprofit_fraction(
+                            strategy=strategy,
+                            trigger=trigger,
+                            position=current_position,
+                            levels=levels,
+                        )
+                        if partial_fraction is not None:
+                            partial_quantity = current_position.quantity * partial_fraction
+                            partial_position = current_position.model_copy(update={"quantity": partial_quantity})
+                            realized = self._close_position(
+                                paper_run_id=paper_run_id,
+                                position=partial_position,
+                                mark_price=trigger.price,
+                                cycle_time=cycle_time,
+                                strategy=strategy,
+                                remaining_quantity=current_position.quantity - partial_quantity,
+                            )
+                            realized_total += realized.net_pnl
+                            gross_realized_total += realized.gross_pnl
+                            estimated_fee_total += realized.fee_cost
+                            estimated_slippage_total += realized.slippage_cost
+                            remaining = current_position.model_copy(
+                                update={
+                                    "quantity": current_position.quantity - partial_quantity,
+                                    "mark_price": trigger.price,
+                                }
+                            )
+                            active_positions[symbol] = remaining
+                            protective_trailing[symbol] = {
+                                "stop_price": current_position.entry_price,
+                                "original_stop_price": levels.original_stop_price,
+                                "entry_price": current_position.entry_price,
+                                "updated_at": cycle_time.isoformat(),
+                                "partial_takeprofit_done": True,
+                            }
+                            actions.append(
+                                PaperRuntimeAction(
+                                    symbol=symbol,
+                                    action=f"partial_takeprofit_{current_position.side}",
+                                    direction=current_position.side,
+                                    reference_price=trigger.price,
+                                    close_only=True,
+                                    decision_trace={
+                                        "partial_close_fraction": partial_fraction,
+                                        "protection_timeframe": "1m",
+                                    },
+                                )
+                            )
+                            continue
+                        close_order = self._close_order_request(
+                            base_order=self._protection_order_request(
+                                paper_run=paper_run,
+                                strategy=strategy,
+                                position=current_position,
+                            ),
+                            current_position=current_position,
+                            close_price=trigger.price,
+                            close_reason=trigger.trigger_type,
+                        )
+                        order = self.gatekeeper.submit_order(close_order)
+                        if order.execution_status == "accepted":
+                            if self._should_execute_on_binance(paper_run, order=order):
+                                order = self._ensure_binance_execution(
+                                    paper_run=paper_run,
+                                    order=order,
+                                    order_request=close_order,
+                                    position=current_position,
+                                )
+                                if order.execution_status != "accepted":
+                                    rejected_orders += 1
+                                    actions.append(
+                                        PaperRuntimeAction(
+                                            symbol=symbol,
+                                            action="rejected",
+                                            direction=current_position.side,
+                                            reason=order.rejection_reason,
+                                            order_execution_id=order.order_execution_id,
+                                            reference_price=trigger.price,
+                                            close_only=True,
+                                        )
+                                    )
+                                    continue
+                            order = self._fill_order(order=order, cycle_time=cycle_time)
+                            realized = self._close_position(
+                                paper_run_id=paper_run_id,
+                                position=current_position,
+                                mark_price=trigger.price,
+                                cycle_time=cycle_time,
+                                strategy=strategy,
+                            )
+                            self._record_estimated_order_cost(order=order, strategy=strategy, price=trigger.price)
+                            realized_total += realized.net_pnl
+                            gross_realized_total += realized.gross_pnl
+                            estimated_fee_total += realized.fee_cost
+                            estimated_slippage_total += realized.slippage_cost
+                            daily_realized_pnl += realized.net_pnl
+                            weekly_realized_pnl += realized.net_pnl
+                            consecutive_losses = consecutive_losses + 1 if realized.net_pnl < 0 else 0
+                            closed_positions += 1
+                            active_positions.pop(symbol, None)
+                            actions.append(
+                                PaperRuntimeAction(
+                                    symbol=symbol,
+                                    action=f"{trigger.trigger_type}_close_{current_position.side}",
+                                    direction=current_position.side,
+                                    order_execution_id=order.order_execution_id,
+                                    reference_price=trigger.price,
+                                    close_only=True,
+                                    decision_trace={"protection_timeframe": "1m"},
+                                )
+                            )
+                            continue
+                    if self._should_time_exit(
+                        strategy=strategy,
+                        position=current_position,
+                        levels=levels,
+                        bar=protection_bar,
+                        cycle_time=cycle_time,
+                    ):
+                        close_order = self._close_order_request(
+                            base_order=self._protection_order_request(
+                                paper_run=paper_run,
+                                strategy=strategy,
+                                position=current_position,
+                            ),
+                            current_position=current_position,
+                            close_price=float(protection_bar.close),
+                            close_reason="time_exit",
+                        )
+                        order = self.gatekeeper.submit_order(close_order)
+                        if order.execution_status == "accepted":
+                            order = self._fill_order(order=order, cycle_time=cycle_time)
+                            realized = self._close_position(
+                                paper_run_id=paper_run_id,
+                                position=current_position,
+                                mark_price=float(protection_bar.close),
+                                cycle_time=cycle_time,
+                                strategy=strategy,
+                            )
+                            self._record_estimated_order_cost(
+                                order=order,
+                                strategy=strategy,
+                                price=float(protection_bar.close),
+                            )
+                            realized_total += realized.net_pnl
+                            gross_realized_total += realized.gross_pnl
+                            estimated_fee_total += realized.fee_cost
+                            estimated_slippage_total += realized.slippage_cost
+                            daily_realized_pnl += realized.net_pnl
+                            weekly_realized_pnl += realized.net_pnl
+                            consecutive_losses = consecutive_losses + 1 if realized.net_pnl < 0 else 0
+                            closed_positions += 1
+                            active_positions.pop(symbol, None)
+                            actions.append(
+                                PaperRuntimeAction(
+                                    symbol=symbol,
+                                    action=f"time_exit_close_{current_position.side}",
+                                    direction=current_position.side,
+                                    order_execution_id=order.order_execution_id,
+                                    reference_price=float(protection_bar.close),
+                                    close_only=True,
+                                    decision_trace={"protection_timeframe": "1m", "exit_reason": "time_exit"},
+                                )
+                            )
+                            continue
             if latest_bar is None:
                 skipped_symbols += 1
                 actions.append(
@@ -148,7 +382,11 @@ class PaperRuntimeService:
                 )
                 continue
             cycle_key = f"{paper_run_id}:{symbol}:{runtime_timeframe}:{latest_bar.timestamp.isoformat()}"
-            if cycle_key in processed_keys:
+            # Entry evaluation is idempotent per closed entry candle. Existing
+            # exposure must still pass through protective management on every
+            # scheduler cycle, otherwise a duplicated entry candle can defer a
+            # stop indefinitely.
+            if cycle_key in processed_keys and current_position is None:
                 skipped_symbols += 1
                 actions.append(
                     PaperRuntimeAction(
@@ -179,7 +417,6 @@ class PaperRuntimeService:
                 positions=list(active_positions.values()),
             )
             decision_trace = dict(base_order.entry_context.get("decision_pipeline", {}))
-            current_position = active_positions.get(symbol)
             if current_position is None and not bool(base_order.entry_context.get("paper_order_should_trade", True)):
                 skipped_symbols += 1
                 if cycle_key not in new_processed_keys:
@@ -576,7 +813,7 @@ class PaperRuntimeService:
         }
         updated_run = self.paper_repo.update_paper_run(
             paper_run_id,
-            paper_status="running",
+            paper_status="locked" if hard_drawdown_locked else "running",
             paper_metrics_summary=updated_metrics,
         )
         if updated_run is None:
@@ -616,6 +853,16 @@ class PaperRuntimeService:
         if strategy is None:
             raise ValueError("strategy not found")
         return strategy
+
+    def _is_hard_drawdown_locked(self, *, paper_run: PaperRun, metrics: dict[str, Any]) -> bool:
+        account_equity = float(metrics.get("account_equity") or self._initial_equity(paper_run))
+        equity_peak = float(metrics.get("equity_peak") or account_equity)
+        if equity_peak <= 0:
+            return False
+        profile_id = paper_run.execution_profile.get("risk_profile_id")
+        profile = self.gatekeeper.risk_profile_repo.get_profile(profile_id) if profile_id else None
+        hard_limit = float(profile.hard_stop_drawdown_limit) if profile is not None else 0.20
+        return (equity_peak - account_equity) / equity_peak >= hard_limit
 
     @staticmethod
     def _starting_equity(paper_run: PaperRun) -> float:
@@ -832,14 +1079,96 @@ class PaperRuntimeService:
         if not enabled or order is None or order.close_only_mode:
             return enabled
         trace = order.entry_context.get("decision_pipeline", {})
-        if not isinstance(trace, dict) or trace.get("strategy_lane") != "carry":
+        if not isinstance(trace, dict):
             return False
+        if trace.get("strategy_lane") != "carry":
+            return bool(trace.get("pipeline_status")) and not order.rejection_codes
         estimated_net_edge_bps = _float_or_none(trace.get("estimated_net_edge_bps"))
         minimum_net_edge_bps = _float_or_none(trace.get("min_estimated_net_edge_bps"))
         return (
             estimated_net_edge_bps is not None
             and minimum_net_edge_bps is not None
             and estimated_net_edge_bps >= minimum_net_edge_bps
+        )
+
+    @staticmethod
+    def _should_time_exit(
+        *,
+        strategy: StrategyContract,
+        position: PositionSnapshot,
+        levels: ProtectiveLevels,
+        bar: OHLCVBar,
+        cycle_time: datetime,
+    ) -> bool:
+        exit_rules = strategy.rules.exit_rules
+        hours = _float_or_none(exit_rules.get("time_exit_hours"))
+        min_r = _float_or_none(exit_rules.get("time_exit_min_r"))
+        if hours is None or min_r is None or levels.original_stop_price is None:
+            return False
+        snapshot_time = position.snapshot_time
+        if snapshot_time.tzinfo is None:
+            snapshot_time = snapshot_time.replace(tzinfo=UTC)
+        age_hours = (cycle_time - snapshot_time).total_seconds() / 3600
+        initial_risk = abs(position.entry_price - levels.original_stop_price)
+        if initial_risk <= 0 or age_hours < hours:
+            return False
+        favorable_move = (
+            float(bar.close) - position.entry_price
+            if position.side == TradeSide.LONG
+            else position.entry_price - float(bar.close)
+        )
+        return favorable_move < min_r * initial_risk
+
+    @staticmethod
+    def _partial_takeprofit_fraction(
+        *,
+        strategy: StrategyContract,
+        trigger: ProtectiveTrigger,
+        position: PositionSnapshot,
+        levels: ProtectiveLevels,
+    ) -> float | None:
+        if trigger.trigger_type != "takeprofit" or levels.original_stop_price is None:
+            return None
+        fraction = _float_or_none(strategy.rules.takeprofit_rules.get("partial_close_fraction"))
+        if fraction is None or not 0 < fraction < 1:
+            return None
+        partial_r = _float_or_none(strategy.rules.takeprofit_rules.get("partial_take_profit_r"))
+        target_r = (
+            partial_r
+            if partial_r is not None
+            else _float_or_none(strategy.rules.takeprofit_rules.get("risk_reward"))
+        )
+        initial_risk = abs(position.entry_price - levels.original_stop_price)
+        if target_r is None or initial_risk <= 0:
+            return None
+        expected_price = (
+            position.entry_price + target_r * initial_risk
+            if position.side == TradeSide.LONG
+            else position.entry_price - target_r * initial_risk
+        )
+        reached = (
+            trigger.price >= expected_price
+            if position.side == TradeSide.LONG
+            else trigger.price <= expected_price
+        )
+        return fraction if reached else None
+
+    @staticmethod
+    def _protection_order_request(
+        *,
+        paper_run: PaperRun,
+        strategy: StrategyContract,
+        position: PositionSnapshot,
+    ) -> ExecutionOrderRequest:
+        return ExecutionOrderRequest(
+            strategy_id=paper_run.strategy_id,
+            version_id=paper_run.version_id,
+            symbol=position.symbol,
+            direction=position.side,
+            entry_context={"timeframe": "1m", "paper_order_should_trade": True},
+            validation_backtest_run_id=paper_run.gate_decision_ref,
+            risk_profile_id=paper_run.execution_profile.get("risk_profile_id"),
+            paper_run_id=paper_run.paper_run_id,
         )
 
     def _ensure_binance_execution(
@@ -1034,17 +1363,20 @@ class PaperRuntimeService:
         mark_price: float,
         cycle_time: datetime,
         strategy: StrategyContract,
+        remaining_quantity: float = 0.0,
     ) -> RealizedOutcome:
         gross_pnl = _realized_pnl(position=position, mark_price=mark_price)
         entry_cost = _estimated_transaction_cost(
             price=position.entry_price,
             quantity=abs(position.quantity),
             strategy=strategy,
+            symbol=position.symbol,
         )
         exit_cost = _estimated_transaction_cost(
             price=mark_price,
             quantity=abs(position.quantity),
             strategy=strategy,
+            symbol=position.symbol,
         )
         self.execution_repo.create_position_snapshot(
             PositionSnapshot(
@@ -1052,7 +1384,7 @@ class PaperRuntimeService:
                 run_id=paper_run_id,
                 symbol=position.symbol,
                 side=position.side,
-                quantity=0.0,
+                quantity=remaining_quantity,
                 entry_price=position.entry_price,
                 mark_price=mark_price,
                 unrealized_pnl=0.0,
@@ -1076,7 +1408,7 @@ class PaperRuntimeService:
         if quantity <= 0:
             requested_notional = abs(float(order.entry_context.get("requested_notional") or 0.0))
             quantity = requested_notional / price if price > 0 else 0.0
-        cost = _estimated_transaction_cost(price=price, quantity=quantity, strategy=strategy)
+        cost = _estimated_transaction_cost(price=price, quantity=quantity, strategy=strategy, symbol=order.symbol)
         return (
             self.execution_repo.update_order(
                 order.order_execution_id or "",
@@ -1155,11 +1487,15 @@ class EstimatedTransactionCost:
     fee_bps: float
     slippage_bps: float
 
+    @property
+    def total_cost(self) -> float:
+        return self.fee_cost + self.slippage_cost
+
     def as_dict(self) -> dict[str, float]:
         return {
             "fee_cost": self.fee_cost,
             "slippage_cost": self.slippage_cost,
-            "total_cost": self.fee_cost + self.slippage_cost,
+            "total_cost": self.total_cost,
             "fee_bps": self.fee_bps,
             "slippage_bps": self.slippage_bps,
         }
@@ -1181,10 +1517,23 @@ def _estimated_transaction_cost(
     price: float,
     quantity: float,
     strategy: StrategyContract,
+    symbol: str,
 ) -> EstimatedTransactionCost:
     entry_rules = strategy.rules.entry_rules
-    fee_bps = float(entry_rules.get("fee_bps", 8.0))
-    slippage_bps = float(entry_rules.get("slippage_bps", 6.0))
+    core_symbols = {"BTC/USDT", "ETH/USDT", "SOL/USDT"}
+    is_core = symbol.replace(":USDT", "") in core_symbols
+    fee_bps = float(
+        entry_rules.get(
+            "core_fee_bps" if is_core else "standard_fee_bps",
+            entry_rules.get("fee_bps", 8.0),
+        )
+    )
+    slippage_bps = float(
+        entry_rules.get(
+            "core_slippage_bps" if is_core else "standard_slippage_bps",
+            entry_rules.get("slippage_bps", 6.0),
+        )
+    )
     notional = abs(price * quantity)
     return EstimatedTransactionCost(
         fee_cost=notional * fee_bps / 10_000,

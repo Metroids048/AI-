@@ -25,6 +25,19 @@ def test_api_v1_routes_reject_wrong_bearer_token(unauth_api_client) -> None:
     assert resp.json()["error_code"] == "auth_invalid_token"
 
 
+def test_cors_preflight_is_not_blocked_by_bearer_auth(unauth_api_client) -> None:
+    resp = unauth_api_client.options(
+        "/api/v1/strategies",
+        headers={
+            "Origin": "http://127.0.0.1:5173",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+
+    assert resp.status_code != 401
+
+
 def test_non_dev_environment_rejects_default_admin_token(unauth_api_client, monkeypatch) -> None:
     from apps.api.config import settings
 

@@ -149,12 +149,12 @@ class AutoTradingSettings(PlatformModel):
             "core": AssetRiskTierSettings(
                 tier="core",
                 symbols=["BTC/USDT", "ETH/USDT", "SOL/USDT"],
-                leverage=10,
+                leverage=20,
                 max_position_fraction=0.15,
             ),
             "standard": AssetRiskTierSettings(
                 tier="standard",
-                leverage=5,
+                leverage=10,
                 max_position_fraction=0.06,
             ),
         }
@@ -347,6 +347,11 @@ class ExecutionRiskState(PlatformModel):
     total_exposure: float = 0.0
     requested_notional: float = 0.0
     requested_leverage: float = 1.0
+    correlated_cluster_exposure: float = 0.0
+    net_directional_exposure: float = 0.0
+    portfolio_correlation_available: bool = True
+    requested_stop_risk_fraction: float = 0.0
+    portfolio_initial_risk_fraction: float = 0.0
 
 
 class ExecutionOrderRequest(PlatformModel):
