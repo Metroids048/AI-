@@ -55,10 +55,8 @@ def test_meta_label_takes_bet_for_positive_history_and_rejects_future_samples() 
         ensemble_id="ensemble-1",
         signal_time=signal_time,
         training_samples=[
-            MetaLabelSample(sample_time=signal_time - timedelta(days=10), net_return=0.03),
-            MetaLabelSample(sample_time=signal_time - timedelta(days=9), net_return=0.01),
-            MetaLabelSample(sample_time=signal_time - timedelta(days=8), net_return=-0.005),
-            MetaLabelSample(sample_time=signal_time - timedelta(days=7), net_return=0.02),
+            MetaLabelSample(sample_time=signal_time - timedelta(days=index + 1), net_return=0.01)
+            for index in range(20)
         ],
     )
 
@@ -74,3 +72,21 @@ def test_meta_label_takes_bet_for_positive_history_and_rejects_future_samples() 
                 training_samples=[MetaLabelSample(sample_time=signal_time + timedelta(hours=1), net_return=0.1)],
             )
         )
+
+
+def test_meta_label_rejects_cold_start_even_when_short_history_is_positive() -> None:
+    service = SignalEnsembleService()
+    signal_time = datetime(2024, 2, 1, tzinfo=UTC)
+    label = service.create_meta_label(
+        MetaLabelRequest(
+            ensemble_id="ensemble-cold-start",
+            signal_time=signal_time,
+            training_samples=[
+                MetaLabelSample(sample_time=signal_time - timedelta(days=index + 1), net_return=0.05)
+                for index in range(4)
+            ],
+        )
+    )
+
+    assert label.bet_decision.value == "bet_skipped"
+    assert label.position_size_fraction is None

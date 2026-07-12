@@ -1,5 +1,19 @@
 # Decisions Log
 
+## ADR-050: Strategy Playbook is a code-backed snapshot with separately persisted, audited roadmap state
+- Date: 2026-07-12
+- Status: accepted
+- Context: The Strategy Library UI exposed only CRUD assets while the detailed operator documentation was static Markdown and already diverged on MetaLabel/leverage defaults and open-source license metadata. A static frontend transcription would drift again, while making documentation an executable trading configuration would incorrectly couple operator explanation to execution authority.
+- Decision: Publish a typed Playbook through a dedicated read API, deriving scoped numeric values from current Python defaults and external projects from the structured source manifest. Label every response with source documents, verification date, commit, and a non-realtime disclaimer. Persist only optimization-roadmap status/note/operator/audit history through an authenticated PATCH endpoint; roadmap state never changes Strategy, Validation, Risk, or Execution configuration. Treat GPL/AGPL/LGPL as distilled research only, unknown licenses as metadata only, and require rule conversion even for permissive licenses.
+- Consequences: Operators can understand and track the current research system without reading code, and updates survive refresh with an audit trail. Code/config changes still require a new Playbook verification pass. The UI cannot claim real-time code reflection or use a roadmap checkbox to promote a strategy or bypass validation.
+
+## ADR-049: Strategy cold-start and multi-timeframe confirmation fail closed before bounded Top20 Testnet acceptance
+- Date: 2026-07-12
+- Status: accepted
+- Context: Existing technical and Testnet paths were broadly implemented, but MetaLabel could authorize a bet from only a few positive samples, explicit 4h/15m confirmation treated unavailable 4h evidence as a pass, default PaperRun semantics still implied BTC/ETH or dynamic quote-volume selection, and the Top20 acceptance result lacked per-symbol phase evidence.
+- Decision: Require at least 20 MetaLabel samples; fail explicit multi-timeframe confirmation closed when confirmation data/signals are absent; default automatic Paper orchestration to the fixed operator Top20; cap acceptance at 120 USDT per symbol; persist/return per-symbol stages, order/protection refs, compensation outcome, and failure class. Keep Mainnet disabled and require a sanitized read-only preflight before external orders. Keep Celery as the active scheduler and document Temporal only as a future deterministic migration boundary.
+- Consequences: Cold-start strategies and incomplete multi-timeframe evidence can no longer open positions. The fixed Top20 contract is explicit, and a real Futures Testnet run proved 40 fills with final zero exposure. Spot carry remains blocked until separate Spot Testnet credentials exist; Docker/Celery long-soak evidence remains outstanding.
+
 ## ADR-048: Testnet acceptance is isolated from strategy admission, and funding carry requires two real exchange legs
 - Date: 2026-07-11
 - Status: accepted
@@ -253,6 +267,14 @@
 - Context: 本地 `Desktop/alpha` 是成熟的 WorldQuant **美股**挖掘流水线（~67万表达式），基于基本面字段，不能直接套用到 BTC/USDT 永续。
 - Decision: `research_source/worldquant_adapter/` 只移植算子词表与因子构造方法（纯 pandas/numpy），重新生成加密因子；不导入美股原始表达式。`.env` 用 `WORLDQUANT_ALPHA_LOCAL_PATH` 引用本地路径，不上传 Brain session。
 - Consequences: 符合 AGENTS.md 不可谈判项 #5（WorldQuant 是来源非主干）；该模块不被 apps/api import。
+
+## ADR-019: 本地控制台读缓存，自动调度进程独立
+
+- Date: 2026-07-12
+- Status: accepted
+- Context: Windows 本地环境中，将 Binance 外部请求放在 FastAPI 读取接口会使交易台多个请求超时；内嵌调度也会让 API 监听后失去响应。
+- Decision: API 通过 `--local-console` 仅读取已落库的市场、订单、仓位和账户快照；`run-local-paper-scheduler.py` 独立执行自动 Paper 周期与行情刷新，并以 `scheduler.pid` 提供状态。默认 API 端口改为 `8016`。
+- Consequences: 币安无网络或代理不可用时，交易台仍显示本地记录与明确中文降级状态；外部账户同步必须是按需操作，不能阻塞总览。
 
 ## ADR-010: 保留 setuptools 构建后端，依赖锁定用 uv；指标库用 pandas-ta
 

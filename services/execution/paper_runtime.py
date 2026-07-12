@@ -106,7 +106,10 @@ class PaperRuntimeService:
         protective_trailing = dict(metrics.get("protective_trailing", {}))
         processed_keys = set(metrics.get("processed_cycle_keys", []))
         new_processed_keys = list(processed_keys)
-        realized_total = float(metrics.get("realized_pnl_total", 0.0))
+        realized_total = float(metrics.get("net_realized_pnl_total", metrics.get("realized_pnl_total", 0.0)))
+        gross_realized_total = float(metrics.get("gross_realized_pnl_total", metrics.get("realized_pnl_total", 0.0)))
+        estimated_fee_total = float(metrics.get("estimated_fee_total", 0.0))
+        estimated_slippage_total = float(metrics.get("estimated_slippage_total", 0.0))
         daily_realized_pnl = float(metrics.get("daily_realized_pnl", 0.0))
         weekly_realized_pnl = float(metrics.get("weekly_realized_pnl", 0.0))
         consecutive_losses = int(metrics.get("consecutive_losses", 0))
@@ -228,7 +231,7 @@ class PaperRuntimeService:
                         )
                         order = self.gatekeeper.submit_order(close_order)
                         if order.execution_status == "accepted":
-                            if self._should_execute_on_binance(paper_run):
+                            if self._should_execute_on_binance(paper_run, order=order):
                                 order = self._ensure_binance_execution(
                                     paper_run=paper_run,
                                     order=order,
@@ -257,6 +260,12 @@ class PaperRuntimeService:
                                 position=current_position,
                                 mark_price=trigger.price,
                                 cycle_time=cycle_time,
+                                strategy=strategy,
+                            )
+                            order = self._record_estimated_order_cost(
+                                order=order,
+                                strategy=strategy,
+                                price=trigger.price,
                             )
                             if not self._should_execute_on_binance(paper_run):
                                 self._maybe_mirror_to_gateway(
@@ -270,12 +279,15 @@ class PaperRuntimeService:
                                 order=order,
                                 trigger=trigger,
                                 position=current_position,
-                                realized=realized,
+                                realized=realized.net_pnl,
                             )
-                            realized_total += realized
-                            daily_realized_pnl += realized
-                            weekly_realized_pnl += realized
-                            consecutive_losses = consecutive_losses + 1 if realized < 0 else 0
+                            realized_total += realized.net_pnl
+                            gross_realized_total += realized.gross_pnl
+                            estimated_fee_total += realized.fee_cost
+                            estimated_slippage_total += realized.slippage_cost
+                            daily_realized_pnl += realized.net_pnl
+                            weekly_realized_pnl += realized.net_pnl
+                            consecutive_losses = consecutive_losses + 1 if realized.net_pnl < 0 else 0
                             closed_positions += 1
                             active_positions.pop(symbol, None)
                             actions.append(
@@ -337,7 +349,7 @@ class PaperRuntimeService:
                     )
                     order = self.gatekeeper.submit_order(close_order)
                     if order.execution_status == "accepted":
-                        if self._should_execute_on_binance(paper_run):
+                        if self._should_execute_on_binance(paper_run, order=order):
                             order = self._ensure_binance_execution(
                                 paper_run=paper_run,
                                 order=order,
@@ -366,11 +378,16 @@ class PaperRuntimeService:
                             position=current_position,
                             mark_price=reference_price,
                             cycle_time=cycle_time,
+                            strategy=strategy,
                         )
-                        realized_total += realized
-                        daily_realized_pnl += realized
-                        weekly_realized_pnl += realized
-                        consecutive_losses = consecutive_losses + 1 if realized < 0 else 0
+                        order = self._record_estimated_order_cost(order=order, strategy=strategy, price=reference_price)
+                        realized_total += realized.net_pnl
+                        gross_realized_total += realized.gross_pnl
+                        estimated_fee_total += realized.fee_cost
+                        estimated_slippage_total += realized.slippage_cost
+                        daily_realized_pnl += realized.net_pnl
+                        weekly_realized_pnl += realized.net_pnl
+                        consecutive_losses = consecutive_losses + 1 if realized.net_pnl < 0 else 0
                         closed_positions += 1
                         active_positions.pop(symbol, None)
                         if not self._should_execute_on_binance(paper_run):
@@ -463,7 +480,7 @@ class PaperRuntimeService:
                 )
                 continue
 
-            if self._should_execute_on_binance(paper_run):
+            if self._should_execute_on_binance(paper_run, order=order):
                 order = self._ensure_binance_execution(
                     paper_run=paper_run,
                     order=order,
@@ -492,6 +509,11 @@ class PaperRuntimeService:
                 order=order,
                 cycle_time=cycle_time,
             )
+            order = self._record_estimated_order_cost(
+                order=order,
+                strategy=strategy,
+                price=position.entry_price,
+            )
             if not self._should_execute_on_binance(paper_run):
                 self._maybe_mirror_to_gateway(
                     paper_run=paper_run,
@@ -512,8 +534,8 @@ class PaperRuntimeService:
                     decision_trace=decision_trace,
                 )
             )
-        account_equity = self._starting_equity(paper_run) + realized_total
-        equity_peak = max(float(metrics.get("equity_peak", self._starting_equity(paper_run))), account_equity)
+        account_equity = self._initial_equity(paper_run) + realized_total
+        equity_peak = max(float(metrics.get("equity_peak", self._initial_equity(paper_run))), account_equity)
         last_action_counts = {
             "opened": opened_positions,
             "closed": closed_positions,
@@ -525,6 +547,10 @@ class PaperRuntimeService:
             "account_equity": account_equity,
             "equity_peak": equity_peak,
             "realized_pnl_total": realized_total,
+            "net_realized_pnl_total": realized_total,
+            "gross_realized_pnl_total": gross_realized_total,
+            "estimated_fee_total": estimated_fee_total,
+            "estimated_slippage_total": estimated_slippage_total,
             "daily_realized_pnl": daily_realized_pnl,
             "weekly_realized_pnl": weekly_realized_pnl,
             "consecutive_losses": consecutive_losses,
@@ -598,6 +624,10 @@ class PaperRuntimeService:
             or paper_run.execution_profile.get("account_equity")
             or 10_000.0
         )
+
+    @staticmethod
+    def _initial_equity(paper_run: PaperRun) -> float:
+        return float(paper_run.execution_profile.get("account_equity") or 10_000.0)
 
     @staticmethod
     def _select_symbols(*, paper_run: PaperRun, request: PaperRuntimeCycleRequest) -> list[str]:
@@ -788,14 +818,28 @@ class PaperRuntimeService:
             },
         )
 
-    def _should_execute_on_binance(self, paper_run: PaperRun) -> bool:
+    def _should_execute_on_binance(self, paper_run: PaperRun, *, order: OrderExecution | None = None) -> bool:
         execution_mode = str(paper_run.execution_profile.get("execution_mode", "paper_only"))
         legacy_mirror_enabled = bool(paper_run.execution_profile.get("mirror_to_gateway", False))
-        return (
+        enabled = (
             (execution_mode == "binance_simulation_first" or legacy_mirror_enabled)
+            and bool(paper_run.execution_profile.get("cost_gate_verified", False))
+            and settings.binance_auto_execute
             and settings.binance_use_testnet
             and not settings.live_trading_enabled
             and self.gateway is not None
+        )
+        if not enabled or order is None or order.close_only_mode:
+            return enabled
+        trace = order.entry_context.get("decision_pipeline", {})
+        if not isinstance(trace, dict) or trace.get("strategy_lane") != "carry":
+            return False
+        estimated_net_edge_bps = _float_or_none(trace.get("estimated_net_edge_bps"))
+        minimum_net_edge_bps = _float_or_none(trace.get("min_estimated_net_edge_bps"))
+        return (
+            estimated_net_edge_bps is not None
+            and minimum_net_edge_bps is not None
+            and estimated_net_edge_bps >= minimum_net_edge_bps
         )
 
     def _ensure_binance_execution(
@@ -806,7 +850,7 @@ class PaperRuntimeService:
         order_request: ExecutionOrderRequest,
         position: PositionSnapshot | None,
     ) -> OrderExecution:
-        if not self._should_execute_on_binance(paper_run):
+        if not self._should_execute_on_binance(paper_run, order=order):
             return order
         gateway = self.gateway
         if gateway is None:
@@ -869,41 +913,10 @@ class PaperRuntimeService:
         order_request: ExecutionOrderRequest,
         position: PositionSnapshot,
     ) -> None:
-        if self._should_execute_on_binance(paper_run):
-            return
-        if not bool(paper_run.execution_profile.get("mirror_to_gateway", False)):
-            return
-        if self.gateway is None:
-            return
-        gateway = self.gateway
-        try:
-            mirror_request = self._gateway_mirror_request(order_request=order_request, position=position)
-            gateway_result = gateway.submit_order(
-                live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}",
-                order_request=mirror_request,
-            )
-        except Exception as exc:  # noqa: BLE001 - mirror failures must not break local paper fills
-            self._record_gateway_mirror_failure(paper_run=paper_run, order=order, exc=exc)
-            return
-        self.execution_repo.update_order(
-            order.order_execution_id or "",
-            entry_context={
-                **order.entry_context,
-                "protection_order_refs": gateway_result.get("protection_order_refs", []),
-            },
-            gateway_name=getattr(self.gateway.capability, "gateway_name", "gateway_mirror"),
-            gateway_order_id=gateway_result.get("gateway_order_id"),
-            gateway_status=gateway_result.get("gateway_status", "submitted"),
-            lifecycle_history=[
-                *order.lifecycle_history,
-                {
-                    "at": datetime.now(UTC).isoformat(),
-                    "status": gateway_result.get("gateway_status", "submitted"),
-                    "event": "paper_gateway_mirror_submit",
-                },
-            ],
-            last_gateway_update_at=datetime.now(UTC),
-        )
+        del paper_run, order, order_request, position
+        # Testnet submission is gateway-first. The legacy post-fill mirror path
+        # could submit an order even after the cost gate had rejected it.
+        return
 
     @staticmethod
     def _gateway_order_request(
@@ -1020,8 +1033,19 @@ class PaperRuntimeService:
         position: PositionSnapshot,
         mark_price: float,
         cycle_time: datetime,
-    ) -> float:
-        realized = _realized_pnl(position=position, mark_price=mark_price)
+        strategy: StrategyContract,
+    ) -> RealizedOutcome:
+        gross_pnl = _realized_pnl(position=position, mark_price=mark_price)
+        entry_cost = _estimated_transaction_cost(
+            price=position.entry_price,
+            quantity=abs(position.quantity),
+            strategy=strategy,
+        )
+        exit_cost = _estimated_transaction_cost(
+            price=mark_price,
+            quantity=abs(position.quantity),
+            strategy=strategy,
+        )
         self.execution_repo.create_position_snapshot(
             PositionSnapshot(
                 run_type="paper",
@@ -1035,7 +1059,35 @@ class PaperRuntimeService:
                 snapshot_time=cycle_time,
             )
         )
-        return realized
+        return RealizedOutcome(
+            gross_pnl=gross_pnl,
+            fee_cost=entry_cost.fee_cost + exit_cost.fee_cost,
+            slippage_cost=entry_cost.slippage_cost + exit_cost.slippage_cost,
+        )
+
+    def _record_estimated_order_cost(
+        self,
+        *,
+        order: OrderExecution,
+        strategy: StrategyContract,
+        price: float,
+    ) -> OrderExecution:
+        quantity = abs(float(order.entry_context.get("quantity") or 0.0))
+        if quantity <= 0:
+            requested_notional = abs(float(order.entry_context.get("requested_notional") or 0.0))
+            quantity = requested_notional / price if price > 0 else 0.0
+        cost = _estimated_transaction_cost(price=price, quantity=quantity, strategy=strategy)
+        return (
+            self.execution_repo.update_order(
+                order.order_execution_id or "",
+                entry_context={
+                    **order.entry_context,
+                    "execution_kind": "strategy_trade",
+                    "estimated_cost": cost.as_dict(),
+                },
+            )
+            or order
+        )
 
     def _mark_position(
         self,
@@ -1094,6 +1146,52 @@ class ProtectiveLevels:
 class ProtectiveTrigger:
     trigger_type: str
     price: float
+
+
+@dataclass(frozen=True)
+class EstimatedTransactionCost:
+    fee_cost: float
+    slippage_cost: float
+    fee_bps: float
+    slippage_bps: float
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "fee_cost": self.fee_cost,
+            "slippage_cost": self.slippage_cost,
+            "total_cost": self.fee_cost + self.slippage_cost,
+            "fee_bps": self.fee_bps,
+            "slippage_bps": self.slippage_bps,
+        }
+
+
+@dataclass(frozen=True)
+class RealizedOutcome:
+    gross_pnl: float
+    fee_cost: float
+    slippage_cost: float
+
+    @property
+    def net_pnl(self) -> float:
+        return self.gross_pnl - self.fee_cost - self.slippage_cost
+
+
+def _estimated_transaction_cost(
+    *,
+    price: float,
+    quantity: float,
+    strategy: StrategyContract,
+) -> EstimatedTransactionCost:
+    entry_rules = strategy.rules.entry_rules
+    fee_bps = float(entry_rules.get("fee_bps", 8.0))
+    slippage_bps = float(entry_rules.get("slippage_bps", 6.0))
+    notional = abs(price * quantity)
+    return EstimatedTransactionCost(
+        fee_cost=notional * fee_bps / 10_000,
+        slippage_cost=notional * slippage_bps / 10_000,
+        fee_bps=fee_bps,
+        slippage_bps=slippage_bps,
+    )
 
 
 def _float_or_none(value: object) -> float | None:

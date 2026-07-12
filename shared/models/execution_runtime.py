@@ -41,6 +41,13 @@ class TradingRuntimeStatus(PlatformModel):
     last_auto_cycle_at: datetime | None = None
     next_cycle_eta_seconds: int | None = None
     scheduler_error: str | None = None
+    task_run_counts: dict[str, int] = Field(default_factory=dict)
+    task_failure_counts: dict[str, int] = Field(default_factory=dict)
+    task_last_results: dict[str, Any] = Field(default_factory=dict)
+    task_last_success_at: dict[str, datetime] = Field(default_factory=dict)
+    task_last_failure_at: dict[str, datetime] = Field(default_factory=dict)
+    top20_coverage_count: int = 0
+    queue_backlog_status: str = "not_probed"
     live_feed_status: dict[str, Any] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
 
@@ -66,6 +73,7 @@ class BinanceTestnetOrderView(PlatformModel):
     status: str
     quantity: float
     avg_price: float | None = None
+    reduce_only: bool = False
     update_time: int | None = None
 
 

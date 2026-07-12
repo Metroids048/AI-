@@ -132,6 +132,38 @@ def test_market_ohlcv_empty_state_is_explicit(api_client) -> None:
     assert response.json()["candles"] == []
 
 
+def test_local_console_market_reads_use_persisted_data_without_external_binance_calls(
+    api_client, db_session, monkeypatch
+) -> None:
+    from apps.api.routers import market as market_router
+
+    now = datetime.now(UTC).replace(microsecond=0)
+    DataRepository(db_session).store_ohlcv_bars(
+        [
+            _bar("BTC/USDT", now, "42100"),
+            _bar("BTC/USDT:USDT", now, "42205"),
+        ]
+    )
+    monkeypatch.setenv("PAPER_CONSOLE_API_ONLY", "true")
+    monkeypatch.setattr(settings, "binance_live_market_enabled", True)
+    monkeypatch.setattr(
+        market_router,
+        "BinanceCcxtClient",
+        lambda: (_ for _ in ()).throw(AssertionError("desktop read must not call Binance")),
+    )
+
+    snapshot = api_client.get(
+        "/api/v1/market/snapshot",
+        params={"symbol": "BTC/USDT", "perp_symbol": "BTC/USDT:USDT"},
+    )
+    candles = api_client.get("/api/v1/market/ohlcv", params={"symbol": "BTC/USDT", "timeframe": "1h"})
+
+    assert snapshot.status_code == 200
+    assert snapshot.json()["spot_last_price"] == "42100"
+    assert candles.status_code == 200
+    assert candles.json()["source"] == "persisted_market_data"
+
+
 def test_market_live_public_rest_endpoints_return_binance_source(api_client, db_session, monkeypatch) -> None:
     from apps.api.config import settings
     from apps.api.routers import market as market_router

@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { DecisionDebugPanel } from "./RuntimePanels";
+import { buildTop20EvidenceRows, DecisionDebugPanel } from "./RuntimePanels";
 
 describe("DecisionDebugPanel", () => {
   it("renders ensemble, meta-label, and veto evidence", () => {
@@ -32,5 +32,22 @@ describe("DecisionDebugPanel", () => {
     expect(screen.getByText(/融合：long/)).toBeInTheDocument();
     expect(screen.getByText(/Meta：bet_taken/)).toBeInTheDocument();
     expect(screen.getByText("no blocking risk evidence")).toBeInTheDocument();
+  });
+});
+
+describe("Top20 evidence", () => {
+  it("distinguishes candidate, scanned, signal, gate, submitted, and filled states", () => {
+    const rows = buildTop20EvidenceRows({
+      candidate_symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT", "SUI/USDT"],
+      last_scanned_symbols: ["ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT", "SUI/USDT"],
+      last_cycle_decisions: [
+        { symbol: "SOL/USDT", action: "skip", decision_trace: { signals: [{ source: "technical_rsi" }] } },
+        { symbol: "XRP/USDT", action: "skip", decision_trace: { signals: [{}], pipeline_status: "bet_taken" } },
+        { symbol: "BNB/USDT", action: "queued", order_execution_id: "order-1", decision_trace: { signals: [{}], pipeline_status: "bet_taken" } },
+        { symbol: "SUI/USDT", action: "open_long", order_execution_id: "order-2", decision_trace: { signals: [{}], pipeline_status: "bet_taken" } },
+      ],
+    });
+
+    expect(rows.map((item) => item.label)).toEqual(["候选", "已采集", "有信号", "过 Gate", "已提交", "已成交"]);
   });
 });

@@ -6,6 +6,7 @@ import {
   AutoEngineStatusBadge,
   MarketList,
   ModeBanner,
+  OrdersTable,
   RecentTradesPanel,
   RuntimeControlPanel,
   TestnetAccountPanel,
@@ -36,9 +37,9 @@ describe("Trading console panels", () => {
       />,
     );
 
-    expect(screen.getByText("Paper 模拟盘")).toBeInTheDocument();
-    expect(screen.getByText("Testnet 已锁定")).toBeInTheDocument();
-    expect(screen.getByText(/Mock 账户 API 面板/)).toBeInTheDocument();
+    expect(screen.getByText("本地模拟盘")).toBeInTheDocument();
+    expect(screen.getByText("币安模拟盘已锁定")).toBeInTheDocument();
+    expect(screen.getByText(/币安模拟账户 API 面板/)).toBeInTheDocument();
     expect(screen.queryByText(/secret|token|key/i)).not.toBeInTheDocument();
   });
 
@@ -124,7 +125,7 @@ describe("Trading console panels", () => {
     );
 
     expect(screen.queryByText("盘口")).not.toBeInTheDocument();
-    expect(screen.getByText("Binance WS")).toBeInTheDocument();
+    expect(screen.getByText("币安 WS")).toBeInTheDocument();
     expect(screen.getByText("最新成交")).toBeInTheDocument();
   });
 
@@ -205,6 +206,38 @@ describe("Trading console panels", () => {
     );
 
     expect(screen.getByText("服务不可用")).toBeInTheDocument();
+  });
+
+  it("labels Testnet acceptance fills as non-strategy audit records", () => {
+    render(
+      <OrdersTable
+        orders={[
+          {
+            order_execution_id: "acceptance-1",
+            created_at: "2026-07-12T00:43:14Z",
+            symbol: "BTC/USDT",
+            direction: "long",
+            execution_status: "filled",
+            entry_context: { execution_kind: "testnet_acceptance", order_type: "market" },
+          },
+        ]}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("连通性验收（不计策略收益）")).toBeInTheDocument();
+    expect(screen.getByText("已成交")).toBeInTheDocument();
+    expect(screen.getByText("多")).toBeInTheDocument();
+  });
+
+  it("translates stale market data status in the page header", () => {
+    render(
+      <AppShell overview={{ global_risk_status: "normal" }} snapshot={{ data_status: "stale" }} streamStatus="polling">
+        <div>内容</div>
+      </AppShell>,
+    );
+
+    expect(screen.getByText("数据延迟")).toBeInTheDocument();
   });
 
   it("keeps automatic settings controls controlled when the API returns null values", () => {

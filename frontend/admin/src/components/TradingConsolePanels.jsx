@@ -3,21 +3,21 @@ import { useEffect, useMemo, useState } from "react";
 import { asArray, formatClock, formatNumber, formatPercent, formatTime } from "../utils/format";
 
 export function ModeBanner({ status }) {
-  const modeLabel = status?.mode === "testnet" ? "Binance Futures Testnet" : "Paper 模拟盘";
-  const testnetLabel = status?.binance_use_testnet ? "Testnet 已锁定" : "Testnet 未启用";
+  const modeLabel = status?.mode === "testnet" ? "币安合约模拟盘" : "本地模拟盘";
+  const testnetLabel = status?.binance_use_testnet ? "币安模拟盘已锁定" : "币安模拟盘未启用";
   const liveLabel = status?.live_trading_enabled ? "实盘开关开启" : "实盘关闭";
   const gatewayLabel = status?.gateway_available ? "网关可用" : "网关待配置";
   return (
     <section className="mode-banner">
       <div><span>当前模式</span><strong>{modeLabel}</strong></div>
-      <div><span>环境</span><strong>{status?.app_env ?? "development"}</strong></div>
+      <div><span>环境</span><strong>{status?.app_env === "development" ? "开发环境" : status?.app_env ?? "加载中"}</strong></div>
       <div><span>安全边界</span><strong>{testnetLabel}</strong></div>
       <div><span>真实交易</span><strong>{liveLabel}</strong></div>
       <div><span>交易网关</span><strong>{gatewayLabel}</strong></div>
       <div className="mode-banner-note">
-        Mock Trading 统一入口：
+        币安模拟账户统一入口：
         <a href="https://demo.binance.com/en/futures/BTCUSDT" target="_blank" rel="noreferrer">demo.binance.com</a>
-        （testnet 链接会自动跳转到此）。须 Login 登录；订单以本平台「Mock 账户 API 面板」为准。
+        （模拟盘链接会自动跳转到此）。须登录同一账号；订单以本平台「币安模拟账户 API 面板」为准。
       </div>
     </section>
   );
@@ -27,7 +27,7 @@ export function BinanceSyncHero({ account }) {
   if (!account) {
     return (
       <section className="binance-sync-hero loading">
-        <strong>Binance Mock 账户探测已暂停</strong>
+        <strong>币安模拟账户探测已暂停</strong>
         <span>本地工作台不会自动重试受限交易所接口，验收操作会先执行一次显式预检。</span>
       </section>
     );
@@ -48,14 +48,14 @@ export function BinanceSyncHero({ account }) {
       <div className="binance-sync-hero-main">
         <strong>币安模拟盘 API 已连通 — 与自动下单同一账户</strong>
         <span>
-          钱包 {formatNumber(account.wallet_balance, 2)} USDT · 可用 {formatNumber(account.available_balance, 2)} ·
-          持仓 {account.open_position_count ?? 0} · 后端 {account.api_backend ?? "demo"} · 同步 {syncedLabel} ·
-          {latest ? `最新 #${latest.order_id} ${latest.side} ${latest.status}` : "暂无最近订单"}
+          钱包 {formatNumber(account.wallet_balance, 2)} USDT · 可用 {formatNumber(account.available_balance, 2)} USDT ·
+          持仓 {account.open_position_count ?? 0} · 后端 {account.api_backend ?? "模拟环境"} · 同步 {syncedLabel} ·
+          {latest ? `最新 #${latest.order_id} ${sideLabel(latest.side)} ${orderStatusLabel(latest.status)}` : "暂无最近订单"}
         </span>
       </div>
       <p className="binance-sync-hero-note">
-        自动 cycle 开启镜像后会<strong>先向币安下单</strong>，本面板即你在币安的真实持仓/订单（API 真源）。
-        网页 <em>restricted countries</em> 需全局 VPN 登录 demo.binance.com；登不上也不影响 API 交易与对账。
+        自动交易开启镜像后会<strong>先向币安下单</strong>，本面板即你在币安的真实持仓和订单（API 真源）。
+        网页受地区限制时需通过可用网络登录 demo.binance.com；网页无法登录不影响 API 对账。
       </p>
     </section>
   );
@@ -65,14 +65,14 @@ export function TestnetAccountPanel({ account }) {
   if (!account) {
     return (
       <section className="exchange-panel testnet-account-panel">
-        <PanelTitle title="Binance Testnet 账户" meta="按需探测" />
+        <PanelTitle title="币安模拟账户" meta="按需探测" />
         <div className="empty-list">本地工作台已暂停自动账户轮询，避免在交易所限流时阻塞操作台。</div>
       </section>
     );
   }
   const positions = asArray(account.positions);
   const orders = asArray(account.recent_orders);
-  const modeLabel = "Mock Trading (demo.binance.com)";
+  const modeLabel = "币安模拟交易";
   return (
     <section className="exchange-panel testnet-account-panel">
       <PanelTitle
@@ -92,7 +92,7 @@ export function TestnetAccountPanel({ account }) {
           <div className="metric-grid compact">
             <MetricLine label="钱包 USDT" value={formatNumber(account.wallet_balance, 2)} />
             <MetricLine label="可用 USDT" value={formatNumber(account.available_balance, 2)} />
-            <MetricLine label="未实现盈亏" value={formatNumber(account.unrealized_pnl, 2)} />
+            <MetricLine label="未实现盈亏（PnL）" value={formatNumber(account.unrealized_pnl, 2)} />
             <MetricLine label="持仓数" value={String(account.open_position_count ?? 0)} />
           </div>
           <div className="subpanel-title">持仓（币安 API 真源）</div>
@@ -116,7 +116,7 @@ export function TestnetAccountPanel({ account }) {
                 {positions.map((p) => (
                   <tr key={`${p.symbol}-${p.side}`}>
                     <td>{p.symbol}</td>
-                    <td>{p.side}</td>
+                    <td>{sideLabel(p.side)}</td>
                     <td>{formatNumber(p.quantity, 4)}</td>
                     <td>{formatNumber(p.entry_price)}</td>
                     <td>{formatNumber(p.mark_price)}</td>
@@ -137,7 +137,7 @@ export function TestnetAccountPanel({ account }) {
             <table className="compact-table">
               <thead>
                 <tr>
-                  <th>orderId</th>
+                  <th>订单编号</th>
                   <th>交易对</th>
                   <th>方向</th>
                   <th>类型</th>
@@ -152,9 +152,9 @@ export function TestnetAccountPanel({ account }) {
                   <tr key={o.order_id}>
                     <td>{o.order_id}</td>
                     <td>{o.symbol}</td>
-                    <td>{o.side}</td>
-                    <td>{o.order_type}</td>
-                    <td>{o.status}</td>
+                    <td>{sideLabel(o.side)}</td>
+                    <td>{orderTypeLabel(o.order_type)}</td>
+                    <td>{orderStatusLabel(o.status)}</td>
                     <td>{formatNumber(o.quantity, 4)}</td>
                     <td>{o.avg_price ? formatNumber(o.avg_price) : "-"}</td>
                     <td>{o.update_time ? formatClock(new Date(o.update_time)) : "-"}</td>
@@ -394,16 +394,17 @@ export function FundingPanel({ signal, onBacktest }) {
     <section className="exchange-panel funding-panel">
       <PanelTitle title="资金费率套利" meta={signal?.should_enter_paper ? "可进入 Paper" : "等待"} />
       <div className="funding-metrics">
-        <MetricLine label="Funding" value={formatPercent(signal?.funding_rate)} />
-        <MetricLine label="Funding bps" value={`${formatNumber(signal?.funding_bps, 2)} bps`} />
-        <MetricLine label="Basis" value={`${formatNumber(signal?.basis_bps, 2)} bps`} />
-        <MetricLine label="净边际" value={`${formatNumber(signal?.estimated_net_edge_bps, 2)} bps`} tone={signal?.should_enter_paper ? "positive" : "negative"} />
+        <MetricLine label="资金费率" value={formatPercent(signal?.funding_rate)} />
+        <MetricLine label="资金费（基点 bps）" value={`${formatNumber(signal?.funding_bps, 2)} bps`} />
+        <MetricLine label="基差（风险参考）" value={`${formatNumber(signal?.basis_bps, 2)} bps`} />
+        <MetricLine label="四腿往返成本" value={`${formatNumber(signal?.round_trip_cost_bps, 2)} bps`} />
+        <MetricLine label="扣费后净边际" value={`${formatNumber(signal?.estimated_net_edge_bps, 2)} bps`} tone={signal?.should_enter_paper ? "positive" : "negative"} />
       </div>
       <div className="rejection-list">
         {asArray(signal?.rejection_reasons).length ? signal.rejection_reasons.map((item) => <span key={item}>{item}</span>) : <span>规则通过</span>}
       </div>
       <button type="button" onClick={onBacktest}>触发 Carry 回测</button>
-      <p>{template.core_thesis ?? "使用现货/永续对冲，扣除手续费、滑点和基差风险后再进入 Paper。"}</p>
+      <p>{template.core_thesis ?? "只有预计资金费覆盖现货与永续开平四笔的手续费和滑点后，才进入模拟盘；基差不计入收益。"}</p>
     </section>
   );
 }
@@ -466,6 +467,7 @@ export function OrdersTable({ orders, onCancel }) {
         <thead>
           <tr>
             <th>时间</th>
+            <th>来源</th>
             <th>交易对</th>
             <th>方向</th>
             <th>类型</th>
@@ -483,13 +485,14 @@ export function OrdersTable({ orders, onCancel }) {
             rows.map((order) => (
               <tr key={order.order_execution_id ?? `${order.symbol}-${order.created_at}`}>
                 <td>{formatTime(order.created_at)}</td>
+                <td>{orderSourceLabel(order)}</td>
                 <td>{order.symbol}</td>
-                <td>{order.direction}</td>
-                <td>{order.entry_context?.order_type ?? "-"}</td>
+                <td>{sideLabel(order.direction)}</td>
+                <td>{orderTypeLabel(order.entry_context?.order_type)}</td>
                 <td>{formatNumber(order.entry_context?.limit_price)}</td>
                 <td>{formatNumber(order.stoploss_plan?.price)}</td>
                 <td>{formatNumber(order.takeprofit_plan?.price)}</td>
-                <td>{order.execution_status}</td>
+                <td>{orderStatusLabel(order.execution_status)}</td>
                 <td>{order.gateway_order_id ?? "-"}</td>
                 <td>{order.gateway_name ?? "-"}</td>
                 <td>
@@ -498,7 +501,7 @@ export function OrdersTable({ orders, onCancel }) {
               </tr>
             ))
           ) : (
-            <tr><td colSpan="11">暂无订单</td></tr>
+            <tr><td colSpan="12">暂无订单</td></tr>
           )}
         </tbody>
       </table>
@@ -529,7 +532,7 @@ export function PositionsTable({ positions }) {
               <tr key={position.position_snapshot_id ?? `${position.symbol}-${position.snapshot_time}`}>
                 <td>{formatTime(position.snapshot_time)}</td>
                 <td>{position.symbol}</td>
-                <td>{position.side}</td>
+                <td>{sideLabel(position.side)}</td>
                 <td>{formatNumber(position.quantity, 4)}</td>
                 <td>{formatNumber(position.entry_price)}</td>
                 <td>{formatNumber(position.mark_price)}</td>
@@ -564,10 +567,39 @@ function MetricLine({ label, value, tone = "neutral" }) {
 }
 
 function sourceLabel(source) {
-  if (source === "binance_public_ws") return "Binance WS";
-  if (source === "binance_public_rest") return "Binance REST";
+  if (source === "binance_public_ws") return "币安 WS";
+  if (source === "binance_public_rest") return "币安 REST";
   if (source === "binance_public_rest_error") return "REST 异常";
   return "等待行情";
+}
+
+function sideLabel(side) {
+  if (side === "long" || side === "buy") return "多";
+  if (side === "short" || side === "sell") return "空";
+  return side ?? "-";
+}
+
+function orderTypeLabel(orderType) {
+  if (orderType === "market") return "市价";
+  if (orderType === "limit") return "限价";
+  return orderType ?? "-";
+}
+
+function orderStatusLabel(status) {
+  if (status === "filled") return "已成交";
+  if (status === "submitted") return "已提交";
+  if (status === "accepted") return "已受理";
+  if (status === "rejected") return "已拒绝";
+  if (status === "cancelled") return "已撤销";
+  return status ?? "-";
+}
+
+function orderSourceLabel(order) {
+  const kind = order?.entry_context?.execution_kind;
+  if (kind === "testnet_acceptance") return "连通性验收（不计策略收益）";
+  if (kind === "binance_demo_reconciliation") return "币安模拟盘补录（不计策略收益）";
+  if (order?.paper_run_id) return "自动策略";
+  return "手动模拟单";
 }
 
 function connectionIssue(error) {

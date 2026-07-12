@@ -21,12 +21,12 @@ class PaperOrchestrationService:
     def prepare_run(self, run: PaperRun) -> PaperRun:
         default_candidates = run.candidate_symbols or DEFAULT_BINANCE_TOP20
         combined = list(dict.fromkeys([*PAPER_PRIORITY_SYMBOLS, *default_candidates, *run.symbol_scope]))
-        symbol_scope = PAPER_PRIORITY_SYMBOLS if not run.symbol_scope else run.symbol_scope
+        symbol_scope = list(dict.fromkeys(run.symbol_scope or DEFAULT_BINANCE_TOP20))
         return run.model_copy(
             update={
                 "symbol_scope": symbol_scope,
                 "candidate_symbols": combined,
-                "selection_basis": run.selection_basis or "binance_top20_quote_volume",
+                "selection_basis": run.selection_basis or "fixed_operator_top20",
                 "execution_profile": _default_execution_profile(run.execution_profile),
             }
         )

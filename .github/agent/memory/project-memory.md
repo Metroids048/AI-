@@ -1,5 +1,23 @@
 # Project Memory
 
+## Strategy Playbook, ecosystem research, and current-state audit (TASK-046, 2026-07-12)
+
+- Completed a code-and-test-backed current-state review at `docs/audits/2026-07-12-current-state-review.md`. The review maps all eight technical signals, multi-timeframe confirmation, correlation discounting, MetaLabel, LLM veto, Gatekeeper, exits, and position sizing to file/line evidence. It distinguishes the scoped `0.50`/`0.45` MetaLabel values and `3x`/`5x`/`10x` leverage contexts; no core trading/data blocker was found.
+- Added a code-backed Strategy Library Playbook API plus persisted roadmap status: `GET /api/v1/strategy-library/playbook` and `PATCH /api/v1/strategy-library/roadmap-items/{item_id}`. Roadmap changes retain operator, note, timestamp, and audit history; migration `0007` upgrades clean SQLite from `0001` through the new table.
+- Reworked the Strategy Library into the retained Strategy Assets workflow plus seven explanatory tabs: overview, entry, exit, position sizing, LLM/RAG boundaries, external sources, and optimization roadmap. Explanatory content comes from the API, displays its source/verification commit, and has explicit loading/error/retry behavior.
+- GitHub research was frozen at the 2026-07-12 snapshot. Superalgos was corrected to Apache-2.0; Jesse/NautilusTrader/Qlib/vectorbt/OpenBB local ingestion evidence was indexed; five new candidates (Lumen, HydraQuant, basis-funding-arbitrage-bot, hedge-fund-committee, RiverFlow-Apex) were added with license policies and roadmap mappings. Detailed evidence is in `策略库/06_GitHub生态补充调研.md`.
+- Fresh verification: backend `257 passed, 1 skipped, 2 warnings`; frontend `11 files / 30 tests`; Ruff passed; mypy passed for 119 source files; production build and `git diff --check` passed. Clean SQLite migration reached `0007`. Chrome headless fallback screenshots at `1440x1000` and `390x844` were visually inspected after Playwright was unavailable; the content rendered without incoherent overlap, and a real PATCH/GET round trip persisted roadmap state with one audit record.
+- Known debt remains explicit: full-repository `ruff format --check .` had 65 historical drift files at the pre-change audit, so only files touched in this task were formatted and checked. Vite still reports a >500 kB bundle warning; Python reports the existing Starlette TestClient and Alembic config deprecations.
+
+## Risk-gate hardening and real Top20 Testnet acceptance (TASK-045, 2026-07-12)
+
+- MetaLabel now requires at least 20 historical samples before `bet_taken`; short positive histories fail closed. Explicit `4h_direction_15m_entry` confirmation also fails closed when 4h data or confirmation signals are unavailable, while strategies without an explicit timeframe model no longer inherit a hidden confirmation timeframe.
+- Automatic Paper orchestration defaults to the fixed operator Top20 and `fixed_operator_top20`; explicit manual/research scopes remain authoritative.
+- Futures Testnet acceptance has a 120 USDT per-symbol cap and per-symbol stage/order/protection/compensation/failure evidence. A real run completed all 20 symbols with 40 fills and ended with zero positions and zero open orders.
+- Read-only `scripts/testnet_preflight.py` proves the Mainnet boundary and reports only sanitized readiness. Futures Testnet is connected; Spot Testnet credentials remain missing, so no real dual-leg carry completion is claimed.
+- Celery uses late acknowledgement, worker-loss requeue, task-start tracking, and bounded result retention. Runtime status exposes per-task run/failure counts, last success/failure timestamps, and Top20 heartbeat coverage.
+- Temporal remains a future migration option only; `docs/architecture/temporal-migration-adr.md` defines deterministic workflow/activity boundaries without adding a second production runtime.
+
 ## Binance Testnet acceptance, dual-leg carry, and trading workbench (TASK-043, 2026-07-11)
 
 - Automatic execution settings now resolve asset tiers instead of applying one leverage/position cap to every symbol: BTC/ETH/SOL use `10x` with a `15%` equity-based notional cap; the other fixed Top20 symbols use `5x` with a `6%` cap. Leverage affects margin only and does not multiply the configured notional exposure.
@@ -383,6 +401,13 @@
 - `research_source/worldquant_adapter` 已具备本地 `alpha` 扫描器，可把研究源转成结构化 `StrategyIdea`
 - `frontend/admin` 已不再是占位页，现为 React + Tailwind 管理台壳；本地 build 已通过
 - `docker-compose.test.yml`、`docker-compose.paper.yml`、`docker-compose.live.yml` 已入仓，Prometheus/Grafana dashboard 资产已有首版骨架
+
+## Local Console Reliability (2026-07-12)
+
+- 本地交易台 API 固定使用 `127.0.0.1:8016`；`8000` 在当前 Windows 环境会出现可监听但不返回 HTTP 响应的异常，启动器不得再使用它作为默认端口。
+- API 使用 `--local-console` 模式，只读本地 SQLite 的已落库行情、订单、仓位与账户快照；不得在页面读取请求中同步调用 Binance。
+- 独立 `scripts/run-local-paper-scheduler.py` 持续执行行情心跳和自动 Paper 周期，写回同一 SQLite。状态 API 用 `logs/scheduler.pid` 显示该外部调度是否存活。
+- 这属于 Data -> Execution -> Review 闭环：接口读取不中断、自动周期持续写入、币安验收成交与外部账户快照继续作为独立审计记录留存。
 
 ## Phase-0 开发前完整方案包 (TASK-007, 2026-07-02)
 

@@ -321,8 +321,8 @@ class DecisionPipeline:
         confirm_direction = _dominant_signal_direction(confirm_signals)
         if not confirm_bars or not confirm_signals or main_direction is None or confirm_direction is None:
             return {
-                "passed": True,
-                "status": "confirmation_unavailable",
+                "passed": False,
+                "status": "confirmation_unavailable_fail_closed",
                 "main_timeframe": timeframe,
                 "confirm_timeframe": confirm_timeframe,
                 "confirm_signal_count": len(confirm_signals),
@@ -530,7 +530,7 @@ def _confirmation_timeframe(*, strategy: StrategyContract, entry_timeframe: str)
         return str(direction_timeframe)
     if timeframe_model == "4h_direction_15m_entry" and entry_timeframe == "15m":
         return "4h"
-    return "15m" if entry_timeframe != "15m" else "1h"
+    return entry_timeframe
 
 
 def _dominant_signal_direction(signals: list[TradeSignal]) -> TradeSide | None:

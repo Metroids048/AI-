@@ -81,3 +81,5 @@ async def test_core_task_failure_remains_visible_until_that_task_recovers() -> N
     await scheduler._run_once(name="paper_runtime_cycle", runner=lambda: {"status": "ok"})
 
     assert scheduler.status.scheduler_error is None
+    assert "paper_runtime_cycle" in scheduler.status.last_success_at
+    assert "paper_runtime_cycle" in scheduler.status.last_failure_at

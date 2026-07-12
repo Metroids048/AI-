@@ -79,9 +79,9 @@ class PaperRun(PlatformModel):
     strategy_id: str
     version_id: str | None = None
     exchange: Exchange = Exchange.BINANCE
-    symbol_scope: list[str] = Field(default_factory=lambda: ["BTC/USDT"])
-    candidate_symbols: list[str] = Field(default_factory=lambda: ["BTC/USDT", "ETH/USDT"])
-    selection_basis: str = Field(default="binance_top20_quote_volume")
+    symbol_scope: list[str] = Field(default_factory=list)
+    candidate_symbols: list[str] = Field(default_factory=list)
+    selection_basis: str = Field(default="fixed_operator_top20")
     run_window: dict[str, Any] = Field(default_factory=dict)
     execution_profile: dict[str, Any] = Field(default_factory=dict)
     gate_decision_ref: str | None = None
@@ -169,6 +169,7 @@ class AutoTradingSettings(PlatformModel):
 class TestnetAcceptanceRunRequest(PlatformModel):
     symbols: list[str] = Field(default_factory=list, max_length=20)
     stoploss_bps: float = Field(default=250, gt=0, le=1_000)
+    max_notional_usdt: float = Field(default=120, ge=50, le=500)
     asset_risk_tiers: dict[str, AssetRiskTierSettings] = Field(default_factory=dict)
     idempotency_key: str | None = None
 
@@ -185,6 +186,22 @@ class TestnetAcceptanceOrderEvidence(PlatformModel):
     reduce_only: bool = False
 
 
+class TestnetAcceptanceSymbolResult(PlatformModel):
+    symbol: str
+    run_status: str
+    final_stage: str
+    leverage: float | None = None
+    requested_notional: float | None = None
+    reference_price: float | None = None
+    order_refs: list[str] = Field(default_factory=list)
+    protection_order_refs: list[str] = Field(default_factory=list)
+    compensation_attempted: bool = False
+    compensation_succeeded: bool | None = None
+    final_position_status: str = "unknown"
+    failure_class: str | None = None
+    error_summary: str | None = None
+
+
 class TestnetAcceptanceRunResult(PlatformModel):
     run_status: str
     requested_symbols: list[str] = Field(default_factory=list)
@@ -192,6 +209,7 @@ class TestnetAcceptanceRunResult(PlatformModel):
     failed_symbol: str | None = None
     filled_order_count: int = 0
     orders: list[TestnetAcceptanceOrderEvidence] = Field(default_factory=list)
+    symbol_results: list[TestnetAcceptanceSymbolResult] = Field(default_factory=list)
     compensation_attempted: bool = False
     final_open_position_count: int = 0
     final_open_order_count: int = 0

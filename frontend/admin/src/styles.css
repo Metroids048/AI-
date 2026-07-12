@@ -998,6 +998,34 @@ h2 {
   overflow-x: auto;
 }
 
+.playbook-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid #25303c; padding-bottom: 8px; }
+.playbook-tabs button { flex: 0 0 auto; border-color: transparent; background: transparent; color: #8c99a6; font-size: 13px; }
+.playbook-tabs button.active { border-color: #2f80ed; background: #13243a; color: #f5f7fa; }
+.playbook-content { display: grid; gap: 14px; }
+.playbook-heading h2, .playbook-heading p, .plain-list h3 { margin: 0; }
+.playbook-heading p, .rule-list p, .roadmap-list p { color: #9aa7b6; font-size: 13px; }
+.playbook-evidence { border-top: 1px solid #25303c; padding-top: 10px; color: #728091; font-size: 11px; line-height: 1.6; }
+.playbook-empty { padding: 18px; }
+.decision-flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; counter-reset: decision; }
+.decision-flow li { min-height: 92px; border: 1px solid #25303c; background: #0b1118; padding: 10px; counter-increment: decision; }
+.decision-flow li::before { content: counter(decision, decimal-leading-zero); display: block; color: #2f80ed; font-size: 11px; margin-bottom: 8px; }
+.decision-flow strong, .decision-flow span { display: block; }
+.decision-flow span { margin-top: 5px; color: #9aa7b6; font-size: 12px; }
+.rule-list, .roadmap-list { display: grid; gap: 8px; }
+.rule-list article, .roadmap-list article { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; border-bottom: 1px solid #25303c; padding: 11px 0; }
+.rule-list article > span { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #2f80ed; color: #63a4ff; }
+.rule-list p, .roadmap-list p { margin: 4px 0; }
+.formula-line { display: block; margin-top: 10px; border-left: 3px solid #16c784; background: #0b1513; padding: 12px; color: #d8dee9; white-space: normal; }
+.boundary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.plain-list { border-top: 1px solid #25303c; padding-top: 10px; }
+.plain-list ul { margin: 8px 0 0; padding-left: 18px; color: #d8dee9; }
+.plain-list li { margin: 5px 0; }
+.playbook-facts { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 7px 12px; margin: 0; }
+.playbook-facts dt { color: #8c99a6; }.playbook-facts dd { margin: 0; color: #d8dee9; }
+.priority { min-width: 34px; border: 1px solid #536273; padding: 3px 5px; text-align: center; font-size: 11px; }
+.priority.p0 { border-color: #f6465d; color: #ff7a8b; }.priority.p1 { border-color: #f0b90b; color: #f0b90b; }.priority.p2 { color: #9aa7b6; }
+.roadmap-list select { min-width: 106px; }
+
 @media (max-width: 1280px) {
   .topbar,
   .market-header,
@@ -1034,6 +1062,8 @@ h2 {
     height: 520px;
     min-height: 520px;
   }
+
+  .decision-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 720px) {
@@ -1052,6 +1082,10 @@ h2 {
     .rejection-list {
     grid-template-columns: 1fr;
   }
+
+  .decision-flow, .boundary-grid { grid-template-columns: 1fr; }
+  .rule-list article, .roadmap-list article { grid-template-columns: auto minmax(0, 1fr); }
+  .roadmap-list select { grid-column: 2; width: 100%; }
 
   .acceptance-actions,
   .workspace-panel-grid,

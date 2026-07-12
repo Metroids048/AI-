@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from collections.abc import Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
@@ -66,6 +67,15 @@ def _live_market_service(db: Session) -> MarketQueryService:
     return MarketQueryService(DataRepository(db), binance_client=client)
 
 
+def _live_market_reads_enabled() -> bool:
+    """Keep the desktop API responsive while its scheduler refreshes persisted data."""
+
+    return (
+        settings.binance_live_market_enabled
+        and os.getenv("PAPER_CONSOLE_API_ONLY", "false").lower() != "true"
+    )
+
+
 @router.get("/snapshot", response_model=MarketSnapshot)
 def get_market_snapshot(
     symbol: str = Query(default="BTC/USDT"),
@@ -73,8 +83,9 @@ def get_market_snapshot(
     timeframe: str = Query(default="1h"),
     db: Session = Depends(get_db_session),
 ) -> MarketSnapshot:
-    service = _live_market_service(db) if settings.binance_live_market_enabled else _market_service(db)
-    method = service.get_live_snapshot if settings.binance_live_market_enabled else service.get_snapshot
+    live_reads = _live_market_reads_enabled()
+    service = _live_market_service(db) if live_reads else _market_service(db)
+    method = service.get_live_snapshot if live_reads else service.get_snapshot
     return method(
         symbol=symbol,
         perp_symbol=perp_symbol,
@@ -89,8 +100,9 @@ def get_ohlcv_series(
     limit: int = Query(default=300, ge=1, le=1000),
     db: Session = Depends(get_db_session),
 ) -> OhlcvSeriesResponse:
-    service = _live_market_service(db) if settings.binance_live_market_enabled else _market_service(db)
-    method = service.get_live_ohlcv_series if settings.binance_live_market_enabled else service.get_ohlcv_series
+    live_reads = _live_market_reads_enabled()
+    service = _live_market_service(db) if live_reads else _market_service(db)
+    method = service.get_live_ohlcv_series if live_reads else service.get_ohlcv_series
     return method(
         symbol=symbol,
         timeframe=timeframe,
@@ -104,7 +116,8 @@ def get_order_book(
     limit: int = Query(default=20, ge=5, le=100),
     db: Session = Depends(get_db_session),
 ) -> MarketOrderBookResponse:
-    return _live_market_service(db).get_order_book(symbol=symbol, limit=limit)
+    service = _live_market_service(db) if _live_market_reads_enabled() else _market_service(db)
+    return service.get_order_book(symbol=symbol, limit=limit)
 
 
 @router.get("/trades", response_model=MarketTradesResponse)
@@ -113,7 +126,8 @@ def get_recent_trades(
     limit: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db_session),
 ) -> MarketTradesResponse:
-    return _live_market_service(db).get_recent_trades(symbol=symbol, limit=limit)
+    service = _live_market_service(db) if _live_market_reads_enabled() else _market_service(db)
+    return service.get_recent_trades(symbol=symbol, limit=limit)
 
 
 @router.websocket("/ohlcv/stream")
@@ -253,7 +267,7 @@ def get_funding_arbitrage_signal(
     slippage_bps: float = Query(default=6.0, ge=0),
     db: Session = Depends(get_db_session),
 ) -> FundingArbitrageSignal:
-    service = _live_market_service(db) if settings.binance_live_market_enabled else _market_service(db)
+    service = _live_market_service(db) if _live_market_reads_enabled() else _market_service(db)
     return service.get_funding_arbitrage_signal(
         symbol=symbol,
         perp_symbol=perp_symbol,
@@ -328,18 +342,18 @@ def _websocket_token_is_valid(token: str) -> bool:
 
 def _latest_ohlcv_payload(*, symbol: str, timeframe: str, limit: int) -> dict:
     with get_session_factory()() as db:
-        service = _live_market_service(db) if settings.binance_live_market_enabled else _market_service(db)
-        method = service.get_live_ohlcv_series if settings.binance_live_market_enabled else service.get_ohlcv_series
+        live_reads = _live_market_reads_enabled()
+        service = _live_market_service(db) if live_reads else _market_service(db)
+        method = service.get_live_ohlcv_series if live_reads else service.get_ohlcv_series
         return method(symbol=symbol, timeframe=timeframe, limit=limit).model_dump(mode="json")
 
 
 def _latest_exchange_payload(*, symbol: str, perp_symbol: str, timeframe: str, limit: int) -> dict:
     with get_session_factory()() as db:
-        service = _live_market_service(db) if settings.binance_live_market_enabled else _market_service(db)
-        snapshot_method = service.get_live_snapshot if settings.binance_live_market_enabled else service.get_snapshot
-        candles_method = (
-            service.get_live_ohlcv_series if settings.binance_live_market_enabled else service.get_ohlcv_series
-        )
+        live_reads = _live_market_reads_enabled()
+        service = _live_market_service(db) if live_reads else _market_service(db)
+        snapshot_method = service.get_live_snapshot if live_reads else service.get_snapshot
+        candles_method = service.get_live_ohlcv_series if live_reads else service.get_ohlcv_series
         return {
             "symbol": symbol,
             "perp_symbol": perp_symbol,

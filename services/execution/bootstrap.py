@@ -87,13 +87,8 @@ def binance_credentials_configured() -> bool:
 
 
 def default_mirror_to_gateway() -> bool:
-    """Default new auto runs to Binance simulation-first only in the safe testnet boundary."""
-    return bool(
-        binance_credentials_configured()
-        and settings.binance_auto_execute
-        and settings.binance_use_testnet
-        and not settings.live_trading_enabled
-    )
+    """New automatic runs remain local until a cost-gated Testnet trial is explicitly armed."""
+    return False
 
 
 def bootstrap_medium_risk_profile() -> str:
@@ -268,6 +263,7 @@ def _ensure_auto_paper_run(
             "equity_peak": 10_000,
             "execution_mode": "binance_simulation_first" if default_mirror_to_gateway() else "paper_only",
             "mirror_to_gateway": default_mirror_to_gateway(),
+            "cost_gate_verified": False,
             "risk_profile_id": risk_profile_id,
             "max_leverage": rules["position_rules"]["max_leverage"],
             "asset_risk_tiers": default_asset_risk_tiers(),

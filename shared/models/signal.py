@@ -117,4 +117,5 @@ class MetaLabelRequest(PlatformModel):
     time_limit_bars: int = 24
     min_win_rate: float = 0.55
     min_average_return: float = 0.0
+    min_training_samples: int = Field(default=20, ge=1)
     audit_context: dict[str, Any] = Field(default_factory=dict)

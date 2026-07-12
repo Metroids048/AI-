@@ -103,6 +103,7 @@ export function Top20MonitorPanel({ decisionTrace, tradingStatus }) {
         ? "Carry 资金费率"
         : decisionTrace?.strategy_lane ?? "auto";
   const assets = asArray(decisionTrace?.execution_profile?.universe_assets);
+  const evidenceRows = buildTop20EvidenceRows(decisionTrace);
   return (
     <section className="exchange-panel top20-panel">
       <div className="panel-title">
@@ -119,21 +120,65 @@ export function Top20MonitorPanel({ decisionTrace, tradingStatus }) {
         </span>
       </div>
       <div className="signal-chips">
-        {assets.length
-          ? assets.map((asset) => (
-              <span key={asset.platform_symbol} className={asset.tradable_status === "trading" ? "positive" : "negative"} title={asset.reason ?? ""}>
-                {asset.display_symbol ?? asset.platform_symbol}:{asset.tradable_status}
-              </span>
-            ))
-          : (scanned.length ? scanned : candidates).map((symbol) => (
-              <span key={symbol}>{symbol}</span>
-            ))}
+        {evidenceRows.map((item) => {
+          const asset = assets.find((candidate) => candidate.platform_symbol === item.symbol);
+          return (
+            <span
+              key={item.symbol}
+              className={item.level >= 4 ? "positive" : asset?.tradable_status === "trading" ? "" : "negative"}
+              title={[item.reason, asset?.reason].filter(Boolean).join(" / ")}
+            >
+              {asset?.display_symbol ?? item.symbol}:{item.label}
+            </span>
+          );
+        })}
       </div>
       {!scanned.length && !candidates.length ? (
         <div className="empty-list">等待自动 PaperRun 写入 Top20 候选范围</div>
       ) : null}
     </section>
   );
+}
+
+export function buildTop20EvidenceRows(decisionTrace) {
+  const candidates = asArray(decisionTrace?.candidate_symbols);
+  const scanned = new Set(asArray(decisionTrace?.last_scanned_symbols));
+  const decisions = new Map(
+    asArray(decisionTrace?.last_cycle_decisions).map((item) => [item.symbol, item]),
+  );
+  return candidates.map((symbol) => {
+    const decision = decisions.get(symbol);
+    const trace = decision?.decision_trace ?? {};
+    const signals = asArray(trace.signals);
+    const rejections = [
+      trace.rejection_reason,
+      ...asArray(trace.rejection_codes),
+      ...asArray(trace.gatekeeper_rejection_codes),
+    ].filter(Boolean);
+    let level = 0;
+    let label = "候选";
+    if (scanned.has(symbol)) {
+      level = 1;
+      label = "已采集";
+    }
+    if (signals.length) {
+      level = 2;
+      label = "有信号";
+    }
+    if (trace.pipeline_status === "bet_taken" && !rejections.length) {
+      level = 3;
+      label = "过 Gate";
+    }
+    if (decision?.order_execution_id) {
+      level = 4;
+      label = "已提交";
+    }
+    if (decision?.order_execution_id && /^(open_|close|closed_)/.test(decision.action ?? "")) {
+      level = 5;
+      label = "已成交";
+    }
+    return { symbol, level, label, reason: rejections.join(", ") || decision?.reason || "" };
+  });
 }
 
 export function DataSourcesPanel({ dataSources, intelligenceSignal }) {
@@ -407,8 +452,9 @@ function DecisionSummary({ trace }) {
       <span>状态：{trace.pipeline_status ?? "unknown"}</span>
       {isCarry ? (
         <>
-          <span>净边际(bps)：{trace.estimated_net_edge_bps ?? "—"}</span>
-          <span>资金费率(bps)：{trace.funding_bps ?? "—"}</span>
+          <span>扣费后净边际（bps）：{trace.estimated_net_edge_bps ?? "—"}</span>
+          <span>四腿往返成本（bps）：{trace.round_trip_cost_bps ?? "—"}</span>
+          <span>资金费（bps）：{trace.funding_bps ?? "—"}</span>
         </>
       ) : (
         <>

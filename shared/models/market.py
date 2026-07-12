@@ -115,6 +115,7 @@ class FundingArbitrageSignal(PlatformModel):
     basis_bps: float | None = None
     fee_bps: float
     slippage_bps: float
+    round_trip_cost_bps: float = 0.0
     estimated_net_edge_bps: float | None = None
     should_enter_paper: bool = False
     rejection_reasons: list[str] = Field(default_factory=list)

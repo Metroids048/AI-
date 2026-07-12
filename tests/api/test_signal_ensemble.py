@@ -41,9 +41,11 @@ def test_ensemble_and_meta_label_api(api_client) -> None:
             "ensemble_id": ensemble["ensemble_id"],
             "signal_time": signal_time.isoformat(),
             "training_samples": [
-                {"sample_time": (signal_time - timedelta(days=4)).isoformat(), "net_return": 0.02},
-                {"sample_time": (signal_time - timedelta(days=3)).isoformat(), "net_return": 0.01},
-                {"sample_time": (signal_time - timedelta(days=2)).isoformat(), "net_return": -0.004},
+                {
+                    "sample_time": (signal_time - timedelta(days=index + 1)).isoformat(),
+                    "net_return": 0.01,
+                }
+                for index in range(20)
             ],
         },
     )

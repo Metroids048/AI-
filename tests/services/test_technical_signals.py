@@ -4,11 +4,13 @@ import pandas as pd
 
 from services.strategy_library.technical import (
     generate_adx_trend_signal,
+    generate_bollinger_reversion_signal,
     generate_dow_trend_signal,
     generate_ema_trend_signal,
     generate_false_breakout_signal,
     generate_macd_signal,
     generate_rsi_signal,
+    generate_vwap_reclaim_signal,
 )
 
 
@@ -154,3 +156,37 @@ def test_false_breakout_generates_reversal_signal() -> None:
     assert signal is not None
     assert signal.source == "price_action_false_breakout"
     assert signal.reason == "false_resistance_breakout_reversal"
+
+
+def test_vwap_reclaim_and_bollinger_reentry_are_directional() -> None:
+    closes = [100.0] * 48 + [99.0, 102.0]
+    frame = pd.DataFrame(
+        {
+            "open": closes,
+            "high": [value + 0.5 for value in closes],
+            "low": [value - 0.5 for value in closes],
+            "close": closes,
+            "volume": [100.0] * len(closes),
+        },
+        index=pd.date_range("2024-01-01", periods=len(closes), freq="h", tz="UTC"),
+    )
+
+    vwap = generate_vwap_reclaim_signal(frame, symbol="BTC/USDT")
+    assert vwap is not None
+    assert vwap.side.value == "long"
+    assert vwap.reason == "vwap_reclaim"
+
+    stretched = [100.0] * 20 + [80.0, 95.0]
+    stretched_frame = pd.DataFrame(
+        {
+            "open": stretched,
+            "high": [value + 1 for value in stretched],
+            "low": [value - 1 for value in stretched],
+            "close": stretched,
+            "volume": [100.0] * len(stretched),
+        },
+        index=pd.date_range("2024-01-01", periods=len(stretched), freq="h", tz="UTC"),
+    )
+    bollinger = generate_bollinger_reversion_signal(stretched_frame, symbol="BTC/USDT")
+    assert bollinger is not None
+    assert bollinger.side.value == "long"

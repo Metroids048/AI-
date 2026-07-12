@@ -281,3 +281,56 @@ def test_decision_pipeline_respects_enabled_signal_list(db_session) -> None:
     sources = {signal["source"] for signal in trace["signals"]}
     assert sources == {"technical_ema_trend"}
     assert trace["volatility"]["enabled_signals"] == ["ema_trend"]
+
+
+def test_configured_multi_timeframe_confirmation_fails_closed_when_4h_data_is_missing(db_session) -> None:
+    data_repo = DataRepository(db_session)
+    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=15 * 59)
+    rows = []
+    for index in range(60):
+        price = Decimal("100") + Decimal(index) * Decimal("0.5")
+        rows.append(
+            {
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "timeframe": "15m",
+                "time": start_at + timedelta(minutes=15 * index),
+                "open": price,
+                "high": price + Decimal("0.6"),
+                "low": price - Decimal("0.6"),
+                "close": price,
+                "volume": Decimal("100"),
+            }
+        )
+    data_repo.store_ohlcv_bars(rows)
+    strategy = StrategyContract(
+        strategy_id="strategy-mtf",
+        strategy_key="mtf_strategy",
+        source="manual",
+        core_thesis="4h direction must confirm each 15m entry.",
+        rules=StrategyRules(
+            entry_rules={
+                "enabled_signals": ["ema_trend"],
+                "timeframe_model": "4h_direction_15m_entry",
+                "meta_label_min_win_rate": 0.4,
+            }
+        ),
+    )
+
+    order = PaperSignalGenerator(data_repo=data_repo).generate_order(
+        paper_run=PaperRun(
+            paper_run_id="paper-mtf",
+            strategy_id=strategy.strategy_id,
+            gate_decision_ref="backtest-1",
+            execution_profile={"account_equity": 10_000, "equity_peak": 10_000},
+        ),
+        strategy=strategy,
+        request=PaperRunStepRequest(symbol="BTC/USDT", timeframe="15m", enable_decision_veto=False),
+        positions=[],
+    )
+
+    trace = order.entry_context["decision_pipeline"]
+    confirmation = trace["volatility"]["multi_timeframe"]
+    assert order.entry_context["paper_order_should_trade"] is False
+    assert trace["pipeline_status"] == "multi_timeframe_disagreement"
+    assert confirmation["status"] == "confirmation_unavailable_fail_closed"

@@ -76,10 +76,14 @@ def test_acceptance_run_completes_twenty_round_trips_with_tiered_risk() -> None:
     assert gateway.leverages["ETH/USDT"] == 10
     assert gateway.leverages["SOL/USDT"] == 10
     assert gateway.leverages["XRP/USDT"] == 5
-    assert gateway.orders[0]["requested_notional"] == 1_500
-    assert gateway.orders[6]["requested_notional"] == 600
+    assert gateway.orders[0]["requested_notional"] == 120
+    assert gateway.orders[6]["requested_notional"] == 120
     assert result.final_open_position_count == 0
     assert result.final_open_order_count == 0
+    assert len(result.symbol_results) == 20
+    assert all(item.run_status == "completed" for item in result.symbol_results)
+    assert result.symbol_results[0].final_stage == "closed"
+    assert result.symbol_results[0].protection_order_refs == ["stop-BTC/USDT"]
 
 
 def test_acceptance_run_retries_compensating_close_and_stops_after_failure() -> None:
@@ -94,3 +98,8 @@ def test_acceptance_run_retries_compensating_close_and_stops_after_failure() -> 
     assert result.compensation_attempted is True
     assert result.final_open_position_count == 0
     assert all(order["symbol"] in {"BTC/USDT", "ETH/USDT"} for order in gateway.orders)
+    failed = next(item for item in result.symbol_results if item.symbol == "ETH/USDT")
+    assert failed.final_stage == "compensated"
+    assert failed.compensation_succeeded is True
+    assert failed.failure_class == "ValueError"
+    assert sum(item.run_status == "skipped" for item in result.symbol_results) == 18

@@ -196,8 +196,11 @@ class MarketQueryService:
         )
         funding_bps = float(snapshot.funding_rate * Decimal("10000")) if snapshot.funding_rate is not None else None
         basis_bps = snapshot.basis_bps
+        # A hedged carry round trip has four fills: spot/perpetual entry and exit.
+        # Basis is mark-to-market risk, not realized funding income.
+        round_trip_cost_bps = 4 * (fee_bps + slippage_bps)
         estimated_net = (
-            funding_bps + (basis_bps or 0.0) - fee_bps - slippage_bps
+            funding_bps - round_trip_cost_bps
             if funding_bps is not None
             else None
         )
@@ -222,6 +225,7 @@ class MarketQueryService:
             basis_bps=basis_bps,
             fee_bps=fee_bps,
             slippage_bps=slippage_bps,
+            round_trip_cost_bps=round_trip_cost_bps,
             estimated_net_edge_bps=estimated_net,
             should_enter_paper=should_enter,
             rejection_reasons=list(dict.fromkeys(rejection_reasons)),
@@ -229,7 +233,8 @@ class MarketQueryService:
                 "source": "binance_funding_arbitrage",
                 "core_thesis": "Capture positive funding with spot/perp hedged paper positions after costs.",
                 "entry_rules": {
-                    "min_estimated_net_edge_bps": max(fee_bps + slippage_bps, 10.0),
+                    "min_estimated_net_edge_bps": 10.0,
+                    "round_trip_cost_bps": round_trip_cost_bps,
                     "requires_positive_funding": True,
                     "requires_non_negative_basis": True,
                 },

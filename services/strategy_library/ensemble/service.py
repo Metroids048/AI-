@@ -90,7 +90,11 @@ class SignalEnsembleService:
         wins = [value for value in returns if value > 0]
         win_rate = len(wins) / len(returns) if returns else 0.0
         average_return = mean(returns) if returns else 0.0
-        bet_taken = win_rate >= request.min_win_rate and average_return > request.min_average_return
+        bet_taken = (
+            len(returns) >= request.min_training_samples
+            and win_rate >= request.min_win_rate
+            and average_return > request.min_average_return
+        )
         if not returns:
             outcome = TripleBarrierOutcome.TIMEOUT
         elif average_return >= request.take_profit:

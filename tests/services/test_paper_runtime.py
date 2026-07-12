@@ -87,6 +87,31 @@ def test_runtime_stoploss_wins_when_stoploss_and_takeprofit_hit_same_bar(db_sess
     assert result.actions[0].reference_price == 95.0
 
 
+def test_runtime_realized_pnl_includes_configured_transaction_costs(db_session) -> None:
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+        fee_bps=100.0,
+        slippage_bps=0.0,
+    )
+    _store_bar(db_session, low=94, high=110, close=100)
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
+    )
+
+    assert result.closed_positions == 1
+    updated = PaperRunRepository(db_session).get_paper_run(paper_run.paper_run_id or "")
+    assert updated is not None
+    assert updated.paper_metrics_summary["gross_realized_pnl_total"] == -5.0
+    assert updated.paper_metrics_summary["estimated_fee_total"] == 1.95
+    assert updated.paper_metrics_summary["net_realized_pnl_total"] == -6.95
+    assert updated.paper_metrics_summary["account_equity"] == 9993.05
+
+
 def test_runtime_trailing_stop_ratchets_to_entry_after_configured_r_multiple(db_session) -> None:
     runtime, paper_run = _runtime_with_position(
         db_session,
@@ -173,6 +198,8 @@ def _runtime_with_position(
     stop_price: float,
     take_price: float,
     takeprofit_rules: dict | None = None,
+    fee_bps: float = 8.0,
+    slippage_bps: float = 6.0,
     mirror_to_gateway: bool = False,
     gateway=None,
 ) -> tuple[PaperRuntimeService, PaperRun]:
@@ -182,7 +209,7 @@ def _runtime_with_position(
             source="open_source:freqtrade",
             core_thesis="Protective orders must close paper positions before signal handling.",
             rules={
-                "entry_rules": {"funding_threshold_bps": 1},
+                "entry_rules": {"funding_threshold_bps": 1, "fee_bps": fee_bps, "slippage_bps": slippage_bps},
                 "exit_rules": {},
                 "stoploss_rules": {"fixed_bps": 500},
                 "takeprofit_rules": takeprofit_rules or {"risk_reward": 2.0},
@@ -211,6 +238,7 @@ def _runtime_with_position(
                 "account_equity": 10_000,
                 "equity_peak": 10_000,
                 "mirror_to_gateway": mirror_to_gateway,
+                "cost_gate_verified": mirror_to_gateway,
             },
             paper_status="running",
         )

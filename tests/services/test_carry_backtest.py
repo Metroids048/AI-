@@ -163,3 +163,39 @@ def test_deflated_sharpe_is_more_conservative_with_more_trials() -> None:
     assert low_trials.metrics_summary.deflated_sharpe is not None
     assert high_trials.metrics_summary.deflated_sharpe is not None
     assert high_trials.metrics_summary.deflated_sharpe < low_trials.metrics_summary.deflated_sharpe
+
+
+def test_carry_backtest_is_reproducible_for_identical_snapshot_inputs() -> None:
+    service = CarryBacktestService()
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    strategy = StrategyContract(
+        strategy_id="strategy-reproducible",
+        strategy_key="carry_reproducible",
+        source="manual",
+        core_thesis="identical snapshots must produce identical validation evidence",
+        rules=StrategyRules(
+            entry_rules={"funding_threshold_bps": 1},
+            exit_rules={"hold_hours": 8},
+            position_rules={"notional_usdt": 1000, "trials_count": 5},
+        ),
+    )
+    spot = [
+        _bar("BTC/USDT", start, "100"),
+        _bar("BTC/USDT", start + timedelta(hours=8), "101"),
+        _bar("BTC/USDT", start + timedelta(hours=16), "102"),
+    ]
+    perp = [
+        _bar("BTC/USDT:USDT", start, "100"),
+        _bar("BTC/USDT:USDT", start + timedelta(hours=8), "100"),
+        _bar("BTC/USDT:USDT", start + timedelta(hours=16), "101"),
+    ]
+    funding = [
+        {"time": start, "funding_rate": Decimal("0.0010")},
+        {"time": start + timedelta(hours=8), "funding_rate": Decimal("0.0012")},
+    ]
+
+    first = service.run_backtest(strategy=strategy, spot_bars=spot, perp_bars=perp, funding_points=funding)
+    second = service.run_backtest(strategy=strategy, spot_bars=spot, perp_bars=perp, funding_points=funding)
+
+    assert first.metrics_summary == second.metrics_summary
+    assert first.eligibility_result == second.eligibility_result

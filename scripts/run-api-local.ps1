@@ -15,6 +15,17 @@ if (-not $env:AGENT_PYTHON -or -not (Test-Path -LiteralPath $env:AGENT_PYTHON)) 
 $envPath = Join-Path $Root ".env"
 Import-DotEnv $envPath | Out-Null
 
+# Keep the desktop process responsive when the child has no route to Binance.
+# This must live here rather than only in the parent launcher because Windows
+# child-process environment inheritance is not a reliable runtime contract.
+if (-not $env:BINANCE_HTTPS_PROXY -and $env:HTTPS_PROXY) {
+    $env:BINANCE_HTTPS_PROXY = $env:HTTPS_PROXY
+}
+if (-not $env:BINANCE_HTTPS_PROXY) {
+    $env:PAPER_CONSOLE_DISABLE_LIVE_WS = "true"
+    $env:PAPER_CONSOLE_SKIP_BACKGROUND_BOOTSTRAP = "true"
+}
+
 # Local Paper console always wins over docker-compose POSTGRES_URL in .env.
 $env:POSTGRES_URL = $PostgresUrl
 $env:APP_ENV = "development"
@@ -70,36 +81,19 @@ function Rotate-RuntimeLog {
     }
     Move-Item -LiteralPath $Path -Destination "$Path.1" -Force
 }
-& $env:AGENT_PYTHON -c "from services.database import reset_database_caches; reset_database_caches()" | Out-Null
-if ($PostgresUrl -like "sqlite*") {
-    & $env:AGENT_PYTHON -c "from services.database import adopt_complete_legacy_sqlite_schema; print('legacy SQLite adopted' if adopt_complete_legacy_sqlite_schema('$PostgresUrl', head_revision='0006') else 'migration state unchanged')"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Legacy SQLite inspection failed; database was not modified."
-    }
-}
-& $env:AGENT_PYTHON -m alembic upgrade head
+& $env:AGENT_PYTHON scripts/prepare_database.py --database-url $PostgresUrl
 if ($LASTEXITCODE -ne 0) {
-    throw "Database migration failed; API will not start against an unknown schema."
-}
-if ($PostgresUrl -like "sqlite*") {
-    & $env:AGENT_PYTHON -c "from services.database import create_local_runtime_schema; create_local_runtime_schema('$PostgresUrl')"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Local runtime schema initialization failed; API will not start against an incomplete schema."
-    }
+    throw "Database preparation failed; API will not start against an incomplete schema."
 }
 
-# Uvicorn logs to stderr; with Stop, PowerShell treats that as a terminating error and kills the API.
-$previousErrorAction = $ErrorActionPreference
-$ErrorActionPreference = "Continue"
-try {
-    if ($LogPath) {
-        # Avoid every PowerShell output relay for the long-running ASGI process.
-        # On Windows, redirected/piped child streams can leave Uvicorn listening
-        # while its synchronous request handlers stop receiving execution time.
-        Add-Content -LiteralPath $LogPath -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [paper-console] API process started" -Encoding utf8
-    }
-    & $env:AGENT_PYTHON -m apps.api.local_server --host 127.0.0.1 --port $Port --log-level warning
+if ($LogPath) {
+    Add-Content -LiteralPath $LogPath -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [paper-console] API process started" -Encoding utf8
 }
-finally {
-    $ErrorActionPreference = $previousErrorAction
-}
+
+# Do not invoke the long-running ASGI process through PowerShell's output pipeline.
+# On Windows that can leave Uvicorn listening while request handlers stop running.
+$null = Start-Process -FilePath $env:AGENT_PYTHON `
+    -ArgumentList @("-m", "apps.api.local_server", "--host", "127.0.0.1", "--port", $Port, "--log-level", "warning") `
+    -WorkingDirectory $Root `
+    -WindowStyle Hidden `
+    -PassThru

@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { request, streamUrl } from "../api/client";
 
 const MAX_TRADES = 80;
-const asArray = (value) => (Array.isArray(value) ? value : []);
 const LOCAL_CONSOLE_API_ONLY = import.meta.env.VITE_LOCAL_CONSOLE_API_ONLY === "true";
+const asArray = (value) => (Array.isArray(value) ? value : []);
 
 export function useConsoleData(symbol, perpSymbol, timeframe) {
   const [state, setState] = useState({
@@ -221,12 +221,12 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
         .catch(() => undefined);
     };
     pollBinance();
-    const timer = window.setInterval(pollBinance, 5000);
+    const timer = window.setInterval(pollBinance, 30000);
     return () => window.clearInterval(timer);
   }, [state.error]);
 
   useEffect(() => {
-    if (state.error || LOCAL_CONSOLE_API_ONLY) {
+    if (state.error) {
       setState((current) => ({ ...current, streamStatus: "offline" }));
       return undefined;
     }

@@ -18,3 +18,10 @@ def test_celery_beat_schedule_contains_7x24_paper_loop_tasks() -> None:
         == "services.notifications_tasks.dispatch_notification_outbox"
     )
     assert schedule["poll-news-feeds-every-3-minutes"]["task"] == "services.data.tasks.poll_news_feeds"
+
+
+def test_celery_worker_requeues_unacknowledged_tasks_after_worker_loss() -> None:
+    assert celery_app.conf.task_acks_late is True
+    assert celery_app.conf.task_reject_on_worker_lost is True
+    assert celery_app.conf.task_track_started is True
+    assert celery_app.conf.worker_prefetch_count == 1

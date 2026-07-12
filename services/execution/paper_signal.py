@@ -236,6 +236,7 @@ class PaperSignalGenerator:
                 "strategy_lane": "carry",
                 "funding_rate": str(signal.funding_rate) if signal.funding_rate is not None else None,
                 "funding_bps": funding_bps,
+                "round_trip_cost_bps": signal.round_trip_cost_bps,
                 "estimated_net_edge_bps": estimated_net,
                 "funding_threshold_bps": threshold_bps,
                 "min_estimated_net_edge_bps": min_net_edge_bps,

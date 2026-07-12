@@ -6,7 +6,12 @@ import contextlib
 from typing import Protocol
 
 from services.data.universe import FIXED_TOP20_SYMBOLS
-from shared.models import TestnetAcceptanceOrderEvidence, TestnetAcceptanceRunRequest, TestnetAcceptanceRunResult
+from shared.models import (
+    TestnetAcceptanceOrderEvidence,
+    TestnetAcceptanceRunRequest,
+    TestnetAcceptanceRunResult,
+    TestnetAcceptanceSymbolResult,
+)
 
 from .risk_tiers import default_asset_risk_tiers, resolve_asset_risk_tier
 
@@ -51,17 +56,19 @@ class TestnetAcceptanceService:
         tiers = request.asset_risk_tiers or default_asset_risk_tiers()
         completed: list[str] = []
         evidence: list[TestnetAcceptanceOrderEvidence] = []
+        symbol_results: list[TestnetAcceptanceSymbolResult] = []
         failed_symbol: str | None = None
         error_summary: str | None = None
         compensation_attempted = False
 
         for index, symbol in enumerate(symbols):
             tier = resolve_asset_risk_tier(symbol, tiers)
-            notional = equity * tier.max_position_fraction
+            notional = min(equity * tier.max_position_fraction, request.max_notional_usdt)
             reference_price = self.gateway.fetch_last_price(symbol)
             stoploss_price = reference_price * (1 - request.stoploss_bps / 10_000)
             self.gateway.set_leverage(symbol=symbol, leverage=tier.leverage)
             protection_refs: list[dict] = []
+            order_refs: list[str] = []
             try:
                 opened = self.gateway.submit_acceptance_order(
                     symbol=symbol,
@@ -73,6 +80,7 @@ class TestnetAcceptanceService:
                     idempotency_key=f"{request.idempotency_key or 'acceptance'}-{index}-open",
                 )
                 evidence.append(self._evidence(opened, leverage=tier.leverage, action="open"))
+                order_refs.append(str(opened.get("gateway_order_id", "")))
                 protection_refs = list(opened.get("protection_order_refs", []))
                 closed = self.gateway.submit_acceptance_order(
                     symbol=symbol,
@@ -84,11 +92,26 @@ class TestnetAcceptanceService:
                     idempotency_key=f"{request.idempotency_key or 'acceptance'}-{index}-close",
                 )
                 evidence.append(self._evidence(closed, leverage=tier.leverage, action="close"))
+                order_refs.append(str(closed.get("gateway_order_id", "")))
                 completed.append(symbol)
+                symbol_results.append(
+                    TestnetAcceptanceSymbolResult(
+                        symbol=symbol,
+                        run_status="completed",
+                        final_stage="closed",
+                        leverage=tier.leverage,
+                        requested_notional=notional,
+                        reference_price=reference_price,
+                        order_refs=[ref for ref in order_refs if ref],
+                        protection_order_refs=self._protection_ids(protection_refs),
+                        final_position_status="flat",
+                    )
+                )
             except Exception as exc:  # noqa: BLE001 - compensation must run for gateway failures
                 failed_symbol = symbol
                 error_summary = str(exc)
                 compensation_attempted = True
+                compensation_succeeded = False
                 try:
                     compensated = self.gateway.submit_acceptance_order(
                         symbol=symbol,
@@ -100,8 +123,27 @@ class TestnetAcceptanceService:
                         idempotency_key=f"{request.idempotency_key or 'acceptance'}-{index}-compensate",
                     )
                     evidence.append(self._evidence(compensated, leverage=tier.leverage, action="compensate"))
+                    order_refs.append(str(compensated.get("gateway_order_id", "")))
+                    compensation_succeeded = True
                 except Exception as compensation_exc:  # noqa: BLE001
                     error_summary = f"{error_summary}; compensation failed: {compensation_exc}"
+                symbol_results.append(
+                    TestnetAcceptanceSymbolResult(
+                        symbol=symbol,
+                        run_status="failed",
+                        final_stage="compensated" if compensation_succeeded else "compensation_failed",
+                        leverage=tier.leverage,
+                        requested_notional=notional,
+                        reference_price=reference_price,
+                        order_refs=[ref for ref in order_refs if ref],
+                        protection_order_refs=self._protection_ids(protection_refs),
+                        compensation_attempted=True,
+                        compensation_succeeded=compensation_succeeded,
+                        final_position_status="flat" if compensation_succeeded else "residual_possible",
+                        failure_class=type(exc).__name__,
+                        error_summary=error_summary,
+                    )
+                )
                 break
             finally:
                 for ref in protection_refs:
@@ -110,6 +152,19 @@ class TestnetAcceptanceService:
                         continue
                     with contextlib.suppress(Exception):
                         self.gateway.cancel_protection_order(symbol=symbol, gateway_order_id=order_id)
+
+        processed = {item.symbol for item in symbol_results}
+        for symbol in symbols:
+            if symbol not in processed:
+                symbol_results.append(
+                    TestnetAcceptanceSymbolResult(
+                        symbol=symbol,
+                        run_status="skipped",
+                        final_stage="not_started",
+                        final_position_status="not_checked",
+                        failure_class="stopped_after_failure",
+                    )
+                )
 
         final = self.gateway.final_state()
         open_orders = list(final.get("open_orders", []))
@@ -126,11 +181,20 @@ class TestnetAcceptanceService:
             failed_symbol=failed_symbol,
             filled_order_count=sum(1 for item in evidence if item.gateway_status == "filled"),
             orders=evidence,
+            symbol_results=symbol_results,
             compensation_attempted=compensation_attempted,
             final_open_position_count=len(open_positions),
             final_open_order_count=len(open_orders),
             error_summary=error_summary,
         )
+
+    @staticmethod
+    def _protection_ids(refs: list[dict]) -> list[str]:
+        return [
+            order_id
+            for ref in refs
+            if (order_id := str(ref.get("gateway_order_id") or ref.get("algoId") or ref.get("id") or ""))
+        ]
 
     @staticmethod
     def _evidence(raw: dict, *, leverage: float, action: str) -> TestnetAcceptanceOrderEvidence:

@@ -131,7 +131,7 @@ def test_funding_arbitrage_signal_rejects_negative_net_edge(api_client, db_sessi
     assert "negative_net_edge" in body["rejection_reasons"]
 
 
-def test_funding_arbitrage_signal_accepts_positive_funding_after_costs(api_client, db_session) -> None:
+def test_funding_arbitrage_signal_rejects_when_four_leg_costs_exceed_funding_income(api_client, db_session) -> None:
     repo = DataRepository(db_session)
     now = datetime.now(UTC).replace(microsecond=0)
     repo.store_ohlcv_bars(
@@ -177,6 +177,8 @@ def test_funding_arbitrage_signal_accepts_positive_funding_after_costs(api_clien
 
     assert response.status_code == 200
     body = response.json()
-    assert body["should_enter_paper"] is True
-    assert body["estimated_net_edge_bps"] > 0
+    assert body["should_enter_paper"] is False
+    assert body["estimated_net_edge_bps"] == -9.0
+    assert body["round_trip_cost_bps"] == 24.0
+    assert "negative_net_edge" in body["rejection_reasons"]
     assert body["recommended_strategy_template"]["source"] == "binance_funding_arbitrage"

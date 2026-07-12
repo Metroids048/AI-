@@ -25,12 +25,12 @@ export function OpsConsole() {
   });
   const news = useQuery({
     queryKey: ["ops-news"],
-    queryFn: () => request("/api/v1/market/news?limit=20&refresh=true"),
+    queryFn: () => request("/api/v1/market/news?limit=20"),
     refetchInterval: 30000,
   });
   const macro = useQuery({
     queryKey: ["ops-macro-events"],
-    queryFn: () => request("/api/v1/market/macro-events?limit=20&refresh=true"),
+    queryFn: () => request("/api/v1/market/macro-events?limit=20"),
     refetchInterval: 30000,
   });
   const intelligence = useQuery({
@@ -68,6 +68,11 @@ export function OpsConsole() {
       </header>
 
       <AutoEngineStatusBadge status={tradingStatus.data} />
+      {health.isError || tradingStatus.isError ? (
+        <section className="action-message error" role="alert">
+          运维状态接口不可用，当前页面数据不能作为系统正常运行的证据。
+        </section>
+      ) : null}
       <section className="form-row">
         <button type="button" onClick={() => refreshIntelligence.mutate()} disabled={refreshIntelligence.isPending}>
           {refreshIntelligence.isPending ? "刷新中" : "刷新市场情报"}
@@ -199,9 +204,16 @@ export function OpsConsole() {
 
 function schedulerRows(status) {
   if (!status) return [];
+  const taskRows = Object.entries(status.task_run_counts ?? {}).map(([name, count]) => ({
+    name,
+    value: `runs ${count} / failures ${status.task_failure_counts?.[name] ?? 0} / last ${formatTime(status.task_last_success_at?.[name])}`,
+  }));
   return [
     { name: "last_auto_cycle_at", value: formatTime(status.last_auto_cycle_at) },
     { name: "next_cycle_eta_seconds", value: status.next_cycle_eta_seconds ?? "-" },
     { name: "scheduler_error", value: status.scheduler_error ?? "none" },
+    { name: "top20_coverage", value: `${status.top20_coverage_count ?? 0}/${status.fixed_top20_count ?? 20}` },
+    { name: "queue_backlog", value: status.queue_backlog_status ?? "not_probed" },
+    ...taskRows,
   ];
 }

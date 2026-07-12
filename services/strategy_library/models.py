@@ -441,3 +441,14 @@ class PositionSnapshot(Base):
     mark_price: Mapped[float] = mapped_column(Float)
     unrealized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     snapshot_time: Mapped[datetime] = mapped_column(index=True)
+
+
+class StrategyRoadmapState(Base):
+    __tablename__ = "strategy_roadmap_states"
+
+    item_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    audit_history: Mapped[list] = mapped_column(JSON, default=list)
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())

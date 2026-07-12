@@ -30,6 +30,7 @@ from apps.api.routers import (
     risk,
     runs,
     strategies,
+    strategy_library,
     system,
 )
 from services.execution.bootstrap import (
@@ -114,16 +115,18 @@ async def http_exception_handler(_, exc: StarletteHTTPException) -> JSONResponse
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_, exc: RequestValidationError) -> JSONResponse:
+    serializable_errors = [{key: value for key, value in error.items() if key != "ctx"} for error in exc.errors()]
     payload = ApiError(
         error_code="validation_error",
         message="request validation failed",
-        detail={"errors": exc.errors()},
+        detail={"errors": serializable_errors},
     )
     return JSONResponse(status_code=422, content=payload.model_dump(mode="json"))
 
 
 for router in (
     strategies.router,
+    strategy_library.router,
     backtests.router,
     runs.router,
     risk.router,

@@ -68,6 +68,22 @@ from .market_intelligence import (
     MarketIntelligenceProviderStatus,
     MarketIntelligenceSignal,
 )
+from .playbook import (
+    DecisionStage,
+    ExitRule,
+    ExternalStrategySource,
+    LlmRagBoundary,
+    OptimizationRoadmapItem,
+    PlaybookMetadata,
+    PositionSizingPolicy,
+    RoadmapAuditEntry,
+    RoadmapStatus,
+    RoadmapUpdate,
+    ScopedDefault,
+    StrategyChannel,
+    StrategyPlaybook,
+    TechnicalSignalDefinition,
+)
 from .research_source import (
     ResearchSourceAsset,
     ResearchSourceIdeaExtractionRequest,
@@ -143,6 +159,7 @@ from .workflow import (
     TestnetAcceptanceRunRequest,
     TestnetAcceptanceRunResult,
     TestnetAcceptanceRunStatus,
+    TestnetAcceptanceSymbolResult,
 )
 
 __all__ = [
@@ -183,6 +200,20 @@ __all__ = [
     "MarketIntelligenceFeatureSnapshot",
     "MarketIntelligenceProviderStatus",
     "MarketIntelligenceSignal",
+    "PlaybookMetadata",
+    "StrategyChannel",
+    "DecisionStage",
+    "TechnicalSignalDefinition",
+    "ExitRule",
+    "ScopedDefault",
+    "PositionSizingPolicy",
+    "LlmRagBoundary",
+    "ExternalStrategySource",
+    "RoadmapAuditEntry",
+    "RoadmapStatus",
+    "RoadmapUpdate",
+    "OptimizationRoadmapItem",
+    "StrategyPlaybook",
     # backtest
     "BacktestReport",
     "GateDecision",
@@ -257,6 +288,7 @@ __all__ = [
     "TestnetAcceptanceRunRequest",
     "TestnetAcceptanceRunResult",
     "TestnetAcceptanceRunStatus",
+    "TestnetAcceptanceSymbolResult",
     "PaperRunRequest",
     "PaperRunStatusUpdate",
     "PaperRunStepRequest",

@@ -270,8 +270,8 @@
     "source_id": "superalgos",
     "name": "Superalgos",
     "repo_url": "https://github.com/Superalgos/Superalgos",
-    "license": "AGPL-3.0",
-    "license_policy": "distilled_research_only",
+    "license": "Apache-2.0",
+    "license_policy": "distilled_research_allowed",
     "project_role": "crypto_strategy_shapes",
     "asset_categories": [
       "visual_strategy",
@@ -301,8 +301,8 @@
       "grid_market_making",
       "visual_research_workflow"
     ],
-    "license_notes": "AGPL source must not be copied into platform runtime; use as high-level research reference only.",
-    "source_notes": "Extract visual strategy/paper-trading workflow concepts and classify as research notes."
+    "license_notes": "Apache-2.0 at the 2026-07-12 GitHub snapshot; absorb architecture and product patterns only, without adding the Node.js runtime.",
+    "source_notes": "Extract staged trigger-entry-manage-exit lifecycle and visual plug-in strategy-market concepts."
   },
   {
     "source_id": "qbot",
@@ -751,5 +751,85 @@
     ],
     "license_notes": "Supplemental research source; RL output must not bypass validation or risk gates.",
     "source_notes": "Candidate for future research experiments, not live execution."
+  },
+  {
+    "source_id": "lumen",
+    "name": "Lumen",
+    "repo_url": "https://github.com/wajdan121/lumen",
+    "license": "MIT",
+    "license_policy": "distilled_research_allowed",
+    "project_role": "llm_research_workflow",
+    "asset_categories": ["multi_agent", "deterministic_risk", "binance_testnet", "portfolio_ledger"],
+    "crypto_relevance": "high",
+    "priority": 240,
+    "asset_allowlist": [{"path": "README.md", "asset_type": "research_workflow", "extraction_tags": ["risk_filters", "portfolio_ledger", "testnet"]}],
+    "asset_denylist": [".env", "secrets", "credentials", "private_key", "token"],
+    "strategy_extraction_targets": ["risk_filters", "portfolio_ledger", "agent_boundary"],
+    "license_notes": "MIT; mechanisms must still be converted into platform rules and independently implemented.",
+    "source_notes": "Study deterministic risk filters around LLM agents and portfolio-ledger separation."
+  },
+  {
+    "source_id": "hydraquant",
+    "name": "HydraQuant",
+    "repo_url": "https://github.com/ymcbzrgn/HydraQuant",
+    "license": "GPL-3.0",
+    "license_policy": "distilled_research_only",
+    "project_role": "llm_research_workflow",
+    "asset_categories": ["rag", "evidence_first_signals", "agent_orchestration", "risk_learning"],
+    "crypto_relevance": "high",
+    "priority": 241,
+    "asset_allowlist": [{"path": "README.md", "asset_type": "research_workflow", "extraction_tags": ["rag_taxonomy", "evidence_chain", "risk"]}],
+    "asset_denylist": [".env", "secrets", "credentials", "private_key", "token", "user_data/config"],
+    "strategy_extraction_targets": ["rag_taxonomy", "evidence_chain", "review_memory"],
+    "license_notes": "GPL-3.0; distilled research notes only and no runtime code copying.",
+    "source_notes": "Study evidence-first signal citations and RAG taxonomy for future vector retrieval and Review attribution."
+  },
+  {
+    "source_id": "basis_funding_arbitrage_bot",
+    "name": "basis-funding-arbitrage-bot",
+    "repo_url": "https://github.com/MRowhani/basis-funding-arbitrage-bot",
+    "license": "MIT",
+    "license_policy": "distilled_research_allowed",
+    "project_role": "crypto_strategy_shapes_candidate",
+    "asset_categories": ["funding_arbitrage", "basis", "delta_neutral", "rust_engine"],
+    "crypto_relevance": "high",
+    "priority": 242,
+    "asset_allowlist": [{"path": "README.md", "asset_type": "strategy_shape", "extraction_tags": ["dual_leg", "basis", "funding"]}],
+    "asset_denylist": [".env", "secrets", "credentials", "private_key"],
+    "strategy_extraction_targets": ["dual_leg_state_machine", "basis_exit", "reconciliation"],
+    "license_notes": "MIT; use state-machine ideas only and keep the Python execution engine independent.",
+    "source_notes": "Compare delta-neutral spot/perpetual leg lifecycle, basis exits, and recovery handling."
+  },
+  {
+    "source_id": "hedge_fund_committee",
+    "name": "hedge-fund-committee",
+    "repo_url": "https://github.com/HenryLinyy/hedge-fund-committee",
+    "license": "MIT",
+    "license_policy": "distilled_research_allowed",
+    "project_role": "llm_research_workflow",
+    "asset_categories": ["multi_agent", "bull_bear_debate", "risk_audit", "pm_signoff"],
+    "crypto_relevance": "medium",
+    "priority": 243,
+    "asset_allowlist": [{"path": "README.md", "asset_type": "research_workflow", "extraction_tags": ["debate", "risk_audit", "signoff"]}],
+    "asset_denylist": [".env", "secrets", "credentials", "token"],
+    "strategy_extraction_targets": ["review_debate", "risk_audit", "review_signoff"],
+    "license_notes": "MIT; research committee roles cannot produce executable orders.",
+    "source_notes": "Study explicit bull/bear debate, risk audit, and PM sign-off for Review Agent evolution."
+  },
+  {
+    "source_id": "riverflow_apex",
+    "name": "RiverFlow-Apex",
+    "repo_url": "https://github.com/Arjo216/RiverFlow-Apex",
+    "license": "MIT",
+    "license_policy": "distilled_research_allowed",
+    "project_role": "llm_research_workflow",
+    "asset_categories": ["pgvector_rag", "consensus", "bracket_orders", "immutable_audit"],
+    "crypto_relevance": "medium",
+    "priority": 244,
+    "asset_allowlist": [{"path": "README.md", "asset_type": "architecture_note", "extraction_tags": ["vector_rag", "consensus", "audit"]}],
+    "asset_denylist": [".env", "secrets", "credentials", "private_key", "token"],
+    "strategy_extraction_targets": ["vector_rag", "consensus_gate", "immutable_audit"],
+    "license_notes": "MIT; independently implement only after validation against platform safety boundaries.",
+    "source_notes": "Study pgvector evidence retrieval, consensus gates, and immutable decision audit trails."
   }
 ]

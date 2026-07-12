@@ -154,8 +154,24 @@ def test_trading_status_api_reports_effective_mock_auto_execution(api_client, mo
     assert body["auto_execution_state"] == "armed"
     assert body["fixed_top20_count"] == 20
     assert body["backend_build_id"] == "test-build"
+    assert "task_run_counts" in body
+    assert "task_failure_counts" in body
+    assert "top20_coverage_count" in body
+    assert body["queue_backlog_status"] == "not_probed"
     assert "api_secret" not in str(body).lower()
     assert "api_key" not in str(body).lower()
+
+
+def test_trading_status_reports_external_desktop_scheduler(api_client, monkeypatch) -> None:
+    from apps.api.routers import runs as runs_router
+
+    monkeypatch.setattr(runs_router, "_local_scheduler_process_running", lambda: True)
+
+    response = api_client.get("/api/v1/execution/trading-status")
+
+    assert response.status_code == 200
+    assert response.json()["scheduler_mode"] == "external_local"
+    assert response.json()["scheduler_running"] is True
 
 
 def test_manual_trading_context_is_paper_only_and_reused(api_client) -> None:

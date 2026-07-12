@@ -1357,6 +1357,14 @@ class ExecutionRepository:
         row = self.session.get(models.OrderExecution, order_execution_id)
         return _order_execution_from_orm(row) if row else None
 
+    def find_order_by_gateway_order_id(self, gateway_order_id: str) -> OrderExecution | None:
+        row = (
+            self.session.query(models.OrderExecution)
+            .filter(models.OrderExecution.gateway_order_id == gateway_order_id)
+            .one_or_none()
+        )
+        return _order_execution_from_orm(row) if row else None
+
     def find_latest_filled_entry_order(self, *, run_type: str, run_id: str, symbol: str) -> OrderExecution | None:
         query = (
             self.session.query(models.OrderExecution)

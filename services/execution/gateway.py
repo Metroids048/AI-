@@ -749,6 +749,7 @@ def probe_testnet_account(
                         status=str(raw.get("status", "")),
                         quantity=float(raw.get("origQty") or 0),
                         avg_price=float(raw["avgPrice"]) if raw.get("avgPrice") else None,
+                        reduce_only=bool(raw.get("reduceOnly", False)),
                         update_time=int(raw["updateTime"]) if raw.get("updateTime") else None,
                     )
                 )

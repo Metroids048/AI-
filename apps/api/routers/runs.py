@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import sys
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
@@ -26,6 +29,7 @@ from services.execution import (
     PaperSignalGenerator,
     configured_gateways,
 )
+from services.execution.demo_audit import BinanceDemoAuditService
 from services.execution.gateway import BinanceUsdtPerpetualGateway, probe_testnet_account
 from services.execution.manual_context import ManualTradingContextService
 from services.execution.scheduler import runtime_scheduler_status
@@ -150,6 +154,15 @@ def _testnet_acceptance_service() -> TestnetAcceptanceService:
     return TestnetAcceptanceService(gateway=BinanceUsdtPerpetualGateway(use_testnet=True))
 
 
+def _demo_audit_service(db: Session) -> BinanceDemoAuditService:
+    return BinanceDemoAuditService(
+        strategy_repo=StrategyRepository(db),
+        validation_repo=ValidationRepository(db),
+        paper_repo=PaperRunRepository(db),
+        execution_repo=ExecutionRepository(db),
+    )
+
+
 def _carry_execution_service() -> CarryExecutionService:
     return CarryExecutionService(
         spot_gateway=BinanceSpotTestnetGateway(),
@@ -187,6 +200,31 @@ def _carry_status(task: AgentTask) -> CarryExecutionStatus:
     )
 
 
+def _local_scheduler_process_running() -> bool:
+    """Expose the separately launched desktop scheduler without any network probe."""
+
+    try:
+        pid_path = Path(__file__).resolve().parents[3] / "logs" / "scheduler.pid"
+        scheduler_pid = int(pid_path.read_text(encoding="ascii").strip())
+    except (OSError, ValueError):
+        return False
+
+    if sys.platform == "win32":
+        import ctypes
+
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, scheduler_pid)
+        if not handle:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+
+    try:
+        os.kill(scheduler_pid, 0)
+    except OSError:
+        return False
+    return True
+
+
 @router.get("/paper-runs", response_model=CollectionResponse[PaperRun])
 def list_paper_runs(db: Session = Depends(get_db_session)) -> CollectionResponse[PaperRun]:
     return collection_response(_paper_repo(db).list_paper_runs())
@@ -210,6 +248,9 @@ def get_trading_status() -> TradingRuntimeStatus:
     if not settings.binance_use_testnet:
         notes.append("binance_use_testnet is false; manual testnet trading is disabled by policy")
     scheduler_status = runtime_scheduler_status()
+    external_scheduler_running = _local_scheduler_process_running()
+    heartbeat = scheduler_status.last_results.get("market_data_heartbeat", {})
+    heartbeat_symbols = heartbeat.get("checked_symbols", []) if isinstance(heartbeat, dict) else []
     return TradingRuntimeStatus(
         exchange="binance",
         mode="testnet" if settings.binance_use_testnet and credentials_configured else "paper",
@@ -222,11 +263,18 @@ def get_trading_status() -> TradingRuntimeStatus:
         auto_execution_state=auto_execution_state,
         fixed_top20_count=20,
         backend_build_id=settings.app_build_id,
-        scheduler_mode=scheduler_status.mode,
-        scheduler_running=scheduler_status.running,
+        scheduler_mode="external_local" if external_scheduler_running else scheduler_status.mode,
+        scheduler_running=external_scheduler_running or scheduler_status.running,
         last_auto_cycle_at=scheduler_status.last_auto_cycle_at,
         next_cycle_eta_seconds=scheduler_status.next_cycle_eta_seconds,
         scheduler_error=scheduler_status.scheduler_error,
+        task_run_counts=dict(scheduler_status.run_counts),
+        task_failure_counts=dict(scheduler_status.failure_counts),
+        task_last_results=dict(scheduler_status.last_results),
+        task_last_success_at=dict(scheduler_status.last_success_at),
+        task_last_failure_at=dict(scheduler_status.last_failure_at),
+        top20_coverage_count=len(heartbeat_symbols) if isinstance(heartbeat_symbols, list) else 0,
+        queue_backlog_status="not_probed",
         live_feed_status=live_feed_bus.status(),
         notes=notes,
     )
@@ -289,6 +337,10 @@ def create_testnet_acceptance_run(
             or task
         )
         return _acceptance_status(task)
+    _demo_audit_service(db).record_acceptance(
+        acceptance_run_id=task.agent_task_id or "",
+        result=result,
+    )
     task = (
         repo.update_task(
             task.agent_task_id or "",
@@ -417,9 +469,13 @@ def get_carry_execution(
 
 
 @router.get("/binance-testnet-account", response_model=BinanceTestnetAccountStatus)
-def get_binance_testnet_account() -> BinanceTestnetAccountStatus:
+def get_binance_testnet_account(db: Session = Depends(get_db_session)) -> BinanceTestnetAccountStatus:
     """Live Testnet account probe — use this when Binance web UI is geo-blocked."""
-    return probe_testnet_account()
+    account = probe_testnet_account()
+    audit_service = _demo_audit_service(db)
+    audit_service.record_account_snapshot(account)
+    audit_service.record_recent_account_orders(account)
+    return account
 
 
 @router.get("/manual-trading-context", response_model=ManualTradingContext)
@@ -563,9 +619,14 @@ def update_paper_run_status(
     body: PaperRunStatusUpdate,
     db: Session = Depends(get_db_session),
 ) -> PaperRun:
-    updated = _paper_repo(db).update_paper_run_status(paper_run_id, body.paper_status)
+    paper_repo = _paper_repo(db)
+    run = paper_repo.get_paper_run(paper_run_id)
+    if run is None:
+        raise not_found("paper_run", paper_run_id)
+    updated = paper_repo.update_paper_run_status(paper_run_id, body.paper_status)
     if updated is None:
         raise not_found("paper_run", paper_run_id)
+    StrategyRepository(db).update_lifecycle_status(run.strategy_id, paper_status=body.paper_status)
     return updated
 
 

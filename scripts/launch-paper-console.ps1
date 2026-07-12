@@ -1,5 +1,5 @@
 param(
-    [int]$ApiPort = 8000,
+    [int]$ApiPort = 8016,
     [int]$FrontendPort = 5173,
     [string]$DatabasePath = ".local_paper_console.db"
 )
@@ -17,6 +17,7 @@ $ApiLog = Join-Path $LogsDir "api.log"
 $FrontendLog = Join-Path $LogsDir "frontend.log"
 $StartupLog = Join-Path $LogsDir "startup-last.log"
 $ApiPidFile = Join-Path $LogsDir "api.pid"
+$SchedulerPidFile = Join-Path $LogsDir "scheduler.pid"
 $FrontendPidFile = Join-Path $LogsDir "frontend.pid"
 $DbPath = Join-Path $Root $DatabasePath
 $SqliteUrl = "sqlite:///$($DbPath.Replace('\', '/'))"
@@ -107,7 +108,23 @@ function Test-ProjectListener([int]$Port) {
     if (-not $listener) { return $false }
     $ownerInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)" -ErrorAction SilentlyContinue
     $commandLine = [string]$ownerInfo.CommandLine
-    return $commandLine -match "apps\.api\.(main|local_server)" -or $commandLine -match "量化项目.*vite\.js"
+    if ($commandLine -match "apps\.api\.(main|local_server)") {
+        return $commandLine -match "--local-console"
+    }
+    return $commandLine -match "量化项目.*vite\.js"
+}
+
+function Stop-RecordedScheduler {
+    if (-not (Test-Path -LiteralPath $SchedulerPidFile)) { return }
+    $recordedPid = (Get-Content -LiteralPath $SchedulerPidFile -Raw).Trim()
+    if ($recordedPid -match '^\d+$') {
+        $ownerInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $recordedPid" -ErrorAction SilentlyContinue
+        if ([string]$ownerInfo.CommandLine -match "run-local-paper-scheduler\.py") {
+            Write-Step "stopping prior local scheduler (pid $recordedPid)"
+            Stop-ProcessTree -RootPid ([int]$recordedPid)
+        }
+    }
+    Remove-Item -LiteralPath $SchedulerPidFile -Force -ErrorAction SilentlyContinue
 }
 
 function Open-Frontend([string]$Url) {
@@ -170,23 +187,24 @@ function Ensure-Runtime {
         $env:PAPER_CONSOLE_SKIP_BACKGROUND_BOOTSTRAP = "false"
     }
     $env:POSTGRES_URL = $SqliteUrl
+    $env:VITE_API_BASE_URL = "http://127.0.0.1:$ApiPort"
     $env:APP_ENV = "development"
     $env:BINANCE_USE_TESTNET = "true"
+    $env:LIVE_TRADING_ENABLED = "false"
+    $env:RUNTIME_SCHEDULER_MODE = "inprocess"
+    $env:RUNTIME_SCHEDULER_AUTOSTART = "true"
+    $env:BINANCE_LIVE_UNIVERSE_ENABLED = "true"
+    $env:BINANCE_LIVE_MARKET_ENABLED = "true"
+    $env:BINANCE_LIVE_WS_ENABLED = if ($env:PAPER_CONSOLE_DISABLE_LIVE_WS -eq "true") { "false" } else { "true" }
     $env:PAPER_CONSOLE_API_ONLY = "true"
-    $env:VITE_LOCAL_CONSOLE_API_ONLY = "true"
-    Write-Step "API scheduler isolation enabled; acceptance and Carry remain available on demand"
+    Remove-Item Env:VITE_LOCAL_CONSOLE_API_ONLY -ErrorAction SilentlyContinue
+    Write-Step "starting isolated Paper scheduler; Testnet mirror remains cost-gated"
 }
 
 function Initialize-LocalDatabase {
     Write-Step "preparing local database"
-    & $env:AGENT_PYTHON -c "from services.database import reset_database_caches; reset_database_caches()" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Local database cache reset failed." }
-    & $env:AGENT_PYTHON -c "from services.database import adopt_complete_legacy_sqlite_schema; print('legacy SQLite adopted' if adopt_complete_legacy_sqlite_schema('$SqliteUrl', head_revision='0006') else 'migration state unchanged')" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Legacy SQLite inspection failed; database was not modified." }
-    & $env:AGENT_PYTHON -m alembic upgrade head | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Database migration failed; API will not start against an unknown schema." }
-    & $env:AGENT_PYTHON -c "from services.database import create_local_runtime_schema; create_local_runtime_schema('$SqliteUrl')" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Local runtime schema initialization failed; API will not start against an incomplete schema." }
+    & $env:AGENT_PYTHON scripts/prepare_database.py --database-url $SqliteUrl | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Local database preparation failed; API will not start against an incomplete schema." }
 }
 
 $apiReady = Test-EndpointReady $ApiHealthUrl
@@ -212,12 +230,24 @@ if (-not $frontendReady) { Stop-RecordedProcess $FrontendPidFile $FrontendPort }
 
 if (-not $apiReady) {
     Write-Step "starting API http://127.0.0.1:$ApiPort"
+    # Start Uvicorn directly. PowerShell wrapper processes can retain inherited
+    # handles and make the Windows ASGI server accept connections without serving them.
     $apiProcess = Start-Process -FilePath $env:AGENT_PYTHON `
         -ArgumentList @("-m", "apps.api.local_server", "--host", "127.0.0.1", "--port", $ApiPort, "--log-level", "warning", "--local-console") `
         -WorkingDirectory $Root `
+        -WindowStyle Hidden `
         -PassThru
     Set-Content -LiteralPath $ApiPidFile -Value $apiProcess.Id -Encoding ascii
 }
+
+Stop-RecordedScheduler
+$schedulerScript = Join-Path $PSScriptRoot "run-local-paper-scheduler.py"
+$schedulerProcess = Start-Process -FilePath $env:AGENT_PYTHON `
+    -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl) `
+    -WorkingDirectory $Root `
+    -WindowStyle Hidden `
+    -PassThru
+Set-Content -LiteralPath $SchedulerPidFile -Value $schedulerProcess.Id -Encoding ascii
 
 if (-not $frontendReady) {
     Write-Step "starting frontend http://127.0.0.1:$FrontendPort"

@@ -32,20 +32,20 @@ export function ExecutionAcceptancePanel({ onRunAcceptance, onRunCarry, fundingS
   return (
     <section className="exchange-panel acceptance-panel">
       <div className="panel-title">
-        <h2>模拟盘验收</h2>
-        <span>Testnet only</span>
+        <h2>交易连通性验收</h2>
+        <span>仅币安模拟盘</span>
       </div>
       <div className="acceptance-actions">
         <div>
-          <strong>Top20 开平闭环</strong>
-          <p>20 个币逐币开仓和平仓，目标 40 笔成交，最终零持仓零挂单。</p>
-          <button type="button" onClick={onRunAcceptance}>运行 20 币验收</button>
+          <strong>固定 20 币连通性验收</strong>
+          <p>逐币开仓后立即平仓，目标是验证下单、平仓和对账链路；这些成交不计入策略收益。</p>
+          <button type="button" onClick={onRunAcceptance}>执行连通性验收</button>
         </div>
         <div>
-          <strong>BTC 双腿 Carry</strong>
-          <p>Spot 买入 + Futures 做空；任一腿失败立即补偿。</p>
+          <strong>BTC 双腿资金费率对冲</strong>
+          <p>现货买入、永续做空；任一腿失败会立即补偿并回到零净敞口。</p>
           <button type="button" onClick={onRunCarry} disabled={!fundingSignal?.should_enter_paper}>
-            运行双腿 Carry
+            执行双腿对冲
           </button>
         </div>
       </div>

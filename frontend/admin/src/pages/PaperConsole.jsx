@@ -133,11 +133,15 @@ export function PaperConsole() {
         setActionMessage("Carry 回测已提交。");
       }
       if (type === "testnetAcceptance") {
+        const approved = window.confirm(
+          "这是基础设施连通性验收，不是自动策略。它会按固定 20 个币种开仓后立即平仓，预计产生 40 笔币安模拟盘成交。确认执行吗？",
+        );
+        if (!approved) return;
         const result = await request("/api/v1/execution/testnet-acceptance-runs", {
           method: "POST",
           body: JSON.stringify({ idempotency_key: `ui-acceptance-${Date.now()}` }),
         });
-        setActionMessage(`Top20 验收：${result.run_status}，成交 ${result.result?.filled_order_count ?? 0} 笔。`);
+        setActionMessage(`基础设施验收：${result.run_status}，已记录 ${result.result?.filled_order_count ?? 0} 笔非策略成交。`);
       }
       if (type === "carryExecution") {
         const result = await request("/api/v1/execution/carry-executions", {

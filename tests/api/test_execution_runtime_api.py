@@ -8,6 +8,8 @@ from shared.models import (
     BacktestEngine,
     BacktestReport,
     BacktestRun,
+    BinanceTestnetAccountStatus,
+    BinanceTestnetOrderView,
     ExchangeAccountSnapshot,
     ExchangeGatewayCapability,
     GateDecision,
@@ -178,3 +180,38 @@ def test_live_reconcile_endpoint_persists_status(api_client, db_session, monkeyp
     assert list_resp.status_code == 200
     assert list_resp.json()["total"] == 1
     assert list_resp.json()["items"][0]["live_run_id"] == live_run_id
+
+
+def test_binance_demo_account_probe_imports_external_fills_once(api_client, db_session, monkeypatch) -> None:
+    monkeypatch.setattr(
+        runs_router,
+        "probe_testnet_account",
+        lambda: BinanceTestnetAccountStatus(
+            connected=True,
+            wallet_balance=5200.0,
+            available_balance=5200.0,
+            recent_orders=[
+                BinanceTestnetOrderView(
+                    order_id="demo-external-1",
+                    symbol="BTCUSDT",
+                    side="SELL",
+                    order_type="MARKET",
+                    status="FILLED",
+                    quantity=0.001,
+                    avg_price=64000.0,
+                    reduce_only=True,
+                )
+            ],
+        ),
+    )
+
+    first = api_client.get("/api/v1/execution/binance-testnet-account")
+    second = api_client.get("/api/v1/execution/binance-testnet-account")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    orders = ExecutionRepository(db_session).list_orders()
+    assert len(orders) == 1
+    assert orders[0].symbol == "BTC/USDT"
+    assert orders[0].close_only_mode is True
+    assert orders[0].entry_context["execution_kind"] == "binance_demo_reconciliation"

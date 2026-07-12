@@ -23,6 +23,7 @@ from .models import (
     Strategy,
     StrategyDraft,
     StrategyIdea,
+    StrategyRoadmapState,
     StrategyVersion,
 )
 from .repository import (
@@ -44,6 +45,7 @@ __all__ = [
     "Base",
     "Strategy",
     "StrategyIdea",
+    "StrategyRoadmapState",
     "StrategyDraft",
     "StrategyVersion",
     "BacktestRun",

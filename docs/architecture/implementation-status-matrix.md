@@ -1,5 +1,14 @@
 # Implementation Status Matrix
 
+## 2026-07-12 Risk Gate and Testnet Acceptance Addendum
+
+- MetaLabel requires at least 20 historical samples; explicit multi-timeframe confirmation fails closed when confirmation evidence is unavailable.
+- Automatic Paper runs default to the fixed operator Top20 and `fixed_operator_top20`, while explicit manual/research scopes remain unchanged.
+- Futures Testnet acceptance returns per-symbol stage, order/protection references, compensation outcome, failure class, and final-state evidence; default requested notional is capped at 120 USDT per symbol.
+- A real external acceptance completed 20/20 symbols and 40 fills with zero final positions and open orders.
+- Celery now uses late acknowledgement and worker-loss requeue; runtime APIs expose task counts, failure counts, last success/failure times, and Top20 heartbeat coverage.
+- Remaining runtime gaps: Spot Testnet credentials are absent, Docker/Compose is unavailable locally, and a two-hour Celery soak has not yet been executed.
+
 ## 2026-07-06 Open-source RAG Assetization Addendum
 
 - `research_source/open_source_strategy_library` 已从“登记清单 + 本地摘要”升级为真实 RAG 资产摄取：`fetch_remote=true` 会按 manifest allowlist 拉取远端资料、写入清洗后的 Markdown、生成 `asset_manifest.json`，并保存 URL、commit/ref、license、sha256、bytes、extraction tags。

@@ -37,6 +37,8 @@ class RuntimeSchedulerStatus:
     run_counts: dict[str, int] = field(default_factory=dict)
     failure_counts: dict[str, int] = field(default_factory=dict)
     last_results: dict[str, Any] = field(default_factory=dict)
+    last_success_at: dict[str, datetime] = field(default_factory=dict)
+    last_failure_at: dict[str, datetime] = field(default_factory=dict)
 
     def model_dump(self) -> dict[str, Any]:
         return {
@@ -49,6 +51,8 @@ class RuntimeSchedulerStatus:
             "run_counts": dict(self.run_counts),
             "failure_counts": dict(self.failure_counts),
             "last_results": dict(self.last_results),
+            "last_success_at": dict(self.last_success_at),
+            "last_failure_at": dict(self.last_failure_at),
         }
 
 
@@ -220,11 +224,13 @@ class RuntimeScheduler:
             result = await asyncio.to_thread(runner)
             self.status.run_counts[name] = self.status.run_counts.get(name, 0) + 1
             self.status.last_results[name] = result
+            self.status.last_success_at[name] = datetime.now(UTC)
             if affects_scheduler_health:
                 self._scheduler_errors.pop(name, None)
         except Exception as exc:  # pragma: no cover - defensive runtime guard
             self.status.failure_counts[name] = self.status.failure_counts.get(name, 0) + 1
             self.status.last_results[name] = {"status": "error", "error": str(exc)}
+            self.status.last_failure_at[name] = datetime.now(UTC)
             if affects_scheduler_health:
                 self._scheduler_errors[name] = str(exc)
         self.status.scheduler_error = "; ".join(

@@ -18,7 +18,7 @@ from shared.config import settings
 from shared.models import PaperRun, RunStatus
 
 
-def test_default_mirror_to_gateway_uses_safe_binance_simulation_boundary(monkeypatch) -> None:
+def test_default_mirror_to_gateway_stays_disabled_until_cost_gate_is_explicitly_armed(monkeypatch) -> None:
     monkeypatch.setattr(settings, "binance_api_key", "")
     monkeypatch.setattr(settings, "binance_api_secret", "")
     assert default_mirror_to_gateway() is False
@@ -31,7 +31,7 @@ def test_default_mirror_to_gateway_uses_safe_binance_simulation_boundary(monkeyp
     assert default_mirror_to_gateway() is False
 
     monkeypatch.setattr(settings, "binance_auto_execute", True)
-    assert default_mirror_to_gateway() is True
+    assert default_mirror_to_gateway() is False
 
     monkeypatch.setattr(settings, "live_trading_enabled", True)
     assert default_mirror_to_gateway() is False
@@ -44,6 +44,14 @@ def test_prepare_run_keeps_mirror_disabled_when_credentials_present(monkeypatch)
         PaperRun(strategy_id="s1", symbol_scope=["BTC/USDT"], execution_profile={})
     )
     assert prepared.execution_profile.get("mirror_to_gateway") is False
+
+
+def test_prepare_run_defaults_to_full_fixed_operator_top20() -> None:
+    prepared = PaperOrchestrationService().prepare_run(PaperRun(strategy_id="strategy-top20"))
+
+    assert len(prepared.symbol_scope) == 20
+    assert prepared.selection_basis == "fixed_operator_top20"
+    assert prepared.symbol_scope[:2] == ["BTC/USDT", "ETH/USDT"]
 
 
 def test_bootstrap_paper_testnet_mirror_does_not_update_running_runs(db_session, monkeypatch) -> None:
@@ -103,10 +111,11 @@ def test_bootstrap_creates_carry_and_directional_runs(db_session, monkeypatch) -
     assert technical_run is not None
     assert carry_run.execution_profile.get("strategy_lane") == "carry"
     assert technical_run.execution_profile.get("strategy_lane") == "directional"
-    assert carry_run.execution_profile.get("execution_mode") == "binance_simulation_first"
-    assert technical_run.execution_profile.get("execution_mode") == "binance_simulation_first"
-    assert carry_run.execution_profile.get("mirror_to_gateway") is True
-    assert technical_run.execution_profile.get("mirror_to_gateway") is True
+    assert carry_run.execution_profile.get("execution_mode") == "paper_only"
+    assert technical_run.execution_profile.get("execution_mode") == "paper_only"
+    assert carry_run.execution_profile.get("mirror_to_gateway") is False
+    assert technical_run.execution_profile.get("mirror_to_gateway") is False
+    assert carry_run.execution_profile.get("cost_gate_verified") is False
     assert carry_run.selection_basis == "fixed_operator_top20"
     assert len(carry_run.candidate_symbols) == 20
 
@@ -133,15 +142,52 @@ def test_bootstrap_operator_experience_strategy_uses_valid_disabled_research_sta
     assert strategy.paper_status is RunStatus.NOT_STARTED
 
 
-def test_console_launcher_migrates_database_before_starting_local_server() -> None:
+def test_console_launcher_migrates_database_without_relaying_api_streams() -> None:
     script = (Path(__file__).resolve().parents[2] / "scripts" / "launch-paper-console.ps1").read_text(encoding="utf-8")
 
-    assert "& $env:AGENT_PYTHON -m alembic upgrade head" in script
-    assert script.index("& $env:AGENT_PYTHON -m alembic upgrade head") < script.index(
-        "Start-Process -FilePath $env:AGENT_PYTHON"
+    assert "scripts/prepare_database.py --database-url $SqliteUrl" in script
+    assert script.index("scripts/prepare_database.py --database-url $SqliteUrl") < script.index(
+        'Start-Process -FilePath $env:AGENT_PYTHON'
     )
-    assert '"--local-console"' in script
+    assert 'Start-Process -FilePath $env:AGENT_PYTHON' in script
+    assert '"--log-level", "warning"' in script
+    assert '"--log-level", "warning", "--local-console")' in script
+    assert "run-api-local.ps1" not in script
+    assert "-RedirectStandardOutput" not in script
+    assert "-RedirectStandardError" not in script
+    assert 'return $commandLine -match "--local-console"' in script
     assert "py -3" not in script
+
+
+def test_local_api_runner_starts_uvicorn_without_powershell_stream_relay() -> None:
+    script = (Path(__file__).resolve().parents[2] / "scripts" / "run-api-local.ps1").read_text(encoding="utf-8")
+
+    assert "Start-Process -FilePath $env:AGENT_PYTHON" in script
+    assert "Wait-Process -Id $apiProcess.Id" not in script
+    assert "& $env:AGENT_PYTHON -m apps.api.local_server" not in script
+    assert "-RedirectStandardOutput" not in script
+    assert "-RedirectStandardError" not in script
+    assert '$env:PAPER_CONSOLE_DISABLE_LIVE_WS = "true"' in script
+    assert '$env:PAPER_CONSOLE_SKIP_BACKGROUND_BOOTSTRAP = "true"' in script
+
+
+def test_console_uses_a_separate_local_scheduler_process() -> None:
+    root = Path(__file__).resolve().parents[2]
+    launcher = (root / "scripts" / "launch-paper-console.ps1").read_text(encoding="utf-8")
+    scheduler = (root / "scripts" / "run-local-paper-scheduler.py").read_text(encoding="utf-8")
+
+    assert '$env:PAPER_CONSOLE_API_ONLY = "true"' in launcher
+    assert "run-local-paper-scheduler.py" in launcher
+    assert "bootstrap_local_paper_runtime(seed_ohlcv=False)" in scheduler
+    assert "scheduler.start()" in scheduler
+
+
+def test_console_defaults_to_a_nonblocked_api_port_and_forwards_it_to_vite() -> None:
+    launcher_path = Path(__file__).resolve().parents[2] / "scripts" / "launch-paper-console.ps1"
+    launcher = launcher_path.read_text(encoding="utf-8")
+
+    assert "[int]$ApiPort = 8016" in launcher
+    assert '$env:VITE_API_BASE_URL = "http://127.0.0.1:$ApiPort"' in launcher
 
 
 def test_console_startup_preserves_operator_auto_execute_setting_and_rotates_logs() -> None:
@@ -154,8 +200,9 @@ def test_console_startup_preserves_operator_auto_execute_setting_and_rotates_log
     assert "Reset-LogFile $ApiLog" in launcher_script
     assert '$env:LOG_LEVEL = "INFO"' in api_script
     assert "create_relational_schema" not in console_script
-    assert "adopt_complete_legacy_sqlite_schema" in launcher_script
-    assert "apps.api.local_server" in launcher_script
-    assert "--log-level warning" in api_script
+    assert "scripts/prepare_database.py" in launcher_script
+    assert 'Start-Process -FilePath $env:AGENT_PYTHON' in launcher_script
+    assert "apps.api.local_server" in api_script
+    assert '"--log-level", "warning"' in api_script
     assert '$env:BINANCE_HTTPS_PROXY = $env:HTTPS_PROXY' in launcher_script
     assert "py -3" not in console_script

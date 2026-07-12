@@ -177,7 +177,7 @@ def test_paper_runtime_auto_cycle_opens_positions_and_updates_status(api_client,
 
 
 def test_paper_runtime_auto_cycle_all_runs_running_paper_runs(api_client, db_session) -> None:
-    _, paper_run_id = _create_validated_paper_run(api_client, db_session)
+    strategy_id, paper_run_id = _create_validated_paper_run(api_client, db_session)
     start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=79)
     _store_trend_bars(
         db_session,
@@ -190,6 +190,9 @@ def test_paper_runtime_auto_cycle_all_runs_running_paper_runs(api_client, db_ses
         json={"paper_status": "running"},
     )
     assert status_resp.status_code == 200
+    strategy = StrategyRepository(db_session).get_strategy(strategy_id)
+    assert strategy is not None
+    assert strategy.paper_status.value == "running"
 
     cycle_resp = api_client.post(
         "/api/v1/execution/paper-runs/auto-cycle-all",

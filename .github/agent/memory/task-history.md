@@ -1,5 +1,22 @@
 # Task History
 
+### [TASK-046] Audit current behavior and add Strategy Library Playbook + ecosystem roadmap
+- **Date**: 2026-07-12
+- **Type**: audit / docs / Strategy Layer API / frontend / persistence
+- **Summary**: Produced a code-line-backed current-state audit; researched and indexed six requested plus five new GitHub ecosystem sources; added typed Playbook contracts, code-derived scoped defaults, migration `0007`, audited roadmap persistence, dedicated API routes, and seven explanatory Strategy Library tabs while preserving the existing Strategy Assets CRUD lifecycle.
+- **Layer mapping**: Strategy Layer owns Playbook definitions and source rules; Data/Research owns external-source manifests; Review owns roadmap audit evidence; frontend is an operator explanation/control surface only. Validation, Gatekeeper, Risk, and exchange execution authority are unchanged.
+- **Research loop served**: external research -> structured source manifest -> operator Playbook/roadmap -> StrategyIdea/Draft -> future separately validated algorithm iteration. Roadmap status cannot directly materialize or execute a strategy.
+- **Verification**: backend `257 passed, 1 skipped, 2 warnings`; frontend `11 files / 30 tests`; Ruff passed; mypy passed for 119 files; production build and diff check passed; clean SQLite migrated `0001 -> 0007`; desktop/mobile Chrome screenshots visually inspected; roadmap PATCH/GET persisted `in_progress` plus audit evidence.
+- **Limits**: Playwright was unavailable, so browser QA used installed Chrome headless as the documented fallback. The pre-task full format gate remains historical debt (65 files) and was not mass-rewritten; only task-touched Python files pass format check. Bundle-size and two dependency deprecation warnings remain.
+
+### [TASK-045] Harden strategy gates and complete bounded Top20 Futures Testnet acceptance
+- **Date**: 2026-07-12
+- **Type**: validation / execution safety / runtime evidence / frontend
+- **Summary**: Added MetaLabel cold-start minimum history, explicit multi-timeframe fail-closed behavior, fixed-Top20 automatic Paper defaults, per-symbol Testnet evidence, a 120 USDT acceptance cap, sanitized preflight tooling, Celery worker-loss recovery semantics, per-task runtime timestamps, six-level Top20 frontend evidence, and a Temporal migration ADR without adding Temporal dependencies.
+- **Layer mapping**: Strategy/Validation owns signal and sample sufficiency; Execution/Risk owns bounded Testnet orders, compensation and flat reconciliation; Ops owns Celery evidence; frontend only displays evidence; Review receives the audit artifact.
+- **Verification**: Real Futures Testnet acceptance completed 20/20 symbols and 40 fills with zero final positions/orders. Final gates: backend `245 passed, 1 deselected`; Ruff passed; mypy passed for 115 files; admin Vitest `24 passed`; production build and npm high-severity audit passed; clean SQLite migration/runtime schema/API health passed.
+- **Limits**: Spot Testnet credentials, Docker/Compose, two-hour Celery soak, pip-audit, and the ordinary Codex Security app scan remain environment/tooling dependent and must not be claimed as complete without fresh evidence.
+
 ### [TASK-044] Merge Codex branch into main and sync GitHub
 - **Date**: 2026-07-12
 - **Type**: git hygiene / sync
@@ -391,6 +408,12 @@
 - **Files changed**: `docs/architecture/{design-source-index.md,report-alignment.md,appendix-b-feature-phasing.md,technical-architecture-plan.md}`, `docs/roadmap/phase-roadmap.md`, `docs/product/{product-spec.md,feature-catalog.md}`, `README.md`, `shared/models/**`, `apps/api/{main.py,config.py,celery_app.py,routers/**}`, `services/data/__init__.py`, `tests/{api,contracts}/**`, `.github/agent/memory/{project-memory.md,decisions-log.md,task-history.md}`
 - **Verification**: `py -3 -m pytest -q` -> 11 passed; `shared.models` targeted import smoke passed; `apps.api.main` import smoke passed with 42 registered routes; compileall passed with a Windows path warning during directory listing but reported `COMPILE_OK`.
 - **Notes**: Local environment still lacks `pytest-asyncio` / `pydantic_settings`; `apps/api/config.py` now contains a minimal fallback path for local smoke tests, while the primary dependency remains declared in `pyproject.toml`.
+
+## 2026-07-12 — Local console reliability, cost gate, and audit retention
+
+- **Summary**: Separated Testnet acceptance fills from strategy performance, persisted Binance demo account snapshots and reconciled orders, fixed funding carry edge calculation to deduct four execution legs, and localized the trading workspace. The desktop console now reads persisted data on API port `8016`; an external scheduler process refreshes markets and runs automatic Paper cycles without blocking the API.
+- **Verification**: API core reads returned 200 in 1-261 ms; local overview retained 10 orders, 10 positions, and 2 account snapshots; scheduler reported running and auto execution armed. Full suite `253 passed, 1 skipped`; Ruff, frontend `26` tests, frontend production build, and `git diff --check` passed.
+- **Notes**: Binance demo account API remains network/credential dependent. Its failure is isolated to the account panel and does not mark the entire console unavailable. Mainnet remains disabled; cost gate still prevents automatic Testnet mirroring until explicit validation evidence exists.
 
 ## 2026-07-08 — Binance Testnet gateway + local paper mirror E2E
 
