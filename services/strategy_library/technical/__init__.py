@@ -7,6 +7,8 @@ from .indicators import (
     generate_adx_trend_signal,
     generate_bollinger_reversion_signal,
     generate_ema_trend_signal,
+    generate_fvg_signal,
+    generate_multi_timeframe_ma_signal,
     generate_rsi_signal,
     generate_vwap_reclaim_signal,
 )
@@ -30,7 +32,9 @@ __all__ = [
     "generate_ema_trend_signal",
     "generate_engulfing_signal",
     "generate_false_breakout_signal",
+    "generate_fvg_signal",
     "generate_macd_signal",
+    "generate_multi_timeframe_ma_signal",
     "generate_pin_bar_signal",
     "generate_price_action_signals",
     "generate_rsi_signal",

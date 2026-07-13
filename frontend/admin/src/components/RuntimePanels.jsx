@@ -15,8 +15,8 @@ const DEFAULT_AUTO_SETTINGS = {
   weekly_loss_limit: 0.08,
   hard_stop_drawdown_limit: 0.15,
   asset_risk_tiers: {
-    core: { tier: "core", symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT"], leverage: 10, max_position_fraction: 0.15 },
-    standard: { tier: "standard", symbols: [], leverage: 5, max_position_fraction: 0.06 },
+    core: { tier: "core", symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT"], leverage: 20, max_position_fraction: 0.15 },
+    standard: { tier: "standard", symbols: [], leverage: 10, max_position_fraction: 0.06 },
   },
   strategy_lanes: ["carry", "trend_breakout", "mean_reversion"],
   stoploss: { atr_multiple: 2, fixed_bps: 250 },
@@ -341,9 +341,9 @@ export function AutoSettingsPanel({ paperRunId, autoSettings, onSave }) {
         <label>移动止损R<input type="number" step="0.1" value={form.takeprofit?.trail_after_r} onChange={(event) => updateNested("takeprofit", "trail_after_r", event.target.value)} /></label>
       </div>
       <div className="risk-tier-preview" aria-label="有效资产风险档位">
-        <div><span>核心币 BTC/ETH/SOL</span><strong>10x · 单币 15%</strong></div>
-        <div><span>其余固定 Top20</span><strong>5x · 单币 6%</strong></div>
-        <div><span>全局强风控</span><strong>最多 5 仓 · 总敞口 50% · 硬回撤 15%</strong></div>
+        {renderTierPreviewRows(form)}
+        <div><span>全局强风控</span><strong>最多 {form.max_open_positions} 仓 · 总敞口 {formatPercent(form.max_total_exposure)} · 硬回撤 {formatPercent(form.hard_stop_drawdown_limit)}</strong></div>
+        <p className="ticket-note">档位随上方杠杆/单币敞口滑块保存后重新计算，保存前展示的是当前生效值。</p>
       </div>
       <div className="ticket-type-tabs">
         <button type="button" className={form.llm_veto_enabled ? "active" : ""} onClick={() => update("llm_veto_enabled", !form.llm_veto_enabled)}>LLM Veto</button>
@@ -474,6 +474,48 @@ function DecisionSummary({ trace }) {
       </div>
     </div>
   );
+}
+
+// Mirrors services/execution/risk_tiers.py TIER_SCALE_RATIOS so the preview matches
+// what the backend will actually persist once "保存自动开单设置" is clicked.
+const TIER_SCALE_RATIOS = {
+  core: { leverage: 1, fraction: 1 },
+  vol_low: { leverage: 0.75, fraction: 0.8 },
+  standard: { leverage: 0.5, fraction: 0.4 },
+  vol_mid: { leverage: 0.4, fraction: 0.4 },
+  vol_high: { leverage: 0.2, fraction: 0.2 },
+};
+
+const TIER_LABELS = {
+  core: "核心币 BTC/ETH/SOL",
+  standard: "其余固定 Top20",
+  vol_low: "低波动分档",
+  vol_mid: "中波动分档",
+  vol_high: "高波动分档",
+};
+
+function formatPercent(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${Math.round(number * 100)}%` : "-";
+}
+
+function renderTierPreviewRows(form) {
+  const tiers = form.asset_risk_tiers ?? {};
+  const maxLeverage = Number(form.max_leverage) || 0;
+  const maxExposure = Number(form.max_symbol_exposure) || 0;
+  const order = ["core", "vol_low", "standard", "vol_mid", "vol_high"];
+  const names = order.filter((name) => tiers[name]).concat(Object.keys(tiers).filter((name) => !order.includes(name)));
+  return names.map((name) => {
+    const ratio = TIER_SCALE_RATIOS[name] ?? { leverage: 1, fraction: 1 };
+    const leverage = Math.max(1, Math.min(125, Math.round(maxLeverage * ratio.leverage * 100) / 100));
+    const fraction = Math.max(0.01, Math.min(1, Math.round(maxExposure * ratio.fraction * 10000) / 10000));
+    return (
+      <div key={name}>
+        <span>{TIER_LABELS[name] ?? name}</span>
+        <strong>{leverage}x · 单币 {formatPercent(fraction)}</strong>
+      </div>
+    );
+  });
 }
 
 function normalizeSettings(value) {

@@ -26,11 +26,18 @@ from shared.models import (
 )
 
 
-def _create_validated_paper_run(api_client, db_session) -> tuple[str, str]:
+def _create_validated_paper_run(
+    api_client,
+    db_session,
+    *,
+    strategy_key: str = "paper_runtime_trend",
+    stoploss_rules: dict | None = None,
+    takeprofit_rules: dict | None = None,
+) -> tuple[str, str]:
     strategy_resp = api_client.post(
         "/api/v1/strategies",
         json={
-            "strategy_key": "paper_runtime_trend",
+            "strategy_key": strategy_key,
             "source": "open_source:freqtrade",
             "core_thesis": "runtime should auto-monitor candidate symbols and keep paper trading inside gates",
             "rules": {
@@ -42,8 +49,8 @@ def _create_validated_paper_run(api_client, db_session) -> tuple[str, str]:
                     "slippage_bps": 0,
                 },
                 "exit_rules": {"max_hold_bars": 48},
-                "stoploss_rules": {"fixed_bps": 5000},
-                "takeprofit_rules": {"risk_reward": 2},
+                "stoploss_rules": stoploss_rules or {"fixed_bps": 5000},
+                "takeprofit_rules": takeprofit_rules or {"risk_reward": 2},
                 "position_rules": {"risk_per_trade": 0.01, "max_leverage": 1},
             },
         },
@@ -273,6 +280,13 @@ def test_paper_run_auto_settings_updates_profile_and_strategy_rules(api_client, 
     assert strategy.rules.position_rules["order_notional_usdt"] == 120
     assert strategy.rules.entry_rules["strategy_lanes"] == ["carry", "trend_breakout"]
 
+    # The operator-set max_leverage (5x) must actually drive the tier table that
+    # PaperSignalGenerator reads at order time — not stay pinned at the stale
+    # default (core=20x) the client echoed back in the request body.
+    tiers = profile["asset_risk_tiers"]
+    assert tiers["core"]["leverage"] == 5
+    assert tiers["standard"]["leverage"] == 2.5
+
 
 def test_order_sync_reconciles_non_btc_orders_across_fixed_top20(api_client, db_session, monkeypatch) -> None:
     from apps.api.routers import runs as runs_router
@@ -368,3 +382,70 @@ def test_paper_runtime_auto_cycle_closes_position_on_opposite_signal(api_client,
     status_resp = api_client.get(f"/api/v1/execution/paper-runs/{paper_run_id}/runtime-status")
     assert status_resp.status_code == 200
     assert status_resp.json()["open_position_symbols"] == []
+
+
+def test_paper_runtime_auto_cycle_partial_closes_via_exit_ladder(api_client, db_session) -> None:
+    _, paper_run_id = _create_validated_paper_run(
+        api_client,
+        db_session,
+        stoploss_rules={"fixed_bps": 200},
+        takeprofit_rules={
+            "exit_ladder": [{"r_multiple": 1.0, "close_fraction": 0.4}],
+            "remainder_trail_after_r": 2.5,
+        },
+    )
+    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=79)
+    closes = _trend_closes(start=Decimal("60000"), step=Decimal("100"))
+    _store_trend_bars(db_session, symbol="BTC/USDT", closes=closes, start_at=start_at)
+
+    first_cycle = api_client.post(
+        f"/api/v1/execution/paper-runs/{paper_run_id}/auto-cycle",
+        json={"symbols": ["BTC/USDT"], "max_symbols": 1, "timeframe": "1h", "enable_decision_veto": False},
+    )
+    assert first_cycle.status_code == 200
+    first_body = first_cycle.json()
+    assert first_body["opened_positions"] == 1
+    assert first_body["actions"][0]["action"] == "open_long"
+
+    # entry_price == last closed 1h bar's close (decision pipeline reference price);
+    # stoploss is deterministic via fixed_bps, so the ladder's L1 trigger price
+    # (entry + risk_distance * r_multiple) is computable without reading the
+    # response back.
+    entry_price = closes[-1]
+    stop_distance = entry_price * Decimal("200") / Decimal("10000")
+    trigger_price = entry_price + stop_distance
+
+    DataRepository(db_session).store_ohlcv_bars(
+        [
+            {
+                "symbol": "BTC/USDT",
+                "exchange": "binance",
+                "timeframe": "1m",
+                "time": datetime.now(UTC).replace(microsecond=0),
+                "open": entry_price,
+                "high": trigger_price + Decimal("50"),
+                "low": entry_price,
+                "close": trigger_price,
+                "volume": Decimal("5"),
+            }
+        ]
+    )
+
+    second_cycle = api_client.post(
+        f"/api/v1/execution/paper-runs/{paper_run_id}/auto-cycle",
+        json={"symbols": ["BTC/USDT"], "max_symbols": 1, "timeframe": "1h", "enable_decision_veto": False},
+    )
+
+    assert second_cycle.status_code == 200
+    body = second_cycle.json()
+    assert body["opened_positions"] == 0
+    assert body["closed_positions"] == 0
+    assert body["open_position_symbols"] == ["BTC/USDT"]
+    ladder_action = body["actions"][0]
+    assert ladder_action["action"] == "exit_ladder_partial_long"
+    assert ladder_action["decision_trace"]["close_fraction"] == 0.4
+    assert ladder_action["decision_trace"]["remaining_quantity"] > 0
+
+    status_resp = api_client.get(f"/api/v1/execution/paper-runs/{paper_run_id}/runtime-status")
+    assert status_resp.status_code == 200
+    assert status_resp.json()["open_position_symbols"] == ["BTC/USDT"]

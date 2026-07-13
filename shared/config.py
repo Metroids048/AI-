@@ -11,6 +11,7 @@ it from there — a layering violation (services must not depend on apps).
 
 from __future__ import annotations
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -52,6 +53,11 @@ class Settings(BaseSettings):
     # Default is fail-safe: automatic research cycles stay local Paper unless the operator opts in.
     binance_auto_execute: bool = False
     gateway_protection_max_distance_bps: float = 800.0
+    # Default order type for automated paper/live entries. No order-book data exists in this
+    # platform, so "limit" prices are always reference_price +/- execution_limit_slippage_bps,
+    # never book-aware. Set to "market" to restore unconditional market-order fills.
+    execution_default_order_type: str = "limit"
+    execution_limit_slippage_bps: float = 5.0
     market_data_heartbeat_seconds: int = 60
     market_data_stale_seconds: int = 120
     # Gatekeeper order-freshness threshold (previously hardcoded to 2h).
@@ -62,7 +68,12 @@ class Settings(BaseSettings):
     daily_review_minute_utc: int = 0
 
     # ---- LLM ----
-    claude_api_key: str = ""
+    # Accept the Anthropic-SDK-conventional ANTHROPIC_API_KEY as an alias so
+    # operators following upstream docs don't silently fall through to the
+    # free-tier providers below with zero indication why.
+    claude_api_key: str = Field(
+        default="", validation_alias=AliasChoices("CLAUDE_API_KEY", "ANTHROPIC_API_KEY")
+    )
     claude_model: str = "claude-sonnet-4-6"
     anthropic_api_base_url: str = "https://api.anthropic.com"
     agent_llm_provider_map: str = ""

@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from services.data import DataRepository
+from services.execution.decision_pipeline import DecisionPipelineResult
 from services.execution.gatekeeper import ExecutionGatekeeperService
 from services.execution.paper_runtime import PaperRuntimeService, _estimated_transaction_cost
 from services.strategy_library import (
@@ -76,6 +77,59 @@ def test_runtime_stoploss_wins_when_stoploss_and_takeprofit_hit_same_bar(db_sess
         take_price=105.0,
     )
     _store_bar(db_session, low=94, high=106, close=104)
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
+    )
+
+    assert result.closed_positions == 1
+    assert result.actions[0].action == "stoploss_close_long"
+    assert result.actions[0].reference_price == 95.0
+
+
+def test_runtime_stoploss_wins_over_opposite_signal_hit_on_same_bar(db_session, monkeypatch) -> None:
+    """Protective triggers must be honored before an opposite-direction signal
+    close, even when both fire on the same bar. Forces the decision pipeline to
+    return a SHORT signal (opposite of the open LONG) on a bar whose low also
+    breaches the stoploss, then asserts the stoploss close wins.
+    """
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+    )
+    PaperRunRepository(db_session).update_paper_run(
+        paper_run.paper_run_id or "",
+        execution_profile={**paper_run.execution_profile, "strategy_lane": "directional"},
+    )
+    _store_bar(db_session, low=94, high=101, close=96)
+    latest = DataRepository(db_session).get_latest_ohlcv_bar(symbol="BTC/USDT", timeframe="1h")
+    assert latest is not None
+
+    def _forced_opposite_signal(*, strategy, symbol, timeframe, **_kwargs) -> DecisionPipelineResult:
+        return DecisionPipelineResult(
+            direction=TradeSide.SHORT,
+            should_trade=True,
+            reason="opposite_signal_forced_for_test",
+            reference_price=Decimal("96"),
+            bar_time=latest.timestamp,
+            signals=[],
+            ensemble=None,
+            meta_label=None,
+            veto_result=None,
+            confidence_multiplier=1.0,
+            atr=None,
+            volatility_context={},
+            trace={"pipeline_status": "forced_short_for_test"},
+        )
+
+    monkeypatch.setattr(
+        runtime.signal_generator.decision_pipeline,
+        "evaluate",
+        _forced_opposite_signal,
+    )
 
     result = runtime.run_cycle(
         paper_run_id=paper_run.paper_run_id or "",

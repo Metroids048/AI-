@@ -20,10 +20,20 @@ from shared.models import (
     TripleBarrierOutcome,
 )
 
-DIRECTION_SOURCES = frozenset({"technical_dow_trend", "technical_ema_trend", "technical_adx"})
-ENTRY_SOURCES = frozenset({"technical_macd", "technical_rsi", "market_intelligence"})
+DIRECTION_SOURCES = frozenset(
+    {"technical_dow_trend", "technical_ema_trend", "technical_adx", "technical_mtf_ma"}
+)
+ENTRY_SOURCES = frozenset({"technical_macd", "technical_rsi", "technical_fvg", "market_intelligence"})
 RANGE_SOURCES = frozenset({"technical_vwap", "technical_bollinger"})
 LAYERED_FUSION_METHOD = "layered_regime_entry"
+
+# Minimum number of DIRECTION_SOURCES that must report before a direction can be
+# resolved at all (fail-closed on thin data), and the quorum a majority is judged
+# against. Originally all 3 direction sources had to unanimously agree; that strict
+# AND-gate was starving entries. This keeps failing closed on missing data or exact
+# ties, but now allows a clear majority (e.g. 2-of-3, or 3-of-4 once mtf_ma reports)
+# to resolve a direction instead of requiring unanimity.
+MIN_DIRECTION_SOURCE_QUORUM = 3
 
 
 class SignalEnsembleService:
@@ -219,6 +229,14 @@ class SignalEnsembleService:
 
     @classmethod
     def _resolve_allowed_direction(cls, signals: list[CandidateSignalSeries]) -> TradeSide | None:
+        """Resolve the regime direction by majority vote across DIRECTION_SOURCES.
+
+        Previously required ALL direction sources to report and unanimously agree,
+        which starved entries whenever any one indicator (e.g. ADX below threshold)
+        simply had nothing to say. Now: fail closed if fewer than
+        MIN_DIRECTION_SOURCE_QUORUM sources report, and fail closed on an exact tie,
+        but otherwise let a clear majority among the sources that did report decide.
+        """
         by_source: dict[str, TradeSide] = {}
         for signal in signals:
             source = cls._signal_source(signal.strategy_id)
@@ -228,12 +246,13 @@ class SignalEnsembleService:
             if existing is not None and existing != signal.direction:
                 return None
             by_source[source] = signal.direction
-        if set(by_source) != DIRECTION_SOURCES:
+        if len(by_source) < MIN_DIRECTION_SOURCE_QUORUM:
             return None
-        directions = set(by_source.values())
-        if len(directions) != 1:
+        long_votes = sum(1 for direction in by_source.values() if direction == TradeSide.LONG)
+        short_votes = sum(1 for direction in by_source.values() if direction == TradeSide.SHORT)
+        if long_votes == short_votes:
             return None
-        return next(iter(directions))
+        return TradeSide.LONG if long_votes > short_votes else TradeSide.SHORT
 
     @classmethod
     def _eligible_layered_signals(

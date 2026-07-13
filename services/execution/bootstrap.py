@@ -30,9 +30,11 @@ AUTO_PAPER_STRATEGY_RULES: dict[str, Any] = {
     "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
     "takeprofit_rules": {"risk_reward": 3.0, "trail_after_r": 1.5},
     "position_rules": {
-        "risk_per_trade": 0.01,
-        "max_leverage": 10,
-        "max_position_fraction": 0.15,
+        # Bumped moderately more aggressive (2026-07 operator request) alongside
+        # the paper-sizing floor fix; risk_per_trade 0.01->0.015, leverage 10->15.
+        "risk_per_trade": 0.015,
+        "max_leverage": 15,
+        "max_position_fraction": 0.18,
         "min_notional_usdt": 20,
     },
 }
@@ -54,6 +56,11 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
             "rsi",
             "vwap",
             "bollinger",
+            # Added 2026-07 alongside the ensemble majority-vote redesign: FVG
+            # gap-fill and true multi-timeframe MA alignment were confirmed gaps
+            # vs the operator's request to weigh more indicator-level factors.
+            "fvg",
+            "mtf_ma",
         ],
         "meta_label_min_win_rate": 0.50,
         "fusion_method": "layered_regime_entry",
@@ -78,13 +85,15 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
         "remainder_trail_after_r": 2.5,
     },
     "position_rules": {
-        # Align with medium RiskProfile: up to 5 opens at 2% stop-risk each.
+        # Align with medium RiskProfile: up to 6 opens at 2.5% stop-risk each.
         # Previous 5% portfolio cap rejected new opens after ~2 positions
         # (portfolio_initial_risk_exceeded), so Top20 scanning looked "dead".
-        "risk_per_trade": 0.02,
-        "max_portfolio_initial_risk_fraction": 0.10,
-        "max_leverage": 20,
-        "max_position_fraction": 0.15,
+        # Bumped moderately more aggressive (2026-07 operator request) alongside
+        # the paper-sizing floor fix; leverage 20->25, max_position_fraction 0.15->0.20.
+        "risk_per_trade": 0.025,
+        "max_portfolio_initial_risk_fraction": 0.15,
+        "max_leverage": 25,
+        "max_position_fraction": 0.20,
         "min_notional_usdt": 20,
     },
 }
@@ -322,6 +331,9 @@ def _ensure_auto_paper_run(
                 "mirror_to_gateway",
                 "execution_mode",
                 "testnet_acceptance_verified_at",
+                # Otherwise a manually-disabled LLM veto silently flips back to
+                # enabled on every bootstrap restart (hardcoded True above).
+                "llm_veto_enabled",
             )
             preserved = {key: previous[key] for key in preserved_keys if key in previous}
             profile = {**previous, **execution_profile, **preserved}

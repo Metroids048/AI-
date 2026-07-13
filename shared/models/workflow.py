@@ -570,6 +570,21 @@ class AgentTask(PlatformModel):
     created_at: datetime | None = None
 
 
+class LLMProviderStatus(PlatformModel):
+    provider: str
+    configured: bool
+    detail: str = ""
+
+
+class LLMStatusResponse(PlatformModel):
+    """Diagnostic view of the LLM runtime fallback chain (no secret values)."""
+
+    providers: list[LLMProviderStatus] = Field(default_factory=list)
+    any_provider_configured: bool = False
+    recent_decision_veto_tasks: list[AgentTask] = Field(default_factory=list)
+    recent_decision_veto_failure_count: int = 0
+
+
 class AgentTaskRequest(PlatformModel):
     agent_type: str
     task_type: str

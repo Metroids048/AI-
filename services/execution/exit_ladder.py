@@ -210,6 +210,41 @@ def apply_level_fill(
     )
 
 
+def next_trailed_stop_price(
+    *,
+    side: str,
+    entry_price: float,
+    current_stop_price: float,
+    initial_distance: float,
+    trail_after_r: float,
+    bar_high: float,
+    bar_low: float,
+) -> float | None:
+    """Ratchet a stop to breakeven once price has moved trail_after_r*initial_distance
+    in the position's favor. Returns the new stop price, or None if the trail hasn't
+    triggered yet or would not improve the current stop.
+
+    Shared by PaperRuntimeService._apply_trailing_ratchet (fixed-stop strategies, and
+    exit-ladder remainders once all partial levels are filled) and the technical
+    validation replay engine's exit-ladder remainder handling, so both production and
+    backtest paths ratchet on identical math.
+    """
+
+    if initial_distance <= 0:
+        return None
+    if side == TradeSide.LONG.value:
+        favorable_move = bar_high - entry_price
+        if favorable_move < trail_after_r * initial_distance:
+            return None
+        next_stop = max(current_stop_price, entry_price)
+        return next_stop if next_stop > current_stop_price else None
+    favorable_move = entry_price - bar_low
+    if favorable_move < trail_after_r * initial_distance:
+        return None
+    next_stop = min(current_stop_price, entry_price)
+    return next_stop if next_stop < current_stop_price else None
+
+
 def store_exit_ladder(metrics: dict[str, Any], state: ExitLadderState) -> dict[str, Any]:
     ladders = dict(metrics.get("exit_ladder", {}))
     ladders[state.symbol] = state.as_dict()

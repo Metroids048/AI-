@@ -19,6 +19,7 @@ from shared.models import (
     DecisionVetoResult,
     ExecutionOrderRequest,
     ExecutionRiskState,
+    OrderType,
     PaperRun,
     PaperRunStepRequest,
     PositionSnapshot,
@@ -78,6 +79,12 @@ class PaperSignalGenerator:
             strategy=strategy,
             atr=decision.atr,
         )
+        order_type = str(strategy.rules.entry_rules.get("order_type", settings.execution_default_order_type))
+        limit_price = self._limit_price(
+            reference_price=reference_price,
+            direction=direction,
+            order_type=order_type,
+        )
         requested_leverage = self._requested_leverage(strategy=strategy, paper_run=paper_run, symbol=symbol)
         requested_notional = self._requested_notional(
             strategy=strategy,
@@ -121,6 +128,8 @@ class PaperSignalGenerator:
                 "paper_signal_source": "paper_signal_generator",
                 "paper_strategy_source": strategy.source,
                 "reference_price": str(reference_price),
+                "order_type": order_type,
+                "limit_price": limit_price,
                 "requested_notional": requested_notional,
                 "requested_leverage": requested_leverage,
                 "estimated_round_trip_cost_bps": self._round_trip_cost_bps(strategy=strategy, symbol=symbol),
@@ -282,6 +291,21 @@ class PaperSignalGenerator:
         return reference_price + stop_distance, max(reference_price - take_distance, Decimal("0.00000001"))
 
     @staticmethod
+    def _limit_price(*, reference_price: Decimal, direction: TradeSide, order_type: str) -> float | None:
+        """Book-unaware limit price: reference_price offset by a configurable slippage buffer.
+
+        No order-book/bid-ask data exists in this platform, so this is intentionally simple —
+        it only bounds how far a resting limit order can chase price, not a real quote.
+        """
+
+        if order_type != OrderType.LIMIT:
+            return None
+        buffer = reference_price * Decimal(str(settings.execution_limit_slippage_bps)) / Decimal("10000")
+        if direction == TradeSide.LONG:
+            return float(reference_price + buffer)
+        return float(max(reference_price - buffer, Decimal("0.00000001")))
+
+    @staticmethod
     def _stop_distance(
         *,
         reference_price: Decimal,
@@ -421,11 +445,14 @@ class PaperSignalGenerator:
                 high_correlation_peer_count += 1
                 max_peer_correlation = max(max_peer_correlation, coefficient)
                 correlated_cluster_exposure += abs(signed_exposure(position, account_equity=denominator))
-        # Prompt 5: discount risk budget by (1-corr) when any same-side peer corr > 0.7.
+        # Discount risk budget by (1-corr) when any same-side peer corr > 0.7, but
+        # never collapse the order to near-zero size: the gatekeeper already hard-rejects
+        # at >=2 correlated peers (correlated_exposure_limit_exceeded), so this path only
+        # ever runs with exactly one correlated peer and should shrink, not zero out, sizing.
         correlation_risk_discount = 1.0
         discounted_notional = float(requested_notional)
         if high_correlation_peer_count > 0 and max_peer_correlation > 0.70:
-            correlation_risk_discount = max(0.0, 1.0 - max_peer_correlation)
+            correlation_risk_discount = max(0.5, 1.0 - max_peer_correlation)
             discounted_notional = float(requested_notional) * correlation_risk_discount
         net_directional_exposure = sum(
             signed_exposure(position, account_equity=denominator) for position in active_positions

@@ -336,7 +336,7 @@ class BinanceUsdtPerpetualGateway:
         )
         direction = str(order_request.direction).lower()
         side = _gateway_order_side(direction=direction, close_only=close_only)
-        order_type = str(order_request.entry_context.get("order_type", "market"))
+        order_type = str(order_request.entry_context.get("order_type") or settings.execution_default_order_type)
         params: dict[str, Any] = {"positionSide": "BOTH"}
         if order_request.idempotency_key:
             params["newClientOrderId"] = _binance_client_order_id(

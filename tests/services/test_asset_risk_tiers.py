@@ -6,6 +6,7 @@ from services.execution.risk_tiers import (
     build_volatility_asset_risk_tiers,
     default_asset_risk_tiers,
     resolve_asset_risk_tier,
+    scale_asset_risk_tiers,
 )
 from shared.models import PaperRun, StrategyContract, StrategyRules
 from shared.models.risk import medium_risk_profile
@@ -44,11 +45,11 @@ def test_default_asset_risk_tiers_separate_core_and_standard_symbols() -> None:
     standard = resolve_asset_risk_tier("XRP/USDT", tiers)
 
     assert core.tier == "core"
-    assert core.leverage == 20
-    assert core.max_position_fraction == 0.15
+    assert core.leverage == 25
+    assert core.max_position_fraction == 0.20
     assert standard.tier == "standard"
-    assert standard.leverage == 10
-    assert standard.max_position_fraction == 0.06
+    assert standard.leverage == 15
+    assert standard.max_position_fraction == 0.09
 
 
 def test_dynamic_volatility_tiers_preferred_when_present() -> None:
@@ -70,10 +71,10 @@ def test_dynamic_volatility_tiers_preferred_when_present() -> None:
     pepe = resolve_asset_risk_tier("PEPE/USDT", tiers)
 
     assert btc.tier == "vol_low"
-    assert btc.leverage == 15
+    assert btc.leverage == 20
     assert pepe.tier == "vol_high"
-    assert pepe.leverage == 4
-    assert pepe.max_position_fraction == 0.03
+    assert pepe.leverage == 6
+    assert pepe.max_position_fraction == 0.05
 
 
 def test_resolve_falls_back_to_core_standard_without_dynamic_tiers() -> None:
@@ -118,17 +119,52 @@ def test_tier_position_fraction_caps_notional_without_multiplying_leverage() -> 
         stoploss_price=Decimal("0.975"),
     )
 
-    assert core_leverage == 20
-    assert core_notional == 1_500
-    assert standard_notional == 600
+    # Tier defaults were bumped moderately more aggressive per operator request
+    # (core 20x/0.15 -> 25x/0.20, standard 10x/0.06 -> 15x/0.09); expected notional
+    # scales with the new max_position_fraction caps.
+    assert core_leverage == 25
+    assert core_notional == 2_000
+    assert standard_notional == 900
+
+
+def test_scale_asset_risk_tiers_tracks_operator_sliders() -> None:
+    scaled = scale_asset_risk_tiers(
+        default_asset_risk_tiers(),
+        max_leverage=5,
+        max_symbol_exposure=0.10,
+    )
+
+    assert scaled["core"]["leverage"] == 5
+    assert scaled["core"]["max_position_fraction"] == 0.10
+    assert scaled["standard"]["leverage"] == 2.5
+    assert scaled["standard"]["max_position_fraction"] == 0.04
+    # Symbol assignments from the source tiers must survive the rescale.
+    assert scaled["core"]["symbols"] == list(default_asset_risk_tiers()["core"]["symbols"])
+
+
+def test_scale_asset_risk_tiers_preserves_dynamic_volatility_buckets() -> None:
+    dynamic = build_volatility_asset_risk_tiers({"BTC/USDT": 0.01, "PEPE/USDT": 0.09})
+
+    scaled = scale_asset_risk_tiers(dynamic, max_leverage=10, max_symbol_exposure=0.20)
+
+    assert scaled["vol_low"]["leverage"] == 7.5
+    assert scaled["vol_high"]["leverage"] == 2.0
+    assert scaled["vol_low"]["symbols"] == dynamic["vol_low"]["symbols"]
+
+
+def test_scale_asset_risk_tiers_falls_back_to_defaults_when_missing() -> None:
+    scaled = scale_asset_risk_tiers(None, max_leverage=8, max_symbol_exposure=0.12)
+
+    assert scaled["core"]["leverage"] == 8
+    assert scaled["standard"]["leverage"] == 4
 
 
 def test_medium_risk_profile_allows_core_tier_but_keeps_hard_limits() -> None:
     profile = medium_risk_profile()
 
-    assert profile.max_leverage == 20
-    assert profile.max_symbol_exposure == 0.15
-    assert profile.max_total_exposure == 0.50
-    assert profile.max_open_positions == 5
-    assert profile.daily_loss_limit == 0.05
-    assert profile.hard_stop_drawdown_limit == 0.20
+    assert profile.max_leverage == 25
+    assert profile.max_symbol_exposure == 0.20
+    assert profile.max_total_exposure == 0.60
+    assert profile.max_open_positions == 6
+    assert profile.daily_loss_limit == 0.06
+    assert profile.hard_stop_drawdown_limit == 0.22

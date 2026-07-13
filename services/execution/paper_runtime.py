@@ -19,6 +19,7 @@ from services.execution.exit_ladder import (
     level_hit,
     level_trigger_price,
     next_pending_level,
+    next_trailed_stop_price,
 )
 from services.execution.gatekeeper import ExecutionGatekeeperService
 from services.execution.gateway import ExchangeGateway, gateway_symbol_available
@@ -1095,6 +1096,10 @@ class PaperRuntimeService:
                     "requested_notional": quantity * close_price,
                     "quantity": quantity,
                     "reduce_only": True,
+                    # Exits always favor fill-certainty over price improvement, same as the
+                    # manual close_position() path — a resting limit exit could miss a stop.
+                    "order_type": "market",
+                    "limit_price": None,
                 },
                 "stoploss_plan": {},
                 "takeprofit_plan": {},
@@ -1322,22 +1327,17 @@ class PaperRuntimeService:
         if levels.stop_price is None or levels.original_stop_price is None or levels.trail_after_r is None:
             return levels
         initial_distance = abs(position.entry_price - levels.original_stop_price)
-        if initial_distance <= 0:
+        next_stop = next_trailed_stop_price(
+            side=position.side.value,
+            entry_price=position.entry_price,
+            current_stop_price=levels.stop_price,
+            initial_distance=initial_distance,
+            trail_after_r=levels.trail_after_r,
+            bar_high=float(bar.high),
+            bar_low=float(bar.low),
+        )
+        if next_stop is None:
             return levels
-        if position.side == TradeSide.LONG:
-            favorable_move = float(bar.high) - position.entry_price
-            if favorable_move < levels.trail_after_r * initial_distance:
-                return levels
-            next_stop = max(levels.stop_price, position.entry_price)
-            if next_stop <= levels.stop_price:
-                return levels
-        else:
-            favorable_move = position.entry_price - float(bar.low)
-            if favorable_move < levels.trail_after_r * initial_distance:
-                return levels
-            next_stop = min(levels.stop_price, position.entry_price)
-            if next_stop >= levels.stop_price:
-                return levels
         trailing_state[position.symbol] = {
             "stop_price": next_stop,
             "original_stop_price": levels.original_stop_price,
@@ -1753,6 +1753,12 @@ class PaperRuntimeService:
         reference_price = Decimal(str(order.entry_context.get("reference_price", "0")))
         requested_notional = Decimal(str(order.entry_context.get("requested_notional", "0")))
         quantity = float(requested_notional / reference_price) if reference_price > 0 else 0.0
+        # Mirror the gateway path's min-notional floor so a correlation- or
+        # confidence-discounted requested_notional can never simulate a
+        # near-zero paper fill that has no testing value.
+        min_notional = float(order.entry_context.get("min_notional_usdt", 50.0))
+        if reference_price > 0 and quantity * float(reference_price) < min_notional:
+            quantity = min_notional / float(reference_price)
         return self.execution_repo.create_position_snapshot(
             PositionSnapshot(
                 run_type="paper",

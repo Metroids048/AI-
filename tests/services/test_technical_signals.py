@@ -8,10 +8,30 @@ from services.strategy_library.technical import (
     generate_dow_trend_signal,
     generate_ema_trend_signal,
     generate_false_breakout_signal,
+    generate_fvg_signal,
     generate_macd_signal,
+    generate_multi_timeframe_ma_signal,
     generate_rsi_signal,
     generate_vwap_reclaim_signal,
 )
+
+
+def _frame_from_ohlc(opens: list[float], highs: list[float], lows: list[float], closes: list[float]) -> pd.DataFrame:
+    return pd.DataFrame(
+        {"open": opens, "high": highs, "low": lows, "close": closes, "volume": [100.0] * len(closes)},
+        index=pd.date_range("2024-01-01", periods=len(closes), freq="h", tz="UTC"),
+    )
+
+
+def _trend_frame(length: int, *, start: float, step: float) -> pd.DataFrame:
+    closes = [start + index * step for index in range(length)]
+    spread = abs(step) * 2 + 0.5
+    return _frame_from_ohlc(
+        opens=closes,
+        highs=[value + spread for value in closes],
+        lows=[value - spread for value in closes],
+        closes=closes,
+    )
 
 
 def test_macd_generates_structured_signal() -> None:
@@ -190,3 +210,70 @@ def test_vwap_reclaim_and_bollinger_reentry_are_directional() -> None:
     bollinger = generate_bollinger_reversion_signal(stretched_frame, symbol="BTC/USDT")
     assert bollinger is not None
     assert bollinger.side.value == "long"
+
+
+def test_fvg_signal_fires_long_on_bullish_gap_retest_and_reclaim() -> None:
+    opens = [100.0] * 10 + [100.0, 100.6, 102.5, 102.0]
+    highs = [100.5] * 10 + [100.5, 101.0, 103.0, 98.5]
+    lows = [99.5] * 10 + [99.5, 100.2, 102.0, 101.5]
+    closes = [100.0] * 10 + [100.0, 100.6, 102.5, 103.0]
+    highs[-1] = 103.5
+    lows[-1] = 101.0
+    frame = _frame_from_ohlc(opens, highs, lows, closes)
+
+    signal = generate_fvg_signal(frame, symbol="BTC/USDT", lookback=10)
+
+    assert signal is not None
+    assert signal.source == "technical_fvg"
+    assert signal.side.value == "long"
+    assert signal.reason == "fvg_bullish_gap_fill_reclaim"
+
+
+def test_fvg_signal_fires_short_on_bearish_gap_retest_and_rejection() -> None:
+    opens = [100.0] * 10 + [100.0, 100.6, 97.5, 98.0]
+    highs = [100.5] * 10 + [100.5, 101.0, 98.0, 98.5]
+    lows = [99.5] * 10 + [99.5, 100.2, 97.0, 96.5]
+    closes = [100.0] * 10 + [100.0, 100.6, 97.5, 97.0]
+    frame = _frame_from_ohlc(opens, highs, lows, closes)
+
+    signal = generate_fvg_signal(frame, symbol="BTC/USDT", lookback=10)
+
+    assert signal is not None
+    assert signal.source == "technical_fvg"
+    assert signal.side.value == "short"
+    assert signal.reason == "fvg_bearish_gap_fill_rejection"
+
+
+def test_fvg_signal_returns_none_when_frame_too_short() -> None:
+    frame = _frame_from_ohlc([100.0] * 5, [100.5] * 5, [99.5] * 5, [100.0] * 5)
+
+    assert generate_fvg_signal(frame, symbol="BTC/USDT", lookback=10) is None
+
+
+def test_multi_timeframe_ma_signal_confirms_when_all_timeframes_align() -> None:
+    frames = {
+        "15m": _trend_frame(20, start=100.0, step=1.0),
+        "1h": _trend_frame(20, start=100.0, step=1.0),
+    }
+
+    signal = generate_multi_timeframe_ma_signal(frames, symbol="BTC/USDT", fast=5, slow=10)
+
+    assert signal is not None
+    assert signal.source == "technical_mtf_ma"
+    assert signal.side.value == "long"
+    assert signal.reason == "multi_timeframe_ma_alignment"
+
+
+def test_multi_timeframe_ma_signal_fails_closed_on_disagreement() -> None:
+    frames = {
+        "15m": _trend_frame(20, start=100.0, step=1.0),
+        "1h": _trend_frame(20, start=100.0, step=-1.0),
+    }
+
+    assert generate_multi_timeframe_ma_signal(frames, symbol="BTC/USDT", fast=5, slow=10) is None
+
+
+def test_multi_timeframe_ma_signal_requires_at_least_two_timeframes() -> None:
+    frames = {"15m": _trend_frame(20, start=100.0, step=1.0)}
+
+    assert generate_multi_timeframe_ma_signal(frames, symbol="BTC/USDT", fast=5, slow=10) is None

@@ -29,7 +29,9 @@ from services.strategy_library.technical import (
     generate_dow_trend_signal,
     generate_ema_trend_signal,
     generate_false_breakout_signal,
+    generate_fvg_signal,
     generate_macd_signal,
+    generate_multi_timeframe_ma_signal,
     generate_price_action_signals,
     generate_rsi_signal,
     generate_vwap_reclaim_signal,
@@ -63,6 +65,8 @@ DEFAULT_TECHNICAL_SIGNALS: frozenset[str] = frozenset(
         "adx",
         "vwap",
         "bollinger",
+        "fvg",
+        "mtf_ma",
     }
 )
 
@@ -76,6 +80,11 @@ _SIGNAL_ALIASES = {
     "fake_breakdown": "false_breakout",
     "boll": "bollinger",
     "bbands": "bollinger",
+    "fair_value_gap": "fvg",
+    "gap_fill": "fvg",
+    "mtf": "mtf_ma",
+    "multi_timeframe_ma": "mtf_ma",
+    "multi_tf_ma": "mtf_ma",
 }
 
 
@@ -170,6 +179,11 @@ class DecisionPipeline:
                         confidence=market_intelligence_signal.confidence,
                     ),
                 ]
+
+        if "mtf_ma" in enabled_signals:
+            mtf_ma_signal = self._mtf_ma_signal(strategy=strategy, symbol=symbol, timeframe=timeframe, frame=frame)
+            if mtf_ma_signal is not None:
+                signals = [*signals, mtf_ma_signal]
 
         multi_timeframe = self._multi_timeframe_confirmation(
             strategy=strategy,
@@ -311,7 +325,42 @@ class DecisionPipeline:
             candidates.append(generate_vwap_reclaim_signal(frame, symbol=symbol))
         if "bollinger" in enabled_signals:
             candidates.append(generate_bollinger_reversion_signal(frame, symbol=symbol))
+        if "fvg" in enabled_signals:
+            candidates.append(generate_fvg_signal(frame, symbol=symbol))
         return [signal for signal in candidates if signal is not None]
+
+    def _mtf_ma_signal(
+        self,
+        *,
+        strategy: StrategyContract,
+        symbol: str,
+        timeframe: str,
+        frame: pd.DataFrame,
+    ) -> TradeSignal | None:
+        """Build the multi-timeframe frame set from the strategy's own configured
+        state/confirmation timeframes (rather than introducing new config) and
+        require EMA alignment across all of them before confirming a direction.
+        """
+        if frame.empty:
+            return None
+        frames: dict[str, pd.DataFrame] = {timeframe: frame}
+        state_timeframe = strategy.rules.entry_rules.get("state_timeframe")
+        if state_timeframe and str(state_timeframe) != timeframe:
+            state_frame = _bars_to_frame(
+                self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=str(state_timeframe), limit=240)
+            )
+            if not state_frame.empty:
+                frames[str(state_timeframe)] = state_frame
+        confirm_timeframe = _confirmation_timeframe(strategy=strategy, entry_timeframe=timeframe)
+        if confirm_timeframe != timeframe and confirm_timeframe not in frames:
+            confirm_frame = _bars_to_frame(
+                self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=confirm_timeframe, limit=240)
+            )
+            if not confirm_frame.empty:
+                frames[confirm_timeframe] = confirm_frame
+        if len(frames) < 2:
+            return None
+        return generate_multi_timeframe_ma_signal(frames, symbol=symbol)
 
     def _multi_timeframe_confirmation(
         self,
@@ -487,6 +536,24 @@ class DecisionPipeline:
                 },
             )
         )
+        if task.schema_validation_status == "provider_unavailable" and self.notification_repo is not None:
+            # De-duped per day via the same create_notification no-op-if-exists
+            # pattern as the budget-exceeded notification above. Previously this
+            # failure mode was completely silent -> nobody noticed the LLM veto
+            # chain had never actually run.
+            self.notification_repo.create_notification(
+                NotificationOutboxItem(
+                    notification_id=f"llm_provider_unavailable:{datetime.now(UTC).date().isoformat()}",
+                    event_type="llm_provider_unavailable",
+                    severity="high",
+                    subject="Decision Veto LLM runtime unavailable",
+                    body=(
+                        "decision_veto_agent could not reach any configured LLM provider "
+                        f"(fail-closed veto applied): {task.error_summary}"
+                    ),
+                    source_ref=f"agent_task:{task.agent_task_id}",
+                )
+            )
         payload = task.output_payload.get("veto_result", {})
         if not isinstance(payload, dict):
             return DecisionVetoResult(

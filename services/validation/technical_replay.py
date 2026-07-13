@@ -28,6 +28,7 @@ from services.execution.exit_ladder import (
     level_hit,
     level_trigger_price,
     next_pending_level,
+    next_trailed_stop_price,
 )
 from services.execution.paper_signal import PaperSignalGenerator
 from services.validation.metrics import annualized_sharpe, max_drawdown_from_pnls, profit_factor, win_rate
@@ -728,72 +729,47 @@ class TechnicalStrategyValidationService:
                 trail_after_r=trail_after,
             )
 
-        # Remainder trail: once all ladder levels filled, ratchet stop to entry after trail_after_r.
+        # Remainder trail: once all ladder levels filled, ratchet stop to entry after
+        # trail_after_r. Shares its math with PaperRuntimeService._apply_trailing_ratchet
+        # via next_trailed_stop_price so backtest and live paths ratchet identically.
         if ladder.all_levels_executed and position.trail_after_r is not None:
             initial_distance = abs(position.entry_price - float(ladder.initial_stop_price))
-            if initial_distance > 0:
-                if position.side == TradeSide.LONG:
-                    favorable = float(bar.high) - position.entry_price
-                    if favorable >= position.trail_after_r * initial_distance:
-                        next_stop = max(float(ladder.current_stop_price), position.entry_price)
-                        if next_stop > float(ladder.current_stop_price):
-                            ladder = ExitLadderState(
-                                symbol=ladder.symbol,
-                                side=ladder.side,
-                                entry_price=ladder.entry_price,
-                                original_quantity=ladder.original_quantity,
-                                remaining_quantity=ladder.remaining_quantity,
-                                initial_stop_price=ladder.initial_stop_price,
-                                current_stop_price=next_stop,
-                                levels=ladder.levels,
-                                remainder_trail_after_r=ladder.remainder_trail_after_r,
-                                locked_level1_price=ladder.locked_level1_price,
-                            )
-                            position = _OpenPosition(
-                                symbol=position.symbol,
-                                side=position.side,
-                                opened_at=position.opened_at,
-                                entry_price=position.entry_price,
-                                stop_price=next_stop,
-                                take_price=0.0,
-                                fee_bps=position.fee_bps,
-                                slippage_bps=position.slippage_bps,
-                                original_stop=position.original_stop,
-                                remaining_fraction=position.remaining_fraction,
-                                ladder=ladder,
-                                trail_after_r=position.trail_after_r,
-                            )
-                else:
-                    favorable = position.entry_price - float(bar.low)
-                    if favorable >= position.trail_after_r * initial_distance:
-                        next_stop = min(float(ladder.current_stop_price), position.entry_price)
-                        if next_stop < float(ladder.current_stop_price):
-                            ladder = ExitLadderState(
-                                symbol=ladder.symbol,
-                                side=ladder.side,
-                                entry_price=ladder.entry_price,
-                                original_quantity=ladder.original_quantity,
-                                remaining_quantity=ladder.remaining_quantity,
-                                initial_stop_price=ladder.initial_stop_price,
-                                current_stop_price=next_stop,
-                                levels=ladder.levels,
-                                remainder_trail_after_r=ladder.remainder_trail_after_r,
-                                locked_level1_price=ladder.locked_level1_price,
-                            )
-                            position = _OpenPosition(
-                                symbol=position.symbol,
-                                side=position.side,
-                                opened_at=position.opened_at,
-                                entry_price=position.entry_price,
-                                stop_price=next_stop,
-                                take_price=0.0,
-                                fee_bps=position.fee_bps,
-                                slippage_bps=position.slippage_bps,
-                                original_stop=position.original_stop,
-                                remaining_fraction=position.remaining_fraction,
-                                ladder=ladder,
-                                trail_after_r=position.trail_after_r,
-                            )
+            next_stop = next_trailed_stop_price(
+                side=position.side.value,
+                entry_price=position.entry_price,
+                current_stop_price=float(ladder.current_stop_price),
+                initial_distance=initial_distance,
+                trail_after_r=position.trail_after_r,
+                bar_high=float(bar.high),
+                bar_low=float(bar.low),
+            )
+            if next_stop is not None:
+                ladder = ExitLadderState(
+                    symbol=ladder.symbol,
+                    side=ladder.side,
+                    entry_price=ladder.entry_price,
+                    original_quantity=ladder.original_quantity,
+                    remaining_quantity=ladder.remaining_quantity,
+                    initial_stop_price=ladder.initial_stop_price,
+                    current_stop_price=next_stop,
+                    levels=ladder.levels,
+                    remainder_trail_after_r=ladder.remainder_trail_after_r,
+                    locked_level1_price=ladder.locked_level1_price,
+                )
+                position = _OpenPosition(
+                    symbol=position.symbol,
+                    side=position.side,
+                    opened_at=position.opened_at,
+                    entry_price=position.entry_price,
+                    stop_price=next_stop,
+                    take_price=0.0,
+                    fee_bps=position.fee_bps,
+                    slippage_bps=position.slippage_bps,
+                    original_stop=position.original_stop,
+                    remaining_fraction=position.remaining_fraction,
+                    ladder=ladder,
+                    trail_after_r=position.trail_after_r,
+                )
         return closed, position
 
     @staticmethod

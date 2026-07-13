@@ -13,10 +13,13 @@ CORE_SYMBOLS = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
 VOLATILITY_TIER_NAMES = ("vol_low", "vol_mid", "vol_high")
 
 # Proposed defaults (operator can override via execution_profile): higher vol → tighter caps.
+# Bumped moderately more aggressive per operator request (2026-07): simulation-first
+# sizing was collapsing to near-zero notional (see paper_signal/paper_runtime fix),
+# so caps were raised alongside that fix to keep paper runs genuinely testable.
 VOLATILITY_TIER_DEFAULTS: dict[str, dict[str, float]] = {
-    "vol_low": {"leverage": 15.0, "max_position_fraction": 0.12},
-    "vol_mid": {"leverage": 8.0, "max_position_fraction": 0.06},
-    "vol_high": {"leverage": 4.0, "max_position_fraction": 0.03},
+    "vol_low": {"leverage": 20.0, "max_position_fraction": 0.16},
+    "vol_mid": {"leverage": 12.0, "max_position_fraction": 0.09},
+    "vol_high": {"leverage": 6.0, "max_position_fraction": 0.05},
 }
 
 
@@ -25,16 +28,58 @@ def default_asset_risk_tiers() -> dict[str, dict[str, Any]]:
         "core": AssetRiskTierSettings(
             tier="core",
             symbols=list(CORE_SYMBOLS),
-            leverage=20,
-            max_position_fraction=0.15,
+            leverage=25,
+            max_position_fraction=0.20,
         ).model_dump(mode="json"),
         "standard": AssetRiskTierSettings(
             tier="standard",
             symbols=[],
-            leverage=10,
-            max_position_fraction=0.06,
+            leverage=15,
+            max_position_fraction=0.09,
         ).model_dump(mode="json"),
     }
+
+
+# Relative risk ordering used to rescale tiers when an operator moves the
+# max_leverage / max_symbol_exposure sliders. Each tuple is (leverage_ratio,
+# max_position_fraction_ratio) applied against the slider value, preserving the
+# core > vol_low > standard > vol_mid > vol_high risk ordering while anchoring
+# the highest-privilege tier to the operator's chosen ceiling.
+TIER_SCALE_RATIOS: dict[str, tuple[float, float]] = {
+    "core": (1.0, 1.0),
+    "vol_low": (0.75, 0.8),
+    "standard": (0.5, 0.4),
+    "vol_mid": (0.4, 0.4),
+    "vol_high": (0.2, 0.2),
+}
+
+
+def scale_asset_risk_tiers(
+    tiers: Mapping[str, Any] | None,
+    *,
+    max_leverage: float,
+    max_symbol_exposure: float,
+) -> dict[str, dict[str, Any]]:
+    """Rescale existing tier leverage/max_position_fraction to track operator sliders.
+
+    Symbol assignments (e.g. from the weekly ATR% volatility sweep) are preserved
+    as-is; only the numeric leverage/max_position_fraction of each known tier is
+    rescaled against TIER_SCALE_RATIOS, so "core" always tracks the slider value
+    directly and lower tiers stay proportionally tighter.
+    """
+
+    source: Mapping[str, Any] = tiers if tiers else default_asset_risk_tiers()
+    scaled: dict[str, dict[str, Any]] = {}
+    for name, raw in source.items():
+        if str(name).startswith("_") or not isinstance(raw, (dict, AssetRiskTierSettings)):
+            continue
+        payload = raw.model_dump(mode="json") if isinstance(raw, AssetRiskTierSettings) else dict(raw)
+        leverage_ratio, fraction_ratio = TIER_SCALE_RATIOS.get(name, (1.0, 1.0))
+        payload["leverage"] = max(1.0, min(125.0, round(max_leverage * leverage_ratio, 2)))
+        payload["max_position_fraction"] = max(0.01, min(1.0, round(max_symbol_exposure * fraction_ratio, 4)))
+        payload.setdefault("tier", name)
+        scaled[name] = AssetRiskTierSettings.model_validate(payload).model_dump(mode="json")
+    return scaled
 
 
 def _normalize_symbol(symbol: str) -> str:

@@ -1245,6 +1245,16 @@ class AgentTaskRepository:
         rows = self.session.query(models.AgentTask).order_by(models.AgentTask.created_at.desc()).limit(limit).all()
         return [_agent_task_from_orm(row) for row in rows]
 
+    def list_tasks_by_agent_type(self, *, agent_type: str, limit: int = 50) -> list[AgentTask]:
+        rows = (
+            self.session.query(models.AgentTask)
+            .filter(models.AgentTask.agent_type == agent_type)
+            .order_by(models.AgentTask.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [_agent_task_from_orm(row) for row in rows]
+
     def has_verified_testnet_acceptance(self) -> bool:
         """Acceptance proof must not depend on the generic recent-task window.
 

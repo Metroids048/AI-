@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Callable
 
@@ -21,6 +22,8 @@ from shared.models import (
     StrategyRules,
     Timeframe,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AgentTaskService:
@@ -359,7 +362,31 @@ class AgentTaskService:
                 },
                 "output_ref": f"decision_veto:{task.agent_task_id}",
             }
+        except RuntimeError as exc:
+            # UnavailableLLMRuntime (no provider configured) and
+            # LLMProviderUnavailable (all fallback candidates exhausted) both
+            # surface as RuntimeError. Distinct from a genuine schema failure
+            # below so operators don't mistake "no API key" for "bad LLM output".
+            logger.warning("llm decision veto runtime unavailable: %s", exc)
+            return {
+                "executor_registered": True,
+                "completed": False,
+                "task_status": "failed",
+                "executor_name": "llm_decision_veto",
+                "message": str(exc),
+                "schema_validation_status": "provider_unavailable",
+                "provider_trace": {},
+                "attempt_history": [{"status": "provider_unavailable", "message": str(exc)}],
+                "safe_veto_applied": True,
+                "veto_result": {
+                    "veto": True,
+                    "veto_reason": "llm runtime not configured or unavailable -> fail closed",
+                    "agent_task_ref": task.agent_task_id,
+                },
+                "output_ref": f"decision_veto:{task.agent_task_id}",
+            }
         except Exception as exc:
+            logger.warning("llm decision veto schema validation failed: %s", exc)
             return {
                 "executor_registered": True,
                 "completed": False,

@@ -72,10 +72,12 @@ def test_acceptance_run_completes_twenty_round_trips_with_tiered_risk() -> None:
     assert result.completed_symbols == list(FIXED_TOP20_SYMBOLS)
     assert result.filled_order_count == 40
     assert len(gateway.orders) == 40
-    assert gateway.leverages["BTC/USDT"] == 20
-    assert gateway.leverages["ETH/USDT"] == 20
-    assert gateway.leverages["SOL/USDT"] == 20
-    assert gateway.leverages["XRP/USDT"] == 10
+    # Tier defaults bumped moderately more aggressive (core 20x->25x, standard 10x->15x)
+    # per operator request, alongside the paper-sizing floor fix.
+    assert gateway.leverages["BTC/USDT"] == 25
+    assert gateway.leverages["ETH/USDT"] == 25
+    assert gateway.leverages["SOL/USDT"] == 25
+    assert gateway.leverages["XRP/USDT"] == 15
     assert gateway.orders[0]["requested_notional"] == 120
     assert gateway.orders[6]["requested_notional"] == 120
     assert result.final_open_position_count == 0

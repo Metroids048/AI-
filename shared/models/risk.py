@@ -39,18 +39,23 @@ class RiskProfile(PlatformModel):
 
 
 def medium_risk_profile() -> RiskProfile:
-    """Operator medium preset: wider limits with total-exposure cap for Top20 auto trading."""
+    """Operator medium preset: wider limits with total-exposure cap for Top20 auto trading.
+
+    Bumped moderately more aggressive (2026-07 operator request) alongside the
+    paper-sizing floor fix in paper_signal.py/paper_runtime.py, so core-tier
+    leverage (now 25x, see risk_tiers.py) fits under max_leverage.
+    """
     return RiskProfile(
         risk_profile_id=MEDIUM_RISK_PROFILE_KEY,
-        single_trade_risk_limit=0.02,
-        max_symbol_exposure=0.15,
-        max_total_exposure=0.50,
-        max_open_positions=5,
-        max_leverage=20.0,
-        daily_loss_limit=0.05,
-        weekly_loss_limit=0.08,
-        drawdown_limit=0.12,
-        hard_stop_drawdown_limit=0.20,
+        single_trade_risk_limit=0.025,
+        max_symbol_exposure=0.20,
+        max_total_exposure=0.60,
+        max_open_positions=6,
+        max_leverage=25.0,
+        daily_loss_limit=0.06,
+        weekly_loss_limit=0.10,
+        drawdown_limit=0.15,
+        hard_stop_drawdown_limit=0.22,
         consecutive_loss_limit=6,
         api_failure_limit=5,
         api_failure_window_minutes=10,

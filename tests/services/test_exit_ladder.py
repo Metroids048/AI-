@@ -5,6 +5,7 @@ from services.execution.exit_ladder import (
     level_hit,
     level_trigger_price,
     next_pending_level,
+    next_trailed_stop_price,
 )
 from shared.models import TradeSide
 
@@ -87,3 +88,68 @@ def test_exit_ladder_level2_locks_stop_at_level1_price() -> None:
     assert abs(updated.remaining_quantity - 0.3) < 1e-9
     assert updated.current_stop_price == 105.0
     assert updated.all_levels_executed
+
+
+def test_next_trailed_stop_price_ratchets_long_to_breakeven() -> None:
+    next_stop = next_trailed_stop_price(
+        side=TradeSide.LONG.value,
+        entry_price=100.0,
+        current_stop_price=95.0,
+        initial_distance=5.0,
+        trail_after_r=2.0,
+        bar_high=110.0,
+        bar_low=99.0,
+    )
+    assert next_stop == 100.0
+
+
+def test_next_trailed_stop_price_ratchets_short_to_breakeven() -> None:
+    next_stop = next_trailed_stop_price(
+        side=TradeSide.SHORT.value,
+        entry_price=100.0,
+        current_stop_price=105.0,
+        initial_distance=5.0,
+        trail_after_r=2.0,
+        bar_high=101.0,
+        bar_low=90.0,
+    )
+    assert next_stop == 100.0
+
+
+def test_next_trailed_stop_price_returns_none_when_not_yet_triggered() -> None:
+    next_stop = next_trailed_stop_price(
+        side=TradeSide.LONG.value,
+        entry_price=100.0,
+        current_stop_price=95.0,
+        initial_distance=5.0,
+        trail_after_r=2.0,
+        bar_high=108.0,
+        bar_low=99.0,
+    )
+    assert next_stop is None
+
+
+def test_next_trailed_stop_price_returns_none_when_would_not_improve_stop() -> None:
+    next_stop = next_trailed_stop_price(
+        side=TradeSide.LONG.value,
+        entry_price=100.0,
+        current_stop_price=100.0,
+        initial_distance=5.0,
+        trail_after_r=2.0,
+        bar_high=110.0,
+        bar_low=99.0,
+    )
+    assert next_stop is None
+
+
+def test_next_trailed_stop_price_returns_none_for_zero_initial_distance() -> None:
+    next_stop = next_trailed_stop_price(
+        side=TradeSide.LONG.value,
+        entry_price=100.0,
+        current_stop_price=95.0,
+        initial_distance=0.0,
+        trail_after_r=2.0,
+        bar_high=110.0,
+        bar_low=99.0,
+    )
+    assert next_stop is None

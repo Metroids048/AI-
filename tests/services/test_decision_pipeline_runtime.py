@@ -82,6 +82,8 @@ def test_paper_signal_uses_decision_pipeline_and_atr_stop(db_session) -> None:
     assert order.entry_context["paper_order_should_trade"] is True
     assert order.stoploss_plan["price"] != float(Decimal(order.entry_context["reference_price"]) * Decimal("0.98"))
     assert order.entry_context["requested_notional"] > 0
+    assert order.entry_context["order_type"] == "limit"
+    assert order.entry_context["limit_price"] > float(order.entry_context["reference_price"])
 
 
 def test_market_data_heartbeat_writes_data_stale_risk_event(db_session) -> None:

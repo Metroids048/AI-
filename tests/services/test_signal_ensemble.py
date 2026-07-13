@@ -110,7 +110,12 @@ def _layered_signal(
     }
 
 
-def test_layered_fusion_requires_direction_agreement_before_any_entry_trigger() -> None:
+def test_layered_fusion_resolves_direction_by_majority_vote_not_unanimity() -> None:
+    """The direction gate used to require ALL direction sources to unanimously
+    agree, which starved entries whenever a single indicator disagreed (e.g. ADX
+    lagging). It now resolves by majority (2-of-3 here), so a lone dissenting
+    direction source no longer blocks the whole ensemble.
+    """
     request = SignalEnsembleRequest(
         fusion_method="layered_regime_entry",
         min_history=200,
@@ -126,10 +131,53 @@ def test_layered_fusion_requires_direction_agreement_before_any_entry_trigger() 
 
     ensemble = SignalEnsembleService().create_ensemble(request)
 
+    assert ensemble.fused_direction == "long"
+    assert ensemble.ensemble_status.value == "passed_to_meta_label"
+    assert "allowed_direction=long" in (ensemble.correlation_matrix_ref or "")
+
+
+def test_layered_fusion_fails_closed_on_exact_direction_tie() -> None:
+    """With mtf_ma added as a 4th direction source, a 2-2 tie must still fail
+    closed rather than arbitrarily picking a side.
+    """
+    request = SignalEnsembleRequest(
+        fusion_method="layered_regime_entry",
+        min_history=200,
+        signals=[
+            _layered_signal("technical_dow_trend:long", direction="long"),
+            _layered_signal("technical_ema_trend:long", direction="long"),
+            _layered_signal("technical_adx:short", direction="short"),
+            _layered_signal("technical_mtf_ma:short", direction="short"),
+            _layered_signal("technical_macd:long", direction="long"),
+        ],
+    )
+
+    ensemble = SignalEnsembleService().create_ensemble(request)
+
     assert ensemble.fused_direction is None
     assert ensemble.ensemble_status.value == "discarded_low_confidence"
     assert ensemble.raw_votes == []
     assert "allowed_direction=none" in (ensemble.correlation_matrix_ref or "")
+
+
+def test_layered_fusion_fails_closed_when_direction_sources_below_quorum() -> None:
+    """Only 2 of the possible direction sources reporting must still fail closed
+    even if those 2 agree, since MIN_DIRECTION_SOURCE_QUORUM is 3.
+    """
+    request = SignalEnsembleRequest(
+        fusion_method="layered_regime_entry",
+        min_history=200,
+        signals=[
+            _layered_signal("technical_dow_trend:long", direction="long"),
+            _layered_signal("technical_ema_trend:long", direction="long"),
+            _layered_signal("technical_macd:long", direction="long"),
+        ],
+    )
+
+    ensemble = SignalEnsembleService().create_ensemble(request)
+
+    assert ensemble.fused_direction is None
+    assert ensemble.ensemble_status.value == "discarded_low_confidence"
 
 
 def test_layered_fusion_ignores_counter_trend_entry_votes() -> None:

@@ -205,5 +205,123 @@ def generate_bollinger_reversion_signal(
     return None
 
 
+def generate_fvg_signal(
+    frame: pd.DataFrame,
+    *,
+    symbol: str,
+    lookback: int = 40,
+    min_gap_pct: float = 0.0005,
+) -> TradeSignal | None:
+    """Detect an unfilled 3-candle Fair Value Gap and emit a signal on its retest/reclaim.
+
+    A bullish FVG is the imbalance left when candle[i].low > candle[i-2].high (price
+    skipped a zone on the way up); a bearish FVG mirrors this on the way down. Price
+    tends to retrace into that zone later - this only fires on the retest reaction
+    (wick into the gap, close back on the trend side), not on gap creation itself.
+    """
+
+    if len(frame) < lookback + 3:
+        return None
+    highs = frame["high"].astype(float)
+    lows = frame["low"].astype(float)
+    closes = frame["close"].astype(float)
+    n = len(frame)
+    start = max(2, n - lookback)
+    bullish_gaps: list[tuple[float, float, int]] = []
+    bearish_gaps: list[tuple[float, float, int]] = []
+    for i in range(start, n - 1):
+        prior_high = float(highs.iloc[i - 2])
+        prior_low = float(lows.iloc[i - 2])
+        candle_high = float(highs.iloc[i])
+        candle_low = float(lows.iloc[i])
+        reference_close = float(closes.iloc[i]) or 1.0
+        if candle_low > prior_high and (candle_low - prior_high) / max(reference_close, 1.0) >= min_gap_pct:
+            bullish_gaps.append((prior_high, candle_low, i))
+        if candle_high < prior_low and (prior_low - candle_high) / max(reference_close, 1.0) >= min_gap_pct:
+            bearish_gaps.append((candle_high, prior_low, i))
+
+    latest_close = float(closes.iloc[-1])
+    prev_close = float(closes.iloc[-2])
+    latest_low = float(lows.iloc[-1])
+    latest_high = float(highs.iloc[-1])
+    signal_time = _signal_time(frame)
+
+    for gap_low, gap_high, created_at in reversed(bullish_gaps):
+        already_filled = bool((closes.iloc[created_at + 1 : -1] < gap_low).any())
+        if already_filled:
+            continue
+        if latest_low <= gap_high and latest_close > gap_low and latest_close >= prev_close:
+            fill_ratio = (latest_close - gap_low) / max(gap_high - gap_low, 1e-9)
+            return TradeSignal(
+                symbol=symbol,
+                side=TradeSide.LONG,
+                source="technical_fvg",
+                signal_time=signal_time,
+                reason="fvg_bullish_gap_fill_reclaim",
+                confidence=min(0.4 + fill_ratio * 0.3, 0.95),
+            )
+
+    for gap_low, gap_high, created_at in reversed(bearish_gaps):
+        already_filled = bool((closes.iloc[created_at + 1 : -1] > gap_high).any())
+        if already_filled:
+            continue
+        if latest_high >= gap_low and latest_close < gap_high and latest_close <= prev_close:
+            fill_ratio = (gap_high - latest_close) / max(gap_high - gap_low, 1e-9)
+            return TradeSignal(
+                symbol=symbol,
+                side=TradeSide.SHORT,
+                source="technical_fvg",
+                signal_time=signal_time,
+                reason="fvg_bearish_gap_fill_rejection",
+                confidence=min(0.4 + fill_ratio * 0.3, 0.95),
+            )
+    return None
+
+
+def generate_multi_timeframe_ma_signal(
+    frames: dict[str, pd.DataFrame],
+    *,
+    symbol: str,
+    fast: int = 20,
+    slow: int = 50,
+) -> TradeSignal | None:
+    """Require EMA fast/slow alignment across every supplied timeframe before confirming trend.
+
+    Distinct from generate_ema_trend_signal (single timeframe): this fails closed unless
+    ALL provided timeframes' EMA spreads point the same direction, which is the "MA各时间
+    维度均值线" cross-timeframe confirmation the single-timeframe EMA check does not provide.
+    """
+
+    if len(frames) < 2:
+        return None
+    directions: dict[str, TradeSide] = {}
+    total_strength = 0.0
+    reference_frame: pd.DataFrame | None = None
+    for label, frame in frames.items():
+        if len(frame) < slow + 2:
+            return None
+        close = frame["close"].astype(float)
+        ema_fast = close.ewm(span=fast, adjust=False).mean()
+        ema_slow = close.ewm(span=slow, adjust=False).mean()
+        spread = float((ema_fast.iloc[-1] - ema_slow.iloc[-1]) / max(close.iloc[-1], 1.0))
+        if abs(spread) < 1e-6:
+            return None
+        directions[label] = TradeSide.LONG if spread > 0 else TradeSide.SHORT
+        total_strength += abs(spread)
+        reference_frame = frame
+    if len(set(directions.values())) != 1 or reference_frame is None:
+        return None
+    direction = next(iter(directions.values()))
+    confidence = min((total_strength / len(frames)) * 60.0 + 0.3, 1.0)
+    return TradeSignal(
+        symbol=symbol,
+        side=direction,
+        source="technical_mtf_ma",
+        signal_time=_signal_time(reference_frame),
+        reason="multi_timeframe_ma_alignment",
+        confidence=confidence,
+    )
+
+
 def _signal_time(frame: pd.DataFrame):  # noqa: ANN202
     return frame.index[-1].to_pydatetime() if hasattr(frame.index[-1], "to_pydatetime") else None

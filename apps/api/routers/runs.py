@@ -32,6 +32,7 @@ from services.execution import (
 from services.execution.demo_audit import BinanceDemoAuditService
 from services.execution.gateway import BinanceUsdtPerpetualGateway, probe_testnet_account
 from services.execution.manual_context import ManualTradingContextService
+from services.execution.risk_tiers import scale_asset_risk_tiers
 from services.execution.runtime_state import load_external_scheduler_state
 from services.execution.scheduler import runtime_scheduler_status
 from services.execution.spot_gateway import spot_demo_credentials_configured
@@ -758,6 +759,17 @@ def update_paper_run_auto_settings(
         strategy_repo.update_strategy(run.strategy_id, StrategyUpdate(rules=updated_rules))
 
     settings_payload = body.model_dump(mode="json")
+    # The client always echoes back whatever asset_risk_tiers it last loaded (the
+    # AutoTradingSettings default, or a stale copy of a previous save) because the
+    # UI has no per-tier editor. Rescale the *existing* tier table (preserving any
+    # symbol assignments from the weekly ATR% volatility sweep) against the
+    # operator-controlled max_leverage / max_symbol_exposure sliders, so the
+    # sliders actually drive the values PaperSignalGenerator reads at order time.
+    settings_payload["asset_risk_tiers"] = scale_asset_risk_tiers(
+        run.execution_profile.get("asset_risk_tiers"),
+        max_leverage=body.max_leverage,
+        max_symbol_exposure=body.max_symbol_exposure,
+    )
     history = list(run.paper_metrics_summary.get("auto_settings_history", []))[-49:]
     history.append({"updated_at": datetime.now(UTC).isoformat(), "settings": settings_payload})
     updated_profile = {

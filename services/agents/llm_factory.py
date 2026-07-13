@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from services.agents.llm_runtime import (
     ConfiguredStructuredLLMRuntime,
@@ -16,9 +17,15 @@ from services.agents.llm_runtime import (
 )
 from shared.config import settings
 
+logger = logging.getLogger(__name__)
+
 _OPENROUTER_SEED_MODELS = [
-    "meta-llama/llama-3.1-8b-instruct:free",
-    "google/gemma-3-27b-it:free",
+    # Previous seeds (llama-3.1-8b-instruct:free, gemma-3-27b-it:free) were
+    # retired by OpenRouter and returned 404 for every request (2026-07
+    # verified against the live API). Replaced with currently-live free
+    # models confirmed to return schema-conformant JSON.
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "nvidia/nemotron-3-nano-30b-a3b:free",
 ]
 _GITHUB_SEED_MODELS = [
     "openai/gpt-4.1-nano",
@@ -85,7 +92,17 @@ def build_configured_llm_runtime() -> StructuredLLMRuntime:
             for model in models
         )
     if not runtimes:
+        logger.warning(
+            "no llm provider configured (CLAUDE_API_KEY/ANTHROPIC_API_KEY, OPENROUTER_API_KEY, "
+            "GITHUB_MODELS_TOKEN all empty) -> falling back to UnavailableLLMRuntime; "
+            "every LLM-backed agent task will fail closed"
+        )
         return UnavailableLLMRuntime()
+    logger.info(
+        "llm runtime configured with %s candidate(s): %s",
+        len(runtimes),
+        [type(runtime).__name__ for runtime in runtimes],
+    )
     if len(runtimes) == 1:
         return runtimes[0]
     return FallbackChainStructuredLLMRuntime(runtimes)
