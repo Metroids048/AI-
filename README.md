@@ -62,3 +62,53 @@
 
 - [策略库/笔记.docx](<策略库/笔记.docx>) 只作为研究素材池，不作为正式策略真源
 - 任何来源都必须先进入 `StrategyIdea -> StrategyDraft -> StrategyContract`，再进入回测与验证
+
+---
+
+## 退出策略验证框架（2026-07-14 交付）
+
+**状态**: ✅ 生产就绪 | **Git Commit**: `c8637b0`
+
+### 快速开始
+
+```bash
+# 对比 Fixed 2R vs ExitLadder（最新 90 天）
+python -m scripts.compare_exit_policies_cli --days 90
+
+# 回归验证（冻结 2026-07-12 配置）
+python -m scripts.compare_exit_policies_cli \
+  --entry-baseline frozen-2026-07-12 \
+  --end-at 2026-07-12T08:00:00 \
+  --reuse-stored-data \
+  --days 90
+```
+
+### 核心能力
+
+- ✅ **退出策略 A/B 对比**：固定 entry 配置，隔离 exit 策略的净效应
+- ✅ **冻结历史基线**：`frozen-2026-07-12` 回归验证（复现审计方向）
+- ✅ **修复预存在崩溃 bug**：`HistoricalMarketDataView.get_latest_market_extras` 缺失导致所有回放工具崩溃
+- ✅ **完整测试覆盖**：388 passed（新增 6 个 exit-policy 专项测试）
+
+### 关键发现
+
+| 策略 | Signals | Net Expectancy | Profit Factor | Max Drawdown |
+|---|---|---|---|---|
+| **Fixed 2R** | 1057 | **+0.001542** ✅ | 1.0910 | 0.6062 |
+| **ExitLadder** | 437 | **-0.001244** ❌ | 0.8364 | 1.7497 |
+
+**结论**: Fixed 2R 净预期为正，ExitLadder 为负 → **不建议启用 ExitLadder 自动执行**
+
+### 文档
+
+- 📖 **技术架构**: [docs/technical-validation-framework.md](docs/technical-validation-framework.md)（完整设计 + 模块 8-15 指引）
+- 📖 **运维手册**: [docs/exit-policy-validation-runbook.md](docs/exit-policy-validation-runbook.md)（日常操作 + 故障排查）
+- 📖 **交付报告**: [docs/DELIVERY-REPORT.md](docs/DELIVERY-REPORT.md)（验收结果 + 风险评估）
+
+### 代码入口
+
+- 核心 API: [services/validation/technical_replay.py](services/validation/technical_replay.py) → `compare_exit_policies()`
+- 通用 CLI: [scripts/compare_exit_policies_cli.py](scripts/compare_exit_policies_cli.py)
+- 测试套件: [tests/services/test_technical_strategy_validation.py](tests/services/test_technical_strategy_validation.py)
+
+---
