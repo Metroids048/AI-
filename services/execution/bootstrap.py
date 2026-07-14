@@ -18,13 +18,18 @@ AUTO_PAPER_TECHNICAL_KEY = "auto_paper_mature_templates"
 OPERATOR_EXPERIENCE_STRATEGY_KEY = "operator_experience_4h_15m_v1"
 
 # Medium-risk auto-trading preset for Top20 + funding carry admission.
+# Fee/slippage assumptions below are calibrated to real Binance USDM regular-user
+# rates (maker 2bps / taker 5bps, see https://www.binance.com/en/fee/futureFee) plus
+# a conservative slippage buffer for market-order fills. Previous 8bps/6bps fee+
+# slippage (round-trip 28bps for a 4-fill carry hedge) overstated real cost by
+# roughly 2x and was silently killing otherwise-valid funding-arbitrage signals.
 AUTO_PAPER_STRATEGY_RULES: dict[str, Any] = {
     "entry_rules": {
         "funding_threshold_bps": 0.5,
-        "min_estimated_net_edge_bps": 10.0,
+        "min_estimated_net_edge_bps": 5.0,
         "requires_positive_funding": True,
-        "fee_bps": 8.0,
-        "slippage_bps": 6.0,
+        "fee_bps": 5.0,
+        "slippage_bps": 3.0,
     },
     "exit_rules": {"close_on_opposite_signal": True},
     "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
@@ -64,26 +69,28 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
         ],
         "meta_label_min_win_rate": 0.50,
         "fusion_method": "layered_regime_entry",
-        "core_fee_bps": 10.0,
-        "core_slippage_bps": 0.0,
-        "standard_fee_bps": 18.0,
-        "standard_slippage_bps": 0.0,
+        # Real Binance USDM regular-user taker fee is 5bps one-way (see
+        # https://www.binance.com/en/fee/futureFee); previous 10/18bps one-way
+        # assumptions were 2-3.6x too conservative and made
+        # net_edge_after_cost_negative reject most otherwise-valid directional
+        # candidates on thin 15m statistical edges. Slippage buffer stays
+        # nonzero for standard-tier symbols (thinner books than BTC/ETH/SOL).
+        "core_fee_bps": 5.0,
+        "core_slippage_bps": 1.0,
+        "standard_fee_bps": 5.0,
+        "standard_slippage_bps": 3.0,
         "minimum_net_reward_r": 1.0,
     },
     "exit_rules": {"close_on_opposite_signal": True, "time_exit_hours": 24, "time_exit_min_r": 0.5},
     "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
-    "takeprofit_rules": {
-        "risk_reward": 2.0,
-        "break_even_after_r": 1.0,
-        "partial_take_profit_r": 2.0,
-        "partial_close_fraction": 0.5,
-        "atr_trailing_multiple": 2.0,
-        "exit_ladder": [
-            {"r_multiple": 1.0, "close_fraction": 0.4},
-            {"r_multiple": 1.5, "close_fraction": 0.3},
-        ],
-        "remainder_trail_after_r": 2.5,
-    },
+    # Fixed full-close 2R take-profit, no ExitLadder/partial-close mechanism.
+    # A real Top20 historical replay (docs/audits/2026-07-12-exitladder-replay-comparison.md)
+    # directly compared this exact fixed-2R config against the ExitLadder partial-exit
+    # config on the SAME entry signal and found ExitLadder net expectancy -0.000866
+    # (PF 0.8817, max DD 143.56%) vs fixed 2R net expectancy +0.002185 (PF 1.1308,
+    # max DD 52.2%) -- ExitLadder was strictly worse on every metric. Reverted to the
+    # only exit config with real positive-net-expectancy evidence on this entry signal.
+    "takeprofit_rules": {"risk_reward": 2.0},
     "position_rules": {
         # Align with medium RiskProfile: up to 6 opens at 2.5% stop-risk each.
         # Previous 5% portfolio cap rejected new opens after ~2 positions
@@ -111,6 +118,36 @@ OPERATOR_EXPERIENCE_RULES: dict[str, Any] = {
     "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
     "takeprofit_rules": {"risk_reward": 2.5, "trail_after_r": 1.5},
     "position_rules": {"risk_per_trade": 0.01, "max_leverage": 5, "max_position_fraction": 0.05},
+}
+
+# Cross-sectional funding-rate carry: rank the fixed Top20 basket by current
+# funding rate every cycle, short the highest payers and long the lowest/most
+# negative, and hold until the symbol's rank drops out of the basket. Delta
+# exposure is directionally hedged across the basket (roughly market-neutral
+# by construction, not by an explicit hedge leg), so this is a genuinely new
+# risk profile versus the existing single-symbol `carry` lane, not a variant
+# of it. Research-candidate only until it clears a dedicated OOS replay,
+# see services/validation/cross_sectional_replay.py.
+AUTO_PAPER_CROSS_SECTIONAL_CARRY_KEY = "auto_paper_cross_sectional_carry"
+AUTO_PAPER_CROSS_SECTIONAL_CARRY_RULES: dict[str, Any] = {
+    "entry_rules": {
+        "strategy_type": "cross_sectional_funding_carry",
+        "basket_size": 3,
+        "rebalance_hours": 8,
+        "fee_bps": 5.0,
+        "slippage_bps": 3.0,
+        "min_estimated_net_edge_bps": 5.0,
+        "default_enabled_for_auto_trading": False,
+    },
+    "exit_rules": {"exit_on_rank_dropout": True, "close_on_opposite_signal": False},
+    "stoploss_rules": {"atr_multiple": 3.0, "fixed_bps": 400},
+    "takeprofit_rules": {},
+    "position_rules": {
+        "risk_per_trade": 0.01,
+        "max_leverage": 5,
+        "max_position_fraction": 0.08,
+        "min_notional_usdt": 20,
+    },
 }
 
 
@@ -434,6 +471,48 @@ def bootstrap_operator_experience_strategy() -> str | None:
         return existing.strategy_id
 
 
+def bootstrap_cross_sectional_carry_strategy() -> str | None:
+    """Register the cross-sectional funding-rate carry strategy as disabled research
+    material. Per AGENTS.md non-negotiables 1/2/6, a strategy must clear
+    backtest -> OOS evidence before it is auto-armed for live Paper cycles; this
+    is a new, previously-unimplemented strategy shape with no such evidence yet,
+    so it is registered the same way as `operator_experience_4h_15m_v1` -- visible
+    and versioned, but not scanned by the auto-cycle scheduler."""
+    from services.database import get_session_factory
+    from services.strategy_library import StrategyRepository
+    from shared.models import RunStatus, StrategyCreate, StrategyRules, Timeframe
+
+    with get_session_factory()() as session:
+        repo = StrategyRepository(session)
+        existing = next(
+            (item for item in repo.list_strategies() if item.strategy_key == AUTO_PAPER_CROSS_SECTIONAL_CARRY_KEY),
+            None,
+        )
+        if existing is None:
+            strategy = repo.create_strategy(
+                StrategyCreate(
+                    strategy_key=AUTO_PAPER_CROSS_SECTIONAL_CARRY_KEY,
+                    source="operator:research_candidate",
+                    core_thesis=(
+                        "Cross-sectional funding-rate carry: rank the fixed Top20 basket by current "
+                        "funding rate every cycle, short the highest payers and long the lowest/most "
+                        "negative, hold until rank drops out of the basket. Disabled until a dedicated "
+                        "OOS replay clears the AGENTS.md validation gate."
+                    ),
+                    symbol_scope=list(DEFAULT_BINANCE_TOP20),
+                    timeframe=Timeframe.H1,
+                    rules=StrategyRules(**AUTO_PAPER_CROSS_SECTIONAL_CARRY_RULES),
+                )
+            )
+            repo.update_lifecycle_status(strategy.strategy_id or "", paper_status=RunStatus.NOT_STARTED)
+            session.commit()
+            return strategy.strategy_id
+        _sync_auto_paper_strategy(repo, existing, rules=AUTO_PAPER_CROSS_SECTIONAL_CARRY_RULES)
+        repo.update_lifecycle_status(existing.strategy_id or "", paper_status=RunStatus.NOT_STARTED)
+        session.commit()
+        return existing.strategy_id
+
+
 def bootstrap_seed_multi_timeframe_ohlcv() -> int:
     """Seed 15m/4h bars so directional auto-cycle gatekeeper freshness checks pass."""
     if not binance_credentials_configured():
@@ -508,6 +587,7 @@ def bootstrap_local_paper_runtime(*, seed_ohlcv: bool = True) -> None:
     bootstrap_auto_trading_paper_run()
     bootstrap_auto_trading_technical_paper_run()
     bootstrap_operator_experience_strategy()
+    bootstrap_cross_sectional_carry_strategy()
     bootstrap_pause_legacy_paper_runs()
     bootstrap_clear_stale_blocking_risk_events()
     if seed_ohlcv:

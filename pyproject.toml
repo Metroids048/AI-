@@ -51,6 +51,10 @@ quant = [
   "pandas-ta>=0.3.14b"
   # "TA-Lib>=0.4"  # optional: needs system C library; pandas-ta covers Phase 0
 ]
+ml = [
+  "scikit-learn>=1.5,<2.0",
+  "joblib>=1.4,<2.0"
+]
 
 [tool.setuptools]
 package-dir = {"" = "."}

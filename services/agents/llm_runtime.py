@@ -112,7 +112,7 @@ class OpenAICompatibleStructuredLLMRuntime:
 
     def generate_structured(self, *, agent_type: str, task_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         prompt = _build_prompt(agent_type=agent_type, task_type=task_type, payload=payload)
-        request_payload = {
+        request_payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": prompt["system"]},
@@ -122,6 +122,16 @@ class OpenAICompatibleStructuredLLMRuntime:
             "temperature": 0,
             "response_format": {"type": "json_object"},
         }
+        if self.provider_label == "openrouter":
+            # Free reasoning models (e.g. nvidia/nemotron-3-*) can spend the entire
+            # max_tokens budget on the hidden reasoning trace, then dump that
+            # incomplete trace verbatim into `content` on finish_reason="length" --
+            # a non-JSON response that looks like a model failure but is actually a
+            # truncation artifact. Excluding reasoning output keeps the full budget
+            # for the actual JSON answer and removes this failure mode entirely
+            # (verified across a heavier real-signal payload with 0/4 failures vs.
+            # 2/4 without it).
+            request_payload["reasoning"] = {"exclude": True}
         try:
             with httpx.Client(
                 base_url=self.base_url,
@@ -176,6 +186,13 @@ class FallbackChainStructuredLLMRuntime:
                 return runtime.generate_structured(agent_type=agent_type, task_type=task_type, payload=payload)
             except LLMProviderUnavailable as exc:
                 failures.append(str(exc))
+                continue
+            except ValueError as exc:
+                # A single candidate returning a malformed/non-JSON body (e.g. a
+                # free model truncated mid-response) must not abort the whole
+                # chain -- try the remaining candidates instead of failing closed
+                # on the first bad response.
+                failures.append(f"malformed response: {exc}")
                 continue
         raise LLMProviderUnavailable("; ".join(failures) or "all llm fallback candidates exhausted")
 

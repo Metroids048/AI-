@@ -1,9 +1,10 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   AutoEngineStatusBadge,
+  ExchangePositionHint,
   MarketList,
   ModeBanner,
   OrdersTable,
@@ -14,6 +15,10 @@ import {
 } from "./TradingConsolePanels";
 import { AppShell } from "./Common";
 import { AutoSettingsPanel, OrderSyncPanel } from "./RuntimePanels";
+
+afterEach(() => {
+  cleanup();
+});
 
 const manualContext = {
   strategy_id: "strategy-manual",
@@ -34,18 +39,36 @@ describe("Trading console panels", () => {
           credentials_configured: false,
           gateway_available: false,
         }}
+        account={{
+          api_backend: "testnet-fallback",
+          web_ui_url: "https://testnet.binancefuture.com/en/futures/ETHUSDT",
+        }}
       />,
     );
 
     expect(screen.getByText("本地模拟盘")).toBeInTheDocument();
     expect(screen.getByText("币安模拟盘已锁定")).toBeInTheDocument();
-    expect(screen.getByText(/币安模拟账户 API 面板/)).toBeInTheDocument();
+    expect(screen.getByText(/主网 futures\.binance\.com 不同步/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "testnet.binancefuture.com" })).toBeInTheDocument();
     expect(screen.queryByText(/secret|token|key/i)).not.toBeInTheDocument();
+  });
+
+  it("prompts operator to jump to exchange position symbol", () => {
+    const onSelect = vi.fn();
+    render(
+      <ExchangePositionHint
+        selectedSymbol="BTC/USDT"
+        positions={[{ symbol: "ETH/USDT", side: "long", quantity: 0.055 }]}
+        onSelect={onSelect}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /ETH\/USDT/ }));
+    expect(onSelect).toHaveBeenCalledWith("ETH/USDT", "ETH/USDT:USDT");
   });
 
   it("renders top universe rows and lets user select a symbol", () => {
     const onSelect = vi.fn();
-    render(
+    const view = render(
       <MarketList
         selectedSymbol="BTC/USDT"
         universe={[
@@ -56,10 +79,10 @@ describe("Trading console panels", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /ETH\/USDT/ }));
+    fireEvent.click(within(view.container).getByRole("button", { name: /ETH\/USDT/ }));
 
     expect(onSelect).toHaveBeenCalledWith("ETH/USDT", "ETH/USDT:USDT");
-    expect(screen.getByText("24h")).toBeInTheDocument();
+    expect(within(view.container).getByText("24h")).toBeInTheDocument();
   });
 
   it("keeps the Testnet account panel explicit when automatic polling is paused", () => {

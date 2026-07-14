@@ -92,6 +92,95 @@ def test_meta_label_rejects_cold_start_even_when_short_history_is_positive() -> 
     assert label.position_size_fraction is None
 
 
+def test_meta_label_uses_trained_model_probability_when_active_model_exists(tmp_path, monkeypatch) -> None:
+    import json
+
+    import joblib
+    from sklearn.linear_model import LogisticRegression
+
+    import services.strategy_library.meta_label_model as meta_label_model_module
+
+    monkeypatch.setattr(meta_label_model_module, "MODEL_ARTIFACT_DIR", tmp_path)
+    strategy_dir = tmp_path / "test_strategy"
+    strategy_dir.mkdir()
+    feature_names = list(meta_label_model_module.FEATURE_NAMES)
+    estimator = LogisticRegression()
+    # Trained on two well-separated classes so that predicting on the
+    # all-zeros feature vector (matching class 1's training point) yields a
+    # near-certain class-1 probability, letting the test assert the trained
+    # probability -- not the rule-based win_rate, which the training samples
+    # below make exactly 0.0 -- is what actually drove bet_taken.
+    estimator.fit([[-100.0] * len(feature_names), [0.0] * len(feature_names)], [0, 1])
+    model_path = strategy_dir / "v1.joblib"
+    joblib.dump(estimator, model_path)
+    (strategy_dir / "active.json").write_text(
+        json.dumps(
+            {
+                "version": "v1",
+                "trained_at": datetime.now(UTC).isoformat(),
+                "feature_names": feature_names,
+                "train_sample_count": 500,
+                "validation_auc": 0.61,
+                "model_path": str(model_path),
+                "max_age_days": 30,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    service = SignalEnsembleService()
+    signal_time = datetime(2024, 2, 1, tzinfo=UTC)
+    # All-losing rule-based history (net_return=-0.01 every sample) would make
+    # the rule-based win_rate 0.0 and skip the bet; if the trained model's
+    # near-1.0 probability is what actually gets used, bet_taken should fire
+    # anyway.
+    request = MetaLabelRequest(
+        ensemble_id="ensemble-trained",
+        signal_time=signal_time,
+        training_samples=[
+            MetaLabelSample(sample_time=signal_time - timedelta(days=index + 1), net_return=-0.01)
+            for index in range(20)
+        ],
+        min_win_rate=0.5,
+        # average_return is always computed from the rule-based samples
+        # regardless of which win_rate estimate is used, so it must be allowed
+        # to stay negative here -- this test isolates the win_rate override only.
+        min_average_return=-1.0,
+        strategy_key="test_strategy",
+        model_features=dict.fromkeys(feature_names, 0.0),
+    )
+
+    label = service.create_meta_label(request)
+
+    assert label.bet_decision.value == "bet_taken"
+    assert label.model_ref is not None
+    assert label.model_ref.startswith("trained_meta_label:test_strategy:")
+
+
+def test_meta_label_falls_back_to_rule_based_when_no_active_model(tmp_path, monkeypatch) -> None:
+    import services.strategy_library.meta_label_model as meta_label_model_module
+
+    monkeypatch.setattr(meta_label_model_module, "MODEL_ARTIFACT_DIR", tmp_path / "empty")
+
+    service = SignalEnsembleService()
+    signal_time = datetime(2024, 2, 1, tzinfo=UTC)
+    request = MetaLabelRequest(
+        ensemble_id="ensemble-no-model",
+        signal_time=signal_time,
+        training_samples=[
+            MetaLabelSample(sample_time=signal_time - timedelta(days=index + 1), net_return=0.01)
+            for index in range(20)
+        ],
+        strategy_key="strategy_without_a_model",
+        model_features={"atr_percent": 0.01},
+    )
+
+    label = service.create_meta_label(request)
+
+    assert label.model_ref == "rule_meta_label_v1"
+    assert label.bet_decision.value == "bet_taken"
+
+
 def _layered_signal(
     strategy_id: str,
     *,

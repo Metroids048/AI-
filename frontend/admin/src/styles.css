@@ -470,8 +470,10 @@ h2 {
 }
 
 .binance-sync-hero-main span {
+  display: block;
   color: #d7dee5;
   font-size: 13px;
+  margin-top: 4px;
 }
 
 .binance-sync-hero-note {
@@ -479,6 +481,35 @@ h2 {
   color: #f0c674;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.binance-sync-hero-note a {
+  color: #7ec8ff;
+  margin: 0 4px;
+}
+
+.exchange-position-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  border: 1px solid #5a4a1f;
+  background: #1a160c;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  color: #f0c674;
+  font-size: 13px;
+}
+
+.exchange-position-hint strong {
+  color: #ffd666;
+}
+
+.exchange-position-hint-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .binance-sync-hero-note em {

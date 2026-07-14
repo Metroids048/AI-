@@ -110,7 +110,9 @@ class PaperSignalGenerator:
         veto_result = decision.veto_result
         if not decision.should_trade and veto_result is None:
             pipeline_status = str(decision.trace.get("pipeline_status", ""))
-            carry_admission_skip = pipeline_status.startswith("funding_arbitrage_rejected")
+            carry_admission_skip = pipeline_status.startswith(
+                ("funding_arbitrage_rejected", "cross_sectional_carry_rejected")
+            )
             if not carry_admission_skip:
                 veto_result = DecisionVetoResult(
                     veto=True,
@@ -168,6 +170,13 @@ class PaperSignalGenerator:
         paper_run: PaperRun | None = None,
     ) -> DecisionPipelineResult:
         rules = strategy.rules
+        if _is_cross_sectional_strategy(rules=rules, paper_run=paper_run):
+            return self._cross_sectional_decision(
+                strategy=strategy,
+                symbol=symbol,
+                timeframe=timeframe,
+                request=request,
+            )
         if _is_carry_strategy(rules=rules, paper_run=paper_run):
             return self._carry_decision(
                 strategy=strategy,
@@ -267,6 +276,71 @@ class PaperSignalGenerator:
                 "rejection_reasons": list(dict.fromkeys(rejection_reasons)),
                 "perp_symbol": perp_symbol,
                 "basis_bps": signal.basis_bps,
+            },
+        )
+
+    def _cross_sectional_decision(
+        self,
+        *,
+        strategy: StrategyContract,
+        symbol: str,
+        timeframe: str,
+        request: PaperRunStepRequest,
+    ) -> DecisionPipelineResult:
+        entry_rules = strategy.rules.entry_rules
+        fee_bps = float(entry_rules.get("fee_bps", 5.0))
+        slippage_bps = float(entry_rules.get("slippage_bps", 3.0))
+        min_net_edge_bps = float(entry_rules.get("min_estimated_net_edge_bps", 2 * (fee_bps + slippage_bps)))
+        bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=timeframe)
+        reference_price = Decimal("0") if bar is None else bar.close
+
+        rank_payload = request.cross_sectional_rank
+        rejection_reasons: list[str] = []
+        if rank_payload is None:
+            rejection_reasons.append("missing_funding_rank_snapshot")
+        basket_side = rank_payload.get("basket_side") if rank_payload else None
+        funding_rate_bps = float(rank_payload["funding_rate_bps"]) if rank_payload else None
+        rank = int(rank_payload["rank"]) if rank_payload else None
+        total_ranked = int(rank_payload["total_ranked"]) if rank_payload else None
+        if basket_side is None and rank_payload is not None:
+            rejection_reasons.append("outside_funding_basket")
+
+        # Funding income (paid every settlement window) is the entire edge; there
+        # is no directional price forecast, so the round-trip cost gate only has
+        # to clear a much smaller bar than a directional entry -- one taker fill
+        # to open, one taker fill to close.
+        estimated_net_edge_bps = (
+            abs(funding_rate_bps) - 2 * (fee_bps + slippage_bps) if funding_rate_bps is not None else None
+        )
+        if estimated_net_edge_bps is None or estimated_net_edge_bps < min_net_edge_bps:
+            rejection_reasons.append("net_edge_after_cost_negative")
+
+        should_trade = not rejection_reasons
+        direction = TradeSide.SHORT if basket_side == "short_candidate" else TradeSide.LONG
+        pipeline_status = "cross_sectional_carry_admitted" if should_trade else "cross_sectional_carry_rejected"
+        return DecisionPipelineResult(
+            direction=direction,
+            should_trade=should_trade,
+            reason=pipeline_status,
+            reference_price=reference_price,
+            bar_time=bar.timestamp if bar else None,
+            signals=[],
+            ensemble=None,
+            meta_label=None,
+            veto_result=None,
+            confidence_multiplier=1.0,
+            atr=None,
+            volatility_context={"regime": "cross_sectional_funding_carry"},
+            trace={
+                "pipeline_status": pipeline_status,
+                "strategy_lane": "cross_sectional_carry",
+                "basket_side": basket_side,
+                "funding_rate_bps": funding_rate_bps,
+                "rank": rank,
+                "total_ranked": total_ranked,
+                "estimated_net_edge_bps": estimated_net_edge_bps,
+                "min_estimated_net_edge_bps": min_net_edge_bps,
+                "rejection_reasons": list(dict.fromkeys(rejection_reasons)),
             },
         )
 
@@ -494,6 +568,12 @@ class PaperSignalGenerator:
             rules.get("core_slippage_bps" if is_core else "standard_slippage_bps", rules.get("slippage_bps", 6.0))
         )
         return 2 * (fee + slippage)
+
+
+def _is_cross_sectional_strategy(*, rules, paper_run: PaperRun | None) -> bool:  # noqa: ANN001
+    if paper_run is not None and paper_run.execution_profile.get("strategy_lane") == "cross_sectional_carry":
+        return True
+    return rules.entry_rules.get("strategy_type") == "cross_sectional_funding_carry"
 
 
 def _is_carry_strategy(*, rules, paper_run: PaperRun | None) -> bool:  # noqa: ANN001

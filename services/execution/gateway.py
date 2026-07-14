@@ -557,6 +557,11 @@ class BinanceUsdtPerpetualGateway:
 
 
 MOCK_TRADING_WEB_URL = "https://demo.binance.com/en/futures/BTCUSDT"
+TESTNET_TRADING_WEB_URL = "https://testnet.binancefuture.com/en/futures/BTCUSDT"
+MAINNET_NOT_SYNCED_HINT = (
+    "主网 futures.binance.com 的仓位/订单永远不会同步到本系统"
+    "（LIVE_TRADING_ENABLED=false）。请只与下方模拟盘网页对账。"
+)
 
 
 def _apply_legacy_testnet_api(client: Any) -> None:
@@ -713,11 +718,42 @@ def _position_open(position: dict[str, Any]) -> bool:
         return True
 
 
-def _binance_mode_urls() -> tuple[str, str, str]:
+def _binance_mode_urls(*, api_backend: str | None = None) -> tuple[str, str, str]:
+    """Return (trading_mode label, api_base, web_ui_url) for the active paper backend."""
+    backend = (api_backend or settings.binance_trading_mode or "demo").lower()
+    if backend in {"testnet", "testnet-fallback"}:
+        return (
+            "testnet",
+            "https://testnet.binancefuture.com/fapi/v1",
+            TESTNET_TRADING_WEB_URL,
+        )
     return (
         "demo",
         settings.binance_usdm_rest_base or "https://demo-fapi.binance.com",
         MOCK_TRADING_WEB_URL,
+    )
+
+
+def _binance_account_warning(*, api_backend: str) -> str:
+    base = (
+        f"{MAINNET_NOT_SYNCED_HINT}"
+        " 币安网页 Login 报 restricted countries 时，API 仍可正常交易；"
+        "本面板以 API 真源为准。"
+    )
+    if api_backend in {"testnet", "testnet-fallback"}:
+        reason = (
+            "demo-fapi 不可达，已使用 legacy Testnet API。"
+            if api_backend == "testnet-fallback"
+            else "当前配置为 Testnet。"
+        )
+        return (
+            f"{base} {reason}"
+            "对账入口：testnet.binancefuture.com（须同一套 Testnet API Key 账号）。"
+            "不要打开 futures.binance.com 主网对比。"
+        )
+    return (
+        f"{base} 对账入口：demo.binance.com。"
+        "不要打开 futures.binance.com 主网对比。"
     )
 
 
@@ -743,13 +779,9 @@ def _probe_testnet_account_once(
     order_limit: int = 10,
     order_symbols: list[str] | tuple[str, ...] | None = None,
 ) -> BinanceTestnetAccountStatus:
-    """Single-shot Binance Demo account probe."""
+    """Single-shot Binance Demo/Testnet account probe."""
     trading_mode, api_base, web_ui_url = _binance_mode_urls()
-    warning = (
-        "币安网页 Login 报 restricted countries 时，API 仍可正常交易。"
-        "Mock 入口 demo.binance.com；本面板显示的就是你的模拟盘真实资金与订单。"
-        "若仅 Testnet API 连不上，可在 .env 设置 BINANCE_HTTPS_PROXY（仅本程序走代理，无需全局 VPN）。"
-    )
+    warning = _binance_account_warning(api_backend=trading_mode)
     if not settings.binance_api_key or not settings.binance_api_secret:
         return BinanceTestnetAccountStatus(
             connected=False,
@@ -773,11 +805,8 @@ def _probe_testnet_account_once(
         snapshot = gateway.sync_account(live_run_id="console_probe")
         client = gateway.client
         api_backend = getattr(gateway, "api_backend", "demo")
-        if api_backend == "testnet-fallback":
-            warning = (
-                f"{warning} demo-fapi 在本机被墙(451)，API 已自动切到 testnet-fapi 网关，"
-                "与 Mock 网页仍是同一套模拟账户。"
-            )
+        trading_mode, api_base, web_ui_url = _binance_mode_urls(api_backend=api_backend)
+        warning = _binance_account_warning(api_backend=api_backend)
         positions: list[BinanceTestnetPositionView] = []
         for raw in client.fetch_positions():
             contracts = float(raw.get("contracts") or 0)
@@ -809,10 +838,20 @@ def _probe_testnet_account_once(
         # Prefer the concrete position list over a stale sync counter.
         if positions and snapshot.open_position_count != len(positions):
             snapshot = snapshot.model_copy(update={"open_position_count": len(positions)})
+        # Point the operator at the open symbol on the correct paper web UI.
+        if positions:
+            lead = positions[0].symbol.replace(":USDT", "").replace("/", "")
+            if "testnet.binancefuture.com" in web_ui_url:
+                web_ui_url = f"https://testnet.binancefuture.com/en/futures/{lead}"
+            else:
+                web_ui_url = f"https://demo.binance.com/en/futures/{lead}"
         recent_orders: list[BinanceTestnetOrderView] = []
         requested_symbols = {platform_to_exchange_symbol(symbol) for symbol in (order_symbols or ())}
         position_symbols = {p.symbol.replace(":USDT", "").replace("/", "") for p in positions}
-        symbols = requested_symbols | position_symbols
+        # Always include liquid majors so the desk order tab is not empty when
+        # the only open position is on a quieter symbol the operator is not viewing.
+        core_symbols = {"BTCUSDT", "ETHUSDT", "SOLUSDT", "LINKUSDT"}
+        symbols = requested_symbols | position_symbols | core_symbols
         if not symbols:
             symbols = {"BTCUSDT"}
         for market_id in sorted(symbols):

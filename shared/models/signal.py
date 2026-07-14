@@ -119,3 +119,10 @@ class MetaLabelRequest(PlatformModel):
     min_average_return: float = 0.0
     min_training_samples: int = Field(default=20, ge=1)
     audit_context: dict[str, Any] = Field(default_factory=dict)
+    # Optional: when both are provided and an active trained model exists for
+    # strategy_key, create_meta_label() uses the model's predicted win
+    # probability instead of the rule-based win_rate/average_return heuristic.
+    # Either field absent, or no active model found, falls back to the
+    # unchanged rule-based path -- this never removes the existing behavior.
+    strategy_key: str | None = None
+    model_features: dict[str, float] | None = None

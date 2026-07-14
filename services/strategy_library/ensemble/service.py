@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from statistics import mean
 
+from services.strategy_library.meta_label_model import load_active_model, predict_win_probability
 from shared.models import (
     BetDecision,
     CandidateSignalSeries,
@@ -155,9 +156,20 @@ class SignalEnsembleService:
             if future_samples:
                 raise ValueError("training samples must be earlier than signal_time")
         returns = [sample.net_return for sample in request.training_samples]
-        wins = [value for value in returns if value > 0]
-        win_rate = len(wins) / len(returns) if returns else 0.0
+        rule_wins = [value for value in returns if value > 0]
+        rule_win_rate = len(rule_wins) / len(returns) if returns else 0.0
         average_return = mean(returns) if returns else 0.0
+
+        win_rate = rule_win_rate
+        model_ref = "rule_meta_label_v1"
+        if request.strategy_key is not None and request.model_features is not None:
+            model = load_active_model(request.strategy_key)
+            if model is not None:
+                predicted = predict_win_probability(model, request.model_features)
+                if predicted is not None:
+                    win_rate = predicted
+                    model_ref = f"trained_meta_label:{model.strategy_key}:{model.version}"
+
         bet_taken = (
             len(returns) >= request.min_training_samples
             and win_rate >= request.min_win_rate
@@ -181,7 +193,7 @@ class SignalEnsembleService:
             triple_barrier_result=outcome,
             bet_decision=BetDecision.BET_TAKEN if bet_taken else BetDecision.BET_SKIPPED,
             position_size_fraction=position_size,
-            model_ref="rule_meta_label_v1",
+            model_ref=model_ref,
             training_window_ref=self._training_ref(request),
         )
 

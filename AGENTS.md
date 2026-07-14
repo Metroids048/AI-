@@ -99,6 +99,13 @@
 - 禁止因主观感觉人工加仓
 - 禁止取消机器人止损
 
+### 当前 Paper 阶段风险参数基线（2026-07-13 起生效）
+
+- 这是"风控优先"原则下的**当前 Paper 验证阶段基线**，不是最终实盘阈值；目的是在模拟盘/测试网阶段获得足够的开单样本以验证信号与执行链路，实盘前必须重新收紧并走完 Validation Layer 门槛。
+- 组合层初始风险上限：`max_portfolio_initial_risk_fraction=0.15`（原 5% 上限会在约 2-3 个仓位后就拒绝新开仓，导致 Top20 扫描"看起来是死的"，见 ADR-058）。若未来实盘化，必须重新评估此值，不能直接沿用 Paper 基线。
+- 手续费/滑点假设已对齐币安 USDM 合约常规用户真实费率（maker 2bps / taker 5bps，来源：https://www.binance.com/en/fee/futureFee），而不是凭空设置的保守估计；此前 10-18bps/边的假设是真实费率的 2-4 倍，导致 `net_edge_after_cost_negative` 门槛误杀大量本应通过的候选信号。调整手续费假设是为了让门槛准确反映真实成本，而不是放宽门槛本身去允许扣完成本预期为负的交易——`net_edge_after_cost <= 0` 拒绝入场这条规则本身保持不变。
+- 杠杆/仓位比例（`max_leverage`/`max_position_fraction`/`risk_per_trade`）已按运营方要求上调至更激进档位（见 `services/execution/bootstrap.py` 中 `AUTO_PAPER_TECHNICAL_RULES`/`AUTO_PAPER_STRATEGY_RULES` 的行内注释与对应 ADR），用于在 Paper 阶段跑出足够密度的开平仓样本；止损/止盈/风控拒绝规则本身不受此调整影响。
+
 ### 6. Review Layer
 
 - 每日复盘

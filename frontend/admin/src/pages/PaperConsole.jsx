@@ -16,6 +16,7 @@ import {
 } from "../components/RuntimePanels";
 import {
   BinanceSyncHero,
+  ExchangePositionHint,
   FundingPanel,
   MarketList,
   ModeBanner,
@@ -263,6 +264,11 @@ export function PaperConsole() {
         onTimeframeChange={(nextTimeframe) => updateSelection({ timeframe: nextTimeframe })}
       />
       <BinanceSyncHero account={data.testnetAccount} />
+      <ExchangePositionHint
+        positions={deskPositions}
+        selectedSymbol={symbol}
+        onSelect={handleSelectSymbol}
+      />
       <section className="trading-workspace-grid">
         <div className="chart-rail">
           <KlinePanel
@@ -295,7 +301,7 @@ export function PaperConsole() {
         { id: "positions", label: "持仓", count: deskPositions.length, content: <PositionsTable positions={deskPositions} /> },
         { id: "orders", label: "订单", count: deskOrders.length, content: <OrdersTable orders={deskOrders} onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })} /> },
         { id: "account", label: "币安账户", content: <><BinanceSyncHero account={data.testnetAccount} /><TestnetAccountPanel account={data.testnetAccount} /></> },
-        { id: "automation", label: "自动交易", content: <><ModeBanner status={data.tradingStatus} /><div className="workspace-panel-grid"><RuntimeControlPanel streamStatus={data.streamStatus} tradingStatus={data.tradingStatus} mirrorToGateway={mirrorToGateway} onMirrorToggle={(enabled) => handleAction("toggleGatewayMirror", { enabled })} onRunCycle={() => handleAction("runAllCycles")} /><AutoSettingsPanel paperRunId={autoPaperRunId} autoSettings={autoSettings} onSave={(payload) => handleAction("saveAutoSettings", payload)} /><Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={data.tradingStatus} /></div></> },
+        { id: "automation", label: "自动交易", content: <><ModeBanner status={data.tradingStatus} account={data.testnetAccount} /><div className="workspace-panel-grid"><RuntimeControlPanel streamStatus={data.streamStatus} tradingStatus={data.tradingStatus} mirrorToGateway={mirrorToGateway} onMirrorToggle={(enabled) => handleAction("toggleGatewayMirror", { enabled })} onRunCycle={() => handleAction("runAllCycles")} /><AutoSettingsPanel paperRunId={autoPaperRunId} autoSettings={autoSettings} onSave={(payload) => handleAction("saveAutoSettings", payload)} /><Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={data.tradingStatus} /></div></> },
         { id: "carry", label: "Carry", content: <div className="workspace-panel-grid"><FundingPanel signal={data.fundingSignal} onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })} /><ExecutionAcceptancePanel fundingSignal={data.fundingSignal} onRunAcceptance={() => handleAction("testnetAcceptance")} onRunCarry={() => handleAction("carryExecution")} /></div> },
         { id: "decision", label: "决策链", content: <div className="workspace-panel-grid"><DecisionDebugPanel decisionTrace={data.decisionTrace} /><MarketIntelligencePanel signal={data.intelligenceSignal} /></div> },
         { id: "risk-data", label: "风险与数据", content: <div className="workspace-panel-grid"><MessageSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} riskEvents={data.overview?.risk_events} /><DataSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} /><OrderSyncPanel orderSync={data.orderSync} /></div> },

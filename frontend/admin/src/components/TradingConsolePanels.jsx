@@ -2,11 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 
 import { asArray, formatClock, formatNumber, formatPercent, formatTime } from "../utils/format";
 
-export function ModeBanner({ status }) {
+export function ModeBanner({ status, account }) {
   const modeLabel = status?.mode === "testnet" ? "币安合约模拟盘" : "本地模拟盘";
   const testnetLabel = status?.binance_use_testnet ? "币安模拟盘已锁定" : "币安模拟盘未启用";
   const liveLabel = status?.live_trading_enabled ? "实盘开关开启" : "实盘关闭";
   const gatewayLabel = status?.gateway_available ? "网关可用" : "网关待配置";
+  const webUrl = account?.web_ui_url
+    || (account?.api_backend?.includes("testnet")
+      ? "https://testnet.binancefuture.com/en/futures/BTCUSDT"
+      : "https://demo.binance.com/en/futures/BTCUSDT");
+  const webHost = webUrl.includes("testnet.binancefuture.com") ? "testnet.binancefuture.com" : "demo.binance.com";
   return (
     <section className="mode-banner">
       <div><span>当前模式</span><strong>{modeLabel}</strong></div>
@@ -15,9 +20,9 @@ export function ModeBanner({ status }) {
       <div><span>真实交易</span><strong>{liveLabel}</strong></div>
       <div><span>交易网关</span><strong>{gatewayLabel}</strong></div>
       <div className="mode-banner-note">
-        币安模拟账户统一入口：
-        <a href="https://demo.binance.com/en/futures/BTCUSDT" target="_blank" rel="noreferrer">demo.binance.com</a>
-        （模拟盘链接会自动跳转到此）。须登录同一账号；订单以本平台「币安模拟账户 API 面板」为准。
+        对账入口（模拟盘，非主网）：
+        <a href={webUrl} target="_blank" rel="noreferrer">{webHost}</a>
+        。主网 futures.binance.com 不同步。订单以本平台「币安账户」API 面板为准。
       </div>
     </section>
   );
@@ -42,21 +47,62 @@ export function BinanceSyncHero({ account }) {
     );
   }
   const latest = asArray(account.recent_orders)[0];
+  const positions = asArray(account.positions).filter((row) => Math.abs(Number(row.quantity) || 0) > 0);
   const syncedLabel = account.synced_at ? formatTime(account.synced_at) : "刚刚";
+  const webUrl = account.web_ui_url || "https://testnet.binancefuture.com/en/futures/BTCUSDT";
+  const backendLabel = account.api_backend === "testnet-fallback"
+    ? "Testnet（demo 回退）"
+    : account.api_backend === "testnet"
+      ? "Testnet"
+      : account.api_backend ?? "模拟环境";
   return (
     <section className="binance-sync-hero ok">
       <div className="binance-sync-hero-main">
-        <strong>币安模拟盘 API 已连通 — 与自动下单同一账户</strong>
+        <strong>币安模拟盘 API 已连通 — 仓位/订单以此为准（非主网）</strong>
         <span>
           钱包 {formatNumber(account.wallet_balance, 2)} USDT · 可用 {formatNumber(account.available_balance, 2)} USDT ·
-          持仓 {account.open_position_count ?? 0} · 后端 {account.api_backend ?? "模拟环境"} · 同步 {syncedLabel} ·
+          持仓 {account.open_position_count ?? positions.length} · 后端 {backendLabel} · 同步 {syncedLabel} ·
           {latest ? `最新 #${latest.order_id} ${sideLabel(latest.side)} ${orderStatusLabel(latest.status)}` : "暂无最近订单"}
         </span>
+        {positions.length ? (
+          <span>
+            当前持仓：{positions.map((p) => `${p.symbol} ${sideLabel(p.side)} ${formatNumber(p.quantity, 4)}`).join(" · ")}
+          </span>
+        ) : null}
       </div>
       <p className="binance-sync-hero-note">
-        自动交易开启镜像后会<strong>先向币安下单</strong>，本面板即你在币安的真实持仓和订单（API 真源）。
-        网页受地区限制时需通过可用网络登录 demo.binance.com；网页无法登录不影响 API 对账。
+        请用
+        <a href={webUrl} target="_blank" rel="noreferrer">模拟盘网页</a>
+        对账；<strong>不要</strong>用 futures.binance.com 主网对比（主网订单不会同步）。
+        镜像开启后自动单会先打到同一模拟账户。
       </p>
+    </section>
+  );
+}
+
+export function ExchangePositionHint({ positions, selectedSymbol, onSelect }) {
+  const rows = asArray(positions).filter((row) => Math.abs(Number(row.quantity) || 0) > 0);
+  if (!rows.length) return null;
+  const selected = rows.some((row) => row.symbol === selectedSymbol || row.symbol?.startsWith(`${selectedSymbol}:`));
+  if (selected) return null;
+  return (
+    <section className="exchange-position-hint">
+      <strong>模拟盘持仓不在当前品种</strong>
+      <span>当前查看 {selectedSymbol}；持仓在：</span>
+      <div className="exchange-position-hint-actions">
+        {rows.map((row) => {
+          const symbol = String(row.symbol || "").replace(":USDT", "");
+          return (
+            <button
+              key={`${row.symbol}-${row.side}`}
+              type="button"
+              onClick={() => onSelect?.(symbol, `${symbol}:USDT`)}
+            >
+              {symbol} {sideLabel(row.side)} {formatNumber(row.quantity, 4)}
+            </button>
+          );
+        })}
+      </div>
     </section>
   );
 }

@@ -113,6 +113,7 @@ class PaperRunStepRequest(PlatformModel):
     perp_symbol: str | None = None
     enable_decision_veto: bool = True
     idempotency_key: str | None = None
+    cross_sectional_rank: dict[str, Any] | None = None
 
 
 class PaperRuntimeCycleRequest(PlatformModel):

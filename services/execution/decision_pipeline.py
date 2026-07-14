@@ -13,6 +13,7 @@ from services.agents import AgentTaskService, build_configured_llm_runtime
 from services.data import DataRepository
 from services.data.market_intelligence import MarketIntelligenceService
 from services.execution.net_edge import meta_label_edge_stats
+from services.execution.signal_edge_stats import load_active_edge_stats
 from services.strategy_library import (
     AgentTaskRepository,
     ExecutionRepository,
@@ -21,6 +22,7 @@ from services.strategy_library import (
     StrategyRepository,
 )
 from services.strategy_library.ensemble import SignalEnsembleService
+from services.strategy_library.meta_label_model import extract_features
 from services.strategy_library.technical import (
     calculate_atr,
     classify_volatility_regime,
@@ -224,12 +226,24 @@ class DecisionPipeline:
             )
 
         training_samples = _meta_label_samples(bars, direction=ensemble.fused_direction)
+        model_features = None
+        if latest is not None:
+            model_features = extract_features(
+                bars=bars,
+                direction_vote_count=len(ensemble.raw_votes),
+                entry_vote_count=sum(1 for vote in ensemble.raw_votes if vote.direction == ensemble.fused_direction),
+                ensemble_confidence=ensemble.fused_confidence or 0.0,
+                funding_rate_bps=_latest_funding_bps(self.data_repo, symbol=symbol),
+                signal_time=latest.timestamp,
+            )
         meta_label = self.ensemble_service.create_meta_label(
             MetaLabelRequest(
                 ensemble_id=ensemble.ensemble_id,
                 signal_time=latest.timestamp if latest else None,
                 training_samples=training_samples,
                 min_win_rate=float(strategy.rules.entry_rules.get("meta_label_min_win_rate", 0.45)),
+                strategy_key=strategy.strategy_key,
+                model_features=model_features,
             )
         )
         if self.execution_repo is not None:
@@ -257,7 +271,7 @@ class DecisionPipeline:
             enable_decision_veto=enable_decision_veto,
         )
         fee_bps, slippage_bps = _fee_slippage_bps(strategy=strategy, symbol=symbol)
-        edge_stats = meta_label_edge_stats([sample.net_return for sample in training_samples])
+        edge_stats = _edge_stats_for_gate(strategy_key=strategy.strategy_key, training_samples=training_samples)
         trace = _trace(
             status="vetoed" if veto_result is not None and veto_result.veto else "bet_taken",
             signals=signals,
@@ -708,6 +722,13 @@ def _signal_weight(signal: TradeSignal) -> float:
     return base * float(signal.confidence or 0.0)
 
 
+def _latest_funding_bps(data_repo: DataRepository, *, symbol: str) -> float | None:
+    latest = data_repo.get_latest_market_extras(symbol=symbol)
+    if latest is None or latest.funding_rate is None:
+        return None
+    return float(latest.funding_rate) * 10_000.0
+
+
 def _fee_slippage_bps(*, strategy: StrategyContract, symbol: str) -> tuple[float, float]:
     rules = strategy.rules.entry_rules
     is_core = symbol.replace(":USDT", "") in {"BTC/USDT", "ETH/USDT", "SOL/USDT"}
@@ -716,6 +737,28 @@ def _fee_slippage_bps(*, strategy: StrategyContract, symbol: str) -> tuple[float
         rules.get("core_slippage_bps" if is_core else "standard_slippage_bps", rules.get("slippage_bps", 6.0))
     )
     return fee, slippage
+
+
+def _edge_stats_for_gate(
+    *, strategy_key: str | None, training_samples: list[MetaLabelSample]
+) -> dict[str, float]:
+    """Prefer a real, offline-computed historical-trade edge estimate over the
+    raw-bar-return proxy below when a fresh artifact exists for this strategy
+    (see services/execution/signal_edge_stats.py); fail closed to the proxy
+    otherwise. The proxy (`_meta_label_samples` + `meta_label_edge_stats`) uses
+    the last ~47 bars' raw close-to-close return in the ensemble's fused
+    direction, which is disconnected from whether this signal combination ever
+    actually fired historically -- a noisy stand-in, not a measurement."""
+    if strategy_key is not None:
+        artifact = load_active_edge_stats(strategy_key)
+        if artifact is not None:
+            return {
+                "sample_count": float(artifact.sample_count),
+                "win_rate": artifact.win_rate,
+                "average_win": artifact.average_win,
+                "average_loss": artifact.average_loss,
+            }
+    return meta_label_edge_stats([sample.net_return for sample in training_samples])
 
 
 def _meta_label_samples(bars: list[OHLCVBar], *, direction: TradeSide) -> list[MetaLabelSample]:

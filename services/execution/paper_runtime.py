@@ -10,6 +10,7 @@ from typing import Any
 
 from services.data import DataRepository
 from services.data.service import DEFAULT_BINANCE_TOP20
+from services.execution.cross_sectional import CrossSectionalRankEntry, compute_funding_rank_snapshot
 from services.execution.exit_ladder import (
     ExitLadderState,
     apply_level_fill,
@@ -149,6 +150,15 @@ class PaperRuntimeService:
             estimated_slippage_total += float(reconcile_result["slippage_cost"])
             daily_realized_pnl += float(reconcile_result["net_pnl"])
             weekly_realized_pnl += float(reconcile_result["net_pnl"])
+
+        cross_sectional_snapshot: dict[str, CrossSectionalRankEntry] = {}
+        if paper_run.execution_profile.get("strategy_lane") == "cross_sectional_carry":
+            basket_size = int(strategy.rules.entry_rules.get("basket_size", 3))
+            cross_sectional_snapshot = compute_funding_rank_snapshot(
+                data_repo=self.data_repo,
+                symbols=scanned_symbols,
+                basket_size=basket_size,
+            )
 
         for symbol in scanned_symbols:
             current_position = active_positions.get(symbol)
@@ -569,8 +579,9 @@ class PaperRuntimeService:
             enable_veto = (
                 request.enable_decision_veto
                 and bool(paper_run.execution_profile.get("llm_veto_enabled", True))
-                and lane != "carry"
+                and lane not in {"carry", "cross_sectional_carry"}
             )
+            rank_entry = cross_sectional_snapshot.get(symbol)
             base_order = self.signal_generator.generate_order(
                 paper_run=paper_run,
                 strategy=strategy,
@@ -579,6 +590,16 @@ class PaperRuntimeService:
                     timeframe=runtime_timeframe,
                     idempotency_key=cycle_key,
                     enable_decision_veto=enable_veto,
+                    cross_sectional_rank=(
+                        {
+                            "basket_side": rank_entry.basket_side,
+                            "funding_rate_bps": rank_entry.funding_rate_bps,
+                            "rank": rank_entry.rank,
+                            "total_ranked": rank_entry.total_ranked,
+                        }
+                        if rank_entry is not None
+                        else None
+                    ),
                 ),
                 positions=list(active_positions.values()),
             )
@@ -722,7 +743,8 @@ class PaperRuntimeService:
                             )
                         continue
 
-                if not bool(base_order.entry_context.get("paper_order_should_trade", True)):
+                rank_dropout = "outside_funding_basket" in decision_trace.get("rejection_reasons", [])
+                if not rank_dropout and not bool(base_order.entry_context.get("paper_order_should_trade", True)):
                     skipped_symbols += 1
                     actions.append(
                         PaperRuntimeAction(
@@ -743,12 +765,12 @@ class PaperRuntimeService:
                     )
                     continue
 
-                if request.close_on_opposite_signal and current_position.side != base_order.direction:
+                if rank_dropout or (request.close_on_opposite_signal and current_position.side != base_order.direction):
                     close_order = self._close_order_request(
                         base_order=base_order,
                         current_position=current_position,
                         close_price=reference_price,
-                        close_reason="opposite_signal",
+                        close_reason="rank_dropout" if rank_dropout else "opposite_signal",
                     )
                     order = self.gatekeeper.submit_order(close_order)
                     if order.execution_status == "accepted":
