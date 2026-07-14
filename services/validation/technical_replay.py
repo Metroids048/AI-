@@ -295,6 +295,174 @@ class TechnicalStrategyComparisonReport:
         return "\n".join(lines) + "\n"
 
 
+@dataclass(frozen=True)
+class ExitPolicy:
+    """A named exit-side configuration to A/B against another on the same entry.
+
+    Carries its own ``exit_rules``/``takeprofit_rules`` so a ladder arm remains
+    self-contained even when the live runtime config no longer ships a ladder.
+    """
+
+    name: str
+    exit_mode: str
+    exit_rules: dict[str, Any]
+    takeprofit_rules: dict[str, Any]
+
+    def __post_init__(self) -> None:
+        if self.exit_mode not in {EXIT_MODE_FIXED_2R, EXIT_MODE_EXIT_LADDER}:
+            raise ValueError(f"unsupported exit_mode: {self.exit_mode}")
+
+
+@dataclass(frozen=True)
+class ExitPolicyComparisonReport:
+    """Fixed-entry, two-exit-policy comparison (no OOS/walk-forward split).
+
+    Deliberately flatter than :class:`TechnicalStrategyComparisonReport`: the
+    entry signal is held constant across both arms, so only exit mechanics vary.
+    """
+
+    generated_at: datetime
+    title: str
+    entry_label: str
+    policy_a_name: str
+    policy_b_name: str
+    policy_a: ReplayMetrics
+    policy_b: ReplayMetrics
+    methodology: dict[str, Any]
+
+    def as_dict(self, *, include_trades: bool = False) -> dict[str, Any]:
+        return {
+            "generated_at": self.generated_at.isoformat(),
+            "title": self.title,
+            "entry_label": self.entry_label,
+            "policy_a_name": self.policy_a_name,
+            "policy_b_name": self.policy_b_name,
+            "policy_a": self.policy_a.as_dict(include_trades=include_trades),
+            "policy_b": self.policy_b.as_dict(include_trades=include_trades),
+            "methodology": self.methodology,
+        }
+
+    def to_markdown(self) -> str:
+        a, b = self.policy_a, self.policy_b
+        lines = [
+            f"# {self.title}",
+            "",
+            f"- Generated at: {self.generated_at.isoformat()}",
+            f"- Candidate entry: `{self.entry_label}`",
+            "- Automatic Paper/Testnet settings: unchanged",
+            "- Promotion: not requested; report is evidence only",
+            "",
+            "## Comparison",
+            "",
+            f"| Metric | {self.policy_a_name} | {self.policy_b_name} |",
+            "| --- | ---: | ---: |",
+            f"| Signals | {a.signal_count} | {b.signal_count} |",
+            f"| Trade slices | {a.total_trades} | {b.total_trades} |",
+            f"| Win rate | {a.win_rate:.4f} | {b.win_rate:.4f} |",
+            f"| Net return | {a.net_return:.6f} | {b.net_return:.6f} |",
+            f"| Net expectancy | {a.net_expectancy:.6f} | {b.net_expectancy:.6f} |",
+            f"| Profit factor | {a.profit_factor:.4f} | {b.profit_factor:.4f} |",
+            f"| Max drawdown | {a.max_drawdown:.4f} | {b.max_drawdown:.4f} |",
+            f"| Avg hold hours | {a.average_hold_hours:.2f} | {b.average_hold_hours:.2f} |",
+            f"| Ladder hits | {a.ladder_level_hits} | {b.ladder_level_hits} |",
+            "",
+            "## Notes",
+            "",
+            "- Both arms share the identical entry signal; only exit mechanics differ.",
+            f"- `{self.policy_a_name}` exit_mode=`{a.exit_mode}`; `{self.policy_b_name}` exit_mode=`{b.exit_mode}`.",
+            "- Failed Validation gates still forbid auto promotion.",
+            "",
+        ]
+        issues = sorted({*a.data_issues, *b.data_issues})
+        if issues:
+            lines.extend(["## Data Issues", "", *[f"- {issue}" for issue in issues], ""])
+        return "\n".join(lines)
+
+
+def _strategy_with_exit_policy(entry_config: StrategyContract, policy: ExitPolicy) -> StrategyContract:
+    """Clone ``entry_config`` keeping entry/stoploss/position rules but swapping
+    the exit side to ``policy``. Never mutates the input contract."""
+
+    return entry_config.model_copy(
+        update={
+            "strategy_id": f"{entry_config.strategy_id}_{policy.name}",
+            "strategy_key": f"{entry_config.strategy_key}_{policy.name}",
+            "rules": StrategyRules(
+                entry_rules=dict(entry_config.rules.entry_rules),
+                exit_rules=dict(policy.exit_rules),
+                stoploss_rules=dict(entry_config.rules.stoploss_rules),
+                takeprofit_rules=dict(policy.takeprofit_rules),
+                position_rules=dict(entry_config.rules.position_rules),
+            ),
+        }
+    )
+
+
+def compare_exit_policies(
+    *,
+    entry_config: StrategyContract,
+    exit_policy_a: ExitPolicy,
+    exit_policy_b: ExitPolicy,
+    market_data: MarketData,
+    symbols: Iterable[str] | None = None,
+    date_range: tuple[datetime | None, datetime | None] | None = None,
+    title: str = "Exit Policy A vs B (same entry)",
+    entry_label: str | None = None,
+    warmup_bars: int = 80,
+    max_workers: int = 8,
+    pipeline_factory: PipelineFactory | None = None,
+) -> ExitPolicyComparisonReport:
+    """Replay one fixed entry signal under two exit policies and compare them.
+
+    Both arms consume the same ``entry_config`` entry rules and the same
+    ``market_data``; only the exit mechanics (exit_mode + exit/takeprofit rules)
+    differ. This isolates the effect of the exit policy on the identical entry
+    stream. ``date_range`` maps to replay ``(start_at, end_at)``; ``None`` (the
+    default) reproduces the per-symbol warmup-start behaviour of :meth:`replay`.
+    """
+
+    if symbols is not None:
+        wanted = set(symbols)
+        market_data = {symbol: frames for symbol, frames in market_data.items() if symbol in wanted}
+    start_at, end_at = (date_range or (None, None))
+
+    def _replay(policy: ExitPolicy) -> ReplayMetrics:
+        service = TechnicalStrategyValidationService(
+            pipeline_factory=pipeline_factory,
+            warmup_bars=warmup_bars,
+            max_workers=max_workers,
+            exit_mode=policy.exit_mode,
+        )
+        return service.replay(
+            strategy=_strategy_with_exit_policy(entry_config, policy),
+            market_data=market_data,
+            start_at=start_at,
+            end_at=end_at,
+        )
+
+    metrics_a = _replay(exit_policy_a)
+    metrics_b = _replay(exit_policy_b)
+    return ExitPolicyComparisonReport(
+        generated_at=datetime.now(UTC),
+        title=title,
+        entry_label=entry_label or entry_config.strategy_key,
+        policy_a_name=exit_policy_a.name,
+        policy_b_name=exit_policy_b.name,
+        policy_a=metrics_a,
+        policy_b=metrics_b,
+        methodology={
+            "data_source": "caller-supplied OHLCV market data",
+            "symbols": sorted(market_data),
+            "entry_config": entry_config.strategy_key,
+            "policy_a": {"name": exit_policy_a.name, "exit_mode": exit_policy_a.exit_mode},
+            "policy_b": {"name": exit_policy_b.name, "exit_mode": exit_policy_b.exit_mode},
+            "warmup_bars": warmup_bars,
+            "decision_use": "exit-policy A/B evidence only; no automatic promotion",
+            "external_votes": "market intelligence and LLM veto disabled for deterministic replay",
+        },
+    )
+
+
 class HistoricalMarketDataView:
     """Read-only DataRepository-shaped view limited to a replay timestamp."""
 
@@ -332,6 +500,17 @@ class HistoricalMarketDataView:
         result = bars[-limit:] if limit is not None else bars
         self._slice_cache[cache_key] = result
         return result
+
+    def get_latest_market_extras(self, *, symbol: str, **_: Any) -> None:
+        """Read-only replay has no point-in-time funding/OI snapshot.
+
+        The production ``DecisionPipeline`` calls this (via ``_latest_funding_bps``)
+        while building meta-label features; ``extract_features`` documents that a
+        ``None`` funding rate is the correct "no snapshot" fallback (treated as
+        ``0.0``), so returning ``None`` keeps the offline replay deterministic
+        instead of crashing on a missing repository method.
+        """
+        return None
 
 
 @dataclass

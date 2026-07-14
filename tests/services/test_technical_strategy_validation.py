@@ -7,7 +7,14 @@ from decimal import Decimal
 from scripts.run_top20_technical_validation import _comparison_templates
 from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY, AUTO_PAPER_TECHNICAL_RULES
 from services.execution.decision_pipeline import DecisionPipelineResult
-from services.validation.technical_replay import HistoricalMarketDataView, TechnicalStrategyValidationService
+from services.validation.technical_replay import (
+    EXIT_MODE_EXIT_LADDER,
+    EXIT_MODE_FIXED_2R,
+    ExitPolicy,
+    HistoricalMarketDataView,
+    TechnicalStrategyValidationService,
+    compare_exit_policies,
+)
 from shared.models import StrategyContract, StrategyRules, Timeframe, TradeSide
 
 
@@ -299,4 +306,170 @@ def test_default_replay_distributes_independent_symbols_without_data_loss() -> N
     )
 
     assert metrics.strategy_key == "validated-template"
+    assert metrics.data_issues == []
+
+
+def _climbing_bars(symbol: str) -> list[dict]:
+    """Warmup flat, signal at bar 80, then climb through 1R and 1.5R and hold.
+
+    Shares the shape used by the ExitLadder replay test so the ladder arm fires
+    partial closes while the fixed-2R arm rides toward its single 2R target.
+    """
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    bars: list[dict] = []
+    for index in range(100):
+        if index <= 80:
+            high, low, close = Decimal("100.2"), Decimal("99.8"), Decimal("100")
+        elif index == 81:
+            high, low, close = Decimal("101.2"), Decimal("100.5"), Decimal("101.1")
+        elif index == 82:
+            high, low, close = Decimal("101.7"), Decimal("101.0"), Decimal("101.6")
+        else:
+            high, low, close = Decimal("101.3"), Decimal("100.9"), Decimal("101.2")
+        bars.append(
+            {
+                "symbol": symbol,
+                "exchange": "binance",
+                "timeframe": "1h",
+                "time": start + timedelta(hours=index),
+                "open": Decimal("100"),
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": Decimal("100"),
+            }
+        )
+    return bars
+
+
+def _entry_only_config(key: str) -> StrategyContract:
+    """A fixed entry config whose exit side is deliberately swapped by policies."""
+    return StrategyContract(
+        strategy_id=key,
+        strategy_key=key,
+        source="test",
+        core_thesis="exit-policy A/B entry",
+        rules=StrategyRules(
+            entry_rules={
+                "entry_timeframe": "1h",
+                "enabled_signals": ["ema_trend"],
+                "market_intelligence_enabled": False,
+                "core_fee_bps": 10.0,
+                "core_slippage_bps": 0.0,
+            },
+            stoploss_rules={"fixed_bps": 100},
+            takeprofit_rules={"risk_reward": 99.0},  # replaced per policy; must not leak
+            position_rules={},
+        ),
+    )
+
+
+def test_compare_exit_policies_isolates_exit_mechanics_on_one_entry() -> None:
+    symbol = "BTC/USDT"
+    data = {
+        symbol: {
+            "1h": _climbing_bars(symbol),
+            "15m": _bars(symbol=symbol, timeframe="15m"),
+            "4h": _bars(symbol=symbol, timeframe="4h"),
+        }
+    }
+    signal_at = data[symbol]["1h"][80]["time"]
+    entry_config = _entry_only_config("layered-entry")
+    entry_rules_before = deepcopy(entry_config.rules.entry_rules)
+    fixed = ExitPolicy(
+        name="Fixed 2R",
+        exit_mode=EXIT_MODE_FIXED_2R,
+        exit_rules={},
+        takeprofit_rules={"risk_reward": 2.0},
+    )
+    ladder = ExitPolicy(
+        name="ExitLadder",
+        exit_mode=EXIT_MODE_EXIT_LADDER,
+        exit_rules={"close_on_opposite_signal": True},
+        takeprofit_rules={
+            "risk_reward": 2.0,
+            "exit_ladder": [
+                {"r_multiple": 1.0, "close_fraction": 0.4},
+                {"r_multiple": 1.5, "close_fraction": 0.3},
+            ],
+            "remainder_trail_after_r": 2.5,
+        },
+    )
+
+    report = compare_exit_policies(
+        entry_config=entry_config,
+        exit_policy_a=fixed,
+        exit_policy_b=ladder,
+        market_data=data,
+        title="ExitLadder vs Fixed 2R Replay (same layered entry)",
+        pipeline_factory=lambda view: _ScheduledPipeline(view, {signal_at}),
+        warmup_bars=80,
+    )
+
+    # Same entry signal on both arms.
+    assert report.policy_a.signal_count == report.policy_b.signal_count == 1
+    assert report.policy_a_name == "Fixed 2R"
+    assert report.policy_b_name == "ExitLadder"
+    assert report.policy_a.exit_mode == EXIT_MODE_FIXED_2R
+    assert report.policy_b.exit_mode == EXIT_MODE_EXIT_LADDER
+    # Only the ladder arm books partial ladder closes.
+    assert report.policy_a.ladder_level_hits == {}
+    assert report.policy_b.ladder_level_hits.get("exit_ladder_1r", 0) >= 1
+    # The input entry config is never mutated (immutability rule).
+    assert entry_config.rules.entry_rules == entry_rules_before
+    assert entry_config.rules.takeprofit_rules == {"risk_reward": 99.0}
+    markdown = report.to_markdown()
+    assert "# ExitLadder vs Fixed 2R Replay (same layered entry)" in markdown
+    assert "| Metric | Fixed 2R | ExitLadder |" in markdown
+
+
+def test_compare_exit_policies_filters_symbols_and_rejects_bad_exit_mode() -> None:
+    data = {
+        "BTC/USDT": {"1h": _bars(symbol="BTC/USDT", timeframe="1h")},
+        "ETH/USDT": {"1h": _bars(symbol="ETH/USDT", timeframe="1h")},
+    }
+    fixed = ExitPolicy(
+        name="Fixed 2R", exit_mode=EXIT_MODE_FIXED_2R, exit_rules={}, takeprofit_rules={"risk_reward": 2.0}
+    )
+    report = compare_exit_policies(
+        entry_config=_entry_only_config("layered-entry"),
+        exit_policy_a=fixed,
+        exit_policy_b=fixed,
+        market_data=data,
+        symbols=["BTC/USDT"],
+        warmup_bars=80,
+        max_workers=1,
+    )
+    assert report.methodology["symbols"] == ["BTC/USDT"]
+
+    try:
+        ExitPolicy(name="bad", exit_mode="not_a_mode", exit_rules={}, takeprofit_rules={})
+    except ValueError as error:
+        assert "unsupported exit_mode" in str(error)
+    else:  # pragma: no cover - explicit failure path
+        raise AssertionError("ExitPolicy should reject an unknown exit_mode")
+
+
+def test_historical_view_stubs_market_extras_so_the_real_pipeline_does_not_crash() -> None:
+    # Regression guard: the production DecisionPipeline builds meta-label
+    # features via _latest_funding_bps -> data_repo.get_latest_market_extras().
+    # The read-only replay view must answer that call (with None) rather than
+    # raising AttributeError. Every other test injects a fake pipeline, so this
+    # is the only one that exercises the real evaluate() path end to end.
+    symbol = "BTC/USDT"
+    view = HistoricalMarketDataView({symbol: {"1h": _bars(symbol=symbol, timeframe="1h", count=120)}})
+    assert view.get_latest_market_extras(symbol=symbol) is None
+
+    data = {
+        symbol: {
+            "1h": _bars(symbol=symbol, timeframe="1h", count=120),
+            "15m": _bars(symbol=symbol, timeframe="15m", count=480),
+            "4h": _bars(symbol=symbol, timeframe="4h", count=120),
+        }
+    }
+    # No pipeline_factory -> real DecisionPipeline over the historical view.
+    metrics = TechnicalStrategyValidationService(warmup_bars=80, max_workers=1).replay(
+        strategy=_strategy(key="real-pipeline", timeframe="1h"),
+        market_data=data,
+    )
     assert metrics.data_issues == []
