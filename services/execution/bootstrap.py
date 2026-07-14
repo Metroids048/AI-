@@ -107,6 +107,60 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
     },
 }
 
+# Medium-term swing trading preset: 1d direction + 4h entry, designed for lower
+# turnover and less competition with HFT algorithms. This is a NEW hypothesis
+# (not yet validated via historical replay) distinct from the short-term 4h/15m
+# combination in AUTO_PAPER_TECHNICAL_RULES. The current "net expectancy negative"
+# conclusion was measured on 15m/4h, NOT on this 1d/4h combination -- so this
+# configuration deserves its own independent out-of-sample validation via
+# TechnicalStrategyValidationService before being armed for auto-trading.
+AUTO_PAPER_SWING_RULES: dict[str, Any] = {
+    "entry_rules": {
+        "technical_pipeline": True,
+        "timeframe_model": "custom",
+        "direction_timeframe": "1d",  # Daily for major trend direction
+        "entry_timeframe": "4h",       # 4-hour for refined entry timing
+        "state_timeframe": "1d",       # Use daily for regime/volatility state
+        # Medium-term favors structure/trend signals; mean-reversion signals like
+        # VWAP/Bollinger are disabled until evidence supports them on daily scale.
+        "enabled_signals": [
+            "dow_trend",      # Multi-day trend structure
+            "ema_trend",      # Crossover on daily scale
+            "adx",            # Trend strength
+            "macd",           # Momentum divergence
+            "price_action",   # Pinbar/engulfing still valid on 4h entries
+        ],
+        "meta_label_min_win_rate": 0.50,
+        "fusion_method": "layered_regime_entry",
+        "market_intelligence_enabled": False,
+        "core_fee_bps": 5.0,
+        "core_slippage_bps": 1.0,
+        "standard_fee_bps": 5.0,
+        "standard_slippage_bps": 3.0,
+        "minimum_net_reward_r": 1.0,
+        # Correlation/exposure limits inherited from execution_profile if not overridden
+    },
+    "exit_rules": {
+        "close_on_opposite_signal": True,
+        "time_exit_hours": 24 * 14,  # 14-day max hold (vs 24h for short-term)
+        "time_exit_min_r": 0.5,
+    },
+    # Medium-term volatility is higher, so stop distance must be wider to avoid
+    # being stopped out by normal daily noise. ATR multiple 2.0 -> 2.5.
+    "stoploss_rules": {"atr_multiple": 2.5},
+    "takeprofit_rules": {"risk_reward": 2.0},
+    "position_rules": {
+        # Wider stops mean smaller position size for the same risk_per_trade
+        # (this is the volatility-pricing formula working correctly, not a bug).
+        # Do NOT artificially inflate risk_per_trade just to "keep notional similar".
+        "risk_per_trade": 0.025,
+        "max_portfolio_initial_risk_fraction": 0.15,
+        "max_leverage": 15,  # Lower leverage for longer holds
+        "max_position_fraction": 0.15,
+        "min_notional_usdt": 20,
+    },
+}
+
 OPERATOR_EXPERIENCE_RULES: dict[str, Any] = {
     "entry_rules": {
         "technical_pipeline": True,
@@ -572,7 +626,7 @@ def bootstrap_seed_multi_timeframe_ohlcv() -> int:
     from services.database import get_session_factory
 
     written_total = 0
-    timeframes = ("1m", "15m", "4h")
+    timeframes = ("1m", "15m", "4h", "1d")
     with get_session_factory()() as session:
         repo = DataRepository(session)
         client = BinanceCcxtClient()

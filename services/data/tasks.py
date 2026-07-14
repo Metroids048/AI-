@@ -126,12 +126,13 @@ def enqueue_binance_ingestion(job_payload: dict, *, client=None) -> dict:
         session.close()
 
 
-_HEARTBEAT_TIMEFRAMES = ("1m", "15m", "1h", "4h")
+_HEARTBEAT_TIMEFRAMES = ("1m", "15m", "1h", "4h", "1d")
 _HEARTBEAT_MAX_AGE_SECONDS = {
     "1m": 120,
     "15m": 20 * 60,
     "1h": 80 * 60,
     "4h": 5 * 60 * 60,
+    "1d": 28 * 60 * 60,  # 28 hours tolerance for daily candles
 }
 _SECONDARY_TIMEFRAME_INDEX = 0
 
