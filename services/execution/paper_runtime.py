@@ -27,6 +27,7 @@ from services.execution.gateway import ExchangeGateway, gateway_symbol_available
 from services.execution.paper_signal import PaperSignalGenerator
 from services.strategy_library import (
     AgentTaskRepository,
+    DecisionSnapshotRepository,
     ExecutionRepository,
     NotificationRepository,
     PaperRunRepository,
@@ -35,6 +36,7 @@ from services.strategy_library import (
 )
 from shared.config import settings
 from shared.models import (
+    DecisionSnapshot,
     ExecutionOrderRequest,
     FailureRecord,
     OHLCVBar,
@@ -74,6 +76,7 @@ class PaperRuntimeService:
         self.review_repo = review_repo
         self.gatekeeper = gatekeeper
         self.gateway = gateway
+        self.decision_snapshot_repo = DecisionSnapshotRepository(execution_repo.session)
         self.signal_generator = PaperSignalGenerator(
             data_repo=data_repo,
             execution_repo=execution_repo,
@@ -1010,6 +1013,26 @@ class PaperRuntimeService:
             "processed_cycle_keys": new_processed_keys[-500:],
             "open_position_symbols": sorted(active_positions.keys()),
         }
+        # last_cycle_decisions above is overwritten every cycle, so persist an
+        # appended history row per decision here — this is the only durable
+        # record of "no trade" skip reasons (technical_signals_insufficient,
+        # confirmation_unavailable_fail_closed, etc.) that never reach
+        # gatekeeper.submit_order() and therefore never create an OrderExecution row.
+        for action in actions:
+            if not action.decision_trace:
+                continue
+            with suppress(Exception):
+                self.decision_snapshot_repo.create_snapshot(
+                    DecisionSnapshot(
+                        paper_run_id=paper_run_id,
+                        symbol=action.symbol,
+                        action=action.action,
+                        pipeline_status=action.decision_trace.get("pipeline_status"),
+                        reason=action.reason,
+                        decision_trace=action.decision_trace,
+                        cycle_time=cycle_time,
+                    )
+                )
         updated_run = self.paper_repo.update_paper_run(
             paper_run_id,
             paper_status="locked" if hard_drawdown_locked else "running",

@@ -22,6 +22,7 @@ def test_celery_beat_schedule_contains_7x24_paper_loop_tasks() -> None:
         schedule["volatility-asset-risk-tiers-weekly"]["task"]
         == "services.execution.tasks.refresh_volatility_asset_risk_tiers"
     )
+    assert schedule["signal-edge-stats-weekly"]["task"] == "services.execution.tasks.refresh_signal_edge_stats"
 
 
 def test_celery_worker_requeues_unacknowledged_tasks_after_worker_loss() -> None:

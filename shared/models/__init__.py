@@ -19,6 +19,7 @@ from .backtest import (
 )
 from .base import PlatformModel
 from .decision_memory import DecisionMemoryEntry
+from .decision_snapshot import DecisionSnapshot
 from .enums import (
     BacktestEngine,
     BetDecision,
@@ -266,6 +267,7 @@ __all__ = [
     "StrategyRead",
     "StrategyRules",
     "DecisionMemoryEntry",
+    "DecisionSnapshot",
     "ExchangeGatewayCapability",
     "ExchangeAccountSnapshot",
     "ReconciliationRecord",

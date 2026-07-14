@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 
 from services.data import DataRepository
@@ -29,6 +30,18 @@ from shared.models import (
 
 from .portfolio_risk import close_returns, correlation, signed_exposure
 from .risk_tiers import resolve_asset_risk_tier
+
+logger = logging.getLogger(__name__)
+
+# Notional below this fraction of account equity is almost certainly a sizing
+# misconfiguration (e.g. risk_per_trade * leverage collapsing to near zero)
+# rather than an intentional micro-size order, so it's worth a loud warning.
+MIN_SANE_NOTIONAL_FRACTION = 0.005
+
+# Default same-side return-correlation coefficient above which a position is
+# treated as a "peer" for cluster-exposure risk purposes. Operator-overridable
+# via paper_run.execution_profile["correlation_peer_threshold"].
+DEFAULT_CORRELATION_PEER_THRESHOLD = 0.70
 
 
 class PaperSignalGenerator:
@@ -139,6 +152,13 @@ class PaperSignalGenerator:
                     strategy.rules.position_rules.get("max_portfolio_initial_risk_fraction", 0.05)
                 ),
                 "min_notional_usdt": float(strategy.rules.position_rules.get("min_notional_usdt", 50.0)),
+                "correlated_peer_count_limit": int(paper_run.execution_profile.get("correlated_peer_count_limit", 2)),
+                "correlated_cluster_exposure_limit": float(
+                    paper_run.execution_profile.get("correlated_cluster_exposure_limit", 0.35)
+                ),
+                "net_directional_exposure_limit": float(
+                    paper_run.execution_profile.get("net_directional_exposure_limit", 0.40)
+                ),
                 "decision_pipeline": decision.trace,
                 "decision_reason": decision.reason,
                 "decision_bar_time": decision.bar_time.isoformat() if decision.bar_time else None,
@@ -148,6 +168,8 @@ class PaperSignalGenerator:
                 "meta_label_average_loss": decision.trace.get("meta_label_average_loss"),
                 "round_trip_fee_rate": decision.trace.get("round_trip_fee_rate"),
                 "round_trip_slippage_rate": decision.trace.get("round_trip_slippage_rate"),
+                "strategy_lane": decision.trace.get("strategy_lane"),
+                "strategy_performance_eligible": decision.trace.get("strategy_lane") != "link_verification",
             },
             stoploss_plan={"price": float(stoploss), "basis": "strategy_rule_or_atr_required_stop"},
             takeprofit_plan={"price": float(takeprofit), "basis": "strategy_rule_or_atr_takeprofit"},
@@ -170,6 +192,11 @@ class PaperSignalGenerator:
         paper_run: PaperRun | None = None,
     ) -> DecisionPipelineResult:
         rules = strategy.rules
+        if _is_link_verification_strategy(rules=rules, paper_run=paper_run):
+            return self._link_verification_decision(
+                symbol=symbol,
+                timeframe=timeframe,
+            )
         if _is_cross_sectional_strategy(rules=rules, paper_run=paper_run):
             return self._cross_sectional_decision(
                 strategy=strategy,
@@ -192,6 +219,45 @@ class PaperSignalGenerator:
             timeframe=timeframe,
             enable_decision_veto=request.enable_decision_veto,
             relaxed_signals=settings.paper_runtime_relaxed_signals,
+        )
+
+    def _link_verification_decision(
+        self,
+        *,
+        symbol: str,
+        timeframe: str,
+    ) -> DecisionPipelineResult:
+        """Bypass real signal/ensemble/meta-label evaluation entirely and admit a
+        fixed-direction order with a hardcoded favorable edge. This lane exists to
+        exercise the order -> stoploss -> takeprofit -> close pipeline itself
+        (see AGENTS.md link-verification isolation requirement); it never
+        measures signal quality, so it must not depend on ensemble_discarded /
+        meta_label_bet_skipped or any real net-edge computation that could
+        non-deterministically withhold an order."""
+        bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=timeframe)
+        reference_price = Decimal("0") if bar is None else bar.close
+        return DecisionPipelineResult(
+            direction=TradeSide.LONG,
+            should_trade=True,
+            reason="link_verification_admitted",
+            reference_price=reference_price,
+            bar_time=bar.timestamp if bar else None,
+            signals=[],
+            ensemble=None,
+            meta_label=None,
+            veto_result=None,
+            confidence_multiplier=1.0,
+            atr=None,
+            volatility_context={"regime": "link_verification"},
+            trace={
+                "pipeline_status": "link_verification_admitted",
+                "strategy_lane": "link_verification",
+                "meta_label_win_rate": 1.0,
+                "meta_label_average_win": 1.0,
+                "meta_label_average_loss": 0.0,
+                "round_trip_fee_rate": 0.0,
+                "round_trip_slippage_rate": 0.0,
+            },
         )
 
     def _carry_decision(
@@ -434,33 +500,57 @@ class PaperSignalGenerator:
         stoploss_price: Decimal | None = None,
     ) -> float:
         position_rules = strategy.rules.position_rules
-        if "notional_usdt" in position_rules:
-            return float(position_rules["notional_usdt"]) * max(confidence_multiplier, 0.0)
-        if "order_notional_usdt" in position_rules:
-            return float(position_rules["order_notional_usdt"]) * max(confidence_multiplier, 0.0)
         account_equity = float(
             paper_run.paper_metrics_summary.get("account_equity")
             or paper_run.execution_profile.get("account_equity")
             or 10_000.0
         )
-        if "risk_per_trade" in position_rules:
+        sizing_basis = "fallback_equity_fraction"
+        if "notional_usdt" in position_rules:
+            sizing_basis = "notional_usdt"
+            notional = float(position_rules["notional_usdt"]) * max(confidence_multiplier, 0.0)
+        elif "order_notional_usdt" in position_rules:
+            sizing_basis = "order_notional_usdt"
+            notional = float(position_rules["order_notional_usdt"]) * max(confidence_multiplier, 0.0)
+        elif "risk_per_trade" in position_rules:
             risk_budget = account_equity * float(position_rules["risk_per_trade"])
-            if reference_price is not None and stoploss_price is not None:
-                stop_distance = abs(float(reference_price - stoploss_price))
-                if stop_distance > 0 and float(reference_price) > 0:
-                    quantity = risk_budget / stop_distance
-                    volatility_sized_notional = quantity * float(reference_price)
-                    tier = resolve_asset_risk_tier(symbol, paper_run.execution_profile.get("asset_risk_tiers"))
-                    max_fraction = (
-                        tier.max_position_fraction
-                        if paper_run.execution_profile.get("asset_risk_tiers")
-                        else float(position_rules.get("max_position_fraction", 0.05))
-                    )
-                    base = min(volatility_sized_notional, account_equity * max_fraction)
-                    return base * max(confidence_multiplier, 0.0)
-            base = float(risk_budget * max(requested_leverage, 1.0))
-            return base * max(confidence_multiplier, 0.0)
-        return min(account_equity * 0.05, 1_000.0) * max(confidence_multiplier, 0.0)
+            stop_distance = (
+                abs(float(reference_price - stoploss_price))
+                if reference_price is not None and stoploss_price is not None
+                else 0.0
+            )
+            if stop_distance > 0 and reference_price is not None and float(reference_price) > 0:
+                sizing_basis = "risk_per_trade_volatility_sized"
+                quantity = risk_budget / stop_distance
+                volatility_sized_notional = quantity * float(reference_price)
+                tier = resolve_asset_risk_tier(symbol, paper_run.execution_profile.get("asset_risk_tiers"))
+                max_fraction = (
+                    tier.max_position_fraction
+                    if paper_run.execution_profile.get("asset_risk_tiers")
+                    else float(position_rules.get("max_position_fraction", 0.05))
+                )
+                notional = min(volatility_sized_notional, account_equity * max_fraction) * max(
+                    confidence_multiplier, 0.0
+                )
+            else:
+                sizing_basis = "risk_per_trade_leverage_sized"
+                notional = float(risk_budget * max(requested_leverage, 1.0)) * max(confidence_multiplier, 0.0)
+        else:
+            notional = min(account_equity * 0.05, 1_000.0) * max(confidence_multiplier, 0.0)
+
+        if account_equity > 0 and (notional / account_equity) < MIN_SANE_NOTIONAL_FRACTION:
+            logger.warning(
+                "sizing_sentinel_triggered symbol=%s basis=%s notional=%.4f account_equity=%.4f "
+                "fraction=%.6f confidence_multiplier=%.4f requested_leverage=%.4f",
+                symbol,
+                sizing_basis,
+                notional,
+                account_equity,
+                notional / account_equity,
+                confidence_multiplier,
+                requested_leverage,
+            )
+        return notional
 
     def _build_risk_state(
         self,
@@ -491,6 +581,9 @@ class PaperSignalGenerator:
         )
         denominator = account_equity if account_equity > 0 else 1.0
         active_positions = [position for position in positions if abs(position.quantity) > 0]
+        correlation_peer_threshold = float(
+            paper_run.execution_profile.get("correlation_peer_threshold", DEFAULT_CORRELATION_PEER_THRESHOLD)
+        )
         candidate_returns = close_returns(
             [float(bar.close) for bar in self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe="1h", limit=61)]
         )
@@ -515,19 +608,30 @@ class PaperSignalGenerator:
             if coefficient is None:
                 correlation_available = False
                 continue
-            if coefficient > 0.70 and position.side == direction:
+            if coefficient > correlation_peer_threshold and position.side == direction:
                 high_correlation_peer_count += 1
                 max_peer_correlation = max(max_peer_correlation, coefficient)
                 correlated_cluster_exposure += abs(signed_exposure(position, account_equity=denominator))
-        # Discount risk budget by (1-corr) when any same-side peer corr > 0.7, but
-        # never collapse the order to near-zero size: the gatekeeper already hard-rejects
-        # at >=2 correlated peers (correlated_exposure_limit_exceeded), so this path only
-        # ever runs with exactly one correlated peer and should shrink, not zero out, sizing.
+        # Discount risk budget by (1-corr) when any same-side peer corr exceeds the
+        # threshold, but never collapse the order to near-zero size: the gatekeeper
+        # already hard-rejects at >=2 correlated peers (correlated_exposure_limit_exceeded),
+        # so this path only ever runs with exactly one correlated peer and should shrink,
+        # not zero out, sizing.
         correlation_risk_discount = 1.0
         discounted_notional = float(requested_notional)
-        if high_correlation_peer_count > 0 and max_peer_correlation > 0.70:
+        if high_correlation_peer_count > 0 and max_peer_correlation > correlation_peer_threshold:
             correlation_risk_discount = max(0.5, 1.0 - max_peer_correlation)
             discounted_notional = float(requested_notional) * correlation_risk_discount
+            logger.warning(
+                "correlation_risk_discount_triggered symbol=%s max_peer_correlation=%.4f "
+                "peer_threshold=%.4f discount=%.4f requested_notional=%.4f discounted_notional=%.4f",
+                symbol,
+                max_peer_correlation,
+                correlation_peer_threshold,
+                correlation_risk_discount,
+                requested_notional,
+                discounted_notional,
+            )
         net_directional_exposure = sum(
             signed_exposure(position, account_equity=denominator) for position in active_positions
         )
@@ -568,6 +672,12 @@ class PaperSignalGenerator:
             rules.get("core_slippage_bps" if is_core else "standard_slippage_bps", rules.get("slippage_bps", 6.0))
         )
         return 2 * (fee + slippage)
+
+
+def _is_link_verification_strategy(*, rules, paper_run: PaperRun | None) -> bool:  # noqa: ANN001
+    if paper_run is not None and paper_run.execution_profile.get("strategy_lane") == "link_verification":
+        return True
+    return bool(rules.entry_rules.get("link_verification_only", False))
 
 
 def _is_cross_sectional_strategy(*, rules, paper_run: PaperRun | None) -> bool:  # noqa: ANN001

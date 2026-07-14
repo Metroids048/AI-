@@ -7,6 +7,7 @@ from services.execution.gatekeeper import ExecutionGatekeeperService
 from services.execution.paper_runtime import PaperRuntimeService, _estimated_transaction_cost
 from services.strategy_library import (
     AgentTaskRepository,
+    DecisionSnapshotRepository,
     ExecutionRepository,
     HypothesisRepository,
     NotificationRepository,
@@ -627,6 +628,110 @@ def test_reduce_only_flat_on_protective_close_clears_local(db_session, monkeypat
     assert closed_order.execution_status == "filled"
     assert closed_order.entry_context.get("exchange_already_flat") is True
     assert any("exchange_already_flat" in str(item.get("status", "")) for item in closed_order.lifecycle_history)
+
+
+def test_runtime_persists_decision_snapshot_for_skip_no_trade_decision(db_session, monkeypatch) -> None:
+    """skip_no_trade_decision actions never create an OrderExecution row, so the
+    only durable record of rejection reasons like technical_signals_insufficient
+    is the DecisionSnapshot appended here."""
+    runtime, paper_run = _runtime_without_position(db_session)
+    _store_bar(db_session, low=99, high=101, close=100)
+
+    def _forced_skip(*, strategy, symbol, timeframe, **_kwargs) -> DecisionPipelineResult:
+        return DecisionPipelineResult(
+            direction=None,
+            should_trade=False,
+            reason="technical_signals_insufficient",
+            reference_price=Decimal("100"),
+            bar_time=datetime.now(UTC),
+            signals=[],
+            ensemble=None,
+            meta_label=None,
+            veto_result=None,
+            confidence_multiplier=0.0,
+            atr=None,
+            volatility_context={},
+            trace={"pipeline_status": "technical_signals_insufficient"},
+        )
+
+    monkeypatch.setattr(
+        runtime.signal_generator.decision_pipeline,
+        "evaluate",
+        _forced_skip,
+    )
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
+    )
+
+    assert result.actions[0].action == "skip_no_trade_decision"
+    snapshots = DecisionSnapshotRepository(db_session).list_snapshots(paper_run_id=paper_run.paper_run_id)
+    assert len(snapshots) == 1
+    assert snapshots[0].pipeline_status == "technical_signals_insufficient"
+    assert snapshots[0].action == "skip_no_trade_decision"
+
+
+def _runtime_without_position(db_session) -> tuple[PaperRuntimeService, PaperRun]:
+    strategy = StrategyRepository(db_session).create_strategy(
+        StrategyCreate(
+            strategy_key="decision_snapshot_persistence",
+            source="open_source:freqtrade",
+            core_thesis="Verify decision snapshots persist for no-trade skips.",
+            rules={
+                "entry_rules": {"fee_bps": 8.0, "slippage_bps": 6.0},
+                "exit_rules": {},
+                "stoploss_rules": {"fixed_bps": 500},
+                "takeprofit_rules": {"risk_reward": 2.0},
+                "position_rules": {"notional_usdt": 100, "max_leverage": 1},
+            },
+        )
+    )
+    backtest = ValidationRepository(db_session).create_backtest_run(
+        BacktestRun(
+            strategy_id=strategy.strategy_id,
+            execution_engine="paper-runtime-test",
+            eligibility_result=GateDecision(
+                strategy_id=strategy.strategy_id,
+                passed=True,
+                decision_status="accepted",
+                reason="test accepted",
+            ),
+        )
+    )
+    paper_run = PaperRunRepository(db_session).create_paper_run(
+        PaperRun(
+            strategy_id=strategy.strategy_id,
+            gate_decision_ref=backtest.backtest_run_id,
+            candidate_symbols=["BTC/USDT"],
+            execution_profile={
+                "account_equity": 10_000,
+                "equity_peak": 10_000,
+                "strategy_lane": "directional",
+            },
+            paper_status="running",
+        )
+    )
+    execution_repo = ExecutionRepository(db_session)
+    runtime = PaperRuntimeService(
+        data_repo=DataRepository(db_session),
+        execution_repo=execution_repo,
+        paper_repo=PaperRunRepository(db_session),
+        strategy_repo=StrategyRepository(db_session),
+        agent_repo=AgentTaskRepository(db_session),
+        review_repo=ReviewRepository(db_session),
+        notification_repo=NotificationRepository(db_session),
+        gatekeeper=ExecutionGatekeeperService(
+            data_repo=DataRepository(db_session),
+            validation_repo=ValidationRepository(db_session),
+            hypothesis_repo=HypothesisRepository(db_session),
+            risk_profile_repo=RiskProfileRepository(db_session),
+            execution_repo=ExecutionRepository(db_session),
+            paper_repo=PaperRunRepository(db_session),
+            review_repo=ReviewRepository(db_session),
+        ),
+    )
+    return runtime, paper_run
 
 
 def _runtime_with_position(

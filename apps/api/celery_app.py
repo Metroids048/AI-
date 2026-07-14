@@ -39,6 +39,8 @@ celery_app.conf.task_routes = {
     "services.execution.tasks.run_all_paper_runtime_cycles": {"queue": "paper_queue"},
     "services.execution.tasks.run_paper_runtime_cycle": {"queue": "paper_queue"},
     "services.execution.tasks.risk_profile_sweep": {"queue": "ops_queue"},
+    "services.execution.tasks.refresh_volatility_asset_risk_tiers": {"queue": "ops_queue"},
+    "services.execution.tasks.refresh_signal_edge_stats": {"queue": "ops_queue"},
     "services.notifications_tasks.dispatch_notification_outbox": {"queue": "ops_queue"},
     "services.review.tasks.generate_daily_review": {"queue": "ops_queue"},
 }
@@ -98,6 +100,10 @@ celery_app.conf.beat_schedule = {
         "task": "services.execution.tasks.refresh_volatility_asset_risk_tiers",
         "schedule": crontab(hour=3, minute=15, day_of_week="sun"),
         "kwargs": {"lookback_days": 30},
+    },
+    "signal-edge-stats-weekly": {
+        "task": "services.execution.tasks.refresh_signal_edge_stats",
+        "schedule": crontab(hour=4, minute=0, day_of_week="sun"),
     },
 }
 celery_app.autodiscover_tasks(

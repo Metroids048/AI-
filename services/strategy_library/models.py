@@ -443,6 +443,20 @@ class PositionSnapshot(Base):
     snapshot_time: Mapped[datetime] = mapped_column(index=True)
 
 
+class DecisionSnapshot(Base):
+    __tablename__ = "decision_snapshots"
+
+    decision_snapshot_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    paper_run_id: Mapped[str] = mapped_column(ForeignKey("paper_runs.paper_run_id"), index=True)
+    symbol: Mapped[str] = mapped_column(String(30), index=True)
+    action: Mapped[str] = mapped_column(String(60))
+    pipeline_status: Mapped[str | None] = mapped_column(String(60), nullable=True, index=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decision_trace: Mapped[dict] = mapped_column(JSON, default=dict)
+    cycle_time: Mapped[datetime] = mapped_column(index=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
 class StrategyRoadmapState(Base):
     __tablename__ = "strategy_roadmap_states"
 

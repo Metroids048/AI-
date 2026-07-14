@@ -5,9 +5,13 @@ from pathlib import Path
 from services.execution.bootstrap import (
     AUTO_PAPER_RUNTIME_KEY,
     AUTO_PAPER_TECHNICAL_KEY,
+    LINK_VERIFICATION_RUNTIME_KEY,
+    LINK_VERIFICATION_STRATEGY_KEY,
     OPERATOR_EXPERIENCE_STRATEGY_KEY,
     bootstrap_auto_trading_paper_run,
     bootstrap_auto_trading_technical_paper_run,
+    bootstrap_link_verification_strategy,
+    bootstrap_local_paper_runtime,
     bootstrap_operator_experience_strategy,
     bootstrap_paper_testnet_mirror,
     bootstrap_pause_legacy_paper_runs,
@@ -219,6 +223,54 @@ def test_bootstrap_operator_experience_strategy_uses_valid_disabled_research_sta
     assert strategy is not None
     assert strategy.strategy_key == OPERATOR_EXPERIENCE_STRATEGY_KEY
     assert strategy.paper_status is RunStatus.NOT_STARTED
+
+
+def test_bootstrap_link_verification_strategy_creates_isolated_paper_run(db_session) -> None:
+    from services.strategy_library import PaperRunRepository, StrategyRepository
+
+    paper_run_id = bootstrap_link_verification_strategy()
+
+    assert paper_run_id is not None
+    paper_run = PaperRunRepository(db_session).get_paper_run(paper_run_id)
+    assert paper_run is not None
+    assert paper_run.execution_profile.get("strategy_lane") == "link_verification"
+    assert paper_run.execution_profile.get("auto_paper_runtime_key") == LINK_VERIFICATION_RUNTIME_KEY
+
+    strategy = StrategyRepository(db_session).get_strategy(paper_run.strategy_id or "")
+    assert strategy is not None
+    assert strategy.strategy_key == LINK_VERIFICATION_STRATEGY_KEY
+    assert strategy.rules.entry_rules.get("link_verification_only") is True
+    assert strategy.rules.entry_rules.get("default_enabled_for_auto_trading") is False
+
+
+def test_bootstrap_link_verification_strategy_is_idempotent(db_session) -> None:
+    from services.strategy_library import PaperRunRepository
+
+    first_id = bootstrap_link_verification_strategy()
+    second_id = bootstrap_link_verification_strategy()
+
+    assert first_id == second_id
+    repo = PaperRunRepository(db_session)
+    matching = [
+        run
+        for run in repo.list_paper_runs()
+        if run.execution_profile.get("auto_paper_runtime_key") == LINK_VERIFICATION_RUNTIME_KEY
+    ]
+    assert len(matching) == 1
+
+
+def test_bootstrap_local_paper_runtime_does_not_auto_create_link_verification_run(db_session) -> None:
+    from services.strategy_library import PaperRunRepository
+
+    bootstrap_local_paper_runtime(seed_ohlcv=False)
+
+    repo = PaperRunRepository(db_session)
+    matching = [
+        run
+        for run in repo.list_paper_runs()
+        if run.execution_profile.get("auto_paper_runtime_key") == LINK_VERIFICATION_RUNTIME_KEY
+    ]
+    assert matching == []
 
 
 def test_console_launcher_migrates_database_without_relaying_api_streams() -> None:

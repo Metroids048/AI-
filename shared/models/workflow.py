@@ -165,6 +165,10 @@ class AutoTradingSettings(PlatformModel):
     takeprofit: dict[str, Any] = Field(default_factory=lambda: {"risk_reward": 2.5, "trail_after_r": 1.5})
     llm_veto_enabled: bool = True
     market_intelligence_enabled: bool = True
+    correlation_peer_threshold: float = Field(default=0.70, ge=0, le=1)
+    correlated_peer_count_limit: int = Field(default=2, ge=1, le=20)
+    correlated_cluster_exposure_limit: float = Field(default=0.35, ge=0, le=1)
+    net_directional_exposure_limit: float = Field(default=0.40, ge=0, le=1)
 
 
 class TestnetAcceptanceRunRequest(PlatformModel):

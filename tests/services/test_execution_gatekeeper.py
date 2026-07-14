@@ -271,6 +271,68 @@ def test_gatekeeper_rejects_correlated_cluster_and_net_directional_exposure(db_s
     assert "net_directional_exposure_exceeded" in order.rejection_codes
 
 
+def test_gatekeeper_correlation_limits_default_to_the_prior_hardcoded_values(db_session) -> None:
+    # No correlated_peer_count_limit / correlated_cluster_exposure_limit /
+    # net_directional_exposure_limit in entry_context -> must reproduce the
+    # exact previously-hardcoded thresholds (2 / 0.35 / 0.40) so existing
+    # behavior is unchanged for runs that haven't opted into the new config.
+    gatekeeper, strategy_id, backtest_run_id = _seed_gatekeeper_context(db_session)
+
+    accepted_at_the_old_edge = gatekeeper.submit_order(
+        _order_request(
+            strategy_id,
+            backtest_run_id,
+            risk_state=_risk_state(
+                high_correlation_peer_count=1,
+                correlated_cluster_exposure=0.20,
+                net_directional_exposure=0.10,
+                requested_notional=100.0,
+            ),
+        )
+    )
+    rejected_two_peers = gatekeeper.submit_order(
+        _order_request(
+            strategy_id,
+            backtest_run_id,
+            risk_state=_risk_state(high_correlation_peer_count=2, requested_notional=100.0),
+        )
+    )
+
+    assert accepted_at_the_old_edge.execution_status == "accepted"
+    assert rejected_two_peers.execution_status == "rejected"
+    assert "correlated_exposure_limit_exceeded" in rejected_two_peers.rejection_codes
+
+
+def test_gatekeeper_correlation_limits_are_configurable_via_entry_context(db_session) -> None:
+    gatekeeper, strategy_id, backtest_run_id = _seed_gatekeeper_context(db_session)
+
+    # A single correlated peer would pass under the default limit of 2, but a
+    # stricter operator-configured limit of 1 must reject it.
+    rejected = gatekeeper.submit_order(
+        _order_request(
+            strategy_id,
+            backtest_run_id,
+            entry_context={"timeframe": "1h", "correlated_peer_count_limit": 1},
+            risk_state=_risk_state(high_correlation_peer_count=1, requested_notional=100.0),
+        )
+    )
+    # A cluster exposure that would breach the default 0.35 limit passes under
+    # a looser operator-configured limit of 0.60.
+    accepted = gatekeeper.submit_order(
+        _order_request(
+            strategy_id,
+            backtest_run_id,
+            entry_context={"timeframe": "1h", "correlated_cluster_exposure_limit": 0.60},
+            risk_state=_risk_state(correlated_cluster_exposure=0.40, requested_notional=100.0),
+        )
+    )
+
+    assert rejected.execution_status == "rejected"
+    assert "correlated_exposure_limit_exceeded" in rejected.rejection_codes
+    assert accepted.execution_status == "accepted"
+    assert "correlated_cluster_exposure_exceeded" not in accepted.rejection_codes
+
+
 def test_gatekeeper_rejects_negative_net_edge_after_cost(db_session) -> None:
     gatekeeper, strategy_id, backtest_run_id = _seed_gatekeeper_context(db_session)
 

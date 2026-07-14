@@ -129,3 +129,125 @@ Phase 0/1/2/3 均已完成并同步全部记忆文件。按用户"不用中断�
 - 替换后一次运行遇到 `RemoteProtocolError('Server disconnected...')` 被误判为 JSON 解析失败 → 开 DEBUG 日志复核后确认是网络瞬断，重跑 3 次全部成功，非代码缺陷。
 - GitHub Models 401/403 → 诊断为 token 权限范围问题，按用户选择跳过，不视为需要继续修的代码问题。
 - `shared/models/__init__.py` 编辑后 `ruff check` 报 `I001` 导入顺序错误 → 重新排序 `LLMProviderStatus, LLMStatusResponse` 到 `LiveRunRequest` 与 `ManualOrderRequest` 之间的正确字母序位置，修复后通过。
+
+---
+
+## 任务计划：模块0-9 —— 用户诊断报告分模块实施方案（独立任务线，来源为对话原文粘贴，非文件）
+
+> 与上方"Phase 0-5"及"第零节"均是不同的独立任务线。本节内容来自用户在对话中直接粘贴的《全项目审查 + 自动开平仓/量化策略问题根因诊断报告》与《分模块实施方案》原文，此前从未存入仓库任何文件，在一次上下文压缩中丢失过一次，现从会话原始 JSONL 记录中恢复并固化于此，避免再次丢失。
+
+### 背景结论（诊断报告核心，决定了后续模块的优先级和"为什么这么做"）
+
+- 现在这套 8~10 信号技术策略，扣除真实手续费/滑点后，历史期望值为负（`docs/audits/2026-07-12-top20-technical-validation.md`：OOS 净期望值 -0.0023）；资金费率单币 carry 与跨品种 carry 同样覆盖不了成本（ADR-063）。**拒单是系统在正确保护模拟盘，不是阈值设置错误**——不能靠继续调低门槛解决。
+- "改了一版也无事发生"，大概率不是代码没改对，而是运行进程没有真正吃到新代码/新配置（历史上至少复现两次，最近一次是 2026-07-13/14 野进程绕过标准启动脚本、连错数据库地址）。
+- "只有BTC/ETH真正开单"是组合相关性风控（同向相关系数>0.7 且≥2个持仓拒单）在正确工作，因为山寨币和BTC/ETH天然高相关——如果目的是测试Top20各币独立信号表现，这个阈值对该目的而言过严，这是需要用户明确取舍的点，不是bug。
+- 分批止盈（ExitLadder）已用真实数据对比过固定2R，ExitLadder 全面更差（净期望 -0.000866 vs +0.002185），已按数据结论改回固定2R，非遗漏。
+- 缠论买卖点是用户人工交易里唯一还未代码化的个人经验，是最值得补的真边际来源，但需要用户先手工标注20-30段买卖点K线区间才能开始。
+
+### 总体顺序（有依赖关系，不能跳着做，原文规定）
+
+```text
+模块0 运行时对齐核查工具  ← 必须最先做，且每次改完代码都要重新跑一遍
+模块1 仓位计算诊断日志
+模块2 链路验证单隔离       ← 1、2 互相独立，可以并行
+模块3 相关性风控阈值可配置化
+模块4 Top20 数据完整性巡检 ← 3、4 互相独立，可以并行
+模块5 真实边际统计流水线化 ← 依赖模块0
+模块6 缠论买卖点信号        ← 独立分支，随时可以单独推进
+模块7 分批止盈 A/B 测试框架通用化
+模块8 失败知识回流（P2，可选）
+模块9 Agent 执行器补齐（P2，可选）
+```
+
+### 模块0：运行时对齐核查工具 —— 状态：已完成
+
+- [x] `scripts/verify_runtime_config_sync.py` 已存在，核实与原文规格一致（对比数据库 `strategy_key='auto_paper_mature_templates'` 的 rules JSON 与代码内 `AUTO_PAPER_TECHNICAL_RULES`）。
+
+### 模块1：仓位计算诊断日志 —— 状态：已完成
+
+- [x] `services/execution/paper_signal.py:39` `MIN_SANE_NOTIONAL_FRACTION = 0.005`；`sizing_sentinel_triggered` 日志（约 line 495/497）；`correlation_risk_discount_triggered` 日志（约 line 580）均核查在位。
+
+### 模块2：链路验证单与策略表现单隔离 —— 状态：已完成
+
+目标：提供一种"专门测试下单/止损/止盈/平仓链路本身"的模式，产生的订单不混进策略表现统计，也不因 `net_edge_after_cost_negative` 被拒（因为目的是测链路不是测盈利）。
+
+**与原文规格的偏差（已与用户确认，用户选择方案二）：**
+
+原文规格假设"关闭 `entry_rules.meta_label_min_win_rate`/`min_estimated_net_edge_bps` 门禁"就能让该 lane 绕开 `net_edge_after_cost_negative` 拒绝。实际核查 `services/execution/net_edge.py::net_edge_rejection_codes()` 与 `decision_pipeline.py` 后发现该假设不成立：真实的成本门禁读取的是 `entry_context["meta_label_win_rate"/"meta_label_average_win"/"meta_label_average_loss"/"round_trip_fee_rate"/"round_trip_slippage_rate"]`，这些值来自真实 ensemble/meta-label 计算结果（`_edge_stats_for_gate()`），与 `entry_rules.meta_label_min_win_rate` 配置项完全无关（后者只影响 meta-labeling 内部一个更早的"是否要下注"判断）。此外继续走真实信号路径还会引入 `ensemble_discarded`/`meta_label_bet_skipped` 等非确定性早退，与"链路验证必须稳定产单"的目标冲突。已就此向用户提出两个方案并由用户选择方案二（推荐）：新建专用决策分支，完全跳过真实信号/ensemble/meta-label 评估，直接构造固定方向、固定有利 edge 的订单。
+
+**实际实现：**
+
+1. `services/execution/paper_signal.py`：新增 `_link_verification_decision()` 方法（跳过真实信号，直接返回 `direction=LONG`、`should_trade=True`、`trace` 中硬编码 `meta_label_win_rate=1.0`/`meta_label_average_win=1.0`/`meta_label_average_loss=0.0`/`round_trip_fee_rate=0.0`/`round_trip_slippage_rate=0.0`，保证真实成本门禁计算出正 edge 而非绕过判断本身）；新增 `_is_link_verification_strategy()` 辅助函数（与 `_is_carry_strategy`/`_is_cross_sectional_strategy` 同模式，优先看 `paper_run.execution_profile["strategy_lane"]`，回退到 `entry_rules.link_verification_only`），在 `_decision_for_strategy()` 中作为第一优先级分支检查；`generate_order()` 的 `entry_context` 新增 `strategy_lane`/`strategy_performance_eligible` 两个标记键，`strategy_performance_eligible` 在 `strategy_lane=="link_verification"` 时为 `False`（复用 `demo_audit.py` 的隔离标记惯例）。
+2. `services/execution/bootstrap.py`：新增 `LINK_VERIFICATION_STRATEGY_KEY`/`LINK_VERIFICATION_RUNTIME_KEY` 常量、`LINK_VERIFICATION_RULES`（`entry_rules.link_verification_only=True`、`default_enabled_for_auto_trading=False`；`position_rules.notional_usdt=100`）、`bootstrap_link_verification_strategy()`（复用既有 `_ensure_auto_paper_run()`）。已核查**未**加入 `bootstrap_local_paper_runtime()` 的启动序列。
+3. `apps/api/routers/runs.py`：新增 `POST /api/v1/execution/link-verification/bootstrap` 端点，调用 `bootstrap_link_verification_strategy()` 返回 `TaskSubmission`（`resource_type="paper_run"`）。
+4. Review 聚合核查结论沿用之前的结论：当前 `ReviewService`/`build_daily_report` 不读 `OrderExecution`/`strategy_lane`，无策略表现聚合代码需要排除，故按用户此前确认的"仅做标记隔离"范围执行，未新增 Review 聚合代码。
+
+**测试与验证：**
+
+- `tests/services/test_paper_bootstrap.py`：新增 3 个测试（`bootstrap_link_verification_strategy` 创建隔离 PaperRun、幂等性、`bootstrap_local_paper_runtime` 不会自动创建该 PaperRun）。
+- `tests/services/test_paper_signal.py`：新增 `TestLinkVerificationLane`（4 个测试：无信号数据也能产生固定 LONG 订单、`strategy_performance_eligible=False` 标记、仅靠 `entry_rules` 标记识别、`net_edge_rejection_codes()` 断言为空列表——直接验证不会被真实成本门禁拒绝）。
+- `tests/api/test_paper_runtime_api.py`：新增端点级测试，断言 202 + `resource_type=paper_run` + 落库的 `execution_profile.strategy_lane=="link_verification"`。
+- `ruff check`/`mypy` 通过；相关测试文件全部通过（26+8+46 用例），无回归。已用 Read 工具逐一核对新增代码逻辑落地。
+
+### 模块3：组合相关性风控阈值可配置化 —— 状态：已完成
+
+- [x] `shared/models/workflow.py:168-171` 四个字段（`correlation_peer_threshold`/`correlated_peer_count_limit`/`correlated_cluster_exposure_limit`/`net_directional_exposure_limit`）默认值与原文一致；`paper_signal.py:155-160,538-539` 从 `execution_profile` 读取；`gatekeeper.py:207-218` 消费四个阈值。核查确认与原文规格完全吻合。
+
+### 模块4：Top20 数据完整性巡检 —— 状态：已完成
+
+**与原文规格的偏差（已与用户确认，用户选择方案B）：**
+
+原文规格假设只需统计 `portfolio_correlation_unavailable`/`technical_signals_insufficient`/`confirmation_unavailable_fail_closed` 三种拒绝原因在过去7天的占比即可。实际核查发现：`portfolio_correlation_unavailable` 产生于 `gatekeeper.py:213`（`_evaluate_numeric_risk()` 内部），该分支始终会调用 `submit_order()` 从而落库一条 `OrderExecution` 记录，因此可从 `ExecutionRepository.list_orders()` 直接统计。但 `technical_signals_insufficient`（`decision_pipeline.py:154`）与 `confirmation_unavailable_fail_closed`（`decision_pipeline.py:441`）走的是 `paper_runtime.py::run_cycle()` 的 `skip_no_trade_decision` 分支（约607-622行），该分支**从不**调用 `gatekeeper.submit_order()`，故不产生 `OrderExecution` 行；这两个原因此前唯一的落地位置是 `paper_metrics_summary["last_cycle_decisions"]`，但该字段每个 cycle 被整体重建覆盖（非追加），因此在此前代码状态下这两个拒绝原因**没有任何真正的历史持久化**，无法做7天统计。已就此向用户提出方案，用户选择方案B（推荐）：新增一张决策快照历史表，把每个 cycle 中带 `decision_trace` 的 `PaperRuntimeAction` 追加落库，作为可查询的历史依据。
+
+**实际实现：**
+
+1. `shared/models/decision_snapshot.py`（新建）：`DecisionSnapshot` Pydantic 契约，字段 `paper_run_id`/`symbol`/`action`/`pipeline_status`（从 `decision_trace["pipeline_status"]` 提取,便于索引查询）/`reason`/`decision_trace`（完整 JSON）/`cycle_time`/`created_at`。`shared/models/__init__.py` 导出。
+2. `services/strategy_library/models.py`：新增 ORM 类 `DecisionSnapshot(Base)`，表名 `decision_snapshots`，`paper_run_id` 外键指向 `paper_runs.paper_run_id`，`symbol`/`pipeline_status`/`cycle_time` 均建索引以支撑按币种/拒绝原因/时间窗口过滤。
+3. `migrations/versions/0008_decision_snapshots.py`（新建）：Alembic 迁移，`down_revision="0007"`，创建表+4个索引+外键约束。
+4. `services/strategy_library/repository.py`：新增 `DecisionSnapshotRepository`（`create_snapshot()`/`list_snapshots(paper_run_id, symbol, pipeline_status, since, limit)`）与 `_decision_snapshot_from_orm()` 映射函数。`services/strategy_library/__init__.py` 导出。
+5. `services/execution/paper_runtime.py`：`PaperRuntimeService.__init__` 内新增 `self.decision_snapshot_repo = DecisionSnapshotRepository(execution_repo.session)`（复用已注入的 `execution_repo.session`，**未改动构造函数签名**，避免触碰全部8个外部调用点）。在 `run_cycle()` 末尾、`self.paper_repo.update_paper_run(...)` 调用之前，新增写入循环：遍历本轮 `actions`，对每个 `action.decision_trace` 非空的动作追加一条 `DecisionSnapshot`（与既有 `last_cycle_decisions` 列表推导式用的过滤条件完全一致，保证是既有逻辑的持久化超集而非另起判断）。整个写入循环包裹在 `with suppress(Exception):` 内（复用既有 `strategy_repo.update_lifecycle_status` 的失败保护惯例），确保快照持久化失败不会打断实盘/模拟盘交易 cycle。
+6. `scripts/audit_symbol_data_completeness.py`（新建）：遍历 `DEFAULT_BINANCE_TOP20`，调用 `data_repo.list_ohlcv_bars(symbol, timeframe="1h", limit=61)` 统计实际根数/最早最新时间/数据滞后小时数/异常缺口；调用 `ExecutionRepository.list_orders()`（客户端按 `created_at>=since` 过滤,7天窗口）统计 `portfolio_correlation_unavailable` 占比；调用新增的 `DecisionSnapshotRepository.list_snapshots(symbol=..., since=...)` 统计 `technical_signals_insufficient`/`confirmation_unavailable_fail_closed` 占比；输出 Markdown 表格到 stdout，`--output` 可选落盘。
+
+**测试与验证：**
+
+- `tests/repositories/test_decision_snapshot_repository.py`（新建，2 用例）：`create_snapshot`+`list_snapshots` 基本读写、按 `pipeline_status`/`since` 过滤。
+- `tests/services/test_paper_runtime.py`（新增1用例 `test_runtime_persists_decision_snapshot_for_skip_no_trade_decision`）：monkeypatch `decision_pipeline.evaluate` 强制返回 `technical_signals_insufficient` 的 `skip_no_trade_decision`，断言 `run_cycle()` 后 `DecisionSnapshotRepository` 能查到对应快照且字段落地正确。全量 `test_paper_runtime.py`（18用例）+ `test_decision_snapshot_repository.py`（2用例）+ `test_strategy_repository.py`（回归）全部通过，无回归。
+- 端到端脚本 smoke test：临时 sqlite（`create_relational_schema()`+`create_timeseries_schema()`）中造1条K线+1条 `DecisionSnapshot`（`technical_signals_insufficient`），运行 `scripts/audit_symbol_data_completeness.py --database-url ...`，确认 Markdown 报告正确渲染出 BTC/USDT 的 `technical_signals_insufficient` 占比100%，脚本 exit_code=0。测试脚本用后已删除。
+- `ruff check` 通过（含一次自动修复的 `I001` 导入顺序问题）。已用 Read 工具逐一核对：`decision_snapshot.py`、`services/strategy_library/models.py`（`DecisionSnapshot` ORM 类）、`services/strategy_library/__init__.py`（导出）、`paper_runtime.py`（持久化写入循环）——预期逻辑均已落地。
+
+### 模块5：真实边际统计流水线化 —— 状态：已完成
+
+依赖模块0（已完成）。原文规格：把 `scripts/compute_signal_edge_stats.py::main()` 核心逻辑抽出为 `compute_and_write_edge_stats(strategy_key, days, min_trade_samples, max_age_days)`；`services/execution/tasks.py` 新增 `refresh_signal_edge_stats` Celery task；`apps/api/celery_app.py` 的 `beat_schedule` 新增每周日 04:00 的调度；结果发通知到 Notification Outbox。
+
+**实际实现（与原文规格一致，无偏差）：**
+
+1. `scripts/compute_signal_edge_stats.py`：新增 `EdgeStatsComputationResult` dataclass（`accepted`/`strategy_key`/`total_trades`/`win_rate`/`average_win`/`average_loss`/`min_trade_samples`/`artifact_path`/`evaluation_start`/`evaluation_end`）与 `compute_and_write_edge_stats(strategy_key, days=60, min_trade_samples=30, max_age_days=30, reuse_stored_data=False)` 函数，把原 `main()` 内的回放+样本量判断+写 `active.json` 核心逻辑完整迁出；不支持的 `strategy_key` 现在抛 `ValueError`（而非 `SystemExit`），交由调用方决定如何处理。`main()` 保留原有 CLI 行为（打印+`REJECTED`/`ACCEPTED`+对应 exit code），只是内部委托给新函数，对现有脚本调用方式（命令行参数、输出格式、退出码）零破坏。
+2. `services/execution/tasks.py`：新增 `refresh_signal_edge_stats(*, strategy_key=None, days=60, min_trade_samples=30, max_age_days=30, reuse_stored_data=True)` Celery task（`queue="ops_queue"`，与 `refresh_volatility_asset_risk_tiers` 同队列同模式）。`reuse_stored_data` 默认 `True`——因为 OHLCV 已有独立的 `enqueue_binance_ingestion` 定时任务负责抓取，此任务不应在每周调度时再次直连 Binance。任务结果（accepted 或 rejected 两种情况）都会写入一条 `NotificationOutboxItem`（`event_type` 分别为 `signal_edge_stats_refreshed`/`signal_edge_stats_rejected`，`severity` 分别为 `low`/`medium`），复用既有 `NotificationRepository.create_notification()` 的按 `notification_id` 去重幂等模式（`notification_id` 含日期，同日重复运行不会产生重复通知）。
+3. `apps/api/celery_app.py`：`task_routes` 新增 `services.execution.tasks.refresh_signal_edge_stats`→`ops_queue`（同时补上此前漏注册的 `refresh_volatility_asset_risk_tiers` 路由）；`beat_schedule` 新增 `signal-edge-stats-weekly`（`crontab(hour=4, minute=0, day_of_week="sun")`，即每周日 UTC 04:00）。
+
+**测试与验证：**
+
+- `tests/services/test_compute_signal_edge_stats.py`（新建，5 用例）：`TestComputeAndWriteEdgeStats`（样本量不足时拒绝且不写文件、样本量达标时正确写入 `active.json` 且字段与回放结果一致、不支持的 `strategy_key` 抛 `ValueError`）；`TestRefreshSignalEdgeStatsTask`（拒绝/接受两种结果都能在 `NotificationRepository` 里查到对应通知，`source_ref` 含策略键）。通过 monkeypatch `_load_or_backfill`/`_load_stored`（避免真实连 Binance）与 `TechnicalStrategyValidationService`（返回构造好的 `ReplayMetrics`）隔离网络/回放依赖，只测本模块新增的编排逻辑。
+- `tests/services/test_celery_schedule.py`：新增断言 `schedule["signal-edge-stats-weekly"]["task"] == "services.execution.tasks.refresh_signal_edge_stats"`。
+- 回归测试：`test_compute_signal_edge_stats.py`（5）+`test_celery_schedule.py`（2）+`test_signal_edge_stats.py`（5）+`test_edge_stats_for_gate.py`+`test_technical_strategy_validation.py`（7）+`test_paper_runtime.py`（18）+`test_decision_snapshot_repository.py`（2）合计42用例全部通过，无回归。
+- `ruff check` 通过（修复了测试文件中未使用的 `timedelta`/`Decimal` 导入与 `assert False` → `pytest.raises` 的规范问题）。已用 Read 工具逐一核对：`scripts/compute_signal_edge_stats.py`（`compute_and_write_edge_stats`+`main()` 委托）、`services/execution/tasks.py`（`refresh_signal_edge_stats` 任务体+两种通知分支）、`apps/api/celery_app.py`（`task_routes`+`beat_schedule` 新增项）——预期逻辑均已落地。
+
+### 模块6：缠论买卖点信号 —— 状态：阻塞（等待用户完成人工标注）
+
+第一步（用户手工做，非Claude Code）：整理 20-30 段用户认可的一/二/三买卖点K线区间CSV（币种+时间范围+类型+K线时间戳）。**在用户交付此CSV前，不得开始第二步（`services/strategy_library/technical/chan_theory.py` 顶底分型+笔识别）。**
+
+### 模块7：分批止盈 A/B 测试框架通用化 —— 状态：待实施
+
+涉及文件：`services/validation/technical_replay.py`。原文规格：抽出通用函数 `compare_exit_policies(entry_config, exit_policy_a, exit_policy_b, symbols, date_range) -> ComparisonReport`；新增 `scripts/compare_exit_policies_cli.py`，输出格式对齐 `docs/audits/2026-07-12-exitladder-replay-comparison.md`。验收：用新工具重跑一次 ExitLadder vs 固定2R，数字必须与该审计文档历史记录一致（回归验证）。
+
+### 模块8（P2，可选）：失败知识回流 —— 状态：待实施
+
+涉及 `services/agents/service.py`（`scan_local_alpha`）、`shared/models/workflow.py`（`FailureRecord`）。原文规格：新增 `failure_type="negative_edge_confirmed"` 记录，`scan_local_alpha` 生成新 `StrategyIdea` 前先查是否已有相同 `enabled_signals` 签名对应的该记录。
+
+### 模块9（P2，可选，排期最后）：Agent 执行器补齐 —— 状态：待实施
+
+Coding/Backtest/Optimization/Risk 四个 Agent 目前零 executor。原文明确建议排在模块5、6 有实质进展之后再做。
+
+### 执行顺序提示（原文，用户要求遵守）
+
+不要一次性打包成一个大 PR；模块0做完先跑验收标准两个场景；确认后再做模块1+3（已完成）；用模块0工具确认新代码生效后再做模块2；模块4、5可在模块0-3稳定后并行推进；模块6第一步必须用户先做完；模块7/8/9不着急，等前面验收通过、有客观数字支撑后再排期。

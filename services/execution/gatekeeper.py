@@ -204,13 +204,18 @@ class ExecutionGatekeeperService:
             rejection_reasons.append("max_symbol_exposure_exceeded")
         if projected_total_exposure > profile.max_total_exposure:
             rejection_reasons.append("max_total_exposure_exceeded")
+        correlated_peer_count_limit = int(request.entry_context.get("correlated_peer_count_limit", 2))
+        correlated_cluster_exposure_limit = float(
+            request.entry_context.get("correlated_cluster_exposure_limit", 0.35)
+        )
+        net_directional_exposure_limit = float(request.entry_context.get("net_directional_exposure_limit", 0.40))
         if not risk_state.portfolio_correlation_available:
             rejection_reasons.append("portfolio_correlation_unavailable")
-        elif risk_state.high_correlation_peer_count >= 2:
+        elif risk_state.high_correlation_peer_count >= correlated_peer_count_limit:
             rejection_reasons.append("correlated_exposure_limit_exceeded")
-        elif risk_state.correlated_cluster_exposure + requested_fraction > 0.35:
+        elif risk_state.correlated_cluster_exposure + requested_fraction > correlated_cluster_exposure_limit:
             rejection_reasons.append("correlated_cluster_exposure_exceeded")
-        if abs(risk_state.net_directional_exposure + requested_signed_fraction) > 0.40:
+        if abs(risk_state.net_directional_exposure + requested_signed_fraction) > net_directional_exposure_limit:
             rejection_reasons.append("net_directional_exposure_exceeded")
         if risk_state.open_positions >= profile.max_open_positions:
             rejection_reasons.append("max_open_positions_exceeded")

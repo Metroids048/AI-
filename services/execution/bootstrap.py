@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 AUTO_PAPER_RUNTIME_KEY = "auto_paper_btc_funding"
 AUTO_PAPER_TECHNICAL_KEY = "auto_paper_mature_templates"
 OPERATOR_EXPERIENCE_STRATEGY_KEY = "operator_experience_4h_15m_v1"
+LINK_VERIFICATION_STRATEGY_KEY = "link_verification_fixed_notional"
+LINK_VERIFICATION_RUNTIME_KEY = "link_verification"
 
 # Medium-risk auto-trading preset for Top20 + funding carry admission.
 # Fee/slippage assumptions below are calibrated to real Binance USDM regular-user
@@ -146,6 +148,30 @@ AUTO_PAPER_CROSS_SECTIONAL_CARRY_RULES: dict[str, Any] = {
         "risk_per_trade": 0.01,
         "max_leverage": 5,
         "max_position_fraction": 0.08,
+        "min_notional_usdt": 20,
+    },
+}
+
+# Link-verification lane: never evaluates real signals/ensemble/meta-label and
+# never subject to the net_edge_after_cost gate (see
+# services/execution/paper_signal.py::_link_verification_decision). Its only
+# purpose is to exercise the order -> stoploss -> takeprofit -> close pipeline
+# with a stable, fixed-notional order; it must stay isolated from strategy
+# performance evidence, so entry_context always tags
+# strategy_performance_eligible=False for orders from this lane and
+# default_enabled_for_auto_trading stays False (armed only via the explicit
+# bootstrap endpoint, never the startup auto-cycle).
+LINK_VERIFICATION_RULES: dict[str, Any] = {
+    "entry_rules": {
+        "link_verification_only": True,
+        "default_enabled_for_auto_trading": False,
+    },
+    "exit_rules": {"close_on_opposite_signal": True},
+    "stoploss_rules": {"fixed_bps": 250},
+    "takeprofit_rules": {"risk_reward": 2.0},
+    "position_rules": {
+        "notional_usdt": 100,
+        "max_leverage": 2,
         "min_notional_usdt": 20,
     },
 }
@@ -435,6 +461,28 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
             "research candidate, not the default auto lane."
         ),
         rules=AUTO_PAPER_TECHNICAL_RULES,
+        risk_profile_id=risk_profile_id,
+    )
+
+
+def bootstrap_link_verification_strategy() -> str | None:
+    """Create/refresh the link-verification PaperRun on demand (explicit API call
+    only -- deliberately NOT wired into bootstrap_local_paper_runtime(), since
+    unlike the disabled-research-candidate strategies below this creates a real
+    PaperRun that should only exist when an operator asks to test the order
+    pipeline itself)."""
+    risk_profile_id = bootstrap_medium_risk_profile()
+    return _ensure_auto_paper_run(
+        runtime_key=LINK_VERIFICATION_RUNTIME_KEY,
+        strategy_key=LINK_VERIFICATION_STRATEGY_KEY,
+        strategy_lane="link_verification",
+        core_thesis=(
+            "Link-verification only: bypasses real signal/ensemble/meta-label evaluation and the "
+            "net_edge_after_cost gate to admit a fixed-notional order every cycle, so operators can "
+            "exercise the order -> stoploss -> takeprofit -> close pipeline itself. Never treated as "
+            "strategy performance evidence; orders are tagged strategy_performance_eligible=False."
+        ),
+        rules=LINK_VERIFICATION_RULES,
         risk_profile_id=risk_profile_id,
     )
 

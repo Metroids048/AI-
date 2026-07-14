@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from celery import shared_task
 
 from services.data import DataRepository
@@ -21,7 +23,7 @@ from services.strategy_library import (
     StrategyRepository,
     ValidationRepository,
 )
-from shared.models import PaperRun, RiskEvent, RiskEventType, RiskProfile, RiskSeverity
+from shared.models import NotificationOutboxItem, PaperRun, RiskEvent, RiskEventType, RiskProfile, RiskSeverity
 
 
 @shared_task(name="services.execution.tasks.enqueue_paper_run", queue="paper_queue")
@@ -196,6 +198,83 @@ def refresh_volatility_asset_risk_tiers(*, lookback_days: int = 30) -> dict:
             "scored_symbols": len(scores),
             "missing_symbols": missing,
             "tiers": {name: tiers[name]["symbols"] for name in ("vol_low", "vol_mid", "vol_high")},
+        }
+    finally:
+        session.close()
+
+
+@shared_task(name="services.execution.tasks.refresh_signal_edge_stats", queue="ops_queue")
+def refresh_signal_edge_stats(
+    *,
+    strategy_key: str | None = None,
+    days: int = 60,
+    min_trade_samples: int = 30,
+    max_age_days: int = 30,
+    reuse_stored_data: bool = True,
+) -> dict:
+    """Weekly: replay real entry/exit rules over persisted OHLCV history and
+    refresh the net_edge_after_cost real-edge-stats artifact so the gate stops
+    relying solely on the raw-bar-return proxy.
+
+    `reuse_stored_data` defaults to True since OHLCV ingestion already runs on
+    its own schedule (services.data.tasks.enqueue_binance_ingestion) -- this
+    task should not also hit Binance directly on every weekly run.
+    """
+
+    from scripts.compute_signal_edge_stats import compute_and_write_edge_stats
+    from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY
+    from services.strategy_library import NotificationRepository
+
+    resolved_strategy_key = strategy_key or AUTO_PAPER_TECHNICAL_KEY
+
+    result = compute_and_write_edge_stats(
+        strategy_key=resolved_strategy_key,
+        days=days,
+        min_trade_samples=min_trade_samples,
+        max_age_days=max_age_days,
+        reuse_stored_data=reuse_stored_data,
+    )
+
+    session = get_session_factory()()
+    try:
+        today = datetime.now(UTC).date().isoformat()
+        if result.accepted:
+            event_type = "signal_edge_stats_refreshed"
+            severity = "low"
+            subject = f"Signal edge stats refreshed for {resolved_strategy_key}"
+            body = (
+                f"Weekly replay produced {result.total_trades} real trade samples "
+                f"(win_rate={result.win_rate:.4f}, average_win={result.average_win:.6f}, "
+                f"average_loss={result.average_loss:.6f}). net_edge_after_cost will use "
+                f"this real-edge artifact instead of the raw-bar-return proxy."
+            )
+        else:
+            event_type = "signal_edge_stats_rejected"
+            severity = "medium"
+            subject = f"Signal edge stats refresh rejected for {resolved_strategy_key}"
+            body = (
+                f"Weekly refresh found only {result.total_trades} real trade samples "
+                f"(< required minimum {result.min_trade_samples}). net_edge_after_cost "
+                "keeps using the raw-bar-return proxy for this strategy."
+            )
+        NotificationRepository(session).create_notification(
+            NotificationOutboxItem(
+                notification_id=f"{event_type}:{resolved_strategy_key}:{today}",
+                event_type=event_type,
+                severity=severity,
+                subject=subject,
+                body=body,
+                source_ref=f"strategy:{resolved_strategy_key}",
+            )
+        )
+        return {
+            "accepted": result.accepted,
+            "strategy_key": result.strategy_key,
+            "total_trades": result.total_trades,
+            "win_rate": result.win_rate,
+            "average_win": result.average_win,
+            "average_loss": result.average_loss,
+            "artifact_path": result.artifact_path,
         }
     finally:
         session.close()

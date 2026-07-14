@@ -29,6 +29,7 @@ from services.execution import (
     PaperSignalGenerator,
     configured_gateways,
 )
+from services.execution.bootstrap import bootstrap_link_verification_strategy
 from services.execution.demo_audit import BinanceDemoAuditService
 from services.execution.gateway import BinanceUsdtPerpetualGateway, probe_testnet_account
 from services.execution.manual_context import ManualTradingContextService
@@ -634,6 +635,27 @@ def create_paper_run(body: PaperRunRequest, db: Session = Depends(get_db_session
         task_id=body.idempotency_key or created.paper_run_id,
         resource_type="paper_run",
         resource_id=created.paper_run_id,
+    )
+
+
+@router.post("/link-verification/bootstrap", response_model=TaskSubmission, status_code=status.HTTP_202_ACCEPTED)
+def bootstrap_link_verification(db: Session = Depends(get_db_session)) -> TaskSubmission:
+    """Create/refresh the link-verification-only PaperRun on demand. This lane
+    never evaluates real signals and never counts toward strategy performance
+    (see services/execution/bootstrap.py::bootstrap_link_verification_strategy);
+    it exists purely to exercise the order -> stoploss -> takeprofit -> close
+    pipeline. Call /paper-runs/{id}/auto-cycle or /step afterward to run it."""
+    paper_run_id = bootstrap_link_verification_strategy()
+    if paper_run_id is None:
+        raise api_error(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            error_code="link_verification_bootstrap_failed",
+            message="link verification paper run bootstrap returned no paper_run_id",
+        )
+    return TaskSubmission(
+        task_id=paper_run_id,
+        resource_type="paper_run",
+        resource_id=paper_run_id,
     )
 
 

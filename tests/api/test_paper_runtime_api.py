@@ -148,6 +148,19 @@ def _store_trend_bars(db_session, *, symbol: str, closes: list[Decimal], start_a
     repo.store_ohlcv_bars(bars)
 
 
+def test_bootstrap_link_verification_endpoint_creates_isolated_paper_run(api_client, db_session) -> None:
+    from services.strategy_library import PaperRunRepository
+
+    response = api_client.post("/api/v1/execution/link-verification/bootstrap")
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["resource_type"] == "paper_run"
+    paper_run = PaperRunRepository(db_session).get_paper_run(body["resource_id"])
+    assert paper_run is not None
+    assert paper_run.execution_profile.get("strategy_lane") == "link_verification"
+
+
 def test_paper_runtime_auto_cycle_opens_positions_and_updates_status(api_client, db_session) -> None:
     _, paper_run_id = _create_validated_paper_run(api_client, db_session)
     start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=79)

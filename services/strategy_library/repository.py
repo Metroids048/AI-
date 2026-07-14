@@ -16,6 +16,7 @@ from shared.models import (
     BacktestRun,
     BetDecision,
     DecisionMemoryEntry,
+    DecisionSnapshot,
     EnsembleStatus,
     Exchange,
     ExchangeAccountSnapshot,
@@ -353,6 +354,20 @@ def _decision_memory_from_orm(row: models.DecisionMemoryEntry) -> DecisionMemory
         tags=row.tags or [],
         evidence_refs=row.evidence_refs or [],
         context_payload=row.context_payload or {},
+        created_at=row.created_at,
+    )
+
+
+def _decision_snapshot_from_orm(row: models.DecisionSnapshot) -> DecisionSnapshot:
+    return DecisionSnapshot(
+        decision_snapshot_id=row.decision_snapshot_id,
+        paper_run_id=row.paper_run_id,
+        symbol=row.symbol,
+        action=row.action,
+        pipeline_status=row.pipeline_status,
+        reason=row.reason,
+        decision_trace=row.decision_trace or {},
+        cycle_time=_ensure_utc(row.cycle_time),
         created_at=row.created_at,
     )
 
@@ -1162,6 +1177,51 @@ class DecisionMemoryRepository:
         self.session.commit()
         self.session.refresh(row)
         return _decision_memory_from_orm(row)
+
+
+class DecisionSnapshotRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def list_snapshots(
+        self,
+        *,
+        paper_run_id: str | None = None,
+        symbol: str | None = None,
+        pipeline_status: str | None = None,
+        since: datetime | None = None,
+        limit: int | None = None,
+    ) -> list[DecisionSnapshot]:
+        query = self.session.query(models.DecisionSnapshot)
+        if paper_run_id is not None:
+            query = query.filter(models.DecisionSnapshot.paper_run_id == paper_run_id)
+        if symbol is not None:
+            query = query.filter(models.DecisionSnapshot.symbol == symbol)
+        if pipeline_status is not None:
+            query = query.filter(models.DecisionSnapshot.pipeline_status == pipeline_status)
+        if since is not None:
+            query = query.filter(models.DecisionSnapshot.cycle_time >= since)
+        query = query.order_by(models.DecisionSnapshot.cycle_time.desc())
+        if limit is not None:
+            query = query.limit(limit)
+        rows = query.all()
+        return [_decision_snapshot_from_orm(row) for row in rows]
+
+    def create_snapshot(self, snapshot: DecisionSnapshot) -> DecisionSnapshot:
+        row = models.DecisionSnapshot(
+            decision_snapshot_id=snapshot.decision_snapshot_id or str(uuid.uuid4()),
+            paper_run_id=snapshot.paper_run_id,
+            symbol=snapshot.symbol,
+            action=snapshot.action,
+            pipeline_status=snapshot.pipeline_status,
+            reason=snapshot.reason,
+            decision_trace=_jsonable(snapshot.decision_trace),
+            cycle_time=snapshot.cycle_time,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _decision_snapshot_from_orm(row)
 
 
 class ReviewRepository:
