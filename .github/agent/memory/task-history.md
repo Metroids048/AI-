@@ -1,5 +1,12 @@
 # Task History
 
+### [TASK-060] Unblock GitHub push: redact leaked API keys from diagnosis doc
+- **Date**: 2026-07-15
+- **Type**: Ops / git hygiene
+- **Summary**: `git push origin main` was rejected by GitHub push protection (GH013) because `docs/diagnosis/system-readiness-2026-07-15.md` in local commit `f9cdf5e` contained a real OpenRouter API key and a GitHub PAT. Rewrote the single unpushed commit: replaced secrets with local-dotenv placeholders, soft-reset off `origin/main`, recommitted as `6877d1f`, pushed successfully to `https://github.com/Metroids048/AI-`. `.env` / `.env.*` / `logs/` remain gitignored so future pushes should not reintroduce the same leakage from env files.
+- **Verification**: local HEAD == `origin/main` (`6877d1f`); `git show HEAD:...system-readiness...` asserts no `sk-or-v1-` / `github_pat_`; push completed without GH013.
+- **Limits / operator action required**: Keys that appeared in the blocked push attempt (and in local history before rewrite) should be **rotated** in OpenRouter and GitHub token settings; local `.env` keep using the new keys only — never paste them into docs.
+
 ### [TASK-059] Operator restart repair + real-data edge audit of directional/carry/cross-sectional lanes + ExitLadder revert + real edge-stats gate
 - **Date**: 2026-07-13/14
 - **Type**: Ops repair + evidence-based strategy audit + bug fix
