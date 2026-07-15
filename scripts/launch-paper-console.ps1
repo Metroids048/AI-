@@ -173,13 +173,13 @@ function Ensure-Runtime {
     Reset-LogFile $FrontendLog
 
     if (-not $env:AGENT_PYTHON -or -not (Test-Path -LiteralPath $env:AGENT_PYTHON)) {
-        $globalPython = Join-Path $HOME ".ai-workspace\venv\Scripts\python.exe"
-        if (Test-Path -LiteralPath $globalPython) {
-            $env:AGENT_PYTHON = $globalPython
+        Write-Step "checking Python environment"
+        $ensureScript = Join-Path $PSScriptRoot "ensure-venv-ready.ps1"
+        $env:AGENT_PYTHON = & $ensureScript
+        if (-not $env:AGENT_PYTHON -or -not (Test-Path -LiteralPath $env:AGENT_PYTHON)) {
+            throw "Failed to prepare Python environment"
         }
-        else {
-            throw "AGENT_PYTHON is unavailable. Run verify-global-agent-stack.ps1."
-        }
+        Write-Step "✓ Python environment ready: $env:AGENT_PYTHON"
     }
 
     Write-Step "checking frontend dependency versions"

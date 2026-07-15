@@ -494,6 +494,8 @@ class PositionSnapshot(PlatformModel):
     mark_price: float
     unrealized_pnl: float = 0.0
     snapshot_time: datetime
+    hedge_group_id: str | None = None  # Identifies positions that are part of a delta-neutral hedge
+    is_hedge_leg: bool = False  # True if this is the hedge leg (e.g., spot in a carry trade)
 
 
 class ReviewReport(PlatformModel):

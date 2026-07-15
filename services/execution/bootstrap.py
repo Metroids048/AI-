@@ -230,6 +230,27 @@ LINK_VERIFICATION_RULES: dict[str, Any] = {
     },
 }
 
+# Signal observation lane: uses real signal ensemble + multi-indicator fusion
+# (identical to AUTO_PAPER_TECHNICAL_RULES), but bypasses the net_edge_after_cost
+# gate to allow orders even when the statistical edge is marginal. This lane's
+# purpose is to accumulate real execution samples for Module 5's edge statistics
+# (services/validation/compute_signal_edge_stats.py requires >= 30 closed trades)
+# while the main directional lane's cost gate remains active. Orders from this lane
+# are tagged strategy_performance_eligible=False and do NOT count toward strategy
+# validation metrics -- they are purely observational data collection until enough
+# sample density accumulates for compute_signal_edge_stats to produce reliable
+# estimates, at which point the operator can decide whether to promote these signals
+# to the main directional lane based on the measured real-world edge.
+SIGNAL_OBSERVATION_RUNTIME_KEY = "signal_observation"
+SIGNAL_OBSERVATION_STRATEGY_KEY = "signal_observation_technical"
+SIGNAL_OBSERVATION_RULES: dict[str, Any] = {
+    **AUTO_PAPER_TECHNICAL_RULES,  # Copy all real signal logic
+    "entry_rules": {
+        **AUTO_PAPER_TECHNICAL_RULES["entry_rules"],
+        "default_enabled_for_auto_trading": False,  # Explicit operator opt-in only
+    },
+}
+
 
 def binance_credentials_configured() -> bool:
     return bool(settings.binance_api_key and settings.binance_api_secret)
@@ -541,6 +562,40 @@ def bootstrap_link_verification_strategy() -> str | None:
     )
 
 
+def bootstrap_signal_observation_strategy() -> str | None:
+    """Create/refresh the signal-observation PaperRun on demand (explicit API call
+    only -- deliberately NOT wired into bootstrap_local_paper_runtime()).
+
+    This lane uses REAL signal ensemble + multi-indicator fusion (identical to
+    AUTO_PAPER_TECHNICAL_RULES), but bypasses the net_edge_after_cost gate. Its
+    purpose is to accumulate >= 30 real execution samples so Module 5's edge
+    statistics (services/validation/compute_signal_edge_stats.py) can produce
+    reliable real-world edge estimates. Orders from this lane are tagged
+    strategy_performance_eligible=False (not counted toward strategy validation
+    metrics).
+
+    Graduation criterion: once compute_signal_edge_stats reaches >= 30 closed
+    trades and its measured net expectancy turns positive, the operator can
+    consider promoting these signals to the main directional lane; if it stays
+    negative with >= 30 samples, that is real evidence the signals lack edge in
+    current market conditions."""
+    risk_profile_id = bootstrap_medium_risk_profile()
+    return _ensure_auto_paper_run(
+        runtime_key=SIGNAL_OBSERVATION_RUNTIME_KEY,
+        strategy_key=SIGNAL_OBSERVATION_STRATEGY_KEY,
+        strategy_lane="signal_observation",
+        core_thesis=(
+            "Signal observation channel: uses real multi-indicator ensemble (identical to "
+            "AUTO_PAPER_TECHNICAL_RULES), but bypasses net_edge_after_cost gate to accumulate >= 30 "
+            "real execution samples for Module 5 edge statistics. Orders tagged "
+            "strategy_performance_eligible=False (observational data only, not validation evidence). "
+            "Operator opt-in required; not auto-scheduled."
+        ),
+        rules=SIGNAL_OBSERVATION_RULES,
+        risk_profile_id=risk_profile_id,
+    )
+
+
 def bootstrap_operator_experience_strategy() -> str | None:
     """Register the 4h/15m operator-experience strategy as disabled research material."""
     from services.database import get_session_factory
@@ -610,6 +665,58 @@ def bootstrap_cross_sectional_carry_strategy() -> str | None:
             session.commit()
             return strategy.strategy_id
         _sync_auto_paper_strategy(repo, existing, rules=AUTO_PAPER_CROSS_SECTIONAL_CARRY_RULES)
+        repo.update_lifecycle_status(existing.strategy_id or "", paper_status=RunStatus.NOT_STARTED)
+        session.commit()
+        return existing.strategy_id
+
+
+AUTO_PAPER_SWING_KEY = "auto_paper_swing_1d_4h"
+
+
+def bootstrap_auto_trading_swing_paper_run() -> str | None:
+    """Register the 1d/4h medium-term swing strategy as disabled research material.
+
+    This is a NEW, unvalidated hypothesis distinct from the short-term 15m/4h lane
+    in AUTO_PAPER_TECHNICAL_RULES. The current "net expectancy negative" conclusion
+    was measured on 15m/4h, NOT on this 1d/4h combination -- per AGENTS.md
+    non-negotiables 1/2/6, this configuration must clear its own independent
+    out-of-sample validation via TechnicalStrategyValidationService before being
+    armed for the live auto-cycle scheduler.
+
+    Registered as paper_status=NOT_STARTED (disabled research candidate), same
+    pattern as operator_experience_4h_15m_v1 and cross_sectional_carry.
+    """
+    from services.database import get_session_factory
+    from services.strategy_library import StrategyRepository
+    from shared.models import RunStatus, StrategyCreate, StrategyRules, Timeframe
+
+    with get_session_factory()() as session:
+        repo = StrategyRepository(session)
+        existing = next(
+            (item for item in repo.list_strategies() if item.strategy_key == AUTO_PAPER_SWING_KEY),
+            None,
+        )
+        if existing is None:
+            strategy = repo.create_strategy(
+                StrategyCreate(
+                    strategy_key=AUTO_PAPER_SWING_KEY,
+                    source="operator:research_candidate",
+                    core_thesis=(
+                        "Medium-term swing trading: 1d direction + 4h entry, designed for lower "
+                        "turnover and less competition with HFT algorithms. This is a NEW hypothesis "
+                        "distinct from the short-term 4h/15m combination -- it requires independent "
+                        "out-of-sample validation before being armed for auto-trading."
+                    ),
+                    symbol_scope=list(DEFAULT_BINANCE_TOP20),
+                    timeframe=Timeframe.H4,
+                    rules=StrategyRules(**AUTO_PAPER_SWING_RULES),
+                )
+            )
+            repo.update_lifecycle_status(strategy.strategy_id or "", paper_status=RunStatus.NOT_STARTED)
+            session.commit()
+            logger.info("registered swing strategy as disabled research candidate: %s", AUTO_PAPER_SWING_KEY)
+            return strategy.strategy_id
+        _sync_auto_paper_strategy(repo, existing, rules=AUTO_PAPER_SWING_RULES)
         repo.update_lifecycle_status(existing.strategy_id or "", paper_status=RunStatus.NOT_STARTED)
         session.commit()
         return existing.strategy_id
@@ -690,6 +797,7 @@ def bootstrap_local_paper_runtime(*, seed_ohlcv: bool = True) -> None:
     bootstrap_auto_trading_technical_paper_run()
     bootstrap_operator_experience_strategy()
     bootstrap_cross_sectional_carry_strategy()
+    bootstrap_auto_trading_swing_paper_run()  # Module 11: medium-term swing (disabled research)
     bootstrap_pause_legacy_paper_runs()
     bootstrap_clear_stale_blocking_risk_events()
     if seed_ohlcv:

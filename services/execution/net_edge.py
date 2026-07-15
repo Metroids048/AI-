@@ -46,6 +46,8 @@ def net_edge_rejection_codes(entry_context: dict[str, Any]) -> list[str]:
     """Return gatekeeper rejection codes for non-positive post-cost expectancy."""
     if bool(entry_context.get("close_only_mode", False)):
         return []
+    if bool(entry_context.get("observation_only_mode", False)):
+        return []  # Signal observation channel: bypass cost gate, other risk controls remain active
     required = (
         "meta_label_win_rate",
         "meta_label_average_win",

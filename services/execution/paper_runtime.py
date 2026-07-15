@@ -932,11 +932,110 @@ class PaperRuntimeService:
                     continue
 
             order = self._fill_order(order=order, cycle_time=cycle_time)
+
+            # Delta-neutral hedge leg execution for carry strategy
+            hedge_leg_info = decision_trace.get("hedge_leg")
+            hedge_order = None
+            hedge_position = None
+            if hedge_leg_info is not None:
+                try:
+                    hedge_order_request = self._create_hedge_order_request(
+                        base_order=base_order,
+                        hedge_leg=hedge_leg_info,
+                        paper_run=paper_run,
+                        strategy=strategy,
+                        reference_price=reference_price,
+                        cycle_key=cycle_key,
+                    )
+                    hedge_order = self.gatekeeper.submit_order(hedge_order_request)
+                    if hedge_order.execution_status == "accepted":
+                        if self._should_execute_on_binance(paper_run, order=hedge_order):
+                            hedge_order = self._ensure_binance_execution(
+                                paper_run=paper_run,
+                                order=hedge_order,
+                                order_request=hedge_order_request,
+                                position=None,
+                            )
+                        if hedge_order.execution_status == "accepted":
+                            hedge_order = self._fill_order(order=hedge_order, cycle_time=cycle_time)
+                        else:
+                            # Hedge leg failed after gatekeeper approval - rollback main leg
+                            # by immediately closing the perpetual position
+                            # (In real implementation, we would need to track and close,
+                            # but for paper mode we just skip opening the main position)
+                            rejected_orders += 1
+                            actions.append(
+                                PaperRuntimeAction(
+                                    symbol=symbol,
+                                    action="rejected",
+                                    direction=base_order.direction,
+                                    reason=f"hedge_leg_execution_failed: {hedge_order.rejection_reason}",
+                                    order_execution_id=order.order_execution_id,
+                                    reference_price=reference_price,
+                                    idempotency_key=cycle_key,
+                                    decision_trace=decision_trace,
+                                )
+                            )
+                            continue
+                    else:
+                        # Hedge leg rejected by gatekeeper - skip main leg
+                        rejected_orders += 1
+                        actions.append(
+                            PaperRuntimeAction(
+                                symbol=symbol,
+                                action="rejected",
+                                direction=base_order.direction,
+                                reason=f"hedge_leg_rejected: {hedge_order.rejection_reason}",
+                                order_execution_id=order.order_execution_id,
+                                reference_price=reference_price,
+                                idempotency_key=cycle_key,
+                                decision_trace=decision_trace,
+                            )
+                        )
+                        continue
+                except Exception as exc:
+                    # Hedge leg failed - skip main leg
+                    rejected_orders += 1
+                    actions.append(
+                        PaperRuntimeAction(
+                            symbol=symbol,
+                            action="rejected",
+                            direction=base_order.direction,
+                            reason=f"hedge_leg_exception: {exc}",
+                            order_execution_id=order.order_execution_id,
+                            reference_price=reference_price,
+                            idempotency_key=cycle_key,
+                            decision_trace=decision_trace,
+                        )
+                    )
+                    continue
+
             position = self._open_position(
                 paper_run_id=paper_run_id,
                 order=order,
                 cycle_time=cycle_time,
             )
+
+            # Open hedge position if hedge order was successfully filled
+            if hedge_order is not None and hedge_order.execution_status == "accepted":
+                hedge_position = self._open_position(
+                    paper_run_id=paper_run_id,
+                    order=hedge_order,
+                    cycle_time=cycle_time,
+                )
+                # Mark both positions as part of a hedge group
+                hedge_group_id = f"hedge_{order.order_execution_id}"
+                position = self._mark_position_as_hedged(
+                    position=position,
+                    hedge_group_id=hedge_group_id,
+                    is_hedge_leg=False,
+                )
+                hedge_position = self._mark_position_as_hedged(
+                    position=hedge_position,
+                    hedge_group_id=hedge_group_id,
+                    is_hedge_leg=True,
+                )
+                active_positions[hedge_leg_info["symbol"]] = hedge_position
             ladder_state = initialize_exit_ladder(
                 symbol=position.symbol,
                 side=position.side,
@@ -2030,3 +2129,77 @@ def _parse_datetime(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(normalized)
         return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
     return None
+
+
+    def _create_hedge_order_request(
+        self,
+        *,
+        base_order: ExecutionOrderRequest,
+        hedge_leg: dict,
+        paper_run: PaperRun,
+        strategy: StrategyContract,
+        reference_price: float,
+        cycle_key: str,
+    ) -> ExecutionOrderRequest:
+        """Create an order request for the delta-neutral hedge leg."""
+        hedge_symbol = str(hedge_leg["symbol"])
+        hedge_direction = TradeSide(hedge_leg["direction"])
+        
+        # Use same notional as main leg for true delta-neutral hedge
+        requested_notional = float(base_order.entry_context.get("requested_notional", 0.0))
+        
+        # Hedge leg uses same stop/take logic but on spot symbol
+        reference_price_decimal = Decimal(str(reference_price))
+        stop_distance = abs(
+            reference_price_decimal - Decimal(str(base_order.stoploss_plan.get("price", reference_price)))
+        )
+        take_distance = abs(
+            Decimal(str(base_order.takeprofit_plan.get("price", reference_price))) - reference_price_decimal
+        )
+        
+        if hedge_direction == TradeSide.LONG:
+            stoploss_price = float(max(reference_price_decimal - stop_distance, Decimal("0.00000001")))
+            takeprofit_price = float(reference_price_decimal + take_distance)
+        else:
+            stoploss_price = float(reference_price_decimal + stop_distance)
+            takeprofit_price = float(max(reference_price_decimal - take_distance, Decimal("0.00000001")))
+        
+        return ExecutionOrderRequest(
+            strategy_id=base_order.strategy_id,
+            version_id=base_order.version_id,
+            symbol=hedge_symbol,
+            direction=hedge_direction,
+            risk_profile_id=base_order.risk_profile_id,
+            entry_context={
+                **base_order.entry_context,
+                "hedge_for_symbol": base_order.symbol,
+                "is_hedge_leg": True,
+                "hedge_reason": hedge_leg.get("reason", "delta_neutral_hedge"),
+                "reference_price": str(reference_price),
+                "requested_notional": requested_notional,
+            },
+            stoploss_plan={"price": stoploss_price, "basis": "hedge_leg_protection"},
+            takeprofit_plan={"price": takeprofit_price, "basis": "hedge_leg_exit"},
+            signal_ensemble_id=base_order.signal_ensemble_id,
+            meta_label_id=base_order.meta_label_id,
+            veto_result=base_order.veto_result,
+            validation_backtest_run_id=base_order.validation_backtest_run_id,
+            paper_run_id=base_order.paper_run_id,
+            risk_state=base_order.risk_state,
+            idempotency_key=f"{cycle_key}_hedge",
+        )
+
+    def _mark_position_as_hedged(
+        self,
+        *,
+        position: PositionSnapshot,
+        hedge_group_id: str,
+        is_hedge_leg: bool,
+    ) -> PositionSnapshot:
+        """Mark a position as part of a hedge group."""
+        return position.model_copy(
+            update={
+                "hedge_group_id": hedge_group_id,
+                "is_hedge_leg": is_hedge_leg,
+            }
+        )

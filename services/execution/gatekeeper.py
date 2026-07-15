@@ -196,6 +196,16 @@ class ExecutionGatekeeperService:
         rejection_reasons: list[str] = []
         requested_fraction = risk_state.requested_notional / risk_state.account_equity
         requested_signed_fraction = requested_fraction if request.direction.value == "long" else -requested_fraction
+
+        # For hedge legs in delta-neutral carry trades, the directional exposure
+        # should be netted against the main leg. The hedge_leg flag in entry_context
+        # signals this order is part of a hedged pair.
+        is_hedge_leg = bool(request.entry_context.get("is_hedge_leg", False))
+        if is_hedge_leg:
+            # Hedge legs do not add to net directional exposure (they offset the main leg)
+            # so we skip the net_directional_exposure check for hedge legs
+            pass
+
         projected_symbol_exposure = risk_state.symbol_exposure + requested_fraction
         projected_total_exposure = risk_state.total_exposure + requested_fraction
         drawdown = max(0.0, (risk_state.equity_peak - risk_state.account_equity) / risk_state.equity_peak)
@@ -215,8 +225,12 @@ class ExecutionGatekeeperService:
             rejection_reasons.append("correlated_exposure_limit_exceeded")
         elif risk_state.correlated_cluster_exposure + requested_fraction > correlated_cluster_exposure_limit:
             rejection_reasons.append("correlated_cluster_exposure_exceeded")
-        if abs(risk_state.net_directional_exposure + requested_signed_fraction) > net_directional_exposure_limit:
-            rejection_reasons.append("net_directional_exposure_exceeded")
+
+        # Skip net directional exposure check for hedge legs (they offset, not add)
+        if not is_hedge_leg:
+            if abs(risk_state.net_directional_exposure + requested_signed_fraction) > net_directional_exposure_limit:
+                rejection_reasons.append("net_directional_exposure_exceeded")
+
         if risk_state.open_positions >= profile.max_open_positions:
             rejection_reasons.append("max_open_positions_exceeded")
         if risk_state.requested_leverage > profile.max_leverage:

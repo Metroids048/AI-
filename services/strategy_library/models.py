@@ -441,6 +441,8 @@ class PositionSnapshot(Base):
     mark_price: Mapped[float] = mapped_column(Float)
     unrealized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     snapshot_time: Mapped[datetime] = mapped_column(index=True)
+    hedge_group_id: Mapped[str | None] = mapped_column(String(60), nullable=True, index=True)
+    is_hedge_leg: Mapped[bool] = mapped_column(default=False)
 
 
 class DecisionSnapshot(Base):

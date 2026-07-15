@@ -169,7 +169,8 @@ class PaperSignalGenerator:
                 "round_trip_fee_rate": decision.trace.get("round_trip_fee_rate"),
                 "round_trip_slippage_rate": decision.trace.get("round_trip_slippage_rate"),
                 "strategy_lane": decision.trace.get("strategy_lane"),
-                "strategy_performance_eligible": decision.trace.get("strategy_lane") != "link_verification",
+                "observation_only_mode": decision.trace.get("strategy_lane") == "signal_observation",
+                "strategy_performance_eligible": decision.trace.get("strategy_lane") not in ("link_verification", "signal_observation"),
             },
             stoploss_plan={"price": float(stoploss), "basis": "strategy_rule_or_atr_required_stop"},
             takeprofit_plan={"price": float(takeprofit), "basis": "strategy_rule_or_atr_takeprofit"},
@@ -317,6 +318,21 @@ class PaperSignalGenerator:
         bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=timeframe)
         reference_price = Decimal("0") if bar is None else bar.close
         pipeline_status = "funding_arbitrage_admitted" if should_trade else "funding_arbitrage_rejected"
+
+        # Delta-neutral hedge leg: spot position to offset perpetual price risk
+        hedge_leg = None
+        if should_trade:
+            spot_symbol = symbol  # e.g. "BTC/USDT"
+            hedge_direction = TradeSide.LONG if direction == TradeSide.SHORT else TradeSide.SHORT
+            hedge_leg = {
+                "symbol": spot_symbol,
+                "direction": str(hedge_direction),
+                "order_type": "market",
+                "is_spot": True,
+                "reason": "delta_neutral_hedge_for_funding_carry",
+                "perp_symbol": perp_symbol,
+            }
+
         return DecisionPipelineResult(
             direction=direction,
             should_trade=should_trade,
@@ -342,6 +358,7 @@ class PaperSignalGenerator:
                 "rejection_reasons": list(dict.fromkeys(rejection_reasons)),
                 "perp_symbol": perp_symbol,
                 "basis_bps": signal.basis_bps,
+                "hedge_leg": hedge_leg,
             },
         )
 
