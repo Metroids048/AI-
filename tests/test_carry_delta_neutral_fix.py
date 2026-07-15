@@ -8,6 +8,7 @@ import pytest
 from services.data import DataRepository
 from services.execution.paper_signal import PaperSignalGenerator
 from shared.models import (
+    Market,
     OHLCVBar,
     PaperRun,
     PaperRunStepRequest,
@@ -42,11 +43,11 @@ def mock_data_repo():
 def carry_strategy():
     """Carry strategy with funding arbitrage rules."""
     return StrategyContract(
+        strategy_key="test_carry_v1",
         strategy_id="test_carry",
-        version_id="v1",
         source="test",
         core_thesis="funding arbitrage",
-        market="crypto",
+        market=Market.CRYPTO_PERP,
         timeframe="1h",
         rules=StrategyRules(
             entry_rules={
@@ -115,7 +116,7 @@ def test_carry_decision_generates_hedge_leg(mock_data_repo, carry_strategy, pape
             symbol="BTC/USDT",
             timeframe="1h",
             request=PaperRunStepRequest(
-                paper_run_id="test_run",
+                symbol="BTC/USDT",
                 perp_symbol="BTC/USDT:USDT",
             ),
             paper_run=paper_run,
@@ -171,7 +172,7 @@ def test_carry_decision_no_hedge_when_rejected(mock_data_repo, carry_strategy, p
             symbol="BTC/USDT",
             timeframe="1h",
             request=PaperRunStepRequest(
-                paper_run_id="test_run",
+                symbol="BTC/USDT",
                 perp_symbol="BTC/USDT:USDT",
             ),
             paper_run=paper_run,
@@ -186,8 +187,9 @@ def test_carry_decision_no_hedge_when_rejected(mock_data_repo, carry_strategy, p
 
 def test_negative_funding_hedge_direction(mock_data_repo, carry_strategy, paper_run):
     """Test hedge direction when funding is negative (requires_positive_funding=False)."""
-    # Modify strategy to allow negative funding
+    # Modify strategy to allow negative funding and adjust threshold for absolute value
     carry_strategy.rules.entry_rules["requires_positive_funding"] = False
+    carry_strategy.rules.entry_rules["funding_threshold_bps"] = -2.0  # Allow negative threshold
 
     generator = PaperSignalGenerator(data_repo=mock_data_repo)
 
@@ -221,7 +223,7 @@ def test_negative_funding_hedge_direction(mock_data_repo, carry_strategy, paper_
             symbol="BTC/USDT",
             timeframe="1h",
             request=PaperRunStepRequest(
-                paper_run_id="test_run",
+                symbol="BTC/USDT",
                 perp_symbol="BTC/USDT:USDT",
             ),
             paper_run=paper_run,

@@ -2005,6 +2005,79 @@ class PaperRuntimeService:
             )
         )
 
+    def _create_hedge_order_request(
+        self,
+        *,
+        base_order: ExecutionOrderRequest,
+        hedge_leg: dict,
+        paper_run: PaperRun,
+        strategy: StrategyContract,
+        reference_price: float,
+        cycle_key: str,
+    ) -> ExecutionOrderRequest:
+        """Create an order request for the delta-neutral hedge leg."""
+        hedge_symbol = str(hedge_leg["symbol"])
+        hedge_direction = TradeSide(hedge_leg["direction"])
+
+        # Use same notional as main leg for true delta-neutral hedge
+        requested_notional = float(base_order.entry_context.get("requested_notional", 0.0))
+
+        # Hedge leg uses same stop/take logic but on spot symbol
+        reference_price_decimal = Decimal(str(reference_price))
+        stop_distance = abs(
+            reference_price_decimal - Decimal(str(base_order.stoploss_plan.get("price", reference_price)))
+        )
+        take_distance = abs(
+            Decimal(str(base_order.takeprofit_plan.get("price", reference_price))) - reference_price_decimal
+        )
+
+        if hedge_direction == TradeSide.LONG:
+            stoploss_price = float(max(reference_price_decimal - stop_distance, Decimal("0.00000001")))
+            takeprofit_price = float(reference_price_decimal + take_distance)
+        else:
+            stoploss_price = float(reference_price_decimal + stop_distance)
+            takeprofit_price = float(max(reference_price_decimal - take_distance, Decimal("0.00000001")))
+
+        return ExecutionOrderRequest(
+            strategy_id=base_order.strategy_id,
+            version_id=base_order.version_id,
+            symbol=hedge_symbol,
+            direction=hedge_direction,
+            risk_profile_id=base_order.risk_profile_id,
+            entry_context={
+                **base_order.entry_context,
+                "hedge_for_symbol": base_order.symbol,
+                "is_hedge_leg": True,
+                "hedge_reason": hedge_leg.get("reason", "delta_neutral_hedge"),
+                "reference_price": str(reference_price),
+                "requested_notional": requested_notional,
+            },
+            stoploss_plan={"price": stoploss_price, "basis": "hedge_leg_protection"},
+            takeprofit_plan={"price": takeprofit_price, "basis": "hedge_leg_exit"},
+            signal_ensemble_id=base_order.signal_ensemble_id,
+            meta_label_id=base_order.meta_label_id,
+            veto_result=base_order.veto_result,
+            validation_backtest_run_id=base_order.validation_backtest_run_id,
+            paper_run_id=base_order.paper_run_id,
+            risk_state=base_order.risk_state,
+            idempotency_key=f"{cycle_key}_hedge",
+        )
+
+    def _mark_position_as_hedged(
+        self,
+        *,
+        position: PositionSnapshot,
+        hedge_group_id: str,
+        is_hedge_leg: bool,
+    ) -> PositionSnapshot:
+        """Mark a position as part of a hedge group."""
+        return position.model_copy(
+            update={
+                "hedge_group_id": hedge_group_id,
+                "is_hedge_leg": is_hedge_leg,
+            }
+        )
+
 
 def _realized_pnl(*, position: PositionSnapshot, mark_price: float) -> float:
     if position.side == TradeSide.LONG:
@@ -2129,77 +2202,3 @@ def _parse_datetime(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(normalized)
         return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
     return None
-
-
-    def _create_hedge_order_request(
-        self,
-        *,
-        base_order: ExecutionOrderRequest,
-        hedge_leg: dict,
-        paper_run: PaperRun,
-        strategy: StrategyContract,
-        reference_price: float,
-        cycle_key: str,
-    ) -> ExecutionOrderRequest:
-        """Create an order request for the delta-neutral hedge leg."""
-        hedge_symbol = str(hedge_leg["symbol"])
-        hedge_direction = TradeSide(hedge_leg["direction"])
-        
-        # Use same notional as main leg for true delta-neutral hedge
-        requested_notional = float(base_order.entry_context.get("requested_notional", 0.0))
-        
-        # Hedge leg uses same stop/take logic but on spot symbol
-        reference_price_decimal = Decimal(str(reference_price))
-        stop_distance = abs(
-            reference_price_decimal - Decimal(str(base_order.stoploss_plan.get("price", reference_price)))
-        )
-        take_distance = abs(
-            Decimal(str(base_order.takeprofit_plan.get("price", reference_price))) - reference_price_decimal
-        )
-        
-        if hedge_direction == TradeSide.LONG:
-            stoploss_price = float(max(reference_price_decimal - stop_distance, Decimal("0.00000001")))
-            takeprofit_price = float(reference_price_decimal + take_distance)
-        else:
-            stoploss_price = float(reference_price_decimal + stop_distance)
-            takeprofit_price = float(max(reference_price_decimal - take_distance, Decimal("0.00000001")))
-        
-        return ExecutionOrderRequest(
-            strategy_id=base_order.strategy_id,
-            version_id=base_order.version_id,
-            symbol=hedge_symbol,
-            direction=hedge_direction,
-            risk_profile_id=base_order.risk_profile_id,
-            entry_context={
-                **base_order.entry_context,
-                "hedge_for_symbol": base_order.symbol,
-                "is_hedge_leg": True,
-                "hedge_reason": hedge_leg.get("reason", "delta_neutral_hedge"),
-                "reference_price": str(reference_price),
-                "requested_notional": requested_notional,
-            },
-            stoploss_plan={"price": stoploss_price, "basis": "hedge_leg_protection"},
-            takeprofit_plan={"price": takeprofit_price, "basis": "hedge_leg_exit"},
-            signal_ensemble_id=base_order.signal_ensemble_id,
-            meta_label_id=base_order.meta_label_id,
-            veto_result=base_order.veto_result,
-            validation_backtest_run_id=base_order.validation_backtest_run_id,
-            paper_run_id=base_order.paper_run_id,
-            risk_state=base_order.risk_state,
-            idempotency_key=f"{cycle_key}_hedge",
-        )
-
-    def _mark_position_as_hedged(
-        self,
-        *,
-        position: PositionSnapshot,
-        hedge_group_id: str,
-        is_hedge_leg: bool,
-    ) -> PositionSnapshot:
-        """Mark a position as part of a hedge group."""
-        return position.model_copy(
-            update={
-                "hedge_group_id": hedge_group_id,
-                "is_hedge_leg": is_hedge_leg,
-            }
-        )

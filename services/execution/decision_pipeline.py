@@ -602,6 +602,11 @@ class DecisionPipeline:
         volatility: dict[str, Any],
         meta_label: MetaLabel | None = None,
     ) -> DecisionPipelineResult:
+        # CRITICAL FIX: Use conservative default instead of 0.0 to prevent sizing collapse
+        # When pipeline skips a signal (insufficient data, veto, etc.), we should NOT
+        # zero out confidence - that causes notional=0 and triggers sizing_sentinel.
+        # Instead, use a conservative 0.5 multiplier so position sizing remains functional.
+        # Rationale: "skipped" means "not confident enough to trade", NOT "position should be zero"
         return DecisionPipelineResult(
             direction=ensemble.fused_direction if ensemble else None,
             should_trade=False,
@@ -612,7 +617,7 @@ class DecisionPipeline:
             ensemble=ensemble,
             meta_label=meta_label,
             veto_result=None,
-            confidence_multiplier=0.0,
+            confidence_multiplier=0.5,  # Conservative fallback instead of 0.0
             atr=atr,
             volatility_context=volatility,
             trace=_trace(
