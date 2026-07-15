@@ -30,26 +30,34 @@ class MarketDataHeartbeatService:
             reference_time=now,
             max_delay=max_delay,
         )
+        active_for_symbol = [
+            event
+            for event in self.data_repo.list_active_risk_events_by_type(event_type=RiskEventType.DATA_STALE)
+            if event.affected_scope == [symbol] and event.risk_event_id is not None
+        ]
         if not freshness["is_fresh"]:
-            event = self.data_repo.store_risk_event(
-                RiskEvent(
-                    event_type=RiskEventType.DATA_STALE,
-                    severity=RiskSeverity.HIGH,
-                    source="market_data_heartbeat",
-                    description=f"{symbol} {timeframe} market data is stale",
-                    affected_scope=[symbol],
-                    recommended_action="pause_strategy",
-                    occurred_at=now,
+            if active_for_symbol:
+                # An unresolved event for this exact symbol already blocks new entries;
+                # writing another row every heartbeat cycle only inflates the audit trail
+                # without changing gatekeeper behavior (see decisions-log data_stale storm fix).
+                freshness["risk_event_id"] = active_for_symbol[0].risk_event_id
+                freshness["duplicate_event_suppressed"] = True
+            else:
+                event = self.data_repo.store_risk_event(
+                    RiskEvent(
+                        event_type=RiskEventType.DATA_STALE,
+                        severity=RiskSeverity.HIGH,
+                        source="market_data_heartbeat",
+                        description=f"{symbol} {timeframe} market data is stale",
+                        affected_scope=[symbol],
+                        recommended_action="pause_strategy",
+                        occurred_at=now,
+                    )
                 )
-            )
-            freshness["risk_event_id"] = event.risk_event_id
+                freshness["risk_event_id"] = event.risk_event_id
         else:
             resolved = 0
-            for event in self.data_repo.list_risk_events(active_only=True, limit=200):
-                if event.event_type != RiskEventType.DATA_STALE:
-                    continue
-                if event.affected_scope != [symbol] or event.risk_event_id is None:
-                    continue
+            for event in active_for_symbol:
                 self.data_repo.update_risk_event_resolution(
                     risk_event_id=event.risk_event_id,
                     resolution_status="resolved",

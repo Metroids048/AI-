@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from services.data import DataRepository
 from services.data.market import MarketQueryService
+from services.execution.account_equity import resolve_paper_account_equity
 from services.execution.decision_pipeline import DecisionPipeline, DecisionPipelineResult
 from services.strategy_library import (
     AgentTaskRepository,
@@ -58,6 +59,7 @@ class PaperSignalGenerator:
         notification_repo: NotificationRepository | None = None,
     ) -> None:
         self.data_repo = data_repo
+        self.execution_repo = execution_repo
         self.decision_pipeline = DecisionPipeline(
             data_repo=data_repo,
             execution_repo=execution_repo,
@@ -505,8 +507,8 @@ class PaperSignalGenerator:
         leverage = position_rules.get("max_leverage") or paper_run.execution_profile.get("max_leverage") or 1.0
         return float(leverage)
 
-    @staticmethod
     def _requested_notional(
+        self,
         *,
         strategy: StrategyContract,
         paper_run: PaperRun,
@@ -517,11 +519,28 @@ class PaperSignalGenerator:
         stoploss_price: Decimal | None = None,
     ) -> float:
         position_rules = strategy.rules.position_rules
-        account_equity = float(
-            paper_run.paper_metrics_summary.get("account_equity")
-            or paper_run.execution_profile.get("account_equity")
-            or 10_000.0
+        account_equity, _equity_source = resolve_paper_account_equity(
+            paper_run=paper_run,
+            execution_repo=self.execution_repo,
         )
+        tier = resolve_asset_risk_tier(symbol, paper_run.execution_profile.get("asset_risk_tiers"))
+        max_fraction = (
+            tier.max_position_fraction
+            if paper_run.execution_profile.get("asset_risk_tiers")
+            else float(position_rules.get("max_position_fraction", 0.05))
+        )
+        # Keep sizing under the RiskProfile single-symbol exposure limit so
+        # gatekeeper does not reject every open as max_symbol_exposure_exceeded.
+        # Historical audit: leverage-sized path produced notional/equity=0.80 while
+        # medium profile max_symbol_exposure=0.20 (docs/audits/2026-07-14-exposure-rejection-audit.md).
+        # Only apply execution_profile.max_symbol_exposure as an extra ceiling when set;
+        # do not fall back to strategy position_rules.max_position_fraction here — that
+        # would silently override asset_risk_tiers (see test_asset_risk_tiers).
+        profile_cap = paper_run.execution_profile.get("max_symbol_exposure")
+        hard_fraction_cap = max(0.01, max_fraction)
+        if profile_cap is not None:
+            hard_fraction_cap = max(0.01, min(hard_fraction_cap, float(profile_cap)))
+
         sizing_basis = "fallback_equity_fraction"
         if "notional_usdt" in position_rules:
             sizing_basis = "notional_usdt"
@@ -540,20 +559,19 @@ class PaperSignalGenerator:
                 sizing_basis = "risk_per_trade_volatility_sized"
                 quantity = risk_budget / stop_distance
                 volatility_sized_notional = quantity * float(reference_price)
-                tier = resolve_asset_risk_tier(symbol, paper_run.execution_profile.get("asset_risk_tiers"))
-                max_fraction = (
-                    tier.max_position_fraction
-                    if paper_run.execution_profile.get("asset_risk_tiers")
-                    else float(position_rules.get("max_position_fraction", 0.05))
-                )
-                notional = min(volatility_sized_notional, account_equity * max_fraction) * max(
+                notional = min(volatility_sized_notional, account_equity * hard_fraction_cap) * max(
                     confidence_multiplier, 0.0
                 )
             else:
                 sizing_basis = "risk_per_trade_leverage_sized"
-                notional = float(risk_budget * max(requested_leverage, 1.0)) * max(confidence_multiplier, 0.0)
+                uncapped = float(risk_budget * max(requested_leverage, 1.0)) * max(confidence_multiplier, 0.0)
+                notional = min(uncapped, account_equity * hard_fraction_cap)
         else:
-            notional = min(account_equity * 0.05, 1_000.0) * max(confidence_multiplier, 0.0)
+            notional = min(account_equity * hard_fraction_cap, 1_000.0) * max(confidence_multiplier, 0.0)
+
+        if account_equity > 0 and notional > account_equity * hard_fraction_cap:
+            notional = account_equity * hard_fraction_cap
+            sizing_basis = f"{sizing_basis}_capped_to_max_position_fraction"
 
         if account_equity > 0 and (notional / account_equity) < MIN_SANE_NOTIONAL_FRACTION:
             logger.warning(
@@ -582,16 +600,21 @@ class PaperSignalGenerator:
         reference_price: Decimal,
         stoploss_price: Decimal,
     ) -> ExecutionRiskState:
-        account_equity = float(
-            paper_run.paper_metrics_summary.get("account_equity")
-            or paper_run.execution_profile.get("account_equity")
-            or 10_000.0
+        account_equity, equity_source = resolve_paper_account_equity(
+            paper_run=paper_run,
+            execution_repo=self.execution_repo,
         )
         equity_peak = float(
             paper_run.paper_metrics_summary.get("equity_peak")
             or paper_run.execution_profile.get("equity_peak")
             or account_equity
         )
+        if equity_source == "bootstrap_seed":
+            logger.warning(
+                "account_equity_using_bootstrap_seed paper_run=%s — sizing/exposure may be wrong until "
+                "paper_runtime syncs a Testnet snapshot",
+                paper_run.paper_run_id,
+            )
         total_notional = sum(abs(position.quantity * position.mark_price) for position in positions)
         symbol_notional = sum(
             abs(position.quantity * position.mark_price) for position in positions if position.symbol == symbol

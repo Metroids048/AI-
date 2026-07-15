@@ -8,27 +8,22 @@ from typing import Any
 
 from shared.models import MarketUniverseItem, UniverseAsset
 
+# ULTRA-AGGRESSIVE Paper testing: reduced from Top20 to Top10 (2026-07-15 v2)
+# Concentrating on highest-liquidity majors to maximize single-symbol exposure
+# and reduce correlation complexity. More concentrated = more decisive signals.
 FIXED_TOP20_ASSETS: tuple[dict[str, str], ...] = (
     {"display_symbol": "BTC", "platform_symbol": "BTC/USDT", "exchange_symbol": "BTCUSDT"},
     {"display_symbol": "ETH", "platform_symbol": "ETH/USDT", "exchange_symbol": "ETHUSDT"},
     {"display_symbol": "SOL", "platform_symbol": "SOL/USDT", "exchange_symbol": "SOLUSDT"},
     {"display_symbol": "XRP", "platform_symbol": "XRP/USDT", "exchange_symbol": "XRPUSDT"},
     {"display_symbol": "BNB", "platform_symbol": "BNB/USDT", "exchange_symbol": "BNBUSDT"},
-    {"display_symbol": "HYPE", "platform_symbol": "HYPE/USDT", "exchange_symbol": "HYPEUSDT"},
-    {"display_symbol": "SUI", "platform_symbol": "SUI/USDT", "exchange_symbol": "SUIUSDT"},
-    {"display_symbol": "LINK", "platform_symbol": "LINK/USDT", "exchange_symbol": "LINKUSDT"},
-    {"display_symbol": "TRX", "platform_symbol": "TRX/USDT", "exchange_symbol": "TRXUSDT"},
-    {"display_symbol": "AVAX", "platform_symbol": "AVAX/USDT", "exchange_symbol": "AVAXUSDT"},
-    {"display_symbol": "TON", "platform_symbol": "TON/USDT", "exchange_symbol": "TONUSDT"},
     {"display_symbol": "DOGE", "platform_symbol": "DOGE/USDT", "exchange_symbol": "DOGEUSDT"},
     {"display_symbol": "ADA", "platform_symbol": "ADA/USDT", "exchange_symbol": "ADAUSDT"},
-    {"display_symbol": "HBAR", "platform_symbol": "HBAR/USDT", "exchange_symbol": "HBARUSDT"},
-    {"display_symbol": "ONDO", "platform_symbol": "ONDO/USDT", "exchange_symbol": "ONDOUSDT"},
-    {"display_symbol": "ENA", "platform_symbol": "ENA/USDT", "exchange_symbol": "ENAUSDT"},
-    {"display_symbol": "TAO", "platform_symbol": "TAO/USDT", "exchange_symbol": "TAOUSDT"},
-    {"display_symbol": "FET (ASI)", "platform_symbol": "FET/USDT", "exchange_symbol": "FETUSDT"},
-    {"display_symbol": "RENDER", "platform_symbol": "RENDER/USDT", "exchange_symbol": "RENDERUSDT"},
-    {"display_symbol": "PEPE (1000PEPE contract)", "platform_symbol": "PEPE/USDT", "exchange_symbol": "1000PEPEUSDT"},
+    {"display_symbol": "LINK", "platform_symbol": "LINK/USDT", "exchange_symbol": "LINKUSDT"},
+    {"display_symbol": "AVAX", "platform_symbol": "AVAX/USDT", "exchange_symbol": "AVAXUSDT"},
+    {"display_symbol": "TRX", "platform_symbol": "TRX/USDT", "exchange_symbol": "TRXUSDT"},
+    # REMOVED 10 symbols: HYPE, SUI, TON, HBAR, ONDO, ENA, TAO, FET, RENDER, PEPE
+    # Rationale: focus on established majors with deepest liquidity and clearest trends
 )
 
 FIXED_TOP20_SYMBOLS: tuple[str, ...] = tuple(item["platform_symbol"] for item in FIXED_TOP20_ASSETS)

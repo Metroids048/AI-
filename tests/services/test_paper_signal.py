@@ -38,12 +38,13 @@ def _paper_run(*, execution_profile: dict | None = None) -> PaperRun:
 
 
 class TestSizingSentinelLogging:
-    def test_logs_warning_when_notional_falls_below_sane_fraction(self, caplog) -> None:
+    def test_logs_warning_when_notional_falls_below_sane_fraction(self, caplog, db_session) -> None:
         strategy = _strategy(position_rules={"notional_usdt": 10.0})
         paper_run = _paper_run()
+        generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
 
         with caplog.at_level(logging.WARNING, logger="services.execution.paper_signal"):
-            notional = PaperSignalGenerator._requested_notional(
+            notional = generator._requested_notional(
                 strategy=strategy,
                 paper_run=paper_run,
                 symbol="BTC/USDT",
@@ -53,12 +54,13 @@ class TestSizingSentinelLogging:
         assert notional == 10.0
         assert any("sizing_sentinel_triggered" in record.message for record in caplog.records)
 
-    def test_no_warning_when_notional_is_sane(self, caplog) -> None:
+    def test_no_warning_when_notional_is_sane(self, caplog, db_session) -> None:
         strategy = _strategy(position_rules={"notional_usdt": 500.0})
         paper_run = _paper_run()
+        generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
 
         with caplog.at_level(logging.WARNING, logger="services.execution.paper_signal"):
-            notional = PaperSignalGenerator._requested_notional(
+            notional = generator._requested_notional(
                 strategy=strategy,
                 paper_run=paper_run,
                 symbol="BTC/USDT",
@@ -68,15 +70,16 @@ class TestSizingSentinelLogging:
         assert notional == 500.0
         assert not any("sizing_sentinel_triggered" in record.message for record in caplog.records)
 
-    def test_risk_per_trade_leverage_sized_path_still_logs_when_tiny(self, caplog) -> None:
+    def test_risk_per_trade_leverage_sized_path_still_logs_when_tiny(self, caplog, db_session) -> None:
         # No reference_price/stoploss_price -> falls through to the
         # leverage-sized branch, which can legitimately collapse to near-zero
         # when risk_per_trade and leverage are both small.
-        strategy = _strategy(position_rules={"risk_per_trade": 0.0001})
+        strategy = _strategy(position_rules={"risk_per_trade": 0.0001, "max_position_fraction": 0.2})
         paper_run = _paper_run()
+        generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
 
         with caplog.at_level(logging.WARNING, logger="services.execution.paper_signal"):
-            notional = PaperSignalGenerator._requested_notional(
+            notional = generator._requested_notional(
                 strategy=strategy,
                 paper_run=paper_run,
                 symbol="BTC/USDT",
@@ -85,6 +88,22 @@ class TestSizingSentinelLogging:
 
         assert notional == pytest.approx(1.0)
         assert any("sizing_sentinel_triggered" in record.message for record in caplog.records)
+
+    def test_leverage_sized_path_is_capped_to_max_position_fraction(self, db_session) -> None:
+        # Historical bug: risk_per_trade * leverage could request 80% equity and
+        # gatekeeper then rejected every open as max_symbol_exposure_exceeded.
+        strategy = _strategy(position_rules={"risk_per_trade": 0.04, "max_position_fraction": 0.2})
+        paper_run = _paper_run(execution_profile={"account_equity": 10_000, "max_symbol_exposure": 0.2})
+        generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
+
+        notional = generator._requested_notional(
+            strategy=strategy,
+            paper_run=paper_run,
+            symbol="ARB/USDT",
+            requested_leverage=20.0,
+        )
+
+        assert notional == pytest.approx(2_000.0)
 
 
 def _store_bars(db_session, *, symbol: str, base_price: float, step: float) -> None:

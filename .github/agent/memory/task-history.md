@@ -7,6 +7,13 @@
 - **Verification**: local HEAD == `origin/main` (`6877d1f`); `git show HEAD:...system-readiness...` asserts no `sk-or-v1-` / `github_pat_`; push completed without GH013.
 - **Limits / operator action required**: Keys that appeared in the blocked push attempt (and in local history before rewrite) should be **rotated** in OpenRouter and GitHub token settings; local `.env` keep using the new keys only — never paste them into docs.
 
+### [TASK-061] Auto open/close remediation plan P0–P2: data_stale storm, equity sync, exposure sizing cap, audits, 4h/15m signal split
+- **Date**: 2026-07-14
+- **Type**: Ops reliability + sizing bug fix + evidence audits
+- **Summary**: Implemented the attached auto-open/close remediation plan. (1) Confirmed/locked `data_stale` dedup in `MarketDataHeartbeatService` (one active event per symbol). (2) Added `services/execution/account_equity.py` and wired Paper cycle + sizing to prefer Testnet exchange snapshots over the $10,000 bootstrap seed. (3) Root-caused 597 `max_symbol_exposure_exceeded` rejections: empty book + `requested_notional/equity=0.80` from uncapped `risk_per_trade*leverage` sizing — capped notional to tier/`max_symbol_exposure`. (4) Ran real audits against `.local_paper_console.db` (Top20 OHLCV complete; exposure audit + edge-stats 17<30 rejected). (5) Split 4h direction vs 15m entry signal subsets in bootstrap + decision_pipeline. (6) Chan annotation CSV template for operator. (7) Exit-policy `compare_exit_policies` already present — verified.
+- **Verification**: `pytest -q -m "not integration"` → 397 passed, 2 deselected.
+- **Limits**: Edge-stats artifact not written (insufficient trades). Chan theory still blocked on operator annotations. ADR-063 stands: no threshold relaxation to manufacture fills; current directional OOS edge remains negative — engineering fixes enable correct opens when gates pass, not guaranteed profitability.
+
 ### [TASK-059] Operator restart repair + real-data edge audit of directional/carry/cross-sectional lanes + ExitLadder revert + real edge-stats gate
 - **Date**: 2026-07-13/14
 - **Type**: Ops repair + evidence-based strategy audit + bug fix

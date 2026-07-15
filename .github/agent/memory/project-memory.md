@@ -1,5 +1,23 @@
 # Project Memory
 
+## ULTRA-AGGRESSIVE Paper testing configuration v2 deployed (2026-07-15)
+
+- **Context**: After initial 46% threshold optimization produced insufficient order flow, user explicitly requested further loosening: "风险可以在提升...日亏损到20%...以尽可能多地找到符合买卖点，拿到交易数据为主" (Risk can be increased further, daily loss to 20%, prioritize finding as many trade opportunities as possible and getting data). User made clear this is **Paper/Testnet simulation environment** where order generation and data collection are the core goals.
+- **Final configuration (ADR-065 v2)**: (1) MetaLabel threshold: 42% (42% × 2R = 0.84 expectancy, below breakeven but acceptable for Paper sampling); (2) Single trade risk: 5% (was 2.5%); (3) Max symbol exposure: 35% (was 20%); (4) Max total exposure: 90% (was 60%); (5) Max leverage: 40x for directional / 30x for swing (was 25x/15x); (6) Daily loss limit: 20% (was 6%); (7) Max open positions: 10 (was 6); (8) Universe: reduced from Top20 to Top10 majors (BTC/ETH/SOL/XRP/BNB/DOGE/ADA/LINK/AVAX/TRX) for higher single-symbol concentration and clearer trends.
+- **Expected outcome**: 5-20 orders/day (vs 0 orders/day at 50% threshold). Goal is to collect 100+ real trades within 7-14 days to measure observed vs predicted win rate, then recalibrate based on real data rather than historical proxies.
+- **Critical safety boundary**: This configuration is **TESTNET-ONLY**, absolutely forbidden for live trading. All changes documented in `docs/optimization/2026-07-15-ultra-aggressive-final-config.md`.
+- **Evaluation checkpoints**: (1) 2026-07-22 (7-day): assess actual win rate vs 42% prediction, review daily order flow and P&L; (2) 2026-07-29 (14-day): statistical significance assessment with 100+ trades, decision on whether to recalibrate MetaLabel threshold or investigate deeper structural issues.
+- **Honest acknowledgment per ADR-063**: Ultra-aggressive settings maximize sampling speed but do NOT manufacture positive edge where none exists. If observed post-cost expectancy remains negative after 100+ real trades, indicates signal quality / cost model / market regime issues requiring fundamental strategy revision (volatility breakout, on-chain data, sentiment) rather than further threshold loosening.
+- Next steps: (1) Run `一键启动.cmd` to start Paper testing with new config; (2) Monitor first order generation within 24 hours; (3) Daily check of rejection-reason distribution and order flow; (4) 7-day checkpoint on 2026-07-22.
+
+## Auto open/close remediation plan closed (2026-07-14)
+
+- P0: data_stale dedup confirmed; equity sync from Testnet snapshots; exposure rejections root-caused as uncapped leverage sizing (not ghost positions) and capped; Top20 completeness audit all 20 symbols ≥61 bars.
+- P1: edge-stats ran (17 trades <30 → rejected, proxy remains); chan annotation template at `docs/templates/chan-annotation-template.csv` (operator input still required); 4h/15m signal subset split wired.
+- P2: `compare_exit_policies` framework already present + verified.
+- Honest limit: fixes restore correct automatic opens when gates pass; they do not invent positive edge. Restart Paper console after pull so cycles pick up equity sync + sizing cap.
+
+
 ## Stuck-loading repair + honest real-data edge audit closes with "no profitable shape found yet, don't force fills" (2026-07-14)
 
 - User reported the desk stuck on "加载中/连接中" after a restart and zero Binance orders all day, then explicitly said: "只想要它能开上单并且盈利的概率会大一点...现在半天不开单，开单亏得比赚的多，肯定是不行的" — i.e. both extremes (never firing, and firing on bad signals) are unacceptable, and asked me to find or synthesize a real solution rather than just tune thresholds. See `[TASK-059]` in task-history.md and ADR-063 for full technical detail; this entry is the load-bearing summary.

@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from services.data import DataRepository
 from services.execution.paper_signal import PaperSignalGenerator
 from services.execution.risk_tiers import (
     atr_pct_from_daily_bars,
@@ -93,16 +94,17 @@ def test_atr_pct_from_daily_bars_needs_enough_history() -> None:
     assert value is not None and value > 0
 
 
-def test_tier_position_fraction_caps_notional_without_multiplying_leverage() -> None:
+def test_tier_position_fraction_caps_notional_without_multiplying_leverage(db_session) -> None:
     paper_run = _paper_run()
     strategy = _strategy()
+    generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
 
     core_leverage = PaperSignalGenerator._requested_leverage(
         strategy=strategy,
         paper_run=paper_run,
         symbol="BTC/USDT",
     )
-    core_notional = PaperSignalGenerator._requested_notional(
+    core_notional = generator._requested_notional(
         strategy=strategy,
         paper_run=paper_run,
         symbol="BTC/USDT",
@@ -110,7 +112,7 @@ def test_tier_position_fraction_caps_notional_without_multiplying_leverage() -> 
         reference_price=Decimal("100"),
         stoploss_price=Decimal("97.5"),
     )
-    standard_notional = PaperSignalGenerator._requested_notional(
+    standard_notional = generator._requested_notional(
         strategy=strategy,
         paper_run=paper_run,
         symbol="XRP/USDT",

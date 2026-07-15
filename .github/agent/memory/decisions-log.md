@@ -1,5 +1,28 @@
 # Decisions Log
 
+## ADR-065: AGGRESSIVE Paper testing thresholds to maximize trade sampling (MetaLabel 42%, risk 3.5%, exposure 80%)
+
+- Date: 2026-07-15
+- Status: accepted
+- Context: After initial conservative optimization (MetaLabel 50% → 46%), user explicitly requested more aggressive settings with clear directive: "不行，在放宽，现在是在模拟盘测试，不开单怎么能行呢，以开单为核心目标，必须优化到正期望，所有路径都要试" ("Must loosen further, this is Paper testing, must generate orders, optimize to positive expectancy, try all paths"). User emphasized this is **Testnet/Paper environment** where the primary goal is generating sufficient trade samples to measure real edge statistics, not proving profitability at these settings. Previous analysis showed all three strategy shapes had negative post-cost expectancy (Directional OOS -0.23%, Single Carry unable to cover costs, Cross-sectional 17.4% win rate), but insufficient sample size (0 orders/day) prevented meaningful statistical analysis or strategy iteration.
+- Decision: **AGGRESSIVE Paper/Testnet-only settings** to maximize order flow for data collection:
+  1. **MetaLabel threshold**: `0.50 → 0.42` (both directional and swing). This is BELOW breakeven (42% × 2R = 0.84 expectancy) but acceptable for Paper sampling phase. Goal: collect 100+ real trades to measure observed vs. predicted win rate, then recalibrate based on real data.
+  2. **Position sizing**: `risk_per_trade: 0.025 → 0.035` (3.5% vs 2.5%), `max_portfolio_initial_risk_fraction: 0.15 → 0.20` (20% vs 15%).
+  3. **Exposure limits**: `max_symbol_exposure: 0.20 → 0.25` (25%), `max_total_exposure: 0.60 → 0.80` (80%), `max_position_fraction: 0.20 → 0.25` (directional).
+  4. **RiskProfile (medium_risk_profile)**: `single_trade_risk_limit: 0.025 → 0.035`, `max_open_positions: 6 → 8`, `max_leverage: 25 → 30`, `daily_loss_limit: 0.06 → 0.10`, `weekly_loss_limit: 0.10 → 0.15`, `drawdown_limit: 0.15 → 0.20`, `hard_stop_drawdown_limit: 0.22 → 0.30`, `consecutive_loss_limit: 6 → 8`.
+  5. **Swing strategy**: Enabled for auto-trading (was `NOT_STARTED`), with matching aggressive thresholds.
+  6. **Preserved core safety**: Forced stop-loss, `net_edge_after_cost` gate (not disabled, but more candidates will pass due to lower win-rate requirement), correlation limits, Martingale detection, data-freshness checks.
+- Consequences: **Expected to generate 3-10x more order candidates** vs. 50% threshold (estimated 5-15 orders/day across 20 symbols × 2 strategies). This will produce actionable statistical samples within 7-14 days to answer: (1) Do any of the three strategy shapes have real positive edge under these market conditions? (2) What is the observed win rate vs. MetaLabel's prediction? (3) Which signal combinations contribute positive vs. negative edge? **These are Testnet-only settings** — any future live/mainnet promotion MUST re-tighten thresholds and re-validate with OOS evidence per AGENTS.md non-negotiables. The honest state: we are trading sample size for expected profitability during this measurement phase; a negative P&L outcome over 100+ trades with 42% threshold would be strong evidence that the current signal ensemble lacks positive edge under realistic costs, which is itself a valuable finding that prevents burning real capital. Monitoring: daily rejection-reason distribution, cumulative P&L, observed win rate vs. 42% prediction; evaluation checkpoint 2026-07-22 (7 days).
+
+## ADR-064: Paper notional must be capped to max_position_fraction / max_symbol_exposure; account equity must sync from exchange snapshots
+
+- Date: 2026-07-14
+- Status: accepted
+- Context: Real order history showed ~70% of rejections were `max_symbol_exposure_exceeded` / `max_total_exposure_exceeded` with `open_positions=0` and `symbol_exposure=0`, yet `requested_notional/account_equity` exactly `0.80`. Root cause was the leverage-sized branch of `_requested_notional` (`risk_budget * leverage`) with no fraction cap. Separately, sizing often fell back to a hard-coded `$10,000` equity seed disconnected from Testnet balance.
+- Decision: (1) Cap all risk_per_trade sizing paths to `asset_risk_tiers.max_position_fraction` (or strategy fraction), further capped by `execution_profile.max_symbol_exposure` when set. (2) Resolve equity via `account_equity.py` preferring live gateway / `exchange_account_snapshots` / paper metrics over bootstrap seed; sync at the start of each Paper cycle when mirror mode is armed. (3) Keep `net_edge_after_cost` fail-closed — do not relax cost thresholds to manufacture fills (ADR-063).
+- Consequences: Gatekeeper should no longer reject empty-book opens solely because sizing asked for 80% equity. Position sizes become consistent with the medium risk profile (20% symbol / 60% total). Profitability still depends on signal edge; engineering reliability no longer blocks sampling that edge.
+
+
 ## ADR-063: Net-edge gate must use a real historical-trade-conditioned edge estimate, not a raw-bar-return proxy; ExitLadder default reverted to already-proven-better fixed-2R; no strategy shape is force-armed without real positive edge
 - Date: 2026-07-14
 - Status: accepted

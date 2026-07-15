@@ -139,7 +139,12 @@ def _collect_rejection_stats(
             if code in REJECTION_REASONS:
                 stats.counts[code] = stats.counts.get(code, 0) + 1
 
-    snapshots = decision_snapshot_repo.list_snapshots(symbol=symbol, since=since)
+    try:
+        snapshots = decision_snapshot_repo.list_snapshots(symbol=symbol, since=since)
+    except Exception as exc:  # noqa: BLE001 - production DB may predate migration 0008
+        if "decision_snapshots" not in str(exc):
+            raise
+        snapshots = []
     stats.total_cycles += len(snapshots)
     for snapshot in snapshots:
         if snapshot.pipeline_status in REJECTION_REASONS:

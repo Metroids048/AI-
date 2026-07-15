@@ -10,6 +10,7 @@ from typing import Any
 
 from services.data import DataRepository
 from services.data.service import DEFAULT_BINANCE_TOP20
+from services.execution.account_equity import sync_paper_account_equity
 from services.execution.cross_sectional import CrossSectionalRankEntry, compute_funding_rank_snapshot
 from services.execution.exit_ladder import (
     ExitLadderState,
@@ -118,6 +119,15 @@ class PaperRuntimeService:
         runtime_timeframe = self._runtime_timeframe(strategy=strategy, request=request)
         actions: list[PaperRuntimeAction] = []
         metrics = dict(paper_run.paper_metrics_summary)
+        metrics = sync_paper_account_equity(
+            paper_run=paper_run,
+            metrics=metrics,
+            execution_repo=self.execution_repo,
+            gateway=self.gateway,
+            prefer_exchange=self._gateway_mirror_armed(paper_run),
+            paper_run_id=paper_run_id,
+        )
+        paper_run = paper_run.model_copy(update={"paper_metrics_summary": metrics})
         protective_trailing = dict(metrics.get("protective_trailing", {}))
         exit_ladder_metrics = dict(metrics.get("exit_ladder", {}))
         processed_keys = set(metrics.get("processed_cycle_keys", []))

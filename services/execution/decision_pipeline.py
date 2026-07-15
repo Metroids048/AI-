@@ -146,7 +146,7 @@ class DecisionPipeline:
             classify_volatility_regime(frame) if not frame.empty else {"regime": "insufficient_data"}
         )
         atr = calculate_atr(frame) if not frame.empty else None
-        enabled_signals = _enabled_signals(strategy)
+        enabled_signals = _enabled_signals(strategy, timeframe=timeframe)
         signals = self._technical_signals(frame=frame, symbol=symbol, enabled_signals=enabled_signals)
         volatility = {**volatility, "enabled_signals": sorted(enabled_signals), "evaluated_timeframe": timeframe}
         if not signals:
@@ -393,7 +393,7 @@ class DecisionPipeline:
             state_signals = self._technical_signals(
                 frame=_bars_to_frame(state_bars),
                 symbol=symbol,
-                enabled_signals=enabled_signals,
+                enabled_signals=_enabled_signals(strategy, timeframe=str(state_timeframe)),
             )
             state_direction = _dominant_signal_direction(state_signals)
             if not state_bars or not state_signals or main_direction is None or state_direction is None:
@@ -432,7 +432,7 @@ class DecisionPipeline:
         confirm_signals = self._technical_signals(
             frame=confirm_frame,
             symbol=symbol,
-            enabled_signals=enabled_signals,
+            enabled_signals=_enabled_signals(strategy, timeframe=confirm_timeframe),
         )
         confirm_direction = _dominant_signal_direction(confirm_signals)
         if not confirm_bars or not confirm_signals or main_direction is None or confirm_direction is None:
@@ -650,8 +650,19 @@ def _bars_to_frame(bars: list[OHLCVBar]) -> pd.DataFrame:
     return frame[["open", "high", "low", "close", "volume"]]
 
 
-def _enabled_signals(strategy: StrategyContract) -> set[str]:
-    raw = strategy.rules.entry_rules.get("enabled_signals", strategy.rules.entry_rules.get("technical_signals"))
+def _enabled_signals(strategy: StrategyContract, *, timeframe: str | None = None) -> set[str]:
+    entry_rules = strategy.rules.entry_rules
+    raw: object | None = None
+    if timeframe is not None:
+        direction_tf = str(entry_rules.get("direction_timeframe") or "")
+        entry_tf = str(entry_rules.get("entry_timeframe") or "")
+        state_tf = str(entry_rules.get("state_timeframe") or "")
+        if timeframe == entry_tf and entry_rules.get("entry_signals"):
+            raw = entry_rules["entry_signals"]
+        elif timeframe in {direction_tf, state_tf} and entry_rules.get("direction_signals"):
+            raw = entry_rules["direction_signals"]
+    if raw is None:
+        raw = entry_rules.get("enabled_signals", entry_rules.get("technical_signals"))
     if raw is None or raw == "":
         return set(DEFAULT_TECHNICAL_SIGNALS)
     if isinstance(raw, str):

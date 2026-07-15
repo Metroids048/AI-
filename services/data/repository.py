@@ -506,6 +506,34 @@ class DataRepository:
         self.session.commit()
         return self.get_risk_event(risk_event_id)
 
+    def list_active_risk_events_by_type(self, *, event_type: Any, limit: int = 5000) -> list[RiskEvent]:
+        """Active/unresolved events of a single type, independent of the global recency window.
+
+        `list_risk_events(active_only=True, limit=N)` orders by recency across *all* event
+        types, so a high-frequency type (e.g. data_stale) can push an older active event for
+        a different symbol past the page boundary and make it un-resolvable. Scoping the query
+        to one event_type avoids that pagination trap.
+        """
+        stmt = (
+            select(risk_events)
+            .where(
+                risk_events.c.event_type == str(event_type),
+                risk_events.c.resolution_status.in_(["detected", "acknowledged"]),
+            )
+            .order_by(risk_events.c.created_at.desc())
+            .limit(limit)
+        )
+        rows = self.session.execute(stmt).all()
+        now = datetime.now(UTC)
+        events: list[RiskEvent] = []
+        for row in rows:
+            event = self._risk_event_from_row(row)
+            expires_at = _as_aware(event.expires_at)
+            if expires_at is not None and expires_at < now:
+                continue
+            events.append(event)
+        return events
+
     def list_risk_events(self, *, active_only: bool = False, limit: int = 50) -> list[RiskEvent]:
         stmt = select(risk_events).order_by(risk_events.c.created_at.desc()).limit(limit)
         rows = self.session.execute(stmt).all()

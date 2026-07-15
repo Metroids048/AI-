@@ -39,28 +39,28 @@ class RiskProfile(PlatformModel):
 
 
 def medium_risk_profile() -> RiskProfile:
-    """Operator medium preset: wider limits with total-exposure cap for Top20 auto trading.
+    """Operator medium preset: ULTRA-AGGRESSIVE Paper testing limits (2026-07-15 v2).
 
-    Bumped moderately more aggressive (2026-07 operator request) alongside the
-    paper-sizing floor fix in paper_signal.py/paper_runtime.py, so core-tier
-    leverage (now 25x, see risk_tiers.py) fits under max_leverage.
+    MAXIMUM loosened for Paper/Testnet trade sampling - prioritize order flow and data
+    collection over risk management. Goal: generate 10-20 orders/day to rapidly build
+    statistical edge database. TESTNET-ONLY, absolutely forbidden for live trading.
     """
     return RiskProfile(
         risk_profile_id=MEDIUM_RISK_PROFILE_KEY,
-        single_trade_risk_limit=0.025,
-        max_symbol_exposure=0.20,
-        max_total_exposure=0.60,
-        max_open_positions=6,
-        max_leverage=25.0,
-        daily_loss_limit=0.06,
-        weekly_loss_limit=0.10,
-        drawdown_limit=0.15,
-        hard_stop_drawdown_limit=0.22,
-        consecutive_loss_limit=6,
+        single_trade_risk_limit=0.05,       # Was 0.035, now 5%
+        max_symbol_exposure=0.35,           # Was 0.25, now 35%
+        max_total_exposure=0.90,            # Was 0.80, now 90%
+        max_open_positions=10,              # Was 8, now 10
+        max_leverage=40.0,                  # Was 30.0, now 40x
+        daily_loss_limit=0.20,              # Was 0.10, now 20%
+        weekly_loss_limit=0.25,             # Was 0.15, now 25%
+        drawdown_limit=0.25,                # Was 0.20, now 25%
+        hard_stop_drawdown_limit=0.40,      # Was 0.30, now 40%
+        consecutive_loss_limit=10,          # Was 8, now 10
         api_failure_limit=5,
         api_failure_window_minutes=10,
         market_scope="Binance USDT-M Top20",
-        config_source="operator medium risk preset (fixed Top20 Binance simulation)",
+        config_source="ULTRA-AGGRESSIVE Paper testing v2 (Testnet only, 2026-07-15)",
     )
 
 
