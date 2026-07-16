@@ -376,7 +376,7 @@ def _decision_snapshot_from_orm(row: models.DecisionSnapshot) -> DecisionSnapsho
         pipeline_status=row.pipeline_status,
         reason=row.reason,
         decision_trace=row.decision_trace or {},
-        cycle_time=_ensure_utc(row.cycle_time),
+        cycle_time=_ensure_utc(row.cycle_time) or _utcnow(),
         created_at=row.created_at,
     )
 

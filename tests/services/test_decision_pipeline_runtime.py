@@ -126,7 +126,36 @@ def test_signal_observation_orders_relax_sampling_filters_but_remain_observation
     assert observed["relaxed_signals"] is True
     assert order.entry_context["observation_only_mode"] is True
     assert order.entry_context["strategy_performance_eligible"] is False
+    assert order.entry_context["edge_stats_source"] == "raw_bar_proxy_non_authoritative"
     assert net_edge_rejection_codes(order.entry_context) == []
+
+
+def test_auto_directional_order_requires_validated_symbol_evidence(db_session) -> None:
+    data_repo = DataRepository(db_session)
+    data_repo.store_ohlcv_bars(_bars(datetime.now(UTC).replace(microsecond=0) - timedelta(hours=59)))
+    strategy = _strategy().model_copy(update={"strategy_key": "auto_paper_mature_templates"})
+    generator = PaperSignalGenerator(data_repo=data_repo)
+
+    order = generator.generate_order(
+        paper_run=PaperRun(
+            paper_run_id="auto-evidence-paper",
+            strategy_id=strategy.strategy_id,
+            gate_decision_ref="backtest-1",
+            execution_profile={
+                "strategy_lane": "directional",
+                "account_equity": 10_000,
+                "equity_peak": 10_000,
+            },
+        ),
+        strategy=strategy,
+        request=PaperRunStepRequest(symbol="BTC/USDT", timeframe="1h", enable_decision_veto=False),
+        positions=[],
+    )
+
+    assert order.entry_context["validated_edge_required"] is True
+    assert order.entry_context["validated_edge_net_expectancy"] is None
+    assert order.entry_context["edge_stats_source"] == "validated_edge_stats_missing_or_stale"
+    assert net_edge_rejection_codes(order.entry_context) == ["validated_edge_stats_missing_or_stale"]
 
 
 def test_market_data_heartbeat_writes_data_stale_risk_event(db_session) -> None:

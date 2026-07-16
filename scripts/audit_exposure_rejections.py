@@ -132,9 +132,12 @@ def run_audit(*, database_url: str, lookback_days: int = 14) -> ExposureAuditRep
         oversized = 0
         empty_book = 0
         for row in report.sample_rows:
-            if row.account_equity and row.requested_notional:
-                if row.requested_notional / row.account_equity > 0.25:
-                    oversized += 1
+            if (
+                row.account_equity
+                and row.requested_notional
+                and row.requested_notional / row.account_equity > 0.25
+            ):
+                oversized += 1
             if (row.open_positions or 0) == 0 and (row.symbol_exposure or 0) == 0:
                 empty_book += 1
         if oversized and empty_book:

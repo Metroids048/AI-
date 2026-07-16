@@ -2,17 +2,14 @@
 
 from datetime import datetime, timedelta
 
-import pandas as pd
 import pytest
 
 from services.validation.candidate_leaderboard import (
     CandidateLeaderboard,
     CandidateLeaderboardEntry,
     _compute_net_expectancy_ci,
-    run_candidate_leaderboard,
 )
 from services.validation.technical_replay import ReplayMetrics
-from shared.models import TradeSide
 
 
 def make_mock_metrics(

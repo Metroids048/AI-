@@ -5,8 +5,8 @@ import pytest
 from services.strategy_library.candidates.registry import (
     CANDIDATE_REGISTRY,
     OPERATOR_HEURISTIC_V1,
-    PANDAS_TA_BROAD_SCREEN,
     OPERATOR_HEURISTIC_V2_RELAXED,
+    PANDAS_TA_BROAD_SCREEN,
     get_candidate,
     list_candidates,
 )
@@ -16,15 +16,15 @@ def test_registry_has_three_candidates():
     """验证注册表包含3个初始候选。"""
     assert len(CANDIDATE_REGISTRY) == 3
     assert "operator_heuristic_v1" in CANDIDATE_REGISTRY
-    assert "pandas_ta_broad_screen_v1" in CANDIDATE_REGISTRY
-    assert "operator_heuristic_v2_relaxed" in CANDIDATE_REGISTRY
+    assert "trend_momentum_v1" in CANDIDATE_REGISTRY
+    assert "trend_breakout_v1" in CANDIDATE_REGISTRY
 
 
 def test_list_candidates():
     """验证list_candidates返回所有候选ID。"""
     candidates = list_candidates()
     assert len(candidates) == 3
-    assert "operator_heuristic_v1" in candidates
+    assert set(candidates) == {"operator_heuristic_v1", "trend_momentum_v1", "trend_breakout_v1"}
 
 
 def test_get_candidate_success():

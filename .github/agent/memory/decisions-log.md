@@ -1,5 +1,13 @@
 # Decisions Log
 
+## ADR-066: Evidence-only Top3 runtime supersedes legacy Top20/threshold-sampling automation
+
+- Date: 2026-07-16
+- Status: accepted
+- Context: The repository contained conflicting runtime reports and a live Paper bootstrap that could preserve legacy Top20/Top10 scopes and gateway mirroring even though no signal-conditioned OOS evidence existed. The current objective is to establish whether the implemented signal families have positive expectancy before optimizing fill rate.
+- Decision: Make `CURRENT_STATE.md`, current code, and the active runtime database the only current facts; archive legacy reports and one-off diagnostics. Restrict scheduled research to `auto_paper_mature_templates` and local-only `signal_observation_technical` over BTC/ETH/SOL. Keep the aggressive Paper risk profile unchanged, but force both automatic lanes to local Paper-only while evidence is absent. Require candidate-, symbol-, and rules-hash-matched artifact v2 OOS evidence for the main lane; missing, stale, corrupt, or ineligible evidence returns `validated_edge_stats_missing_or_stale`. Use a fixed 2R exit and shared cost model for the three candidate replays, with 30 OOS trades and canonical validation thresholds as hard admission gates. Do not lower thresholds to manufacture orders.
+- Consequences: A 365-day replay with insufficient local history correctly generates an immutable rejection report and no active manifest. The scheduler continues sampling/diagnosing Top3 without sending gateway orders, while Gatekeeper, stop-loss, Binance-first accounting, and review boundaries remain unchanged. Any future promotion must be backed by a newly generated eligible manifest and a fresh bootstrap verification.
+
 ## ADR-065: AGGRESSIVE Paper testing thresholds to maximize trade sampling (MetaLabel 42%, risk 3.5%, exposure 80%)
 
 - Date: 2026-07-15

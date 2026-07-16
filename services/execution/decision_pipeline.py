@@ -13,7 +13,7 @@ from services.agents import AgentTaskService, build_configured_llm_runtime
 from services.data import DataRepository
 from services.data.market_intelligence import MarketIntelligenceService
 from services.execution.net_edge import meta_label_edge_stats
-from services.execution.signal_edge_stats import load_active_edge_stats
+from services.execution.signal_edge_stats import load_active_edge_stats, strategy_rules_hash
 from services.strategy_library import (
     AgentTaskRepository,
     ExecutionRepository,
@@ -248,7 +248,12 @@ class DecisionPipeline:
         )
         if self.execution_repo is not None:
             meta_label = self.execution_repo.create_meta_label(meta_label)
-        if meta_label.bet_decision != BetDecision.BET_TAKEN and not relaxed_signals:
+        validated_edge_required = strategy.strategy_key == "auto_paper_mature_templates"
+        if (
+            meta_label.bet_decision != BetDecision.BET_TAKEN
+            and not relaxed_signals
+            and not validated_edge_required
+        ):
             return self._skipped(
                 reason="meta_label_bet_skipped",
                 reference_price=reference_price,
@@ -271,7 +276,11 @@ class DecisionPipeline:
             enable_decision_veto=enable_decision_veto,
         )
         fee_bps, slippage_bps = _fee_slippage_bps(strategy=strategy, symbol=symbol)
-        edge_stats = _edge_stats_for_gate(strategy_key=strategy.strategy_key, training_samples=training_samples)
+        edge_stats = _edge_stats_for_gate(
+            strategy=strategy,
+            symbol=symbol,
+            training_samples=training_samples,
+        )
         trace = _trace(
             status="vetoed" if veto_result is not None and veto_result.veto else "bet_taken",
             signals=signals,
@@ -287,6 +296,13 @@ class DecisionPipeline:
                 "meta_label_average_win": edge_stats["average_win"],
                 "meta_label_average_loss": edge_stats["average_loss"],
                 "meta_label_sample_count": edge_stats["sample_count"],
+                "candidate_id": edge_stats["candidate_id"],
+                "rules_hash": edge_stats["rules_hash"],
+                "edge_stats_source": edge_stats["source"],
+                "edge_artifact_ref": edge_stats["artifact_ref"],
+                "validated_edge_required": edge_stats["validated_edge_required"],
+                "validated_edge_net_expectancy": edge_stats["net_expectancy"],
+                "validated_edge_oos_sample_count": edge_stats["oos_sample_count"],
                 "round_trip_fee_rate": (2.0 * fee_bps) / 10_000.0,
                 "round_trip_slippage_rate": (2.0 * slippage_bps) / 10_000.0,
                 "taker_fee_bps": fee_bps,
@@ -294,7 +310,7 @@ class DecisionPipeline:
             }
         )
         confidence = float(ensemble.fused_confidence or 1.0)
-        size_fraction = float(meta_label.position_size_fraction or 1.0)
+        size_fraction = 1.0 if validated_edge_required else float(meta_label.position_size_fraction or 1.0)
         return DecisionPipelineResult(
             direction=ensemble.fused_direction,
             should_trade=not (veto_result is not None and veto_result.veto),
@@ -756,25 +772,56 @@ def _fee_slippage_bps(*, strategy: StrategyContract, symbol: str) -> tuple[float
 
 
 def _edge_stats_for_gate(
-    *, strategy_key: str | None, training_samples: list[MetaLabelSample]
-) -> dict[str, float]:
-    """Prefer a real, offline-computed historical-trade edge estimate over the
-    raw-bar-return proxy below when a fresh artifact exists for this strategy
-    (see services/execution/signal_edge_stats.py); fail closed to the proxy
-    otherwise. The proxy (`_meta_label_samples` + `meta_label_edge_stats`) uses
-    the last ~47 bars' raw close-to-close return in the ensemble's fused
-    direction, which is disconnected from whether this signal combination ever
-    actually fired historically -- a noisy stand-in, not a measurement."""
-    if strategy_key is not None:
-        artifact = load_active_edge_stats(strategy_key)
-        if artifact is not None:
+    *, strategy: StrategyContract, symbol: str, training_samples: list[MetaLabelSample]
+) -> dict[str, Any]:
+    candidate_id = str(strategy.rules.entry_rules.get("candidate_id", "operator_heuristic_v1"))
+    rules_hash = strategy_rules_hash(strategy.rules)
+    if strategy.strategy_key == "auto_paper_mature_templates":
+        artifact = load_active_edge_stats(
+            strategy.strategy_key,
+            candidate_id,
+            symbol,
+            strategy.rules,
+        )
+        if artifact is None:
             return {
-                "sample_count": float(artifact.sample_count),
-                "win_rate": artifact.win_rate,
-                "average_win": artifact.average_win,
-                "average_loss": artifact.average_loss,
+                "sample_count": 0.0,
+                "oos_sample_count": 0,
+                "win_rate": None,
+                "average_win": None,
+                "average_loss": None,
+                "net_expectancy": None,
+                "candidate_id": candidate_id,
+                "rules_hash": rules_hash,
+                "source": "validated_edge_stats_missing_or_stale",
+                "artifact_ref": None,
+                "validated_edge_required": True,
             }
-    return meta_label_edge_stats([sample.net_return for sample in training_samples])
+        return {
+            "sample_count": float(artifact.sample_count),
+            "oos_sample_count": artifact.oos_sample_count,
+            "win_rate": artifact.win_rate,
+            "average_win": artifact.average_net_win,
+            "average_loss": artifact.average_net_loss_magnitude,
+            "net_expectancy": artifact.net_expectancy,
+            "candidate_id": candidate_id,
+            "rules_hash": rules_hash,
+            "source": "validated_oos_artifact_v2",
+            "artifact_ref": artifact.artifact_path,
+            "validated_edge_required": True,
+        }
+
+    proxy = meta_label_edge_stats([sample.net_return for sample in training_samples])
+    return {
+        **proxy,
+        "oos_sample_count": 0,
+        "net_expectancy": None,
+        "candidate_id": candidate_id,
+        "rules_hash": rules_hash,
+        "source": "raw_bar_proxy",
+        "artifact_ref": None,
+        "validated_edge_required": False,
+    }
 
 
 def _meta_label_samples(bars: list[OHLCVBar], *, direction: TradeSide) -> list[MetaLabelSample]:

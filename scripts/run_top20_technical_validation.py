@@ -15,7 +15,7 @@ from pathlib import Path
 
 from services.data import DataRepository
 from services.data.binance import BinanceCcxtClient
-from services.data.service import DEFAULT_BINANCE_TOP20
+from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
 from services.database import get_session_factory
 from services.execution.bootstrap import (
     AUTO_PAPER_TECHNICAL_KEY,
@@ -38,7 +38,7 @@ def _template(*, strategy_key: str, rules: dict, timeframe: Timeframe) -> Strate
         strategy_key=strategy_key,
         source="platform:technical_validation",
         core_thesis="Offline comparison only; this object cannot arm Paper or Testnet execution.",
-        symbol_scope=list(DEFAULT_BINANCE_TOP20),
+        symbol_scope=list(AUTO_PAPER_RESEARCH_SYMBOLS),
         timeframe=timeframe,
         rules=StrategyRules(**rules),
     )
@@ -74,7 +74,7 @@ def _load_or_backfill(*, days: int, end_at: datetime) -> MarketData:
     market_data: MarketData = {}
     with get_session_factory()() as session:
         repository = DataRepository(session)
-        for symbol in DEFAULT_BINANCE_TOP20:
+        for symbol in AUTO_PAPER_RESEARCH_SYMBOLS:
             market_data[symbol] = {}
             for timeframe in ("1h", "15m", "4h"):
                 bars = client.fetch_ohlcv_history(
@@ -95,7 +95,7 @@ def _load_stored(*, days: int, end_at: datetime) -> MarketData:
     market_data: MarketData = {}
     with get_session_factory()() as session:
         repository = DataRepository(session)
-        for symbol in DEFAULT_BINANCE_TOP20:
+        for symbol in AUTO_PAPER_RESEARCH_SYMBOLS:
             market_data[symbol] = {
                 timeframe: repository.list_ohlcv_bars(
                     symbol=symbol,

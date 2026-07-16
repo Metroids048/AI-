@@ -372,22 +372,23 @@ def runtime_scheduler_status() -> RuntimeSchedulerStatus:
 
 
 def _default_paper_cycle_runner() -> dict:
+    from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
     from services.execution.tasks import run_all_paper_runtime_cycles
 
     return run_all_paper_runtime_cycles.run(
         {
             "timeframe": "1m",
-            "max_symbols": 20,
+            "max_symbols": len(AUTO_PAPER_RESEARCH_SYMBOLS),
             "enable_decision_veto": settings.paper_runtime_enable_decision_veto,
         }
     )
 
 
 def _default_heartbeat_runner() -> dict:
-    from services.data.service import DEFAULT_BINANCE_TOP20
     from services.data.tasks import market_data_heartbeat
+    from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
 
-    return market_data_heartbeat.run(list(DEFAULT_BINANCE_TOP20), "1m")
+    return market_data_heartbeat.run(list(AUTO_PAPER_RESEARCH_SYMBOLS), "1m")
 
 
 def _default_exchange_info_refresh_runner() -> dict:

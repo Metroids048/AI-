@@ -66,7 +66,8 @@ def verify_vectorbt() -> bool:
 
     # 验证核心类存在
     try:
-        from vectorbt import Portfolio
+        if not hasattr(vbt, "Portfolio"):
+            raise ImportError("Portfolio is not exported by vectorbt")
         print("    ✓ Portfolio 类可用")
         return True
     except ImportError as e:

@@ -22,9 +22,8 @@ See docs/chan-theory-integration-guide.md for full implementation steps.
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
 
-from shared.models import OHLCVBar, TradeSignal, TradeSide
+from shared.models import OHLCVBar, TradeSide, TradeSignal
 
 # Placeholder: actual implementation requires chan.py vendored or pip-installed
 try:
@@ -125,9 +124,9 @@ def extract_chan_signals(
                 symbol=symbol,
                 side=side,
                 source=f"technical_chan_{bsp.type.value.lower()}",  # e.g., "technical_chan_t1"
-                confidence=Decimal("0.75"),  # Default confidence, tune based on backtest
-                timestamp=latest_bar_time,
-                reference_price=Decimal(str(bars[-1].close)),
+                confidence=0.75,  # Default confidence, tune based on backtest
+                signal_time=latest_bar_time,
+                entry=bars[-1].close,
                 reason=f"Chan Theory {bsp.type.value} buy/sell point detected",
             )
         )

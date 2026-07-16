@@ -70,6 +70,8 @@ def _operator_heuristic_v1_config() -> dict[str, Any]:
             "direction_timeframe": "4h",
             "state_timeframe": "1h",
             "entry_timeframe": "15m",
+            "direction_signals": ["dow_trend", "ema_trend", "adx", "mtf_ma"],
+            "entry_signals": ["macd", "price_action", "rsi", "vwap", "bollinger", "fvg"],
             "enabled_signals": [
                 "macd",
                 "dow_trend",
@@ -82,7 +84,8 @@ def _operator_heuristic_v1_config() -> dict[str, Any]:
                 "fvg",
                 "mtf_ma",
             ],
-            "meta_label_min_win_rate": 0.50,
+            "meta_label_min_win_rate": 0.42,
+            "candidate_id": "operator_heuristic_v1",
             "fusion_method": "layered_regime_entry",
             "core_fee_bps": 5.0,
             "core_slippage_bps": 1.0,
@@ -103,10 +106,10 @@ def _operator_heuristic_v1_config() -> dict[str, Any]:
             "risk_reward": 2.0,
         },
         "position_rules": {
-            "risk_per_trade": 0.025,
-            "max_portfolio_initial_risk_fraction": 0.15,
-            "max_leverage": 25,
-            "max_position_fraction": 0.20,
+            "risk_per_trade": 0.05,
+            "max_portfolio_initial_risk_fraction": 0.25,
+            "max_leverage": 40,
+            "max_position_fraction": 0.35,
             "min_notional_usdt": 20,
         },
     }
@@ -125,6 +128,60 @@ OPERATOR_HEURISTIC_V1 = StrategyCandidate(
     market="BTC/USDT",
     timeframe="15m",
     config_factory=_operator_heuristic_v1_config,
+)
+
+
+def _focused_candidate_config(
+    *, candidate_id: str, direction_signals: list[str], entry_signals: list[str]
+) -> dict[str, Any]:
+    config = _operator_heuristic_v1_config()
+    config["entry_rules"] = {
+        **config["entry_rules"],
+        "candidate_id": candidate_id,
+        "direction_signals": direction_signals,
+        "entry_signals": entry_signals,
+        "enabled_signals": [*direction_signals, *entry_signals],
+    }
+    return config
+
+
+def _trend_momentum_v1_config() -> dict[str, Any]:
+    return _focused_candidate_config(
+        candidate_id="trend_momentum_v1",
+        direction_signals=["ema_trend", "adx"],
+        entry_signals=["macd"],
+    )
+
+
+TREND_MOMENTUM_V1 = StrategyCandidate(
+    candidate_id="trend_momentum_v1",
+    source="evidence_simplification",
+    hypothesis="EMA direction plus ADX state and MACD entry can retain trend edge with fewer votes",
+    version="1.0.0",
+    created_at=datetime(2026, 7, 16),
+    market="BTC/USDT,ETH/USDT,SOL/USDT",
+    timeframe="15m",
+    config_factory=_trend_momentum_v1_config,
+)
+
+
+def _trend_breakout_v1_config() -> dict[str, Any]:
+    return _focused_candidate_config(
+        candidate_id="trend_breakout_v1",
+        direction_signals=["dow_trend", "adx"],
+        entry_signals=["price_action", "fvg"],
+    )
+
+
+TREND_BREAKOUT_V1 = StrategyCandidate(
+    candidate_id="trend_breakout_v1",
+    source="evidence_simplification",
+    hypothesis="Dow direction plus ADX state and price-action/FVG entries can isolate breakout edge",
+    version="1.0.0",
+    created_at=datetime(2026, 7, 16),
+    market="BTC/USDT,ETH/USDT,SOL/USDT",
+    timeframe="15m",
+    config_factory=_trend_breakout_v1_config,
 )
 
 
@@ -251,8 +308,8 @@ OPERATOR_HEURISTIC_V2_RELAXED = StrategyCandidate(
 
 CANDIDATE_REGISTRY: dict[str, StrategyCandidate] = {
     "operator_heuristic_v1": OPERATOR_HEURISTIC_V1,
-    "pandas_ta_broad_screen_v1": PANDAS_TA_BROAD_SCREEN,
-    "operator_heuristic_v2_relaxed": OPERATOR_HEURISTIC_V2_RELAXED,
+    "trend_momentum_v1": TREND_MOMENTUM_V1,
+    "trend_breakout_v1": TREND_BREAKOUT_V1,
 }
 
 

@@ -227,9 +227,11 @@ class ExecutionGatekeeperService:
             rejection_reasons.append("correlated_cluster_exposure_exceeded")
 
         # Skip net directional exposure check for hedge legs (they offset, not add)
-        if not is_hedge_leg:
-            if abs(risk_state.net_directional_exposure + requested_signed_fraction) > net_directional_exposure_limit:
-                rejection_reasons.append("net_directional_exposure_exceeded")
+        if (
+            not is_hedge_leg
+            and abs(risk_state.net_directional_exposure + requested_signed_fraction) > net_directional_exposure_limit
+        ):
+            rejection_reasons.append("net_directional_exposure_exceeded")
 
         if risk_state.open_positions >= profile.max_open_positions:
             rejection_reasons.append("max_open_positions_exceeded")

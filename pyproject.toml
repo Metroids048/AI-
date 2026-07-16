@@ -70,6 +70,7 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+exclude = ["scripts/archive", "docs/archive"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "C4"]

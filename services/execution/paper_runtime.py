@@ -1050,7 +1050,8 @@ class PaperRuntimeService:
                     hedge_group_id=hedge_group_id,
                     is_hedge_leg=True,
                 )
-                active_positions[hedge_leg_info["symbol"]] = hedge_position
+                if hedge_leg_info is not None:
+                    active_positions[str(hedge_leg_info["symbol"])] = hedge_position
             ladder_state = initialize_exit_ladder(
                 symbol=position.symbol,
                 side=position.side,

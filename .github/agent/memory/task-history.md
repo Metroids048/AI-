@@ -1,5 +1,19 @@
 # Task History
 
+## 2026-07-16 — AI Quant evidence-based convergence and runtime verification
+
+- **Summary**: Consolidated the current fact source, archived contradictory reports and unsupported one-off scripts, restricted scheduled research to the Top3 main/observation lanes, added the decision-funnel audit, and switched the main lane to candidate/symbol/rules-hash-scoped OOS evidence. Fixed artifact-v2 typing and edge-stat correctness boundaries (loss sign, cost double counting, OOS scope), plus full static-check compatibility.
+- **Evidence**: Ran the three-candidate 365-day local replay with fixed 2R exits, shared costs, chronological 70/30 OOS, and three walk-forward windows. Local history yielded zero OOS trades for every candidate/symbol, so the immutable report was written but no active manifest was created.
+- **Runtime**: Standard launcher restart/bootstrap synchronized the SQLite database. Two automatic PaperRuns now scan BTC/ETH/SOL, remain Paper-only, and `verify_runtime_config_sync` passed. `audit_decision_funnel` reported 3,496 decisions over seven days; Top3 data completeness passed; `verify_config.py` returned `GREEN: 19/19`; mainnet remains disabled.
+- **Verification**: `agent-python -m pytest -q -m "not integration"` -> 451 passed, 2 skipped; `agent-python -m mypy` clean; `agent-python -m ruff check .` clean; frontend Vitest 34 passed; `npm run admin:build` passed; `git diff --check` passed.
+
+### [TASK-062] Fix one-click startup: alembic 0009 duplicate hedge columns
+- **Date**: 2026-07-16
+- **Type**: Bug fix / local console startup
+- **Summary**: `一键启动` failed in `prepare_database` with `sqlite3.OperationalError: duplicate column name: hedge_group_id`. Local `.local_paper_console.db` was stuck at alembic `0008` while `position_snapshots` already had `hedge_group_id` / `is_hedge_leg` and `ix_position_snapshots_hedge_group_id` (SQLite non-transactional DDL / schema ahead of version stamp). Made migration `0009` idempotent (skip existing columns/index) and added a regression test that stamps back to `0008` then re-runs prepare.
+- **Verification**: `pytest tests/services/test_prepare_database.py -q` → 2 passed; `prepare_database` on `.local_paper_console.db` exit 0 and alembic now `0009`.
+- **Operator**: re-run `一键启动.cmd` — DB prep should pass.
+
 ### [TASK-060] Unblock GitHub push: redact leaked API keys from diagnosis doc
 - **Date**: 2026-07-15
 - **Type**: Ops / git hygiene

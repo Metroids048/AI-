@@ -102,9 +102,15 @@
 ### 当前 Paper 阶段风险参数基线（2026-07-13 起生效）
 
 - 这是"风控优先"原则下的**当前 Paper 验证阶段基线**，不是最终实盘阈值；目的是在模拟盘/测试网阶段获得足够的开单样本以验证信号与执行链路，实盘前必须重新收紧并走完 Validation Layer 门槛。
-- 组合层初始风险上限：`max_portfolio_initial_risk_fraction=0.15`（原 5% 上限会在约 2-3 个仓位后就拒绝新开仓，导致 Top20 扫描"看起来是死的"，见 ADR-058）。若未来实盘化，必须重新评估此值，不能直接沿用 Paper 基线。
+- 当前操作员选择的 Paper 采样档保持为：`risk_per_trade=0.05`、`max_portfolio_initial_risk_fraction=0.25`、`max_leverage=40`、`max_position_fraction=0.35`、`max_total_exposure=0.90`。这是模拟环境采样配置，严禁直接用于实盘。
 - 手续费/滑点假设已对齐币安 USDM 合约常规用户真实费率（maker 2bps / taker 5bps，来源：https://www.binance.com/en/fee/futureFee），而不是凭空设置的保守估计；此前 10-18bps/边的假设是真实费率的 2-4 倍，导致 `net_edge_after_cost_negative` 门槛误杀大量本应通过的候选信号。调整手续费假设是为了让门槛准确反映真实成本，而不是放宽门槛本身去允许扣完成本预期为负的交易——`net_edge_after_cost <= 0` 拒绝入场这条规则本身保持不变。
 - 杠杆/仓位比例（`max_leverage`/`max_position_fraction`/`risk_per_trade`）已按运营方要求上调至更激进档位（见 `services/execution/bootstrap.py` 中 `AUTO_PAPER_TECHNICAL_RULES`/`AUTO_PAPER_STRATEGY_RULES` 的行内注释与对应 ADR），用于在 Paper 阶段跑出足够密度的开平仓样本；止损/止盈/风控拒绝规则本身不受此调整影响。
+
+### Current Truth And Archive Boundary
+
+- 当前事实优先级：当前代码与测试 -> 运行时数据库/调度状态 -> `CURRENT_STATE.md` -> 架构与 ADR。
+- `docs/archive/` 和 `scripts/archive/` 仅供历史审计；AI 不得把其中的诊断结论当作当前事实。
+- 自动研究范围固定为 BTC/ETH/SOL；主技术通道缺少匹配的 OOS evidence 时必须拒绝，观察通道的原始 K 线代理不得作为策略准入证据。
 
 ### 6. Review Layer
 

@@ -171,6 +171,13 @@ class PaperSignalGenerator:
                 "meta_label_average_loss": decision.trace.get("meta_label_average_loss"),
                 "round_trip_fee_rate": decision.trace.get("round_trip_fee_rate"),
                 "round_trip_slippage_rate": decision.trace.get("round_trip_slippage_rate"),
+                "candidate_id": decision.trace.get("candidate_id"),
+                "rules_hash": decision.trace.get("rules_hash"),
+                "edge_stats_source": decision.trace.get("edge_stats_source"),
+                "edge_artifact_ref": decision.trace.get("edge_artifact_ref"),
+                "validated_edge_required": decision.trace.get("validated_edge_required", False),
+                "validated_edge_net_expectancy": decision.trace.get("validated_edge_net_expectancy"),
+                "validated_edge_oos_sample_count": decision.trace.get("validated_edge_oos_sample_count"),
                 "strategy_lane": decision.trace.get("strategy_lane"),
                 "observation_only_mode": decision.trace.get("strategy_lane") == "signal_observation",
                 "strategy_performance_eligible": decision.trace.get("strategy_lane")
@@ -229,7 +236,14 @@ class PaperSignalGenerator:
             relaxed_signals=settings.paper_runtime_relaxed_signals or is_signal_observation,
         )
         if is_signal_observation:
-            return replace(decision, trace={**decision.trace, "strategy_lane": "signal_observation"})
+            return replace(
+                decision,
+                trace={
+                    **decision.trace,
+                    "strategy_lane": "signal_observation",
+                    "edge_stats_source": "raw_bar_proxy_non_authoritative",
+                },
+            )
         return decision
 
     def _link_verification_decision(

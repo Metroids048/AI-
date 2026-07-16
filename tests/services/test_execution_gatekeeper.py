@@ -373,6 +373,24 @@ def test_gatekeeper_rejects_negative_net_edge_after_cost(db_session) -> None:
     assert "net_edge_after_cost_negative" not in accepted.rejection_codes
 
 
+def test_validated_edge_gate_uses_post_cost_expectancy_without_deducting_costs_twice() -> None:
+    from services.execution.net_edge import net_edge_rejection_codes
+
+    accepted = {
+        "validated_edge_required": True,
+        "validated_edge_net_expectancy": 0.0001,
+        "round_trip_fee_rate": 0.50,
+        "round_trip_slippage_rate": 0.50,
+    }
+    assert net_edge_rejection_codes(accepted) == []
+    assert net_edge_rejection_codes({"validated_edge_required": True}) == [
+        "validated_edge_stats_missing_or_stale"
+    ]
+    assert net_edge_rejection_codes(
+        {"validated_edge_required": True, "validated_edge_net_expectancy": -0.0001}
+    ) == ["net_edge_after_cost_negative"]
+
+
 def test_gatekeeper_rejects_missing_portfolio_correlation_for_new_order_but_not_close(db_session) -> None:
     gatekeeper, strategy_id, backtest_run_id = _seed_gatekeeper_context(db_session)
     unavailable = _risk_state(portfolio_correlation_available=False)

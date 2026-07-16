@@ -106,7 +106,7 @@ if (-not (Wait-HttpOk "$ApiUrl/health" 120)) {
 Write-Host ""
 Write-Host "Paper trading engine is running 7x24:"
 Write-Host "  API:       $ApiUrl"
-Write-Host "  Scheduler: in-process auto-cycle (carry + directional Top20)"
+Write-Host "  Scheduler: in-process auto-cycle (directional + observation Top3)"
 Write-Host "  Logs:      $Logs"
 Write-Host ""
 Write-Host "Frontend is optional. Close this window anytime — the engine keeps running."

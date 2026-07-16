@@ -8,6 +8,8 @@ from typing import Any
 
 from shared.models import MarketUniverseItem, UniverseAsset
 
+AUTO_PAPER_RESEARCH_SYMBOLS: tuple[str, ...] = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
+
 # ULTRA-AGGRESSIVE Paper testing: reduced from Top20 to Top10 (2026-07-15 v2)
 # Concentrating on highest-liquidity majors to maximize single-symbol exposure
 # and reduce correlation complexity. More concentrated = more decisive signals.

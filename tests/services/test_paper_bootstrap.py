@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from services.data.service import DEFAULT_BINANCE_TOP20
+from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
 from services.execution.bootstrap import (
     AUTO_PAPER_RUNTIME_KEY,
     AUTO_PAPER_TECHNICAL_KEY,
@@ -152,6 +153,22 @@ def test_signal_observation_run_is_automatically_scheduled_but_cannot_mirror_to_
     assert paper_run.execution_profile.get("auto_schedule_enabled") is True
     assert paper_run.execution_profile.get("execution_mode") == "paper_only"
     assert paper_run.execution_profile.get("mirror_to_gateway") is False
+    assert paper_run.candidate_symbols == list(AUTO_PAPER_RESEARCH_SYMBOLS)
+
+
+def test_directional_auto_run_uses_research_top3_scope(db_session, monkeypatch) -> None:
+    from services.strategy_library import PaperRunRepository
+
+    monkeypatch.setattr(settings, "binance_api_key", "key")
+    monkeypatch.setattr(settings, "binance_api_secret", "secret")
+
+    paper_run_id = bootstrap_auto_trading_technical_paper_run()
+
+    paper_run = PaperRunRepository(db_session).get_paper_run(paper_run_id or "")
+    assert paper_run is not None
+    assert paper_run.candidate_symbols == list(AUTO_PAPER_RESEARCH_SYMBOLS)
+    assert paper_run.symbol_scope == list(AUTO_PAPER_RESEARCH_SYMBOLS)
+    assert paper_run.execution_profile["max_symbols"] == 3
 
 
 def test_ultra_aggressive_paper_sampling_limits_are_kept_in_sync() -> None:
@@ -172,7 +189,7 @@ def test_ultra_aggressive_paper_sampling_limits_are_kept_in_sync() -> None:
     assert profile.consecutive_loss_limit == 10
 
 
-def test_bootstrap_preserves_armed_testnet_cost_gate(db_session, monkeypatch) -> None:
+def test_bootstrap_preserves_cost_gate_but_forces_evidence_lane_paper_only(db_session, monkeypatch) -> None:
     from services.strategy_library import PaperRunRepository
 
     monkeypatch.setattr(settings, "binance_api_key", "key")
@@ -201,10 +218,10 @@ def test_bootstrap_preserves_armed_testnet_cost_gate(db_session, monkeypatch) ->
     refreshed = repo.get_paper_run(run_id)
     assert refreshed is not None
     assert refreshed.execution_profile.get("cost_gate_verified") is True
-    assert refreshed.execution_profile.get("mirror_to_gateway") is True
-    assert refreshed.execution_profile.get("execution_mode") == "binance_simulation_first"
+    assert refreshed.execution_profile.get("mirror_to_gateway") is False
+    assert refreshed.execution_profile.get("execution_mode") == "paper_only"
     assert refreshed.execution_profile.get("testnet_acceptance_verified_at") == "2026-07-12T00:00:00+00:00"
-    assert refreshed.execution_profile.get("max_symbols") == 20
+    assert refreshed.execution_profile.get("max_symbols") == 3
 
 
 def test_has_verified_testnet_acceptance_ignores_recent_task_window(db_session) -> None:

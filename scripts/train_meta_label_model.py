@@ -111,7 +111,7 @@ def train_and_evaluate(samples: list[TrainingSample]) -> tuple[object, list[str]
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--strategy-key", required=True)
-    parser.add_argument("--symbols", nargs="+", default=None, help="Defaults to the fixed Binance Top20")
+    parser.add_argument("--symbols", nargs="+", default=None, help="Defaults to the active Top3 research universe")
     parser.add_argument("--timeframe", default="1h")
     parser.add_argument("--label-horizon-bars", type=int, default=DEFAULT_LABEL_HORIZON_BARS)
     parser.add_argument("--database-url", default=None)
@@ -123,11 +123,11 @@ def main() -> int:
         os.environ["POSTGRES_URL"] = args.database_url
 
     from services.data import DataRepository
-    from services.data.service import DEFAULT_BINANCE_TOP20
+    from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
     from services.database import get_session_factory
     from services.strategy_library.meta_label_model import FEATURE_NAMES, MODEL_ARTIFACT_DIR
 
-    symbols = args.symbols or list(DEFAULT_BINANCE_TOP20)
+    symbols = args.symbols or list(AUTO_PAPER_RESEARCH_SYMBOLS)
     all_samples: list[TrainingSample] = []
     with get_session_factory()() as session:
         repo = DataRepository(session)

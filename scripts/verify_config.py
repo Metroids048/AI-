@@ -8,7 +8,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from services.data.service import DEFAULT_BINANCE_TOP20
+from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
 from services.execution.gateway import probe_testnet_account
 from shared.config import settings
 
@@ -16,9 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / ".local_paper_console.db"
 STATE_PATH = ROOT / "logs" / "scheduler-state.json"
 AUTO_STRATEGY_KEYS = (
-    "auto_paper_btc_funding",
     "auto_paper_mature_templates",
-    "auto_paper_swing_1d_4h",
+    "signal_observation_technical",
 )
 ACTIVE_ORDER_STATUSES = {"accepted", "filled", "submitted", "open"}
 
@@ -66,7 +65,7 @@ def main() -> int:
     now = datetime.now(UTC)
     heartbeat_age = (now - heartbeat_at).total_seconds() if heartbeat_at else None
     cycle_age = (now - last_cycle_at).total_seconds() if last_cycle_at else None
-    expected_symbols = list(DEFAULT_BINANCE_TOP20)
+    expected_symbols = list(AUTO_PAPER_RESEARCH_SYMBOLS)
 
     record("Scheduler 进程", bool(state.get("running")), f"running={state.get('running')}")
     record(
@@ -128,14 +127,13 @@ def main() -> int:
         for row in runs:
             profile = _json_object(row["execution_profile"])
             simulation_profiles_ok = simulation_profiles_ok and (
-                profile.get("execution_mode") == "binance_simulation_first"
-                and bool(profile.get("mirror_to_gateway"))
-                and bool(profile.get("cost_gate_verified"))
+                profile.get("execution_mode") in {"paper_only", "binance_simulation_first"}
+                and not bool(profile.get("mirror_to_gateway"))
             )
         record(
-            "Binance 模拟镜像配置",
+            "Paper 执行隔离配置",
             len(runs) == len(AUTO_STRATEGY_KEYS) and simulation_profiles_ok,
-            "carry/directional/swing 均已启用 Binance simulation first",
+            "directional/observation 均保持 Paper-only，未自动镜像",
         )
 
         run_coverage_ok = True
@@ -146,8 +144,8 @@ def main() -> int:
             scanned = metrics.get("last_scanned_symbols") or []
             run_coverage_ok = run_coverage_ok and candidates == expected_symbols
             cycle_metrics_ok = cycle_metrics_ok and scanned == expected_symbols and bool(metrics.get("last_cycle_at"))
-        record("PaperRun Top10 配置", run_coverage_ok, ", ".join(expected_symbols))
-        record("PaperRun 实际扫描", cycle_metrics_ok, "三个自动 Run 均已扫描固定 Top10")
+        record("PaperRun Top3 配置", run_coverage_ok, ", ".join(expected_symbols))
+        record("PaperRun 实际扫描", cycle_metrics_ok, "两个自动 Run 均已扫描固定 Top3")
 
         automatic_rows = connection.execute(
             """
@@ -167,7 +165,7 @@ def main() -> int:
                 and bool(row["gateway_order_id"])
             ):
                 automatic_orders.append((row, context))
-        record("币安自动订单记录", bool(automatic_orders), f"count={len(automatic_orders)}")
+        record("币安自动订单记录", True, f"count={len(automatic_orders)}（无 evidence 时允许为 0）")
 
         active_orders = [
             (row, context)
@@ -191,8 +189,9 @@ def main() -> int:
                 context.get("round_trip_fee_rate"),
                 context.get("round_trip_slippage_rate"),
             )
-            edge_units_ok = all(isinstance(value, (int, float)) for value in values) and all(
-                0 <= float(value) <= 1 for value in values
+            numeric_values = [value for value in values if isinstance(value, (int, float))]
+            edge_units_ok = len(numeric_values) == len(values) and all(
+                0 <= float(value) <= 1 for value in numeric_values
             )
         record("净期望单位", edge_units_ok, "胜率/盈亏/成本均为分数收益率，不是 R 倍数")
     finally:
@@ -214,8 +213,8 @@ def main() -> int:
         )
         record(
             "Binance 自动订单回读",
-            bool(matched_id) and matched_id in gateway_ids,
-            f"gateway_order_id={matched_id or 'missing'}",
+            not matched_id or matched_id in gateway_ids,
+            f"gateway_order_id={matched_id or 'none（当前未要求自动镜像）'}",
         )
     except Exception as exc:  # noqa: BLE001 - verification must show the external probe failure
         record("Binance 模拟账户连接", False, str(exc))

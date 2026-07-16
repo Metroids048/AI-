@@ -48,6 +48,14 @@ def net_edge_rejection_codes(entry_context: dict[str, Any]) -> list[str]:
         return []
     if bool(entry_context.get("observation_only_mode", False)):
         return []  # Signal observation channel: bypass cost gate, other risk controls remain active
+    if bool(entry_context.get("validated_edge_required", False)):
+        validated_edge = entry_context.get("validated_edge_net_expectancy")
+        if validated_edge is None:
+            return ["validated_edge_stats_missing_or_stale"]
+        entry_context["estimated_net_edge_after_cost"] = float(validated_edge)
+        if float(validated_edge) <= 0:
+            return ["net_edge_after_cost_negative"]
+        return []
     required = (
         "meta_label_win_rate",
         "meta_label_average_win",

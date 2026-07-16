@@ -72,8 +72,9 @@ class TestComputeAndWriteEdgeStats:
         )
 
         assert result.accepted is False
-        assert result.total_trades == 5
+        assert result.total_trades == 15
         assert result.artifact_path is None
+        assert result.report_path is not None
 
     def test_writes_artifact_when_min_trade_samples_met(self, tmp_path, monkeypatch) -> None:
         import services.execution.signal_edge_stats as edge_stats_module
@@ -98,20 +99,30 @@ class TestComputeAndWriteEdgeStats:
         )
 
         assert result.accepted is True
-        assert result.total_trades == 42
+        assert result.total_trades == 126
         assert result.artifact_path is not None
-        written = json.loads((tmp_path / AUTO_PAPER_TECHNICAL_KEY / "active.json").read_text(encoding="utf-8"))
+        assert result.selected_candidate_id == "trend_momentum_v1"
+        written = json.loads(
+            (
+                tmp_path
+                / AUTO_PAPER_TECHNICAL_KEY
+                / "trend_momentum_v1"
+                / "BTCUSDT"
+                / "active.json"
+            ).read_text(encoding="utf-8")
+        )
         assert written["sample_count"] == 42
         assert written["win_rate"] == 0.6
         assert written["evaluation_start"] == evaluation_start.isoformat()
         assert written["max_age_days"] == 30
+        assert written["average_net_loss_magnitude"] == 0.01
 
     def test_rejects_unsupported_strategy_key(self) -> None:
         import pytest
 
         from scripts.compute_signal_edge_stats import compute_and_write_edge_stats
 
-        with pytest.raises(ValueError, match="wired up"):
+        with pytest.raises(ValueError, match="wired for evidence replay"):
             compute_and_write_edge_stats(strategy_key="not_wired_up")
 
 

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
 from services.data.service import DEFAULT_BINANCE_TOP20
-from services.data.universe import fixed_top20_assets
+from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS, fixed_top20_assets
 from services.execution.risk_tiers import default_asset_risk_tiers
 from shared.config import settings
 from shared.models.risk import MEDIUM_RISK_PROFILE_KEY, medium_risk_profile
@@ -89,6 +90,7 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
         "standard_fee_bps": 5.0,
         "standard_slippage_bps": 3.0,
         "minimum_net_reward_r": 1.0,
+        "candidate_id": "operator_heuristic_v1",
     },
     "exit_rules": {"close_on_opposite_signal": True, "time_exit_hours": 24, "time_exit_min_r": 0.5},
     "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
@@ -110,6 +112,35 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
         "min_notional_usdt": 20,
     },
 }
+
+
+def resolve_auto_paper_technical_evidence() -> tuple[dict[str, Any], tuple[str, ...]]:
+    """Resolve an eligible candidate manifest without trusting stale or mismatched rules."""
+    from services.execution import signal_edge_stats as edge_module
+    from services.execution.signal_edge_stats import strategy_rules_hash
+    from services.strategy_library.candidates.registry import get_candidate
+    from shared.models import StrategyRules
+
+    manifest_path = edge_module.EDGE_STATS_ARTIFACT_DIR / AUTO_PAPER_TECHNICAL_KEY / "active-manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if int(manifest["schema_version"]) != 2:
+            raise ValueError("unsupported manifest schema")
+        candidate_id = str(manifest["candidate_id"])
+        config = get_candidate(candidate_id).get_config()
+        rules = StrategyRules(**config)
+        if strategy_rules_hash(rules) != manifest["rules_hash"]:
+            raise ValueError("manifest rules hash mismatch")
+        eligible = tuple(
+            symbol
+            for symbol in AUTO_PAPER_RESEARCH_SYMBOLS
+            if symbol in {str(value) for value in manifest.get("eligible_symbols", [])}
+        )
+        if not eligible:
+            raise ValueError("manifest has no eligible research symbols")
+        return config, eligible
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        return AUTO_PAPER_TECHNICAL_RULES, AUTO_PAPER_RESEARCH_SYMBOLS
 
 # Medium-term swing trading preset: 1d direction + 4h entry, designed for lower
 # turnover and less competition with HFT algorithms. This is a NEW hypothesis
@@ -353,6 +384,7 @@ def _ensure_auto_paper_run(
     risk_profile_id: str,
     auto_schedule_enabled: bool,
     force_paper_only: bool = False,
+    symbols: tuple[str, ...] | list[str] | None = None,
 ) -> str | None:
     from services.database import get_session_factory
     from services.strategy_library import PaperRunRepository, StrategyRepository, ValidationRepository
@@ -366,6 +398,7 @@ def _ensure_auto_paper_run(
         Timeframe,
     )
 
+    runtime_symbols = list(symbols or DEFAULT_BINANCE_TOP20)
     with get_session_factory()() as session:
         strategy_repo = StrategyRepository(session)
         validation_repo = ValidationRepository(session)
@@ -382,7 +415,7 @@ def _ensure_auto_paper_run(
                     strategy_key=strategy_key,
                     source="platform:auto_bootstrap",
                     core_thesis=core_thesis,
-                    symbol_scope=list(DEFAULT_BINANCE_TOP20),
+                    symbol_scope=runtime_symbols,
                     timeframe=Timeframe.M1,
                     rules=StrategyRules(**rules),
                 )
@@ -428,7 +461,11 @@ def _ensure_auto_paper_run(
                 )
             )
 
-        universe_assets = [asset.model_dump(mode="json") for asset in fixed_top20_assets()]
+        universe_assets = [
+            asset.model_dump(mode="json")
+            for asset in fixed_top20_assets()
+            if asset.platform_symbol in runtime_symbols
+        ]
         strategy_lanes = ["carry"] if strategy_lane == "carry" else list(rules["entry_rules"].get("strategy_lanes", []))
         paper_run: PaperRun | None = None
         for paper_candidate in paper_repo.list_paper_runs():
@@ -454,7 +491,7 @@ def _ensure_auto_paper_run(
             "max_leverage": rules["position_rules"]["max_leverage"],
             "max_symbol_exposure": float(rules["position_rules"].get("max_position_fraction", 0.2)),
             "asset_risk_tiers": default_asset_risk_tiers(),
-            "max_symbols": 20,
+            "max_symbols": len(runtime_symbols),
             "universe_mode": "fixed_top20",
             "universe_assets": universe_assets,
             "llm_veto_enabled": True,
@@ -464,8 +501,8 @@ def _ensure_auto_paper_run(
             paper_run = paper_repo.create_paper_run(
                 PaperRun(
                     strategy_id=strategy.strategy_id,
-                    symbol_scope=list(DEFAULT_BINANCE_TOP20),
-                    candidate_symbols=list(DEFAULT_BINANCE_TOP20),
+                    symbol_scope=runtime_symbols,
+                    candidate_symbols=runtime_symbols,
                     selection_basis="fixed_operator_top20",
                     gate_decision_ref=backtest.backtest_run_id,
                     execution_profile=execution_profile,
@@ -476,15 +513,15 @@ def _ensure_auto_paper_run(
             # Preserve operator-armed Testnet gates. Bootstrap used to clobber
             # cost_gate_verified/mirror flags back to paper_only on every restart.
             previous = dict(paper_run.execution_profile)
-            preserved_keys = (
+            preserved_keys = [
                 "cost_gate_verified",
-                "mirror_to_gateway",
-                "execution_mode",
                 "testnet_acceptance_verified_at",
                 # Otherwise a manually-disabled LLM veto silently flips back to
                 # enabled on every bootstrap restart (hardcoded True above).
                 "llm_veto_enabled",
-            )
+            ]
+            if not force_paper_only:
+                preserved_keys.extend(("mirror_to_gateway", "execution_mode"))
             preserved = {key: previous[key] for key in preserved_keys if key in previous}
             profile = {**previous, **execution_profile, **preserved}
             paper_run = (
@@ -492,8 +529,8 @@ def _ensure_auto_paper_run(
                     paper_run.paper_run_id or "",
                     execution_profile=profile,
                     paper_status="running",
-                    candidate_symbols=list(DEFAULT_BINANCE_TOP20),
-                    symbol_scope=list(DEFAULT_BINANCE_TOP20),
+                    candidate_symbols=runtime_symbols,
+                    symbol_scope=runtime_symbols,
                     selection_basis="fixed_operator_top20",
                 )
                 or paper_run
@@ -538,19 +575,22 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
         return None
 
     risk_profile_id = bootstrap_medium_risk_profile()
+    resolved_rules, resolved_symbols = resolve_auto_paper_technical_evidence()
     return _ensure_auto_paper_run(
         runtime_key=AUTO_PAPER_TECHNICAL_KEY,
         strategy_key=AUTO_PAPER_TECHNICAL_KEY,
         strategy_lane="directional",
         core_thesis=(
-            "Local auto-cycle bootstrap strategy. Scans the fixed operator Binance USDT-M Top20 through "
+            "Local auto-cycle bootstrap strategy. Scans the active BTC/ETH/SOL research universe through "
             "mature template lanes: funding/carry, trend breakout, mean reversion, and "
             "volatility-filtered breakout. Operator 4h/15m experience logic is kept as a disabled "
             "research candidate, not the default auto lane."
         ),
-        rules=AUTO_PAPER_TECHNICAL_RULES,
+        rules=resolved_rules,
         risk_profile_id=risk_profile_id,
         auto_schedule_enabled=True,
+        force_paper_only=True,
+        symbols=resolved_symbols,
     )
 
 
@@ -610,6 +650,7 @@ def bootstrap_signal_observation_strategy() -> str | None:
         risk_profile_id=risk_profile_id,
         auto_schedule_enabled=True,
         force_paper_only=True,
+        symbols=AUTO_PAPER_RESEARCH_SYMBOLS,
     )
 
 
@@ -730,7 +771,7 @@ def bootstrap_seed_multi_timeframe_ohlcv() -> int:
 
     from services.data.binance import BinanceCcxtClient
     from services.data.repository import DataRepository
-    from services.data.service import DEFAULT_BINANCE_TOP20
+    from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
     from services.database import get_session_factory
 
     written_total = 0
@@ -738,7 +779,7 @@ def bootstrap_seed_multi_timeframe_ohlcv() -> int:
     with get_session_factory()() as session:
         repo = DataRepository(session)
         client = BinanceCcxtClient()
-        for symbol in DEFAULT_BINANCE_TOP20:
+        for symbol in AUTO_PAPER_RESEARCH_SYMBOLS:
             for timeframe in timeframes:
                 try:
                     bars = client.fetch_recent_ohlcv(symbol=symbol, timeframe=timeframe, limit=120)
@@ -752,7 +793,7 @@ def bootstrap_seed_multi_timeframe_ohlcv() -> int:
 
 
 def bootstrap_pause_legacy_paper_runs() -> int:
-    """Pause old manual and explicitly retired PaperRuns that duplicate active lanes."""
+    """Leave only directional and observation PaperRuns eligible for scheduling."""
     from services.database import get_session_factory
     from services.strategy_library import PaperRunRepository
 
@@ -763,9 +804,14 @@ def bootstrap_pause_legacy_paper_runs() -> int:
             if run.paper_status != "running":
                 continue
             runtime_key = run.execution_profile.get("auto_paper_runtime_key")
-            if runtime_key and runtime_key != "auto_paper_btc_technical":
+            if runtime_key in {AUTO_PAPER_TECHNICAL_KEY, SIGNAL_OBSERVATION_RUNTIME_KEY}:
                 continue
-            repo.update_paper_run(run.paper_run_id or "", paper_status="paused")
+            profile = {**run.execution_profile, "auto_schedule_enabled": False}
+            repo.update_paper_run(
+                run.paper_run_id or "",
+                paper_status="paused",
+                execution_profile=profile,
+            )
             paused += 1
         session.commit()
     if paused:

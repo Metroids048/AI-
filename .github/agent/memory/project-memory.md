@@ -1,5 +1,11 @@
 # Project Memory
 
+## One-click startup unblocked after hedge migration mismatch (2026-07-16)
+
+- Symptom: `一键启动` died at local DB prep — alembic `0008→0009` tried `ADD COLUMN hedge_group_id` but the column already existed on `.local_paper_console.db`.
+- Cause: schema ahead of `alembic_version` (hedge fields + index present, stamp still `0008`); non-idempotent `0009` migration.
+- Fix: idempotent `migrations/versions/0009_add_position_snapshot_hedge_fields.py`; local DB prepared to `0009`. Re-run launcher.
+
 ## ULTRA-AGGRESSIVE Paper testing configuration v2 deployed (2026-07-15)
 
 - **Context**: After initial 46% threshold optimization produced insufficient order flow, user explicitly requested further loosening: "风险可以在提升...日亏损到20%...以尽可能多地找到符合买卖点，拿到交易数据为主" (Risk can be increased further, daily loss to 20%, prioritize finding as many trade opportunities as possible and getting data). User made clear this is **Paper/Testnet simulation environment** where order generation and data collection are the core goals.
@@ -548,8 +554,9 @@
 - `apps/api/routers/backtests.py` now exposes `/backtests/carry` as the first API path that executes a backtest from persisted market data instead of accepting only a pre-built `BacktestRun` payload.
 - `services.validation.tasks.enqueue_carry_backtest` is wired as the queue-side entrypoint for the same application flow, but local import smoke for Celery remains pending until the environment installs `celery`.
 
-## Binance Simulation Runtime Status (2026-07-16)
+## Evidence-Based Runtime Convergence (2026-07-16)
 
-- The local scheduler on port `8016` is running against the SQLite console database. The carry, directional, and swing automatic runs scan the fixed Top10 and are armed as `binance_simulation_first`; deterministic validation, stop-loss, risk, and cost gates still decide whether any individual signal can submit.
-- Binance Mock Trading is the execution proof target. The configured `demo` mode can fall back to `https://testnet.binancefuture.com` when `demo-fapi` is unreachable; this fallback is the same simulation account whose order ids appear in the Binance Demo Trading UI. Mainnet remains disabled.
-- External verification uses the isolated `link_verification` run only. It is excluded from strategy-performance evidence, must be paused after an E2E test, and its account must be flattened. `scripts/verify_config.py` now requires a persisted automatic `gateway_order_id`, successful Binance simulated-account reconciliation, and `LIVE_TRADING_ENABLED=false` before returning GREEN.
+- Current truth supersedes the earlier Top20/Top10 runtime notes in this file: only `auto_paper_mature_templates` and local-only `signal_observation_technical` are scheduled, and both scan `BTC/USDT`, `ETH/USDT`, and `SOL/USDT`.
+- The main lane is evidence-only. It requires a fresh symbol-scoped artifact with matching candidate/rules hash and rejects missing or stale evidence as `validated_edge_stats_missing_or_stale`. Observation may retain the raw-bar proxy solely for diagnostics and never mirrors to Binance or counts toward strategy performance.
+- The 2026-07-16 three-candidate replay used local data, a 365-day window, a chronological 70/30 split, three walk-forward windows, fixed 2R exits, and shared costs. It produced zero OOS trades for every candidate/symbol, so no active manifest exists and no automatic strategy trade is authorized.
+- Scheduler/runtime verification after a full restart/bootstrap: `verify_runtime_config_sync` passed, `verify_config.py` returned `GREEN: 19/19`, Top3 data completeness passed, and the seven-day funnel audit reported 3,496 decisions. Mainnet remains disabled; the aggressive Paper risk profile is retained for sampling only.

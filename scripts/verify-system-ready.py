@@ -7,10 +7,13 @@
     1. 数据库连接
     2. Redis 连接
     3. Binance API 连接
-    4. Top20 列表加载
+    4. Top3 研究范围加载
     5. 信号生成（验证 confidence_multiplier 不会归零）
     6. 风控参数合理性
 """
+
+# Project-root path bootstrap intentionally precedes application imports.
+# ruff: noqa: E402
 
 import sys
 from pathlib import Path
@@ -20,15 +23,12 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import traceback
-from decimal import Decimal
 
 from services.data import DataRepository
 from services.database import get_session_factory
 from services.execution.decision_pipeline import DecisionPipeline
-from services.execution.paper_signal import PaperSignalGenerator
 from services.strategy_library import StrategyRepository
 from shared.config import settings
-from shared.models import PaperRun, PaperRunStepRequest
 
 
 def check_database():
@@ -78,20 +78,20 @@ def check_binance_api():
         return False
 
 
-def check_top20_list():
-    """检查 Top20 列表。"""
-    print("\n[4/6] 检查 Top20 列表...")
+def check_research_universe():
+    """检查当前自动研究范围。"""
+    print("\n[4/6] 检查 Top3 研究范围...")
     try:
-        from services.data.service import DEFAULT_BINANCE_TOP20
-        if len(DEFAULT_BINANCE_TOP20) == 20:
-            print(f"✓ Top20 列表正常 ({len(DEFAULT_BINANCE_TOP20)} 个币种)")
-            print(f"  示例: {', '.join(list(DEFAULT_BINANCE_TOP20)[:5])}...")
+        from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
+        if len(AUTO_PAPER_RESEARCH_SYMBOLS) == 3:
+            print(f"✓ Top3 研究范围正常 ({len(AUTO_PAPER_RESEARCH_SYMBOLS)} 个币种)")
+            print(f"  标的: {', '.join(AUTO_PAPER_RESEARCH_SYMBOLS)}")
             return True
         else:
-            print(f"✗ Top20 列表数量错误: {len(DEFAULT_BINANCE_TOP20)}")
+            print(f"✗ Top3 研究范围数量错误: {len(AUTO_PAPER_RESEARCH_SYMBOLS)}")
             return False
     except Exception as e:
-        print(f"✗ Top20 列表加载失败: {e}")
+        print(f"✗ Top3 研究范围加载失败: {e}")
         return False
 
 
@@ -189,7 +189,7 @@ def main():
         check_database,
         check_redis,
         check_binance_api,
-        check_top20_list,
+        check_research_universe,
         check_signal_generation,
         check_risk_params,
     ]

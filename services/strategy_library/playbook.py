@@ -68,7 +68,7 @@ def build_playbook(db: Session) -> StrategyPlaybook:
             verified_on="2026-07-12",
             verified_commit="80ce3d62f7854aad848a430bb391963ac89f8d99",
             source_documents=[
-                "02_量化策略与LLM+RAG开平单逻辑详细报告.md",
+                "docs/architecture/current-trading-pipeline.md",
                 "策略库/00_当前系统策略与开平单逻辑.md",
                 "策略库/01_外部策略来源索引.md",
             ],

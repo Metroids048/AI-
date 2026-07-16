@@ -58,8 +58,11 @@ class MarketDataHeartbeatService:
         else:
             resolved = 0
             for event in active_for_symbol:
+                risk_event_id = event.risk_event_id
+                if risk_event_id is None:
+                    continue
                 self.data_repo.update_risk_event_resolution(
-                    risk_event_id=event.risk_event_id,
+                    risk_event_id=risk_event_id,
                     resolution_status="resolved",
                 )
                 resolved += 1

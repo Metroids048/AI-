@@ -1,10 +1,10 @@
-"""Top20 data-completeness + rejection-reason audit (模块4).
+"""Top3 data-completeness + rejection-reason audit (模块4).
 
-Answers: "how many Top20 coins have never been eligible to trade because
+Answers: "how many research-universe coins have never been eligible to trade because
 their OHLCV history is incomplete?" -- turning that assumption into a
 measured number instead of a guess.
 
-For each symbol in `DEFAULT_BINANCE_TOP20`:
+For each symbol in the active automatic research universe:
   1. Runs the exact same query paper_signal.py::_build_risk_state uses
      (`data_repo.list_ohlcv_bars(symbol=symbol, timeframe="1h", limit=61)`)
      and records actual bar count, earliest/latest timestamp, whether the
@@ -224,7 +224,7 @@ def main() -> int:
         os.environ["POSTGRES_URL"] = args.database_url
 
     from services.data import DataRepository
-    from services.data.service import DEFAULT_BINANCE_TOP20
+    from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
     from services.database import get_session_factory
     from services.strategy_library import DecisionSnapshotRepository, ExecutionRepository
 
@@ -239,7 +239,7 @@ def main() -> int:
 
         completeness: list[SymbolCompleteness] = []
         rejection_stats: dict[str, SymbolRejectionStats] = {}
-        for symbol in DEFAULT_BINANCE_TOP20:
+        for symbol in AUTO_PAPER_RESEARCH_SYMBOLS:
             bars = data_repo.list_ohlcv_bars(symbol=symbol, timeframe=TARGET_TIMEFRAME, limit=REQUIRED_BAR_COUNT)
             completeness.append(_assess_completeness(symbol, bars, now=now))
             rejection_stats[symbol] = _collect_rejection_stats(

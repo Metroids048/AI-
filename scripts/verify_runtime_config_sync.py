@@ -167,7 +167,7 @@ def _check_api_reachable(base_url: str, admin_token: str, paper_run_id: str | No
 
 
 def main() -> int:
-    from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY, AUTO_PAPER_TECHNICAL_RULES
+    from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY, resolve_auto_paper_technical_evidence
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--strategy-key", default=AUTO_PAPER_TECHNICAL_KEY)
@@ -184,7 +184,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.strategy_key == AUTO_PAPER_TECHNICAL_KEY:
-        code_rules = AUTO_PAPER_TECHNICAL_RULES
+        code_rules, _ = resolve_auto_paper_technical_evidence()
     else:
         print(f"ERROR: no known bootstrap rules constant for strategy_key={args.strategy_key!r}", file=sys.stderr)
         return 2

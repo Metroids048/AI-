@@ -18,7 +18,7 @@ from services.validation.technical_replay import (
     ReplayMetrics,
     TechnicalStrategyValidationService,
 )
-from shared.models import StrategyContract
+from shared.models import StrategyContract, StrategyRules
 
 
 @dataclass(frozen=True)
@@ -175,9 +175,11 @@ def run_candidate_leaderboard(
 
         # Convert candidate config to StrategyContract format
         strategy = StrategyContract(
+            strategy_id=candidate.candidate_id,
             strategy_key=candidate.candidate_id,
-            version=candidate.version,
-            rules=config,
+            source=candidate.source,
+            core_thesis=candidate.hypothesis,
+            rules=StrategyRules.model_validate(config),
         )
 
         # Run replay

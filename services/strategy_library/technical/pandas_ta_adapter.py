@@ -11,7 +11,8 @@ TradeSignal format, enabling the indicator search space to expand from
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import pandas as pd
 
@@ -189,7 +190,6 @@ def _convert_squeeze(result: pd.DataFrame, frame: pd.DataFrame, symbol: str) -> 
     off_col = off_cols[0]
 
     latest_sqz = float(result[sqz_col].iloc[-1])
-    previous_sqz = float(result[sqz_col].iloc[-2]) if len(result) >= 2 else 0
     latest_off = float(result[off_col].iloc[-1]) if not pd.isna(result[off_col].iloc[-1]) else 0
     previous_on = float(result[on_col].iloc[-2]) if len(result) >= 2 and not pd.isna(result[on_col].iloc[-2]) else 0
 

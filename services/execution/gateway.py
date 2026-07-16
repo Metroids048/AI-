@@ -22,6 +22,8 @@ from shared.models.execution_runtime import (
 class ExchangeGateway(Protocol):
     capability: ExchangeGatewayCapability
 
+    def account_equity(self) -> float: ...
+
     def sync_account(self, *, live_run_id: str) -> ExchangeAccountSnapshot: ...
 
     def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict[str, Any]: ...
@@ -139,6 +141,9 @@ class NullExchangeGateway:
             supports_reconciliation=False,
         )
     )
+
+    def account_equity(self) -> float:
+        raise NotImplementedError("live gateway is not configured")
 
     def sync_account(self, *, live_run_id: str) -> ExchangeAccountSnapshot:
         raise NotImplementedError("live gateway is not configured")

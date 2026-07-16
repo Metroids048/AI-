@@ -148,7 +148,7 @@ def refresh_volatility_asset_risk_tiers(*, lookback_days: int = 30) -> dict:
 
     from datetime import UTC, datetime, timedelta
 
-    from services.data.service import DEFAULT_BINANCE_TOP20
+    from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
     from services.execution.risk_tiers import (
         atr_pct_from_daily_bars,
         build_volatility_asset_risk_tiers,
@@ -163,7 +163,7 @@ def refresh_volatility_asset_risk_tiers(*, lookback_days: int = 30) -> dict:
         start_at = end_at - timedelta(days=lookback_days + 5)
         scores: dict[str, float] = {}
         missing: list[str] = []
-        for symbol in DEFAULT_BINANCE_TOP20:
+        for symbol in AUTO_PAPER_RESEARCH_SYMBOLS:
             bars = data_repo.list_ohlcv_bars(
                 symbol=symbol,
                 timeframe="1d",

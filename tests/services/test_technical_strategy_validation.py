@@ -193,11 +193,7 @@ def test_exit_ladder_mode_records_partial_closes_and_hold_hours() -> None:
     bars_1h = []
     # Warmup flat, then signal bar, then climb through 1R and 1.5R.
     for index in range(100):
-        if index < 80:
-            close = Decimal("100")
-            high = Decimal("100.2")
-            low = Decimal("99.8")
-        elif index == 80:
+        if index <= 80:
             close = Decimal("100")
             high = Decimal("100.2")
             low = Decimal("99.8")

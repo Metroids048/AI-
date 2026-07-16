@@ -25,7 +25,7 @@ function renderPage() {
 }
 
 const playbook = {
-  metadata: { verified_on: "2026-07-12", verified_commit: "80ce3d6", source_documents: ["02_量化策略与LLM+RAG开平单逻辑详细报告.md"] },
+  metadata: { verified_on: "2026-07-16", verified_commit: "runtime", source_documents: ["docs/architecture/current-trading-pipeline.md"] },
   channels: [
     { channel_id: "funding_carry", name: "资金费率套利", positioning: "市场中性", core_assumption: "净资金费率覆盖成本", maturity: "mature" },
     { channel_id: "technical_directional", name: "技术方向性", positioning: "方向策略", core_assumption: "多信号确认", maturity: "iterating" },
@@ -59,7 +59,7 @@ describe("StrategyLibrary", () => {
     for (const tab of ["策略资产", "策略总览", "开单逻辑", "平单逻辑", "仓位管理", "LLM 与 RAG 边界", "外部策略来源", "优化路线图"]) {
       expect(screen.getByRole("tab", { name: tab })).toBeInTheDocument();
     }
-    expect(screen.getByText(/最后核对.*2026-07-12/)).toBeInTheDocument();
+    expect(screen.getByText(/最后核对.*2026-07-16/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "开单逻辑" }));
     expect(screen.getByText("MACD")).toBeInTheDocument();
