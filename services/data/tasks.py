@@ -134,11 +134,23 @@ _HEARTBEAT_MAX_AGE_SECONDS = {
     "4h": 5 * 60 * 60,
     "1d": 28 * 60 * 60,  # 28 hours tolerance for daily candles
 }
+_TIMEFRAME_WINDOW_SECONDS = {
+    "1m": 60,
+    "15m": 15 * 60,
+    "1h": 60 * 60,
+    "4h": 4 * 60 * 60,
+    "1d": 24 * 60 * 60,
+}
 _SECONDARY_TIMEFRAME_INDEX = 0
 
 
 def _heartbeat_timeframes_to_refresh(
-    *, data_repo: DataRepository, symbol: str, primary_timeframe: str, secondary_timeframe: str | None
+    *,
+    data_repo: DataRepository,
+    symbol: str,
+    primary_timeframe: str,
+    secondary_timeframe: str | None,
+    now: datetime | None = None,
 ) -> list[str]:
     """Refresh the primary feed every cycle and one due higher frame per cycle.
 
@@ -148,16 +160,25 @@ def _heartbeat_timeframes_to_refresh(
     """
 
     due = [primary_timeframe]
-    now = datetime.now(UTC)
+    reference_time = now or datetime.now(UTC)
     if secondary_timeframe is None or secondary_timeframe == primary_timeframe:
         return due
     freshness = data_repo.check_freshness(
         symbol=symbol,
         timeframe=secondary_timeframe,
-        reference_time=now,
+        reference_time=reference_time,
         max_delay=timedelta(seconds=_HEARTBEAT_MAX_AGE_SECONDS[secondary_timeframe]),
     )
-    if not freshness["is_fresh"]:
+    latest_bar = data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=secondary_timeframe)
+    window_seconds = _TIMEFRAME_WINDOW_SECONDS[secondary_timeframe]
+    window_start = datetime.fromtimestamp(
+        int(reference_time.timestamp() // window_seconds) * window_seconds,
+        tz=UTC,
+    )
+    latest_at = latest_bar.timestamp if latest_bar is not None else None
+    if latest_at is not None and latest_at.tzinfo is None:
+        latest_at = latest_at.replace(tzinfo=UTC)
+    if not freshness["is_fresh"] or latest_at is None or latest_at < window_start:
         due.append(secondary_timeframe)
     return due
 

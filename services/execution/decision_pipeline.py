@@ -563,7 +563,7 @@ class DecisionPipeline:
                     subject="Decision Veto LLM runtime unavailable",
                     body=(
                         "decision_veto_agent could not reach any configured LLM provider "
-                        f"(fail-closed veto applied): {task.error_summary}"
+                        f"(advisory unavailable; deterministic risk events remain enforced): {task.error_summary}"
                     ),
                     source_ref=f"agent_task:{task.agent_task_id}",
                 )

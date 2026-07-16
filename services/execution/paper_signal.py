@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from decimal import Decimal
 
 from services.data import DataRepository
@@ -172,7 +173,8 @@ class PaperSignalGenerator:
                 "round_trip_slippage_rate": decision.trace.get("round_trip_slippage_rate"),
                 "strategy_lane": decision.trace.get("strategy_lane"),
                 "observation_only_mode": decision.trace.get("strategy_lane") == "signal_observation",
-                "strategy_performance_eligible": decision.trace.get("strategy_lane") not in ("link_verification", "signal_observation"),
+                "strategy_performance_eligible": decision.trace.get("strategy_lane")
+                not in ("link_verification", "signal_observation"),
             },
             stoploss_plan={"price": float(stoploss), "basis": "strategy_rule_or_atr_required_stop"},
             takeprofit_plan={"price": float(takeprofit), "basis": "strategy_rule_or_atr_takeprofit"},
@@ -216,13 +218,19 @@ class PaperSignalGenerator:
                 paper_run=paper_run,
             )
 
-        return self.decision_pipeline.evaluate(
+        is_signal_observation = (
+            paper_run is not None and paper_run.execution_profile.get("strategy_lane") == "signal_observation"
+        )
+        decision = self.decision_pipeline.evaluate(
             strategy=strategy,
             symbol=symbol,
             timeframe=timeframe,
             enable_decision_veto=request.enable_decision_veto,
-            relaxed_signals=settings.paper_runtime_relaxed_signals,
+            relaxed_signals=settings.paper_runtime_relaxed_signals or is_signal_observation,
         )
+        if is_signal_observation:
+            return replace(decision, trace={**decision.trace, "strategy_lane": "signal_observation"})
+        return decision
 
     def _link_verification_decision(
         self,

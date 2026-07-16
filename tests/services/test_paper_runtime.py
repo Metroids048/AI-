@@ -4,7 +4,11 @@ from decimal import Decimal
 from services.data import DataRepository
 from services.execution.decision_pipeline import DecisionPipelineResult
 from services.execution.gatekeeper import ExecutionGatekeeperService
-from services.execution.paper_runtime import PaperRuntimeService, _estimated_transaction_cost
+from services.execution.paper_runtime import (
+    PaperRuntimeService,
+    _estimated_transaction_cost,
+    _fixed_universe_skip_reason,
+)
 from services.strategy_library import (
     AgentTaskRepository,
     DecisionSnapshotRepository,
@@ -748,6 +752,28 @@ def test_runtime_persists_decision_snapshot_for_skip_no_trade_decision(db_sessio
     assert len(snapshots) == 1
     assert snapshots[0].pipeline_status == "technical_signals_insufficient"
     assert snapshots[0].action == "skip_no_trade_decision"
+
+
+def test_paper_only_fixed_universe_does_not_block_on_initial_unknown_exchange_status() -> None:
+    profile = {
+        "universe_mode": "fixed_top20",
+        "execution_mode": "paper_only",
+        "mirror_to_gateway": False,
+        "universe_assets": [
+            {
+                "platform_symbol": "BTC/USDT",
+                "tradable_status": "unknown",
+                "reason": "exchangeInfo unavailable during bootstrap",
+            }
+        ],
+    }
+    paper_run = PaperRun(strategy_id="paper-only", execution_profile=profile)
+
+    assert _fixed_universe_skip_reason(paper_run, "BTC/USDT") is None
+
+    mirrored = paper_run.model_copy(update={"execution_profile": {**profile, "mirror_to_gateway": True}})
+
+    assert _fixed_universe_skip_reason(mirrored, "BTC/USDT") == "exchangeInfo unavailable during bootstrap"
 
 
 def _runtime_without_position(db_session) -> tuple[PaperRuntimeService, PaperRun]:

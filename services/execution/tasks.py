@@ -8,6 +8,7 @@ from celery import shared_task
 
 from services.data import DataRepository
 from services.database import get_session_factory
+from services.execution.auto_schedule import is_auto_scheduled_paper_run
 from services.execution.gatekeeper import ExecutionGatekeeperService
 from services.execution.gateway import configured_gateways
 from services.execution.paper import PaperOrchestrationService
@@ -73,12 +74,12 @@ def run_paper_runtime_cycle(paper_run_id: str, request_payload: dict | None = No
 
 @shared_task(name="services.execution.tasks.run_all_paper_runtime_cycles", queue="paper_queue")
 def run_all_paper_runtime_cycles(request_payload: dict | None = None) -> dict:
-    """Run one cycle for every currently running PaperRun."""
+    """Run one cycle for every explicitly authorized automatic PaperRun."""
 
     session = get_session_factory()()
     try:
         paper_repo = PaperRunRepository(session)
-        runs = [run for run in paper_repo.list_paper_runs() if run.paper_status == "running"]
+        runs = [run for run in paper_repo.list_paper_runs() if is_auto_scheduled_paper_run(run)]
         results = []
         for run in runs:
             if run.paper_run_id is None:
@@ -103,7 +104,7 @@ def risk_profile_sweep() -> dict:
         checked = 0
         events = 0
         for run in paper_repo.list_paper_runs():
-            if run.paper_status != "running":
+            if not is_auto_scheduled_paper_run(run):
                 continue
             checked += 1
             metrics = run.paper_metrics_summary
@@ -185,7 +186,7 @@ def refresh_volatility_asset_risk_tiers(*, lookback_days: int = 30) -> dict:
         meta = volatility_tier_meta(scores, lookback_days=lookback_days)
         updated = 0
         for run in paper_repo.list_paper_runs():
-            if run.paper_status != "running" or run.paper_run_id is None:
+            if not is_auto_scheduled_paper_run(run) or run.paper_run_id is None:
                 continue
             profile = dict(run.execution_profile or {})
             profile["asset_risk_tiers"] = tiers

@@ -71,6 +71,7 @@ class RuntimeScheduler:
         macro_poll_seconds: float = 900.0,
         social_poll_seconds: float = 300.0,
         risk_sweep_seconds: float = 60.0,
+        edge_stats_refresh_seconds: float = 7 * 24 * 60 * 60,
         daily_review_check_seconds: float = 60.0,
         paper_cycle_runner: Runner | None = None,
         heartbeat_runner: Runner | None = None,
@@ -78,6 +79,7 @@ class RuntimeScheduler:
         macro_poll_runner: Runner | None = None,
         social_poll_runner: Runner | None = None,
         risk_sweep_runner: Runner | None = None,
+        edge_stats_refresh_runner: Runner | None = None,
         notification_runner: Runner | None = None,
         daily_review_runner: Callable[[str | None], Any] | None = None,
     ) -> None:
@@ -88,6 +90,7 @@ class RuntimeScheduler:
         self.macro_poll_seconds = float(macro_poll_seconds)
         self.social_poll_seconds = float(social_poll_seconds)
         self.risk_sweep_seconds = float(risk_sweep_seconds)
+        self.edge_stats_refresh_seconds = float(edge_stats_refresh_seconds)
         self.daily_review_check_seconds = float(daily_review_check_seconds)
         self.paper_cycle_runner = paper_cycle_runner or _default_paper_cycle_runner
         self.heartbeat_runner = heartbeat_runner or _default_heartbeat_runner
@@ -95,6 +98,7 @@ class RuntimeScheduler:
         self.macro_poll_runner = macro_poll_runner or _default_macro_poll_runner
         self.social_poll_runner = social_poll_runner or _default_social_poll_runner
         self.risk_sweep_runner = risk_sweep_runner or _default_risk_sweep_runner
+        self.edge_stats_refresh_runner = edge_stats_refresh_runner or _default_edge_stats_refresh_runner
         self.notification_runner = notification_runner or _default_notification_runner
         self.daily_review_runner = daily_review_runner or _default_daily_review_runner
         self.status = RuntimeSchedulerStatus(mode="inprocess")
@@ -169,6 +173,15 @@ class RuntimeScheduler:
             ),
             asyncio.create_task(
                 self._run_periodic(
+                    name="refresh_signal_edge_stats",
+                    interval_seconds=self.edge_stats_refresh_seconds,
+                    runner=self.edge_stats_refresh_runner,
+                    affects_scheduler_health=False,
+                    run_immediately=False,
+                )
+            ),
+            asyncio.create_task(
+                self._run_periodic(
                     name="notification_dispatch",
                     interval_seconds=self.notification_seconds,
                     runner=self.notification_runner,
@@ -202,8 +215,12 @@ class RuntimeScheduler:
         runner: Runner,
         records_auto_cycle: bool = False,
         affects_scheduler_health: bool = True,
+        run_immediately: bool = True,
     ) -> None:
         assert self._stop_event is not None
+        if not run_immediately:
+            with suppress(TimeoutError):
+                await asyncio.wait_for(self._stop_event.wait(), timeout=max(interval_seconds, 0.01))
         while not self._stop_event.is_set():
             started = datetime.now(UTC)
             if records_auto_cycle:
@@ -417,6 +434,13 @@ def _default_risk_sweep_runner() -> dict:
     from services.execution.tasks import risk_profile_sweep
 
     return risk_profile_sweep.run()
+
+
+def _default_edge_stats_refresh_runner() -> dict:
+    """Keep the local scheduler aligned with Celery's weekly edge-stat refresh."""
+    from services.execution.tasks import refresh_signal_edge_stats
+
+    return refresh_signal_edge_stats.run()
 
 
 def _default_notification_runner() -> dict:

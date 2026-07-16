@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from services.data import DataRepository, MarketDataHeartbeatService
+from services.execution.net_edge import net_edge_rejection_codes
 from services.execution.paper_signal import PaperSignalGenerator
 from services.strategy_library import (
     AgentTaskRepository,
@@ -84,6 +85,48 @@ def test_paper_signal_uses_decision_pipeline_and_atr_stop(db_session) -> None:
     assert order.entry_context["requested_notional"] > 0
     assert order.entry_context["order_type"] == "limit"
     assert order.entry_context["limit_price"] > float(order.entry_context["reference_price"])
+
+
+def test_signal_observation_orders_relax_sampling_filters_but_remain_observational(db_session, monkeypatch) -> None:
+    data_repo = DataRepository(db_session)
+    data_repo.store_ohlcv_bars(_bars(datetime.now(UTC).replace(microsecond=0) - timedelta(hours=59)))
+    strategy = _strategy()
+    generator = PaperSignalGenerator(
+        data_repo=data_repo,
+        execution_repo=ExecutionRepository(db_session),
+        agent_repo=AgentTaskRepository(db_session),
+        strategy_repo=StrategyRepository(db_session),
+    )
+    observed: dict[str, bool] = {}
+    evaluate = generator.decision_pipeline.evaluate
+
+    def capture_relaxed_signals(**kwargs):
+        observed["relaxed_signals"] = kwargs["relaxed_signals"]
+        return evaluate(**kwargs)
+
+    monkeypatch.setattr(generator.decision_pipeline, "evaluate", capture_relaxed_signals)
+
+    order = generator.generate_order(
+        paper_run=PaperRun(
+            paper_run_id="observation-paper-1",
+            strategy_id=strategy.strategy_id,
+            gate_decision_ref="backtest-1",
+            execution_profile={
+                "strategy_lane": "signal_observation",
+                "account_equity": 10_000,
+                "equity_peak": 10_000,
+            },
+        ),
+        strategy=strategy,
+        request=PaperRunStepRequest(symbol="BTC/USDT", timeframe="1h", enable_decision_veto=False),
+        positions=[],
+    )
+
+    assert order.entry_context["decision_pipeline"]["strategy_lane"] == "signal_observation"
+    assert observed["relaxed_signals"] is True
+    assert order.entry_context["observation_only_mode"] is True
+    assert order.entry_context["strategy_performance_eligible"] is False
+    assert net_edge_rejection_codes(order.entry_context) == []
 
 
 def test_market_data_heartbeat_writes_data_stale_risk_event(db_session) -> None:

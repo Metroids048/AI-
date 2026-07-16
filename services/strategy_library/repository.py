@@ -495,6 +495,8 @@ def _position_snapshot_from_orm(row: models.PositionSnapshot) -> PositionSnapsho
         mark_price=row.mark_price,
         unrealized_pnl=row.unrealized_pnl,
         snapshot_time=_ensure_utc(row.snapshot_time) or _utcnow(),
+        hedge_group_id=row.hedge_group_id,
+        is_hedge_leg=row.is_hedge_leg,
     )
 
 
@@ -1544,6 +1546,8 @@ class ExecutionRepository:
             mark_price=snapshot.mark_price,
             unrealized_pnl=snapshot.unrealized_pnl,
             snapshot_time=snapshot.snapshot_time,
+            hedge_group_id=snapshot.hedge_group_id,
+            is_hedge_leg=snapshot.is_hedge_leg,
         )
         self.session.add(row)
         self.session.commit()

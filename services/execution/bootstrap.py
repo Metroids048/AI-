@@ -351,6 +351,8 @@ def _ensure_auto_paper_run(
     core_thesis: str,
     rules: dict[str, Any],
     risk_profile_id: str,
+    auto_schedule_enabled: bool,
+    force_paper_only: bool = False,
 ) -> str | None:
     from services.database import get_session_factory
     from services.strategy_library import PaperRunRepository, StrategyRepository, ValidationRepository
@@ -442,8 +444,11 @@ def _ensure_auto_paper_run(
             "strategy_lanes": strategy_lanes,
             "account_equity": 10_000,
             "equity_peak": 10_000,
-            "execution_mode": "binance_simulation_first" if default_mirror_to_gateway() else "paper_only",
-            "mirror_to_gateway": default_mirror_to_gateway(),
+            "execution_mode": "paper_only"
+            if force_paper_only or not default_mirror_to_gateway()
+            else "binance_simulation_first",
+            "mirror_to_gateway": False if force_paper_only else default_mirror_to_gateway(),
+            "auto_schedule_enabled": auto_schedule_enabled,
             "cost_gate_verified": False,
             "risk_profile_id": risk_profile_id,
             "max_leverage": rules["position_rules"]["max_leverage"],
@@ -522,6 +527,7 @@ def bootstrap_auto_trading_paper_run() -> str | None:
         ),
         rules=AUTO_PAPER_STRATEGY_RULES,
         risk_profile_id=risk_profile_id,
+        auto_schedule_enabled=False,
     )
 
 
@@ -544,6 +550,7 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
         ),
         rules=AUTO_PAPER_TECHNICAL_RULES,
         risk_profile_id=risk_profile_id,
+        auto_schedule_enabled=True,
     )
 
 
@@ -566,12 +573,13 @@ def bootstrap_link_verification_strategy() -> str | None:
         ),
         rules=LINK_VERIFICATION_RULES,
         risk_profile_id=risk_profile_id,
+        auto_schedule_enabled=False,
+        force_paper_only=True,
     )
 
 
 def bootstrap_signal_observation_strategy() -> str | None:
-    """Create/refresh the signal-observation PaperRun on demand (explicit API call
-    only -- deliberately NOT wired into bootstrap_local_paper_runtime()).
+    """Create/refresh the scheduled local-only signal-observation PaperRun.
 
     This lane uses REAL signal ensemble + multi-indicator fusion (identical to
     AUTO_PAPER_TECHNICAL_RULES), but bypasses the net_edge_after_cost gate. Its
@@ -596,10 +604,12 @@ def bootstrap_signal_observation_strategy() -> str | None:
             "AUTO_PAPER_TECHNICAL_RULES), but bypasses net_edge_after_cost gate to accumulate >= 30 "
             "real execution samples for Module 5 edge statistics. Orders tagged "
             "strategy_performance_eligible=False (observational data only, not validation evidence). "
-            "Operator opt-in required; not auto-scheduled."
+            "It is scheduled only by the local Paper runtime and cannot mirror to a gateway."
         ),
         rules=SIGNAL_OBSERVATION_RULES,
         risk_profile_id=risk_profile_id,
+        auto_schedule_enabled=True,
+        force_paper_only=True,
     )
 
 
@@ -698,13 +708,12 @@ def bootstrap_auto_trading_swing_paper_run() -> str | None:
     Creates full Paper Run with BacktestRun validation gate for auto-trading.
     Will evaluate after 7-14 days / 30+ trades minimum sample.
     """
-    from shared.models import Timeframe
-
     return _ensure_auto_paper_run(
         strategy_key=AUTO_PAPER_SWING_KEY,
         runtime_key=AUTO_PAPER_SWING_KEY,
         rules=AUTO_PAPER_SWING_RULES,
         risk_profile_id=MEDIUM_RISK_PROFILE_KEY,
+        auto_schedule_enabled=False,
         strategy_lane="swing",
         core_thesis=(
             "Medium-term swing trading: 1d direction + 4h entry, designed for lower "
@@ -787,9 +796,9 @@ def bootstrap_local_paper_runtime(*, seed_ohlcv: bool = True) -> None:
     bootstrap_paper_testnet_mirror()
     bootstrap_auto_trading_paper_run()
     bootstrap_auto_trading_technical_paper_run()
+    bootstrap_signal_observation_strategy()
     bootstrap_operator_experience_strategy()
     bootstrap_cross_sectional_carry_strategy()
-    bootstrap_auto_trading_swing_paper_run()  # Module 11: medium-term swing (disabled research)
     bootstrap_pause_legacy_paper_runs()
     bootstrap_clear_stale_blocking_risk_events()
     if seed_ohlcv:

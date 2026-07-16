@@ -6,6 +6,7 @@ from services.data.service import DEFAULT_BINANCE_TOP20
 from services.execution.bootstrap import (
     AUTO_PAPER_RUNTIME_KEY,
     AUTO_PAPER_TECHNICAL_KEY,
+    AUTO_PAPER_TECHNICAL_RULES,
     LINK_VERIFICATION_RUNTIME_KEY,
     LINK_VERIFICATION_STRATEGY_KEY,
     OPERATOR_EXPERIENCE_STRATEGY_KEY,
@@ -16,11 +17,13 @@ from services.execution.bootstrap import (
     bootstrap_operator_experience_strategy,
     bootstrap_paper_testnet_mirror,
     bootstrap_pause_legacy_paper_runs,
+    bootstrap_signal_observation_strategy,
     default_mirror_to_gateway,
 )
 from services.execution.paper import PaperOrchestrationService
 from shared.config import settings
 from shared.models import PaperRun, RunStatus
+from shared.models.risk import medium_risk_profile
 
 
 def test_default_mirror_to_gateway_stays_disabled_until_cost_gate_is_explicitly_armed(monkeypatch) -> None:
@@ -116,6 +119,8 @@ def test_bootstrap_creates_carry_and_directional_runs(db_session, monkeypatch) -
     assert technical_run is not None
     assert carry_run.execution_profile.get("strategy_lane") == "carry"
     assert technical_run.execution_profile.get("strategy_lane") == "directional"
+    assert carry_run.execution_profile.get("auto_schedule_enabled") is False
+    assert technical_run.execution_profile.get("auto_schedule_enabled") is True
     assert carry_run.execution_profile.get("execution_mode") == "paper_only"
     assert technical_run.execution_profile.get("execution_mode") == "paper_only"
     assert carry_run.execution_profile.get("mirror_to_gateway") is False
@@ -134,6 +139,37 @@ def test_bootstrap_creates_carry_and_directional_runs(db_session, monkeypatch) -
     assert "funding_threshold_bps" in carry_strategy.rules.entry_rules
     assert "technical_pipeline" in technical_strategy.rules.entry_rules
     assert "funding_threshold_bps" not in technical_strategy.rules.entry_rules
+
+
+def test_signal_observation_run_is_automatically_scheduled_but_cannot_mirror_to_gateway(db_session) -> None:
+    from services.strategy_library import PaperRunRepository
+
+    paper_run_id = bootstrap_signal_observation_strategy()
+
+    paper_run = PaperRunRepository(db_session).get_paper_run(paper_run_id or "")
+    assert paper_run is not None
+    assert paper_run.execution_profile.get("strategy_lane") == "signal_observation"
+    assert paper_run.execution_profile.get("auto_schedule_enabled") is True
+    assert paper_run.execution_profile.get("execution_mode") == "paper_only"
+    assert paper_run.execution_profile.get("mirror_to_gateway") is False
+
+
+def test_ultra_aggressive_paper_sampling_limits_are_kept_in_sync() -> None:
+    """The approved sampling profile must not silently regress during runtime work."""
+    profile = medium_risk_profile()
+    position_rules = AUTO_PAPER_TECHNICAL_RULES["position_rules"]
+
+    assert position_rules["risk_per_trade"] == profile.single_trade_risk_limit == 0.05
+    assert position_rules["max_leverage"] == profile.max_leverage == 40.0
+    assert position_rules["max_position_fraction"] == profile.max_symbol_exposure == 0.35
+    assert position_rules["max_portfolio_initial_risk_fraction"] == 0.25
+    assert profile.max_total_exposure == 0.90
+    assert profile.max_open_positions == 10
+    assert profile.daily_loss_limit == 0.20
+    assert profile.weekly_loss_limit == 0.25
+    assert profile.drawdown_limit == 0.25
+    assert profile.hard_stop_drawdown_limit == 0.40
+    assert profile.consecutive_loss_limit == 10
 
 
 def test_bootstrap_preserves_armed_testnet_cost_gate(db_session, monkeypatch) -> None:

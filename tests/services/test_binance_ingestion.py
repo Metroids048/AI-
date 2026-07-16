@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from services.data.binance import (
@@ -289,6 +289,43 @@ def test_market_data_heartbeat_refreshes_all_fixed_top20_timeframes(monkeypatch)
     assert ("TRX/USDT", "15m") in _HeartbeatClient.calls
     assert ("TRX/USDT", "1m") in _HeartbeatClient.calls
     assert result["secondary_timeframe"] == "1m"
+
+
+def test_heartbeat_refreshes_fresh_secondary_when_a_new_timeframe_window_started() -> None:
+    from types import SimpleNamespace
+
+    from services.data.tasks import _heartbeat_timeframes_to_refresh
+
+    class FreshButPreviousWindow:
+        def __init__(self, latest_at: datetime) -> None:
+            self.latest_at = latest_at
+
+        def check_freshness(self, **_kwargs):
+            return {"is_fresh": True}
+
+        def get_latest_ohlcv_bar(self, **_kwargs):
+            return SimpleNamespace(timestamp=self.latest_at)
+
+    now = datetime(2026, 7, 16, 9, 45, 10, tzinfo=UTC)
+    previous_window = FreshButPreviousWindow(now - timedelta(minutes=15))
+
+    assert _heartbeat_timeframes_to_refresh(
+        data_repo=previous_window,
+        symbol="BTC/USDT",
+        primary_timeframe="1m",
+        secondary_timeframe="15m",
+        now=now,
+    ) == ["1m", "15m"]
+
+    current_window = FreshButPreviousWindow(now.replace(minute=45, second=0))
+
+    assert _heartbeat_timeframes_to_refresh(
+        data_repo=current_window,
+        symbol="BTC/USDT",
+        primary_timeframe="1m",
+        secondary_timeframe="15m",
+        now=now,
+    ) == ["1m"]
 
 
 def test_market_data_heartbeat_stops_after_binance_rate_limit(monkeypatch) -> None:

@@ -2113,6 +2113,15 @@ def _fixed_universe_skip_reason(paper_run: PaperRun, symbol: str) -> str | None:
         status = str(asset.get("tradable_status") or "unknown").lower()
         if status == "trading":
             return None
+        if (
+            status == "unknown"
+            and paper_run.execution_profile.get("execution_mode", "paper_only") == "paper_only"
+            and not paper_run.execution_profile.get("mirror_to_gateway", False)
+        ):
+            # The fixed local universe is Paper-only here. Do not waste the first
+            # cycle while the independently scheduled exchange-info refresh is
+            # still resolving metadata; gateway-capable runs remain fail-closed.
+            return None
         return str(asset.get("reason") or f"Binance contract status is {status}")
     return None
 

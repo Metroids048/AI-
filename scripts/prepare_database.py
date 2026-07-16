@@ -9,7 +9,7 @@ from alembic import command
 from alembic.config import Config
 
 
-def prepare_database(database_url: str, *, head_revision: str = "0007") -> None:
+def prepare_database(database_url: str, *, head_revision: str = "0009") -> None:
     os.environ["POSTGRES_URL"] = database_url
     from services.database import (
         adopt_complete_legacy_sqlite_schema,
@@ -28,7 +28,7 @@ def prepare_database(database_url: str, *, head_revision: str = "0007") -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--database-url", required=True)
-    parser.add_argument("--head-revision", default="0007")
+    parser.add_argument("--head-revision", default="0009")
     args = parser.parse_args()
     prepare_database(args.database_url, head_revision=args.head_revision)
     return 0
