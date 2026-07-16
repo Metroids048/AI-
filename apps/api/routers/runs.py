@@ -79,6 +79,7 @@ from shared.models import (
     PositionSnapshot,
     ReconciliationRecord,
     RiskProfileUpdate,
+    RunStatus,
     StrategyUpdate,
     TaskSubmission,
     TestnetAcceptanceRunRequest,
@@ -703,7 +704,12 @@ def update_paper_run_status(
     updated = paper_repo.update_paper_run_status(paper_run_id, body.paper_status)
     if updated is None:
         raise not_found("paper_run", paper_run_id)
-    StrategyRepository(db).update_lifecycle_status(run.strategy_id, paper_status=body.paper_status)
+    try:
+        lifecycle_status = RunStatus(body.paper_status)
+    except ValueError:
+        lifecycle_status = None
+    if lifecycle_status is not None:
+        StrategyRepository(db).update_lifecycle_status(run.strategy_id, paper_status=lifecycle_status.value)
     return updated
 
 

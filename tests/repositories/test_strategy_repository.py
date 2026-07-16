@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from services.strategy_library import models
 from services.strategy_library.repository import (
     IngestionRepository,
     PaperRunRepository,
@@ -15,6 +16,7 @@ from shared.models import (
     GateDecision,
     IngestionJob,
     PaperRun,
+    RunStatus,
     StrategyCreate,
     StrategyIdea,
     StrategyRules,
@@ -63,6 +65,26 @@ def test_strategy_repository_lifecycle(db_session) -> None:
     )
     assert updated is not None
     assert updated.rules.entry_rules["funding_threshold_bps"] == 5
+
+
+def test_strategy_repository_normalizes_legacy_paused_run_status(db_session) -> None:
+    repo = StrategyRepository(db_session)
+    strategy = repo.create_strategy(
+        StrategyCreate(
+            strategy_key="legacy-paused-paper-status",
+            source="test",
+            core_thesis="legacy data compatibility",
+        )
+    )
+    row = db_session.get(models.Strategy, strategy.strategy_id)
+    assert row is not None
+    row.paper_status = "paused"
+    db_session.commit()
+
+    restored = repo.get_strategy(strategy.strategy_id or "")
+
+    assert restored is not None
+    assert restored.paper_status is RunStatus.RUNNING
 
 
 def test_review_repository_records_idea_level_failure(db_session) -> None:

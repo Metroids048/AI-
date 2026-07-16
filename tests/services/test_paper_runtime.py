@@ -19,6 +19,7 @@ from services.strategy_library import (
 )
 from shared.models import (
     BacktestRun,
+    ExchangeAccountSnapshot,
     ExecutionOrderRequest,
     ExecutionRiskState,
     GateDecision,
@@ -229,6 +230,83 @@ def test_runtime_locks_and_closes_positions_at_hard_drawdown(db_session) -> None
     assert result.paper_status == "locked"
     assert result.closed_positions == 1
     assert result.actions[0].action == "hard_drawdown_close_long"
+
+
+def test_runtime_does_not_lock_after_rebasing_initial_exchange_equity(db_session) -> None:
+    runtime, paper_run = _runtime_without_position(db_session)
+    ExecutionRepository(db_session).create_account_snapshot(
+        ExchangeAccountSnapshot(
+            live_run_id="console_probe",
+            exchange="binance",
+            wallet_balance=5_250.75,
+            available_balance=5_100.0,
+            margin_balance=5_250.75,
+            snapshot_time=datetime.now(UTC),
+        )
+    )
+    _store_bar(db_session, low=99, high=101, close=100)
+    request = PaperRuntimeCycleRequest(
+        symbols=["BTC/USDT"],
+        timeframe="1h",
+        enable_decision_veto=False,
+    )
+
+    first = runtime.run_cycle(paper_run_id=paper_run.paper_run_id or "", request=request)
+    second = runtime.run_cycle(paper_run_id=paper_run.paper_run_id or "", request=request)
+    persisted = PaperRunRepository(db_session).get_paper_run(paper_run.paper_run_id or "")
+
+    assert first.paper_status == "running"
+    assert second.paper_status == "running"
+    assert persisted is not None
+    assert persisted.paper_metrics_summary["account_equity"] == 5_250.75
+    assert persisted.paper_metrics_summary["equity_peak"] == 5_250.75
+
+
+def test_runtime_retries_same_bar_after_data_freshness_recovers(db_session, monkeypatch) -> None:
+    runtime, paper_run = _runtime_without_position(db_session)
+    _store_bar(db_session, low=99, high=101, close=100, offset_hours=-3)
+
+    def _forced_signal(**_kwargs) -> DecisionPipelineResult:
+        return DecisionPipelineResult(
+            direction=TradeSide.LONG,
+            should_trade=True,
+            reason="forced_retryable_signal",
+            reference_price=Decimal("100"),
+            bar_time=datetime.now(UTC) - timedelta(hours=3),
+            signals=[],
+            ensemble=None,
+            meta_label=None,
+            veto_result=None,
+            confidence_multiplier=1.0,
+            atr=1.0,
+            volatility_context={},
+            trace={
+                "pipeline_status": "bet_taken",
+                "strategy_lane": "directional",
+                "meta_label_win_rate": 0.8,
+                "meta_label_average_win": 0.02,
+                "meta_label_average_loss": 0.01,
+                "round_trip_fee_rate": 0.0002,
+                "round_trip_slippage_rate": 0.0,
+            },
+        )
+
+    monkeypatch.setattr(runtime.signal_generator.decision_pipeline, "evaluate", _forced_signal)
+    monkeypatch.setattr("services.execution.gatekeeper.settings.execution_freshness_delay_seconds", 2 * 60 * 60)
+    request = PaperRuntimeCycleRequest(
+        symbols=["BTC/USDT"],
+        timeframe="1h",
+        enable_decision_veto=False,
+    )
+
+    first = runtime.run_cycle(paper_run_id=paper_run.paper_run_id or "", request=request)
+    monkeypatch.setattr("services.execution.gatekeeper.settings.execution_freshness_delay_seconds", 4 * 60 * 60)
+    second = runtime.run_cycle(paper_run_id=paper_run.paper_run_id or "", request=request)
+
+    assert first.actions[0].action == "rejected"
+    assert "data_not_fresh" in (first.actions[0].reason or "")
+    assert second.opened_positions == 1
+    assert second.actions[0].action == "open_long"
 
 
 def test_runtime_exit_ladder_level1_partial_and_moves_stop_to_breakeven(db_session) -> None:

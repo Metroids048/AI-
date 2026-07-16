@@ -62,7 +62,7 @@ class FakeAcceptanceGateway:
         }
 
 
-def test_acceptance_run_completes_twenty_round_trips_with_tiered_risk() -> None:
+def test_acceptance_run_completes_fixed_universe_round_trips_with_tiered_risk() -> None:
     gateway = FakeAcceptanceGateway()
     service = AcceptanceService(gateway=gateway)
 
@@ -70,8 +70,8 @@ def test_acceptance_run_completes_twenty_round_trips_with_tiered_risk() -> None:
 
     assert result.run_status == "completed"
     assert result.completed_symbols == list(FIXED_TOP20_SYMBOLS)
-    assert result.filled_order_count == 40
-    assert len(gateway.orders) == 40
+    assert result.filled_order_count == len(FIXED_TOP20_SYMBOLS) * 2
+    assert len(gateway.orders) == len(FIXED_TOP20_SYMBOLS) * 2
     # Tier defaults bumped moderately more aggressive (core 20x->25x, standard 10x->15x)
     # per operator request, alongside the paper-sizing floor fix.
     assert gateway.leverages["BTC/USDT"] == 25
@@ -82,7 +82,7 @@ def test_acceptance_run_completes_twenty_round_trips_with_tiered_risk() -> None:
     assert gateway.orders[6]["requested_notional"] == 120
     assert result.final_open_position_count == 0
     assert result.final_open_order_count == 0
-    assert len(result.symbol_results) == 20
+    assert len(result.symbol_results) == len(FIXED_TOP20_SYMBOLS)
     assert all(item.run_status == "completed" for item in result.symbol_results)
     assert result.symbol_results[0].final_stage == "closed"
     assert result.symbol_results[0].protection_order_refs == ["stop-BTC/USDT"]
@@ -104,4 +104,4 @@ def test_acceptance_run_retries_compensating_close_and_stops_after_failure() -> 
     assert failed.final_stage == "compensated"
     assert failed.compensation_succeeded is True
     assert failed.failure_class == "ValueError"
-    assert sum(item.run_status == "skipped" for item in result.symbol_results) == 18
+    assert sum(item.run_status == "skipped" for item in result.symbol_results) == len(FIXED_TOP20_SYMBOLS) - 2

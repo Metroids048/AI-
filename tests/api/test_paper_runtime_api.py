@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from services.data import DataRepository
+from services.data.service import DEFAULT_BINANCE_TOP20
 from services.strategy_library import (
     ExecutionRepository,
     HypothesisRepository,
@@ -232,6 +233,26 @@ def test_paper_runtime_auto_cycle_all_runs_running_paper_runs(api_client, db_ses
     assert body["results"][0]["opened_positions"] == 1
 
 
+def test_pausing_paper_run_does_not_write_run_only_status_to_strategy(api_client, db_session) -> None:
+    strategy_id, paper_run_id = _create_validated_paper_run(api_client, db_session)
+    running = api_client.patch(
+        f"/api/v1/execution/paper-runs/{paper_run_id}/status",
+        json={"paper_status": "running"},
+    )
+    assert running.status_code == 200
+
+    paused = api_client.patch(
+        f"/api/v1/execution/paper-runs/{paper_run_id}/status",
+        json={"paper_status": "paused"},
+    )
+
+    assert paused.status_code == 200
+    assert paused.json()["paper_status"] == "paused"
+    strategy = StrategyRepository(db_session).get_strategy(strategy_id)
+    assert strategy is not None
+    assert strategy.paper_status.value == "running"
+
+
 def test_paper_run_execution_profile_patch_preserves_existing_keys(api_client, db_session) -> None:
     _, paper_run_id = _create_validated_paper_run(api_client, db_session)
 
@@ -347,7 +368,7 @@ def test_order_sync_reconciles_non_btc_orders_across_fixed_top20(api_client, db_
 
     assert response.status_code == 200
     body = response.json()
-    assert len(body["symbol_summary"]) == 20
+    assert len(body["symbol_summary"]) == len(DEFAULT_BINANCE_TOP20)
     eth = next(item for item in body["symbol_summary"] if item["symbol"] == "ETH/USDT")
     sol = next(item for item in body["symbol_summary"] if item["symbol"] == "SOL/USDT")
     assert eth["matched_order_count"] == 1

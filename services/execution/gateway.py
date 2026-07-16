@@ -372,11 +372,22 @@ class BinanceUsdtPerpetualGateway:
             )
         protection_refs: list[dict[str, Any]] = []
         if not close_only:
-            protection_refs = self._submit_protection_algo_orders(
-                order_request=order_request,
-                side=side,
-                quantity=quantity,
-            )
+            try:
+                protection_refs = self._submit_protection_algo_orders(
+                    order_request=order_request,
+                    side=side,
+                    quantity=quantity,
+                )
+            except Exception as exc:
+                compensation = self._compensate_unprotected_entry(
+                    created=created,
+                    symbol=symbol,
+                    entry_side=side,
+                    quantity=quantity,
+                )
+                raise ValueError(
+                    f"protection_order_submit_failed: {exc}; compensation={compensation}"
+                ) from exc
         return {
             "live_run_id": live_run_id,
             "gateway_order_id": _order_id(created),
@@ -492,6 +503,10 @@ class BinanceUsdtPerpetualGateway:
         refs: list[dict[str, Any] | None] = []
         symbol = _binance_market_id(_normalize_binance_symbol(order_request.symbol))
         if "price" in order_request.stoploss_plan:
+            trigger_price = self._protection_trigger_price(
+                order_request.symbol,
+                order_request.stoploss_plan["price"],
+            )
             refs.append(
                 self._submit_algo_order(
                     method,
@@ -501,12 +516,16 @@ class BinanceUsdtPerpetualGateway:
                         "side": close_side,
                         "type": "STOP_MARKET",
                         "quantity": quantity,
-                        "triggerPrice": order_request.stoploss_plan["price"],
+                        "triggerPrice": trigger_price,
                         "reduceOnly": "true",
                     },
                 )
             )
         if "price" in order_request.takeprofit_plan:
+            trigger_price = self._protection_trigger_price(
+                order_request.symbol,
+                order_request.takeprofit_plan["price"],
+            )
             refs.append(
                 self._submit_algo_order(
                     method,
@@ -516,7 +535,7 @@ class BinanceUsdtPerpetualGateway:
                         "side": close_side,
                         "type": "TAKE_PROFIT_MARKET",
                         "quantity": quantity,
-                        "triggerPrice": order_request.takeprofit_plan["price"],
+                        "triggerPrice": trigger_price,
                         "reduceOnly": "true",
                     },
                 )
@@ -524,12 +543,40 @@ class BinanceUsdtPerpetualGateway:
         return [ref for ref in refs if ref is not None]
 
     @staticmethod
-    def _submit_algo_order(method: Any, payload: dict[str, Any]) -> dict[str, Any] | None:
-        try:
-            return method(payload)
-        except Exception:
-            # Optional protection mirror; primary entry order already submitted.
-            return None
+    def _submit_algo_order(method: Any, payload: dict[str, Any]) -> dict[str, Any]:
+        result = method(payload)
+        if not isinstance(result, dict) or not (result.get("algoId") or result.get("id")):
+            raise ValueError(f"empty protection order response for {payload.get('type')}")
+        return result
+
+    def _protection_trigger_price(self, symbol: str, price: Any) -> Any:
+        precision = getattr(self.client, "price_to_precision", None)
+        if callable(precision):
+            return precision(_normalize_binance_symbol(symbol), float(price))
+        return price
+
+    def _compensate_unprotected_entry(
+        self,
+        *,
+        created: dict[str, Any],
+        symbol: str,
+        entry_side: str,
+        quantity: float,
+    ) -> dict[str, Any]:
+        order_id = _order_id(created)
+        status = _normalize_order_status(created.get("status"))
+        if status in {"open", "submitted", "new"} and order_id:
+            cancelled = self.client.cancel_order(order_id, symbol)
+            return {"action": "cancel_entry", "gateway_order_id": _order_id(cancelled) or order_id}
+        closed = self.client.create_order(
+            symbol,
+            "market",
+            "sell" if entry_side == "buy" else "buy",
+            quantity,
+            None,
+            {"positionSide": "BOTH", "reduceOnly": True},
+        )
+        return {"action": "reduce_only_close", "gateway_order_id": _order_id(closed)}
 
     @staticmethod
     def _build_default_client() -> Any:

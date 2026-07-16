@@ -640,6 +640,8 @@ def generate_pandas_ta_signal(
     result = config["compute"](frame)
     if result is None:
         return None
+    if isinstance(result, pd.Series):
+        result = result.to_frame()
 
     # Convert to signal
     return config["convert"](result, frame, symbol)

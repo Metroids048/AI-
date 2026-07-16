@@ -9,7 +9,11 @@ from services.execution.runtime_state import (
     load_external_scheduler_state,
     write_external_scheduler_state,
 )
-from services.execution.scheduler import RuntimeScheduler, _preload_celery_task_api
+from services.execution.scheduler import (
+    RuntimeScheduler,
+    _default_exchange_info_refresh_runner,
+    _preload_celery_task_api,
+)
 
 
 def _raise_runtime_error(message: str) -> None:
@@ -18,6 +22,32 @@ def _raise_runtime_error(message: str) -> None:
 
 def test_scheduler_preloads_celery_task_api_before_starting_threads() -> None:
     _preload_celery_task_api()
+
+
+def test_exchange_info_ready_uses_configured_fixed_universe_size(monkeypatch) -> None:
+    from services.data import binance
+    from services.data.universe import FIXED_TOP20_ASSETS
+    from services.execution import bootstrap
+
+    symbols = [
+        {
+            "symbol": item["exchange_symbol"],
+            "status": "TRADING",
+            "pricePrecision": 2,
+            "quantityPrecision": 3,
+            "filters": [{"filterType": "MIN_NOTIONAL", "notional": "5"}],
+        }
+        for item in FIXED_TOP20_ASSETS
+    ]
+    monkeypatch.setattr(binance, "resolve_usdm_public_rest_base", lambda: "https://testnet.example")
+    monkeypatch.setattr(binance, "fetch_usdm_exchange_info_symbols", lambda: symbols)
+    monkeypatch.setattr(bootstrap, "refresh_fixed_top20_runtime_universe", lambda _: 3)
+
+    result = _default_exchange_info_refresh_runner()
+
+    assert len(FIXED_TOP20_ASSETS) == 10
+    assert result["ready"] is True
+    assert result["updated_runs"] == 3
 
 
 def test_external_scheduler_state_requires_fresh_heartbeat(monkeypatch, tmp_path) -> None:

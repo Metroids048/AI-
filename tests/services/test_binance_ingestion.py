@@ -286,8 +286,8 @@ def test_market_data_heartbeat_refreshes_all_fixed_top20_timeframes(monkeypatch)
     assert result["checked_symbols"] == list(DEFAULT_BINANCE_TOP20)
     assert len(_HeartbeatClient.calls) == len(DEFAULT_BINANCE_TOP20) * 4
     assert all(symbol.endswith(":USDM") for symbol, _ in _HeartbeatClient.calls[::2])
-    assert ("PEPE/USDT", "15m") in _HeartbeatClient.calls
-    assert ("PEPE/USDT", "1m") in _HeartbeatClient.calls
+    assert ("TRX/USDT", "15m") in _HeartbeatClient.calls
+    assert ("TRX/USDT", "1m") in _HeartbeatClient.calls
     assert result["secondary_timeframe"] == "1m"
 
 

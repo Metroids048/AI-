@@ -125,6 +125,47 @@ def test_binance_gateway_maps_account_order_cancel_and_reconcile() -> None:
     assert reconciled["reconciliation_status"] == "ok"
 
 
+def test_binance_gateway_closes_filled_entry_when_protection_submit_fails() -> None:
+    class ProtectionFailureClient(StubCcxtClient):
+        def create_order(self, symbol, order_type, side, amount, price=None, params=None):  # noqa: ANN001
+            self.created_orders.append(
+                {
+                    "symbol": symbol,
+                    "order_type": order_type,
+                    "side": side,
+                    "amount": amount,
+                    "price": price,
+                    "params": params,
+                }
+            )
+            return {"id": f"order-{len(self.created_orders)}", "status": "closed"}
+
+        def fapiPrivatePostAlgoOrder(self, payload):  # noqa: N802, ANN001
+            raise RuntimeError("algo endpoint rejected protection")
+
+    client = ProtectionFailureClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+    request = ExecutionOrderRequest(
+        strategy_id="strategy-1",
+        symbol="BTC/USDT",
+        direction=TradeSide.LONG,
+        entry_context={
+            "order_type": "market",
+            "quantity": 0.01,
+            "reference_price": 60_000,
+            "requested_notional": 600,
+        },
+        stoploss_plan={"price": 59_000},
+    )
+
+    with pytest.raises(ValueError, match="protection_order_submit_failed.*reduce_only_close"):
+        gateway.submit_order(live_run_id="live-run-1", order_request=request)
+
+    assert len(client.created_orders) == 2
+    assert client.created_orders[1]["side"] == "sell"
+    assert client.created_orders[1]["params"]["reduceOnly"] is True
+
+
 def test_binance_gateway_exposes_acceptance_adapter_without_bypassing_submit_order() -> None:
     class EmptyAccountClient(StubCcxtClient):
         def fetch_positions(self):

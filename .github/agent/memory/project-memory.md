@@ -547,3 +547,9 @@
 - `services/validation/application.py` now defines `CarryBacktestApplicationService`, which loads persisted spot/perp/funding data, applies settlement-window data-quality checks, runs the carry backtest, and persists the resulting `BacktestRun`.
 - `apps/api/routers/backtests.py` now exposes `/backtests/carry` as the first API path that executes a backtest from persisted market data instead of accepting only a pre-built `BacktestRun` payload.
 - `services.validation.tasks.enqueue_carry_backtest` is wired as the queue-side entrypoint for the same application flow, but local import smoke for Celery remains pending until the environment installs `celery`.
+
+## Binance Simulation Runtime Status (2026-07-16)
+
+- The local scheduler on port `8016` is running against the SQLite console database. The carry, directional, and swing automatic runs scan the fixed Top10 and are armed as `binance_simulation_first`; deterministic validation, stop-loss, risk, and cost gates still decide whether any individual signal can submit.
+- Binance Mock Trading is the execution proof target. The configured `demo` mode can fall back to `https://testnet.binancefuture.com` when `demo-fapi` is unreachable; this fallback is the same simulation account whose order ids appear in the Binance Demo Trading UI. Mainnet remains disabled.
+- External verification uses the isolated `link_verification` run only. It is excluded from strategy-performance evidence, must be paused after an E2E test, and its account must be flattened. `scripts/verify_config.py` now requires a persisted automatic `gateway_order_id`, successful Binance simulated-account reconciliation, and `LIVE_TRADING_ENABLED=false` before returning GREEN.

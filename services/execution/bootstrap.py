@@ -700,19 +700,17 @@ def bootstrap_auto_trading_swing_paper_run() -> str | None:
     """
     from shared.models import Timeframe
 
-    return _bootstrap_auto_paper_strategy(
+    return _ensure_auto_paper_run(
         strategy_key=AUTO_PAPER_SWING_KEY,
         runtime_key=AUTO_PAPER_SWING_KEY,
         rules=AUTO_PAPER_SWING_RULES,
         risk_profile_id=MEDIUM_RISK_PROFILE_KEY,
         strategy_lane="swing",
-        source="operator:research_candidate",
         core_thesis=(
             "Medium-term swing trading: 1d direction + 4h entry, designed for lower "
             "turnover and less competition with HFT algorithms. This is a NEW hypothesis "
             "distinct from the short-term 4h/15m combination."
         ),
-        timeframe=Timeframe.H4,
     )
 
 

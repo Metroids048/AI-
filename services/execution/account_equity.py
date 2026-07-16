@@ -89,11 +89,17 @@ def sync_paper_account_equity(
     )
     if equity <= 0:
         return metrics
-    equity_peak = max(float(metrics.get("equity_peak", equity)), equity)
+    baseline_initialized = bool(metrics.get("account_equity_baseline_initialized"))
+    if source in {"gateway_live", "exchange_account_snapshot"} and not baseline_initialized:
+        equity_peak = equity
+        baseline_initialized = True
+    else:
+        equity_peak = max(float(metrics.get("equity_peak", equity)), equity)
     return {
         **metrics,
         "account_equity": equity,
         "equity_peak": equity_peak,
         "account_equity_source": source,
+        "account_equity_baseline_initialized": baseline_initialized,
         "account_equity_synced_at": datetime.now(UTC).isoformat(),
     }

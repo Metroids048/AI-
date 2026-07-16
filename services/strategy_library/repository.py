@@ -154,6 +154,15 @@ def _strategy_rules_from_orm(row: models.Strategy) -> StrategyRules:
     )
 
 
+def _run_status_from_orm(value: str) -> RunStatus:
+    # Older API versions copied the PaperRun-only "paused" state into the
+    # strategy lifecycle column. A paused run still means the strategy reached
+    # the running Paper stage, so normalize that legacy value at the boundary.
+    if value == "paused":
+        return RunStatus.RUNNING
+    return RunStatus(value)
+
+
 def _strategy_from_orm(row: models.Strategy) -> StrategyContract:
     return StrategyContract(
         strategy_id=row.id,
@@ -167,9 +176,9 @@ def _strategy_from_orm(row: models.Strategy) -> StrategyContract:
         risk_level=RiskLevel(row.risk_level),
         rules=_strategy_rules_from_orm(row),
         strategy_status=StrategyStatus(row.strategy_status),
-        backtest_status=RunStatus(row.backtest_status),
-        paper_status=RunStatus(row.paper_status),
-        live_status=RunStatus(row.live_status),
+        backtest_status=_run_status_from_orm(row.backtest_status),
+        paper_status=_run_status_from_orm(row.paper_status),
+        live_status=_run_status_from_orm(row.live_status),
         failure_reasons=row.failure_reasons,
         iteration_history=row.iteration_history,
         created_at=row.created_at,

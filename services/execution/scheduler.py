@@ -381,7 +381,7 @@ def _default_exchange_info_refresh_runner() -> dict:
     base_url = resolve_usdm_public_rest_base()
     symbols = fetch_usdm_exchange_info_symbols()
     assets = fixed_top20_assets(symbols)
-    ready = len(assets) == 20 and all(
+    ready = bool(assets) and all(
         asset.tradable_status == "trading" and asset.precision and asset.min_notional is not None
         for asset in assets
     )

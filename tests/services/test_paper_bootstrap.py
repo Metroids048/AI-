@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from services.data.service import DEFAULT_BINANCE_TOP20
 from services.execution.bootstrap import (
     AUTO_PAPER_RUNTIME_KEY,
     AUTO_PAPER_TECHNICAL_KEY,
@@ -50,10 +51,10 @@ def test_prepare_run_keeps_mirror_disabled_when_credentials_present(monkeypatch)
     assert prepared.execution_profile.get("mirror_to_gateway") is False
 
 
-def test_prepare_run_defaults_to_full_fixed_operator_top20() -> None:
+def test_prepare_run_defaults_to_full_fixed_operator_universe() -> None:
     prepared = PaperOrchestrationService().prepare_run(PaperRun(strategy_id="strategy-top20"))
 
-    assert len(prepared.symbol_scope) == 20
+    assert prepared.symbol_scope == list(DEFAULT_BINANCE_TOP20)
     assert prepared.selection_basis == "fixed_operator_top20"
     assert prepared.symbol_scope[:2] == ["BTC/USDT", "ETH/USDT"]
 
@@ -121,7 +122,7 @@ def test_bootstrap_creates_carry_and_directional_runs(db_session, monkeypatch) -
     assert technical_run.execution_profile.get("mirror_to_gateway") is False
     assert carry_run.execution_profile.get("cost_gate_verified") is False
     assert carry_run.selection_basis == "fixed_operator_top20"
-    assert len(carry_run.candidate_symbols) == 20
+    assert carry_run.candidate_symbols == list(DEFAULT_BINANCE_TOP20)
 
     strategy_repo = StrategyRepository(db_session)
     carry_strategy = next(

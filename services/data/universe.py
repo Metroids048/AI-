@@ -27,11 +27,16 @@ FIXED_TOP20_ASSETS: tuple[dict[str, str], ...] = (
 )
 
 FIXED_TOP20_SYMBOLS: tuple[str, ...] = tuple(item["platform_symbol"] for item in FIXED_TOP20_ASSETS)
+CONTRACT_SYMBOL_ALIASES: dict[str, str] = {
+    "PEPE/USDT": "1000PEPEUSDT",
+}
 PLATFORM_TO_EXCHANGE_SYMBOL: dict[str, str] = {
-    item["platform_symbol"]: item["exchange_symbol"] for item in FIXED_TOP20_ASSETS
+    **{item["platform_symbol"]: item["exchange_symbol"] for item in FIXED_TOP20_ASSETS},
+    **CONTRACT_SYMBOL_ALIASES,
 }
 EXCHANGE_TO_PLATFORM_SYMBOL: dict[str, str] = {
-    item["exchange_symbol"]: item["platform_symbol"] for item in FIXED_TOP20_ASSETS
+    **{item["exchange_symbol"]: item["platform_symbol"] for item in FIXED_TOP20_ASSETS},
+    **{exchange_symbol: platform_symbol for platform_symbol, exchange_symbol in CONTRACT_SYMBOL_ALIASES.items()},
 }
 
 

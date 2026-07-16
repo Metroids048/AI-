@@ -6,6 +6,7 @@ from time import monotonic, sleep
 
 from services.data import DataRepository
 from services.data.binance import BinanceUniverseSelector
+from services.data.universe import FIXED_TOP20_SYMBOLS
 
 
 def test_exchange_info_falls_back_to_legacy_testnet_when_demo_endpoint_fails(monkeypatch) -> None:
@@ -76,7 +77,7 @@ def test_market_universe_api_falls_back_to_configured_top20(api_client) -> None:
     assert body["items"][0]["source"] in {"binance_usdm_24h_ticker", "fallback_default_top20"}
 
 
-def test_fixed_top20_universe_api_uses_operator_order_and_pepe_contract(api_client, monkeypatch) -> None:
+def test_fixed_top20_universe_api_uses_operator_order_and_active_contracts(api_client, monkeypatch) -> None:
     from apps.api.routers import market as market_router
 
     monkeypatch.setattr(
@@ -86,7 +87,7 @@ def test_fixed_top20_universe_api_uses_operator_order_and_pepe_contract(api_clie
             {"symbol": "BTCUSDT", "status": "TRADING", "pricePrecision": 2},
             {"symbol": "ETHUSDT", "status": "TRADING"},
             {
-                "symbol": "1000PEPEUSDT",
+                "symbol": "TRXUSDT",
                 "status": "TRADING",
                 "filters": [{"filterType": "MIN_NOTIONAL", "notional": "5"}],
             },
@@ -97,11 +98,11 @@ def test_fixed_top20_universe_api_uses_operator_order_and_pepe_contract(api_clie
 
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 20
+    assert body["total"] == len(FIXED_TOP20_SYMBOLS)
     assert [item["display_symbol"] for item in body["items"][:5]] == ["BTC", "ETH", "SOL", "XRP", "BNB"]
-    assert body["items"][-1]["symbol"] == "PEPE/USDT"
-    assert body["items"][-1]["exchange_symbol"] == "1000PEPEUSDT"
-    assert body["items"][-1]["display_symbol"] == "PEPE (1000PEPE contract)"
+    assert body["items"][-1]["symbol"] == "TRX/USDT"
+    assert body["items"][-1]["exchange_symbol"] == "TRXUSDT"
+    assert body["items"][-1]["display_symbol"] == "TRX"
     assert body["items"][-1]["tradable_status"] == "trading"
 
 
@@ -120,7 +121,7 @@ def test_fixed_top20_universe_does_not_block_on_slow_exchange_info(api_client, m
 
     assert monotonic() - started < 1.5
     assert response.status_code == 200
-    assert response.json()["total"] == 20
+    assert response.json()["total"] == len(FIXED_TOP20_SYMBOLS)
 
 
 def test_funding_arbitrage_signal_rejects_negative_net_edge(api_client, db_session) -> None:

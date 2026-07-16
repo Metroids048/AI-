@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from services.data import DataRepository
+from services.data.service import DEFAULT_BINANCE_TOP20
 from services.strategy_library import HypothesisRepository, ValidationRepository
 from shared.models import (
     BacktestEngine,
@@ -138,7 +139,7 @@ def test_strategy_to_backtest_to_paper_vertical_slice(api_client, db_session) ->
 
     ingestion_job = api_client.get(f"/api/v1/ingestion/jobs/{ingestion_job_id}")
     assert ingestion_job.status_code == 200
-    assert len(ingestion_job.json()["target_symbols"]) == 20
+    assert len(ingestion_job.json()["target_symbols"]) == len(DEFAULT_BINANCE_TOP20)
     assert ingestion_job.json()["target_symbols"][:2] == ["BTC/USDT", "ETH/USDT"]
 
     paper_resp = api_client.post(

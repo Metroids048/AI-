@@ -133,6 +133,7 @@ class PaperRuntimeService:
         processed_keys = set(metrics.get("processed_cycle_keys", []))
         new_processed_keys = list(processed_keys)
         realized_total = float(metrics.get("net_realized_pnl_total", metrics.get("realized_pnl_total", 0.0)))
+        realized_total_at_cycle_start = realized_total
         gross_realized_total = float(metrics.get("gross_realized_pnl_total", metrics.get("realized_pnl_total", 0.0)))
         estimated_fee_total = float(metrics.get("estimated_fee_total", 0.0))
         estimated_slippage_total = float(metrics.get("estimated_slippage_total", 0.0))
@@ -903,6 +904,10 @@ class PaperRuntimeService:
 
             order = self.gatekeeper.submit_order(base_order)
             if order.execution_status != "accepted":
+                retryable_rejections = {"data_not_fresh", "blocking_risk_event"}
+                if order.rejection_codes and set(order.rejection_codes).issubset(retryable_rejections):
+                    with suppress(ValueError):
+                        new_processed_keys.remove(cycle_key)
                 rejected_orders += 1
                 actions.append(
                     PaperRuntimeAction(
@@ -1081,7 +1086,9 @@ class PaperRuntimeService:
                     decision_trace=decision_trace,
                 )
             )
-        account_equity = self._initial_equity(paper_run) + realized_total
+        account_equity = float(metrics.get("account_equity", self._initial_equity(paper_run))) + (
+            realized_total - realized_total_at_cycle_start
+        )
         equity_peak = max(float(metrics.get("equity_peak", self._initial_equity(paper_run))), account_equity)
         last_action_counts = {
             "opened": opened_positions,

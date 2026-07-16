@@ -37,16 +37,14 @@ def test_binance_urlopen_disables_ambient_proxy_when_no_scoped_proxy(monkeypatch
     assert captured["proxies"] == {}
 
 
-def test_medium_risk_profile_supports_top20_auto_trading() -> None:
+def test_medium_risk_profile_supports_aggressive_testnet_sampling() -> None:
     profile = medium_risk_profile()
     assert profile.risk_profile_id == MEDIUM_RISK_PROFILE_KEY
-    # Bumped moderately more aggressive per operator request (2026-07),
-    # alongside the paper-sizing floor fix in paper_signal.py/paper_runtime.py.
-    assert profile.max_open_positions == 6
-    assert profile.max_total_exposure == 0.60
-    assert profile.max_leverage == 25
-    assert profile.daily_loss_limit == 0.06
-    assert profile.hard_stop_drawdown_limit == 0.22
+    assert profile.max_open_positions == 10
+    assert profile.max_total_exposure == 0.90
+    assert profile.max_leverage == 40
+    assert profile.daily_loss_limit == 0.20
+    assert profile.hard_stop_drawdown_limit == 0.40
 
 
 def test_bootstrap_medium_risk_profile_is_idempotent(db_session) -> None:
