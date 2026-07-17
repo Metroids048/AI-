@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import UTC, datetime
+
+import pytest
 
 from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY
 from services.validation.technical_replay import ReplayMetrics
@@ -59,9 +62,11 @@ def _patch_replay_pipeline(monkeypatch, *, metrics: ReplayMetrics) -> None:
 
 
 class TestComputeAndWriteEdgeStats:
-    def test_rejects_when_below_min_trade_samples(self, monkeypatch) -> None:
+    def test_rejects_when_below_min_trade_samples(self, tmp_path, monkeypatch) -> None:
+        import services.execution.signal_edge_stats as edge_stats_module
         from scripts.compute_signal_edge_stats import compute_and_write_edge_stats
 
+        monkeypatch.setattr(edge_stats_module, "EDGE_STATS_ARTIFACT_DIR", tmp_path)
         _patch_replay_pipeline(monkeypatch, metrics=_fake_metrics(total_trades=5))
 
         result = compute_and_write_edge_stats(
@@ -124,6 +129,32 @@ class TestComputeAndWriteEdgeStats:
 
         with pytest.raises(ValueError, match="wired for evidence replay"):
             compute_and_write_edge_stats(strategy_key="not_wired_up")
+
+
+class TestEvidenceCliDatabaseBoundary:
+    def test_compute_cli_requires_database_url_before_running(self, monkeypatch) -> None:
+        import scripts.compute_signal_edge_stats as compute_module
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["compute_signal_edge_stats", "--strategy-key", AUTO_PAPER_TECHNICAL_KEY],
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            compute_module.main()
+
+        assert exc_info.value.code == 2
+
+    def test_validation_cli_requires_database_url_before_running(self, monkeypatch) -> None:
+        import scripts.run_top20_technical_validation as validation_module
+
+        monkeypatch.setattr(sys, "argv", ["run_top20_technical_validation", "--days", "60"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            validation_module.main()
+
+        assert exc_info.value.code == 2
 
 
 class TestRefreshSignalEdgeStatsTask:

@@ -26,12 +26,26 @@ agent-python -m scripts.verify_runtime_config_sync --database-url sqlite:///.loc
 agent-python -m scripts.audit_decision_funnel --database-url sqlite:///.local_paper_console.db --lookback-days 7
 ```
 
+Real-time heartbeats only retain recent candles. Historical research data must be
+backfilled into the same Paper database before evidence computation. Both
+commands require an explicit `--database-url`; omitting it is a hard error so a
+separate validation database cannot be used accidentally.
+
+Backfill one year of BTC/ETH/SOL research candles into the local Paper database:
+
+```powershell
+agent-python -m scripts.run_top20_technical_validation `
+  --days 365 `
+  --database-url sqlite:///C:/Users/win/Desktop/AI--main/.local_paper_console.db `
+  --output artifacts/backfill/top3-technical-validation.md
+```
+
 Compute local-data-only evidence after historical 15m/1h/4h data is complete:
 
 ```powershell
 agent-python -m scripts.compute_signal_edge_stats `
   --strategy-key auto_paper_mature_templates `
-  --database-url sqlite:///.local_paper_console.db `
+  --database-url sqlite:///C:/Users/win/Desktop/AI--main/.local_paper_console.db `
   --days 365
 ```
 

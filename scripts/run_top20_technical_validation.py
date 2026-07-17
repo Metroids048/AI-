@@ -112,15 +112,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Compare a 1h baseline with the current 4h/1h/15m policy.")
     parser.add_argument("--days", type=int, default=90)
     parser.add_argument("--output", type=Path, default=None)
-    parser.add_argument("--database-url", default=None)
+    parser.add_argument(
+        "--database-url",
+        required=True,
+        help="Target database for stored/backfilled OHLCV history; required to avoid a separate validation store.",
+    )
     parser.add_argument("--reuse-stored-data", action="store_true")
     args = parser.parse_args()
     if args.days < 60:
         raise SystemExit("--days must be at least 60 to retain 4h warmup and an OOS window")
 
     root = Path(__file__).resolve().parents[1]
-    default_database_url = f"sqlite:///{(root / '.local' / 'technical-validation.db').as_posix()}"
-    database_url = args.database_url or default_database_url
+    database_url = args.database_url
     os.environ["POSTGRES_URL"] = database_url
     from scripts.prepare_database import prepare_database
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -160,8 +161,7 @@ def compute_and_write_edge_stats(
     stored = _load_stored(days=days, end_at=resolved_end)
     computed_at = datetime.now(UTC)
     service = TechnicalStrategyValidationService(oos_fraction=0.30, walk_forward_windows=3, max_workers=1)
-    results: list[dict[str, Any]] = []
-
+    replay_jobs: list[tuple[str, str, Any, Any, int]] = []
     for candidate_id in resolved_candidates:
         config = get_candidate(candidate_id).get_config()
         strategy = _template(strategy_key=strategy_key, rules=config, timeframe=Timeframe.M15)
@@ -169,29 +169,44 @@ def compute_and_write_edge_stats(
             set(config["entry_rules"].get("entry_signals", []))
         )
         for symbol in resolved_symbols:
-            full_metrics = service.replay(strategy=strategy, market_data={symbol: stored.get(symbol, {})})
-            oos_metrics = _oos_metrics(service, full_metrics)
-            payload = build_artifact_payload(
-                strategy_key=strategy_key,
-                candidate_id=candidate_id,
-                symbol=symbol,
-                rules=strategy.rules,
-                full_metrics=full_metrics,
-                oos_metrics=oos_metrics,
-                min_oos_trades=min_trade_samples,
-                max_age_days=max_age_days,
-                computed_at=computed_at,
-            )
-            payload["signal_count"] = signal_count
-            results.append(payload)
-            active_path = (
-                EDGE_STATS_ARTIFACT_DIR / strategy_key / candidate_id / symbol_artifact_key(symbol) / "active.json"
-            )
-            if payload["eligible"]:
-                active_path.parent.mkdir(parents=True, exist_ok=True)
-                active_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            elif active_path.exists():
-                active_path.unlink()
+            replay_jobs.append((candidate_id, symbol, strategy, strategy.rules, signal_count))
+
+    def replay_job(job: tuple[str, str, Any, Any, int]) -> dict[str, Any]:
+        candidate_id, symbol, strategy, rules, signal_count = job
+        full_metrics = service.replay(strategy=strategy, market_data={symbol: stored.get(symbol, {})})
+        oos_metrics = _oos_metrics(service, full_metrics)
+        payload = build_artifact_payload(
+            strategy_key=strategy_key,
+            candidate_id=candidate_id,
+            symbol=symbol,
+            rules=rules,
+            full_metrics=full_metrics,
+            oos_metrics=oos_metrics,
+            min_oos_trades=min_trade_samples,
+            max_age_days=max_age_days,
+            computed_at=computed_at,
+        )
+        payload["signal_count"] = signal_count
+        return payload
+
+    # Each replay owns its historical view.  Bounded concurrency makes the
+    # three-symbol OOS refresh practical without changing replay semantics.
+    with ThreadPoolExecutor(max_workers=min(3, len(replay_jobs) or 1)) as executor:
+        results = list(executor.map(replay_job, replay_jobs))
+
+    for payload in results:
+        active_path = (
+            EDGE_STATS_ARTIFACT_DIR
+            / strategy_key
+            / str(payload["candidate_id"])
+            / symbol_artifact_key(str(payload["symbol"]))
+            / "active.json"
+        )
+        if payload["eligible"]:
+            active_path.parent.mkdir(parents=True, exist_ok=True)
+            active_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        elif active_path.exists():
+            active_path.unlink()
 
     selected_candidate_id = select_best_candidate(results)
     strategy_dir = EDGE_STATS_ARTIFACT_DIR / strategy_key
@@ -266,15 +281,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--strategy-key", required=True)
     parser.add_argument("--days", type=int, default=365)
-    parser.add_argument("--database-url", default=None)
+    parser.add_argument(
+        "--database-url",
+        required=True,
+        help="Target database containing the persisted OHLCV history; required to avoid reading the wrong store.",
+    )
     parser.add_argument("--symbols", nargs="+", default=None)
     parser.add_argument("--candidate-id", action="append", dest="candidate_ids", default=None)
     parser.add_argument("--min-trade-samples", type=int, default=MIN_TRADE_SAMPLES)
     parser.add_argument("--max-age-days", type=int, default=30)
     args = parser.parse_args()
 
-    if args.database_url:
-        os.environ["POSTGRES_URL"] = args.database_url
+    os.environ["POSTGRES_URL"] = args.database_url
     result = compute_and_write_edge_stats(
         strategy_key=args.strategy_key,
         days=args.days,
