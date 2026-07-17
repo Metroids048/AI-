@@ -776,7 +776,12 @@ def test_paper_only_fixed_universe_does_not_block_on_initial_unknown_exchange_st
     assert _fixed_universe_skip_reason(mirrored, "BTC/USDT") == "exchangeInfo unavailable during bootstrap"
 
 
-def _runtime_without_position(db_session) -> tuple[PaperRuntimeService, PaperRun]:
+def _runtime_without_position(
+    db_session,
+    *,
+    gateway=None,
+    mirror_to_gateway: bool = False,
+) -> tuple[PaperRuntimeService, PaperRun]:
     strategy = StrategyRepository(db_session).create_strategy(
         StrategyCreate(
             strategy_key="decision_snapshot_persistence",
@@ -812,6 +817,9 @@ def _runtime_without_position(db_session) -> tuple[PaperRuntimeService, PaperRun
                 "account_equity": 10_000,
                 "equity_peak": 10_000,
                 "strategy_lane": "directional",
+                "execution_mode": "binance_simulation_first" if mirror_to_gateway else "paper_only",
+                "mirror_to_gateway": mirror_to_gateway,
+                "cost_gate_verified": mirror_to_gateway,
             },
             paper_status="running",
         )
@@ -834,8 +842,75 @@ def _runtime_without_position(db_session) -> tuple[PaperRuntimeService, PaperRun
             paper_repo=PaperRunRepository(db_session),
             review_repo=ReviewRepository(db_session),
         ),
+        gateway=gateway,
     )
     return runtime, paper_run
+
+
+def test_binance_submitted_entry_does_not_create_local_filled_position(db_session, monkeypatch) -> None:
+    from shared.config import settings
+
+    class SubmittedGateway:
+        capability = type("Cap", (), {"gateway_name": "submitted_gateway"})()
+
+        def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
+            return {
+                "gateway_order_id": "pending-entry-1",
+                "gateway_status": "submitted",
+                "protection_order_refs": [],
+            }
+
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
+    monkeypatch.setattr(settings, "binance_use_testnet", True)
+    monkeypatch.setattr(settings, "live_trading_enabled", False)
+    runtime, paper_run = _runtime_without_position(
+        db_session,
+        gateway=SubmittedGateway(),
+        mirror_to_gateway=True,
+    )
+    _store_bar(db_session, low=99, high=101, close=100)
+    latest = DataRepository(db_session).get_latest_ohlcv_bar(symbol="BTC/USDT", timeframe="1h")
+    assert latest is not None
+
+    def _forced_trade(*, strategy, symbol, timeframe, **_kwargs) -> DecisionPipelineResult:
+        return DecisionPipelineResult(
+            direction=TradeSide.LONG,
+            should_trade=True,
+            reason="forced_trade",
+            reference_price=Decimal("100"),
+            bar_time=latest.timestamp,
+            signals=[],
+            ensemble=None,
+            meta_label=None,
+            veto_result=None,
+            confidence_multiplier=1.0,
+            atr=None,
+            volatility_context={},
+            trace={
+                "pipeline_status": "bet_taken",
+                "strategy_lane": "directional",
+                "meta_label_win_rate": 1.0,
+                "meta_label_average_win": 0.10,
+                "meta_label_average_loss": 0.0,
+                "round_trip_fee_rate": 0.001,
+                "round_trip_slippage_rate": 0.0002,
+            },
+        )
+
+    monkeypatch.setattr(runtime.signal_generator.decision_pipeline, "evaluate", _forced_trade)
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
+    )
+
+    assert result.opened_positions == 0
+    assert result.rejected_orders == 0
+    assert result.actions[0].action == "pending_gateway_fill"
+    assert result.open_position_symbols == []
+    order = ExecutionRepository(db_session).list_orders()[-1]
+    assert order.execution_status == "submitted"
+    assert order.gateway_order_id == "pending-entry-1"
 
 
 def _runtime_with_position(
