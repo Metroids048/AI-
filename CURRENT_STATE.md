@@ -1,6 +1,6 @@
 # Current State
 
-Last updated: 2026-07-16 23:05 Asia/Shanghai
+Last updated: 2026-07-17 20:20 Asia/Shanghai
 
 ## Authority
 
@@ -10,9 +10,13 @@ Current truth is resolved in this order: current code and tests, the active runt
 
 - Environment: Paper / Binance Simulation only; mainnet remains disabled.
 - Automatic research universe: `BTC/USDT`, `ETH/USDT`, `SOL/USDT`.
-- Scheduled lanes: `auto_paper_mature_templates` and local-only `signal_observation_technical`.
+- Scheduled lanes: `auto_paper_mature_templates` and Binance-Simulation sampling lane `signal_observation_technical`.
 - Directional lane: requires fresh symbol-scoped OOS evidence whose candidate and rules hash match runtime rules.
-- Observation lane: may use the 47-bar proxy for diagnostics, but it is non-authoritative, cannot mirror to a gateway, and is excluded from strategy performance.
+- Observation lane: uses real technical signals and may submit to Binance Simulation only after exact Top3 acceptance. It remains non-authoritative and excluded from strategy performance.
+- Runtime readiness is based on the active execution scope (`BTC/USDT`, `ETH/USDT`, `SOL/USDT`), not legacy hard-coded Top20 counts.
+- Current Top3 acceptance: run `da7edfd9-c1d4-4b04-8b66-02fe82e4af89`, 6/6 fills at 40x, BTC/ETH/SOL each received STOP_MARKET + TAKE_PROFIT_MARKET ReduceOnly refs, final 0 positions / 0 open orders. `execution_ready=true`.
+- Real sampling evidence: `signal_observation` produced BTC gateway order `22305428148` and SOL gateway order `3246292050` on the current build/scope. Both were market entries with 40x and native dual protection; the observation lane remains excluded from strategy performance.
+- Reconciliation hardening: Binance Algo orders are included in acceptance/final state; transient missing positions must remain absent across two scheduler cycles before local close; exchange-only positions are recovered locally; missing Stop/TP is re-armed or fail-closed to ReduceOnly close; ReduceOnly `-2022` is only treated as flat after a fresh exchange-flat confirmation.
 - LLM failures are advisory. Deterministic blocking risk events remain authoritative.
 
 ## Paper Risk
@@ -37,4 +41,4 @@ agent-python -m scripts.compute_signal_edge_stats --strategy-key auto_paper_matu
 agent-python -m scripts.verify_config
 ```
 
-Fresh verification on 2026-07-16: backend `451 passed, 2 skipped`; mypy clean; Ruff clean; frontend `34 passed`; production build passed; runtime config sync passed; Top3 data completeness passed; `verify_config.py` returned `GREEN: 19/19`; funnel audit reported 3,496 decisions over the last 7 days. The replay command above intentionally returned `accepted=False` because local OOS samples are insufficient.
+Fresh verification on 2026-07-17: backend `464 passed, 4 skipped`; production-code mypy clean across 144 files; Ruff clean; frontend `35 passed`; production build passed. `scripts.verify_config.py` returned `GREEN: 19/19` with two current-build/current-scope real sampling gateway orders. Top3 scheduler coverage is 3/3 and the dynamic acceptance arms only `signal_observation`; `auto_paper_mature_templates` remains Paper-only. Historical verification/reconciliation orders do not count as proof.

@@ -3,7 +3,13 @@ from __future__ import annotations
 import pytest
 
 from services.data.universe import FIXED_TOP20_SYMBOLS
-from services.execution.gateway import BinanceUsdtPerpetualGateway, _normalize_binance_symbol, configured_gateways
+from services.execution.gateway import (
+    BinanceUsdtPerpetualGateway,
+    _effective_position_leverage,
+    _normalize_binance_symbol,
+    _position_numeric,
+    configured_gateways,
+)
 from shared.config import settings
 from shared.models import ExecutionOrderRequest, TradeSide
 
@@ -12,6 +18,7 @@ class StubCcxtClient:
     def __init__(self) -> None:
         self.leverage_calls: list[tuple[int, str]] = []
         self.open_order_symbols: list[str | None] = []
+        self.open_algo_orders: list[dict] = []
         self.algo_orders: list[dict] = []
         self.created_orders: list[dict] = []
         self.urls = {
@@ -68,6 +75,10 @@ class StubCcxtClient:
         self.open_order_symbols.append(symbol)
         return []
 
+    def fapiPrivateGetOpenAlgoOrders(self, payload):  # noqa: N802, ANN001
+        assert payload == {}
+        return list(self.open_algo_orders)
+
     def fetch_ticker(self, symbol):  # noqa: ANN001
         assert symbol == "BTC/USDT:USDT"
         return {"last": 60_000.0}
@@ -76,6 +87,28 @@ class StubCcxtClient:
 def test_binance_gateway_normalizes_platform_contract_aliases() -> None:
     assert _normalize_binance_symbol("BTC/USDT") == "BTC/USDT:USDT"
     assert _normalize_binance_symbol("PEPE/USDT") == "1000PEPE/USDT:USDT"
+
+
+def test_binance_position_numeric_falls_back_to_raw_exchange_info() -> None:
+    raw = {"leverage": None, "info": {"leverage": "40", "entryPrice": "63289.10"}}
+
+    assert _position_numeric(raw, "leverage") == 40.0
+    assert _position_numeric(raw, "entryPrice", "entry_price") == 63289.10
+
+
+def test_binance_gateway_reads_leverage_from_position_risk_endpoint() -> None:
+    class PositionRiskClient(StubCcxtClient):
+        def fapiPrivateV3GetPositionRisk(self, payload):  # noqa: N802, ANN001
+            assert payload == {}
+            return [{"symbol": "BTCUSDT", "leverage": "40"}]
+
+    gateway = BinanceUsdtPerpetualGateway(client=PositionRiskClient(), use_testnet=True)
+
+    assert gateway._fetch_position_leverages() == {"BTCUSDT": 40.0}
+
+
+def test_binance_effective_leverage_falls_back_to_notional_margin_ratio() -> None:
+    assert _effective_position_leverage({"notional": "1600", "initialMargin": "40"}) == 40.0
 
 
 def test_configured_gateways_keeps_disabled_gateway_available_without_credentials(monkeypatch) -> None:
@@ -220,6 +253,28 @@ def test_binance_gateway_exposes_acceptance_adapter_without_bypassing_submit_ord
     assert closed["reduce_only"] is True
     assert client.created_orders[1]["params"]["reduceOnly"] is True
     assert gateway.final_state() == {"open_orders": [], "open_positions": []}
+
+
+def test_binance_gateway_acceptance_preflight_includes_open_algo_orders() -> None:
+    class EmptyAccountClient(StubCcxtClient):
+        def fetch_positions(self):
+            return []
+
+    client = EmptyAccountClient()
+    client.open_algo_orders = [
+        {
+            "algoId": "stale-take-profit",
+            "symbol": "ETHUSDT",
+            "orderType": "TAKE_PROFIT_MARKET",
+            "reduceOnly": True,
+        }
+    ]
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+
+    state = gateway.preflight()
+
+    assert state["open_orders"] == client.open_algo_orders
+    assert gateway.reconcile(live_run_id="paper-testnet:algo-scan")["open_order_count"] == 1
 
 
 def test_binance_gateway_exposes_perp_carry_leg_adapter() -> None:

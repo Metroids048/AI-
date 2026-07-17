@@ -1,5 +1,19 @@
 # Task History
 
+## 2026-07-17 — Binance exchange-truth reconciliation and protection completeness
+
+- **Summary**: After the first real sampling cycle, fixed Algo-order blind spots in acceptance/reconciliation, added exchange-only position recovery and two-read transient confirmation, cleaned orphan ReduceOnly protections, re-armed missing Stop/TP pairs, corrected ReduceOnly `-2022` handling, and added leverage readback fallback.
+- **External evidence**: Top3 acceptance `da7edfd9-c1d4-4b04-8b66-02fe82e4af89` completed 6/6 fills at 40x with final zero positions/orders. Real observation entries `22305428148` (BTC) and `3246292050` (SOL) were read back; current account positions have 40x and four native ReduceOnly protection orders. `verify_config.py` is `GREEN: 19/19`.
+- **Verification**: Full backend `464 passed, 4 skipped`; Ruff clean; production mypy `144` files clean; frontend `35 passed`; production build passed.
+- **Safety boundary**: Main strategy remains Paper-only and OOS-gated; observation remains non-authoritative; mainnet remains disabled.
+
+## 2026-07-17 — Binance Simulation Top3 real-signal auto-link
+
+- **Summary**: Removed the Top3-vs-hardcoded-20 readiness deadlock, made acceptance exact-scope and durable, armed only the real-signal observation lane for Binance Simulation, synchronized effective risk tiers to 40x/35%, prevented local fills for pending gateway entries, and separated sampling/acceptance/reconciliation provenance in the console.
+- **Safety boundary**: Main directional strategy remains Paper-only and OOS-evidence-gated; observation trades are excluded from performance; mainnet remains disabled; stoploss, takeprofit, exposure, correlation and kill-switch gates remain active.
+- **External evidence**: Top3 acceptance run `4e08f295-edb4-463f-850c-5409dd064921` completed 6/6 Binance fills with protection refs, 40x leverage, final 0 positions and 0 open orders; runtime status `ready`, coverage 3/3.
+- **Verification**: backend `455 passed, 4 skipped`; Ruff clean; production mypy `135` files clean; frontend `35 passed`; production build and `git diff --check` passed.
+
 ## 2026-07-16 — AI Quant evidence-based convergence and runtime verification
 
 - **Summary**: Consolidated the current fact source, archived contradictory reports and unsupported one-off scripts, restricted scheduled research to the Top3 main/observation lanes, added the decision-funnel audit, and switched the main lane to candidate/symbol/rules-hash-scoped OOS evidence. Fixed artifact-v2 typing and edge-stat correctness boundaries (loss sign, cost double counting, OOS scope), plus full static-check compatibility.

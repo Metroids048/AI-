@@ -10,6 +10,7 @@ from typing import Any
 
 from services.data import DataRepository
 from services.data.service import DEFAULT_BINANCE_TOP20
+from services.data.universe import exchange_to_platform_symbol
 from services.execution.account_equity import sync_paper_account_equity
 from services.execution.cross_sectional import CrossSectionalRankEntry, compute_funding_rank_snapshot
 from services.execution.exit_ladder import (
@@ -130,6 +131,10 @@ class PaperRuntimeService:
         paper_run = paper_run.model_copy(update={"paper_metrics_summary": metrics})
         protective_trailing = dict(metrics.get("protective_trailing", {}))
         exit_ladder_metrics = dict(metrics.get("exit_ladder", {}))
+        reconcile_missing_counts = {
+            str(symbol): int(count)
+            for symbol, count in dict(metrics.get("exchange_missing_position_counts", {})).items()
+        }
         processed_keys = set(metrics.get("processed_cycle_keys", []))
         new_processed_keys = list(processed_keys)
         realized_total = float(metrics.get("net_realized_pnl_total", metrics.get("realized_pnl_total", 0.0)))
@@ -146,7 +151,7 @@ class PaperRuntimeService:
         skipped_symbols = 0
         hard_drawdown_locked = self._is_hard_drawdown_locked(paper_run=paper_run, metrics=metrics)
 
-        if self._gateway_mirror_armed(paper_run) and active_positions:
+        if self._gateway_mirror_armed(paper_run):
             reconcile_result = self._reconcile_local_positions_with_exchange(
                 paper_run=paper_run,
                 strategy=strategy,
@@ -154,6 +159,7 @@ class PaperRuntimeService:
                 active_positions=active_positions,
                 exit_ladder_metrics=exit_ladder_metrics,
                 protective_trailing=protective_trailing,
+                reconcile_missing_counts=reconcile_missing_counts,
                 cycle_time=cycle_time,
             )
             actions.extend(reconcile_result["actions"])
@@ -1130,6 +1136,7 @@ class PaperRuntimeService:
             "last_action_counts": last_action_counts,
             "protective_trailing": protective_trailing,
             "exit_ladder": exit_ladder_metrics,
+            "exchange_missing_position_counts": reconcile_missing_counts,
             "last_cycle_actions": [action.model_dump(mode="json") for action in actions],
             "last_cycle_decisions": [
                 {
@@ -1293,6 +1300,242 @@ class PaperRuntimeService:
             and bool(paper_run.execution_profile.get("cost_gate_verified", False))
         )
 
+    @staticmethod
+    def _exchange_positions(snapshot: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        positions: dict[str, dict[str, Any]] = {}
+        for item in snapshot.get("open_positions", []) or []:
+            if not isinstance(item, dict):
+                continue
+            symbol = exchange_to_platform_symbol(str(item.get("symbol") or ""))
+            quantity = abs(float(item.get("contracts") or 0.0))
+            if symbol and quantity > 0:
+                positions[symbol] = {**item, "contracts": quantity}
+        return positions
+
+    def _cancel_latest_entry_protections(
+        self,
+        *,
+        paper_run: PaperRun,
+        symbol: str,
+    ) -> dict[str, list[str]]:
+        result: dict[str, list[str]] = {"cancelled": [], "failed": []}
+        gateway = self.gateway
+        cancel = getattr(gateway, "cancel_protection_order", None)
+        if not callable(cancel) or paper_run.paper_run_id is None:
+            return result
+        entry = self.execution_repo.find_latest_filled_entry_order(
+            run_type="paper",
+            run_id=paper_run.paper_run_id,
+            symbol=symbol,
+        )
+        if entry is None:
+            return result
+        refs = entry.entry_context.get("protection_order_refs", [])
+        for ref in refs if isinstance(refs, list) else []:
+            if not isinstance(ref, dict):
+                continue
+            order_id = str(ref.get("algoId") or ref.get("gateway_order_id") or ref.get("id") or "")
+            if not order_id:
+                continue
+            try:
+                cancel(symbol=symbol, gateway_order_id=order_id)
+                result["cancelled"].append(order_id)
+            except Exception:  # noqa: BLE001 - a triggered protection is already terminal
+                result["failed"].append(order_id)
+        return result
+
+    def _cancel_orphan_exchange_protections(
+        self,
+        *,
+        paper_run: PaperRun,
+        snapshot: dict[str, Any],
+        exchange_positions: dict[str, dict[str, Any]],
+    ) -> list[PaperRuntimeAction]:
+        gateway = self.gateway
+        cancel = getattr(gateway, "cancel_protection_order", None)
+        if not callable(cancel):
+            return []
+        allowed_symbols = set(paper_run.candidate_symbols)
+        actions: list[PaperRuntimeAction] = []
+        for raw in snapshot.get("open_orders", []) or []:
+            if not isinstance(raw, dict):
+                continue
+            order_id = str(raw.get("algoId") or "")
+            order_type = str(raw.get("orderType") or raw.get("type") or "").upper()
+            reduce_only = raw.get("reduceOnly") is True or str(raw.get("reduceOnly")).lower() == "true"
+            symbol = exchange_to_platform_symbol(str(raw.get("symbol") or ""))
+            if (
+                not order_id
+                or not reduce_only
+                or order_type not in {"STOP_MARKET", "TAKE_PROFIT_MARKET"}
+                or symbol not in allowed_symbols
+                or symbol in exchange_positions
+            ):
+                continue
+            try:
+                cancel(symbol=symbol, gateway_order_id=order_id)
+            except Exception as exc:  # noqa: BLE001
+                actions.append(
+                    PaperRuntimeAction(
+                        symbol=symbol,
+                        action="reconcile_orphan_protection_cancel_failed",
+                        reason=str(exc),
+                        close_only=True,
+                    )
+                )
+                continue
+            actions.append(
+                PaperRuntimeAction(
+                    symbol=symbol,
+                    action="reconcile_cancel_orphan_protection",
+                    reason=f"cancelled {order_type} {order_id} because Binance position is flat",
+                    close_only=True,
+                )
+            )
+        return actions
+
+    def _exchange_position_present(self, *, paper_run: PaperRun, symbol: str) -> bool:
+        gateway = self.gateway
+        if gateway is None:
+            return True
+        try:
+            snapshot = gateway.reconcile(
+                live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}:close-confirm"
+            )
+        except Exception:  # noqa: BLE001 - preserve local position on uncertain exchange state
+            return True
+        return symbol in self._exchange_positions(snapshot)
+
+    def _ensure_exchange_protections(
+        self,
+        *,
+        paper_run: PaperRun,
+        snapshot: dict[str, Any],
+        exchange_positions: dict[str, dict[str, Any]],
+    ) -> list[PaperRuntimeAction]:
+        gateway = self.gateway
+        refresh = getattr(gateway, "refresh_protection_orders", None)
+        submit = getattr(gateway, "submit_order", None)
+        if gateway is None or (not callable(refresh) and not callable(submit)):
+            return []
+        open_algo_by_symbol: dict[str, set[str]] = {}
+        for raw in snapshot.get("open_orders", []) or []:
+            if not isinstance(raw, dict):
+                continue
+            if not (raw.get("reduceOnly") is True or str(raw.get("reduceOnly")).lower() == "true"):
+                continue
+            order_type = str(raw.get("orderType") or raw.get("type") or "").upper()
+            if order_type not in {"STOP_MARKET", "TAKE_PROFIT_MARKET"}:
+                continue
+            symbol = exchange_to_platform_symbol(str(raw.get("symbol") or ""))
+            open_algo_by_symbol.setdefault(symbol, set()).add(order_type)
+        actions: list[PaperRuntimeAction] = []
+        for symbol, exchange_position in exchange_positions.items():
+            existing_types = open_algo_by_symbol.get(symbol, set())
+            if {"STOP_MARKET", "TAKE_PROFIT_MARKET"}.issubset(existing_types):
+                continue
+            entry = self.execution_repo.find_latest_filled_entry_order(
+                run_type="paper",
+                run_id=paper_run.paper_run_id or "",
+                symbol=symbol,
+            )
+            quantity = abs(float(exchange_position.get("contracts") or 0.0))
+            mark_price = float(exchange_position.get("mark_price") or 0.0)
+            stop_price = _float_or_none(entry.stoploss_plan.get("price")) if entry else None
+            take_price = _float_or_none(entry.takeprofit_plan.get("price")) if entry else None
+            failure_reason = "protection_refresh_returned_empty"
+            if callable(refresh) and entry is not None and stop_price is not None and take_price is not None:
+                protection_request = ExecutionOrderRequest(
+                    strategy_id=entry.strategy_id,
+                    version_id=entry.version_id,
+                    symbol=symbol,
+                    direction=entry.direction,
+                    entry_context={
+                        **entry.entry_context,
+                        "order_type": "market",
+                        "quantity": quantity,
+                        "reference_price": mark_price,
+                        "gateway_reference_price": mark_price,
+                        "close_only_mode": False,
+                        "reduce_only": False,
+                    },
+                    stoploss_plan={"price": stop_price},
+                    takeprofit_plan={"price": take_price},
+                    idempotency_key=f"rearm-protection:{paper_run.paper_run_id}:{symbol}",
+                )
+                try:
+                    refs = refresh(
+                        order_request=protection_request,
+                        quantity=quantity,
+                        previous_refs=entry.entry_context.get("protection_order_refs", []),
+                    )
+                    if refs:
+                        self.execution_repo.update_order(
+                            entry.order_execution_id or "",
+                            entry_context={**entry.entry_context, "protection_order_refs": refs},
+                        )
+                        actions.append(
+                            PaperRuntimeAction(
+                                symbol=symbol,
+                                action="reconcile_rearm_protection",
+                                reference_price=mark_price,
+                                decision_trace={
+                                    "missing_protection_types": sorted(
+                                        {"STOP_MARKET", "TAKE_PROFIT_MARKET"} - existing_types
+                                    ),
+                                    "protection_order_refs": refs,
+                                },
+                            )
+                        )
+                        continue
+                except Exception as exc:  # noqa: BLE001 - fail closed below
+                    failure_reason = str(exc)
+            else:
+                failure_reason = "missing_entry_protection_plan"
+            if callable(submit):
+                side = (
+                    TradeSide.SHORT
+                    if str(exchange_position.get("side") or "").lower() == "short"
+                    else TradeSide.LONG
+                )
+                try:
+                    result = submit(
+                        live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}:protection-failure",
+                        order_request=ExecutionOrderRequest(
+                            strategy_id=paper_run.strategy_id,
+                            symbol=symbol,
+                            direction=side,
+                            entry_context={
+                                "order_type": "market",
+                                "quantity": quantity,
+                                "reference_price": mark_price,
+                                "close_only_mode": True,
+                                "reduce_only": True,
+                            },
+                        ),
+                    )
+                    actions.append(
+                        PaperRuntimeAction(
+                            symbol=symbol,
+                            action="reconcile_close_unprotected_position",
+                            direction=side,
+                            close_only=True,
+                            reason=f"protection rearm failed: {failure_reason}",
+                            decision_trace={"gateway_result": result},
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001 - keep the position visible for next retry
+                    actions.append(
+                        PaperRuntimeAction(
+                            symbol=symbol,
+                            action="reconcile_protection_failure",
+                            direction=side,
+                            close_only=True,
+                            reason=f"protection rearm failed: {failure_reason}; emergency close failed: {exc}",
+                        )
+                    )
+        return actions
+
     def _reconcile_local_positions_with_exchange(
         self,
         *,
@@ -1302,6 +1545,7 @@ class PaperRuntimeService:
         active_positions: dict[str, PositionSnapshot],
         exit_ladder_metrics: dict[str, Any],
         protective_trailing: dict[str, Any],
+        reconcile_missing_counts: dict[str, int],
         cycle_time: datetime,
     ) -> dict[str, Any]:
         empty = {
@@ -1334,23 +1578,98 @@ class PaperRuntimeService:
             return empty
         if "open_positions" not in snapshot:
             return empty
-        exchange_qty_by_platform: dict[str, float] = {}
-        for item in snapshot.get("open_positions", []) or []:
-            if not isinstance(item, dict):
-                continue
-            raw_symbol = str(item.get("symbol") or "")
-            platform_symbol = raw_symbol.replace(":USDT", "")
-            exchange_qty_by_platform[platform_symbol] = abs(float(item.get("contracts") or 0.0))
+        exchange_positions = self._exchange_positions(snapshot)
+        missing_symbols = set(active_positions) - set(exchange_positions)
+        if missing_symbols:
+            try:
+                confirmation = gateway.reconcile(
+                    live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}:confirm"
+                )
+            except Exception:  # noqa: BLE001 - retain local state when confirmation is unavailable
+                return empty
+            confirmed_positions = self._exchange_positions(confirmation)
+            for symbol in missing_symbols:
+                if symbol in confirmed_positions:
+                    exchange_positions[symbol] = confirmed_positions[symbol]
+            if confirmation.get("open_orders"):
+                snapshot = {**snapshot, "open_orders": confirmation["open_orders"]}
         actions: list[PaperRuntimeAction] = []
+        allowed_symbols = set(paper_run.candidate_symbols)
+        for symbol, item in exchange_positions.items():
+            reconcile_missing_counts.pop(symbol, None)
+            if symbol in active_positions or symbol not in allowed_symbols:
+                continue
+            side = TradeSide.SHORT if str(item.get("side") or "").lower() == "short" else TradeSide.LONG
+            entry_price = float(item.get("entry_price") or item.get("mark_price") or 0.0)
+            mark_price = float(item.get("mark_price") or entry_price)
+            recovered = self.execution_repo.create_position_snapshot(
+                PositionSnapshot(
+                    run_type="paper",
+                    run_id=paper_run_id,
+                    symbol=symbol,
+                    side=side,
+                    quantity=abs(float(item.get("contracts") or 0.0)),
+                    entry_price=entry_price,
+                    mark_price=mark_price,
+                    unrealized_pnl=float(item.get("unrealized_pnl") or 0.0),
+                    snapshot_time=cycle_time,
+                )
+            )
+            active_positions[symbol] = recovered
+            actions.append(
+                PaperRuntimeAction(
+                    symbol=symbol,
+                    action=f"reconcile_exchange_open_{side}",
+                    direction=side,
+                    reference_price=mark_price,
+                    decision_trace={
+                        "recovery_source": "binance_position_truth",
+                        "reconcile_decoupled_from_entry_cycle": True,
+                    },
+                )
+            )
+        actions.extend(
+            self._cancel_orphan_exchange_protections(
+                paper_run=paper_run,
+                snapshot=snapshot,
+                exchange_positions=exchange_positions,
+            )
+        )
+        actions.extend(
+            self._ensure_exchange_protections(
+                paper_run=paper_run,
+                snapshot=snapshot,
+                exchange_positions=exchange_positions,
+            )
+        )
         closed = 0
         net_pnl = 0.0
         gross_pnl = 0.0
         fee_cost = 0.0
         slippage_cost = 0.0
         for symbol, position in list(active_positions.items()):
-            exchange_qty = exchange_qty_by_platform.get(symbol, 0.0)
-            if exchange_qty > 0:
+            if symbol in exchange_positions:
+                reconcile_missing_counts.pop(symbol, None)
                 continue
+            missing_count = reconcile_missing_counts.get(symbol, 0) + 1
+            reconcile_missing_counts[symbol] = missing_count
+            if missing_count < 2:
+                actions.append(
+                    PaperRuntimeAction(
+                        symbol=symbol,
+                        action="reconcile_exchange_position_missing_pending",
+                        direction=position.side,
+                        close_only=True,
+                        reason="awaiting a second scheduler cycle with Binance position flat",
+                        decision_trace={
+                            "exchange_missing_confirmation_count": missing_count,
+                            "reconcile_decoupled_from_entry_cycle": True,
+                        },
+                    )
+                )
+                continue
+            reconcile_missing_counts.pop(symbol, None)
+            cleanup = self._cancel_latest_entry_protections(paper_run=paper_run, symbol=symbol)
             mark_price = float(position.mark_price or position.entry_price)
             realized = self._close_position(
                 paper_run_id=paper_run_id,
@@ -1377,6 +1696,8 @@ class PaperRuntimeService:
                     decision_trace={
                         "exit_reason": "exchange_position_flat",
                         "reconcile_decoupled_from_entry_cycle": True,
+                        "cancelled_protection_order_ids": cleanup["cancelled"],
+                        "terminal_protection_order_ids": cleanup["failed"],
                     },
                 )
             )
@@ -1749,8 +2070,16 @@ class PaperRuntimeService:
         except Exception as exc:  # noqa: BLE001
             # Exchange already flat: ReduceOnly rejects. Treat as reconcile success so
             # local ghosts cannot retry forever and block new directional opens.
-            if bool(order.close_only_mode) and _is_reduce_only_already_flat(exc):
+            if (
+                bool(order.close_only_mode)
+                and _is_reduce_only_already_flat(exc)
+                and not self._exchange_position_present(paper_run=paper_run, symbol=order.symbol)
+            ):
                 self._record_gateway_mirror_failure(paper_run=paper_run, order=order, exc=exc)
+                flat_cleanup = self._cancel_latest_entry_protections(
+                    paper_run=paper_run,
+                    symbol=order.symbol,
+                )
                 return (
                     self.execution_repo.update_order(
                         order.order_execution_id or "",
@@ -1766,6 +2095,8 @@ class PaperRuntimeService:
                             **order.entry_context,
                             "exchange_already_flat": True,
                             "gateway_flat_error": str(exc),
+                            "cancelled_protection_order_ids": flat_cleanup["cancelled"],
+                            "terminal_protection_order_ids": flat_cleanup["failed"],
                         },
                         lifecycle_history=[
                             *order.lifecycle_history,
@@ -1800,6 +2131,12 @@ class PaperRuntimeService:
                 or order
             )
         gateway_status = str(gateway_result.get("gateway_status", "submitted")).lower()
+        cleanup: dict[str, list[str]] = {"cancelled": [], "failed": []}
+        if bool(order.close_only_mode) and gateway_status in {"filled", "closed"}:
+            cleanup = self._cancel_latest_entry_protections(
+                paper_run=paper_run,
+                symbol=order.symbol,
+            )
         if gateway_status in {"filled", "closed"}:
             execution_status = "accepted"
             rejection_reason = None
@@ -1821,6 +2158,8 @@ class PaperRuntimeService:
                 entry_context={
                     **order.entry_context,
                     "protection_order_refs": gateway_result.get("protection_order_refs", []),
+                    "cancelled_protection_order_ids": cleanup["cancelled"],
+                    "terminal_protection_order_ids": cleanup["failed"],
                 },
                 gateway_name=getattr(gateway.capability, "gateway_name", "gateway_mirror"),
                 gateway_order_id=gateway_result.get("gateway_order_id"),

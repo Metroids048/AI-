@@ -1,5 +1,21 @@
 # Decisions Log
 
+## ADR-068: Binance Simulation reconciliation must be exchange-truth and protection-complete
+
+- Date: 2026-07-17
+- Status: accepted
+- Context: The first real sampling cycle exposed three unsafe edges: acceptance/final state ignored Binance Futures Algo orders; a transient empty position response closed the local SOL position while Binance still held it; and a ReduceOnly `-2022` response was treated as proof of a flat position even while BTC remained open. A stale ETH ReduceOnly take-profit also survived without an exchange position.
+- Decision: Include open Algo conditional orders in preflight, final state, account reconciliation, and orphan cleanup. Require the exchange position to remain absent across two scheduler cycles before closing a local position, recover exchange-only positions into the local PaperRun, and require every exchange position to have both native ReduceOnly STOP_MARKET and TAKE_PROFIT_MARKET protections; missing protection is re-armed from the persisted entry plan or immediately closed ReduceOnly. Treat `-2022` as flat only after a fresh exchange position check. Read leverage from native position-risk data or the notional/margin ratio when the standardized CCXT field is zero.
+- Consequences: Binance Simulation is never considered flat or safe from a single incomplete response. Local state can recover after restart, stale conditional orders are cancelled, and protection gaps fail closed. These controls apply only to the authorized Simulation observation lane; mainnet remains disabled and the mature strategy remains OOS-gated.
+
+## ADR-067: Exact-Top3 acceptance authorizes only the real-signal observation lane for Binance Simulation
+
+- Date: 2026-07-17
+- Status: accepted
+- Context: The scheduler correctly monitored BTC/ETH/SOL but the status API and acceptance repository still hard-coded 20, while the named fixed-Top20 catalog had already been reduced to 10. Both scheduled runs were forced `paper_only`, so prior Binance probe orders proved only infrastructure and could never establish continuous real-signal auto execution. `verify_config.py` also accepted stale link-verification/reconciliation orders as current proof.
+- Decision: Define the automatic Binance Simulation execution scope as exactly BTC/ETH/SOL with a stable scope hash. A completed open/protect/close acceptance for that exact set arms only `signal_observation_technical` as `binance_simulation_first`; the lane uses real technical signals but remains `strategy_performance_eligible=false`. Keep `auto_paper_mature_templates` local and OOS-evidence-gated. Align effective Top3 tiers to the approved Paper baseline (40x/35%), use market entries for sampling, require exchange-native reduce-only stop/take-profit protection, and never create a local filled position from a non-filled gateway response.
+- Consequences: Trading readiness now evaluates 3/3 market-data coverage and exact-scope acceptance instead of a literal 20. Bootstrap preserves verified observation authorization across restarts. Current-order verification requires the active build/scope, observation lane, strategy-trade provenance, Binance order ID, and age <=24h. Mainnet remains disabled and observation results cannot promote a strategy without the normal Validation Layer.
+
 ## ADR-066: Evidence-only Top3 runtime supersedes legacy Top20/threshold-sampling automation
 
 - Date: 2026-07-16

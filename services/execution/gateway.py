@@ -218,6 +218,7 @@ class BinanceUsdtPerpetualGateway:
             for symbol in FIXED_TOP20_SYMBOLS
             for order in self.client.fetch_open_orders(_normalize_binance_symbol(symbol))
         ]
+        open_orders.extend(self._fetch_open_algo_orders())
         return {
             "open_orders": open_orders,
             "open_positions": [position for position in self.client.fetch_positions() if _position_open(position)],
@@ -419,33 +420,80 @@ class BinanceUsdtPerpetualGateway:
             options["warnOnFetchOpenOrdersWithoutSymbol"] = False
         open_orders: list[Any] = []
         open_orders_error: str | None = None
+        open_algo_orders_error: str | None = None
         try:
             open_orders = list(self.client.fetch_open_orders())
         except Exception as exc:  # noqa: BLE001
             # Position flatness is what clears local ghosts; do not fail closed on
             # open-order scan warnings/rate-limit advisories from CCXT.
             open_orders_error = str(exc)
+        try:
+            open_orders.extend(self._fetch_open_algo_orders())
+        except Exception as exc:  # noqa: BLE001
+            open_algo_orders_error = str(exc)
         positions = list(self.client.fetch_positions())
+        leverage_by_symbol = self._fetch_position_leverages()
         open_positions = [position for position in positions if _position_open(position)]
         mismatches = [position for position in positions if not _position_open(position)]
         notes = ["binance gateway reconciliation snapshot"]
         if open_orders_error:
             notes.append(f"open_orders_scan_failed:{open_orders_error}")
+        if open_algo_orders_error:
+            notes.append(f"open_algo_orders_scan_failed:{open_algo_orders_error}")
         return {
             "live_run_id": live_run_id,
-            "reconciliation_status": "warning" if mismatches or open_orders_error else "ok",
+            "reconciliation_status": (
+                "warning" if mismatches or open_orders_error or open_algo_orders_error else "ok"
+            ),
             "open_order_count": len(open_orders),
+            "open_orders": open_orders,
             "position_mismatches": mismatches,
             "open_positions": [
                 {
                     "symbol": str(position.get("symbol") or ""),
                     "contracts": float(position.get("contracts") or 0.0),
                     "side": str(position.get("side") or ""),
+                    "entry_price": _position_numeric(position, "entryPrice", "entry_price"),
+                    "mark_price": _position_numeric(position, "markPrice", "mark_price"),
+                    "unrealized_pnl": _position_numeric(position, "unrealizedPnl", "unrealized_pnl"),
+                    "leverage": _effective_position_leverage(position)
+                    or leverage_by_symbol.get(_binance_market_id(str(position.get("symbol") or "")), 0.0),
                 }
                 for position in open_positions
             ],
             "notes": notes,
         }
+
+    def _fetch_open_algo_orders(self) -> list[dict[str, Any]]:
+        method = getattr(self.client, "fapiPrivateGetOpenAlgoOrders", None)
+        if not callable(method):
+            return []
+        payload = method({})
+        return list(payload or [])
+
+    def _fetch_position_leverages(self) -> dict[str, float]:
+        for method_name in (
+            "fapiPrivateV3GetPositionRisk",
+            "fapiPrivateV2GetPositionRisk",
+            "fapiPrivateGetPositionRisk",
+        ):
+            method = getattr(self.client, method_name, None)
+            if not callable(method):
+                continue
+            try:
+                payload = method({})
+            except Exception:  # noqa: BLE001 - standardized positions remain usable
+                continue
+            result: dict[str, float] = {}
+            for item in payload or []:
+                if not isinstance(item, dict):
+                    continue
+                symbol = _binance_market_id(str(item.get("symbol") or ""))
+                leverage = _position_numeric(item, "leverage")
+                if symbol and leverage > 0:
+                    result[symbol] = leverage
+            return result
+        return {}
 
     def set_leverage(self, *, symbol: str, leverage: float) -> dict[str, Any]:
         normalized_symbol = _normalize_binance_symbol(symbol)
@@ -772,6 +820,36 @@ def _position_open(position: dict[str, Any]) -> bool:
         return True
 
 
+def _position_value(position: dict[str, Any], *keys: str) -> Any:
+    info = position.get("info")
+    sources = (position, info if isinstance(info, dict) else {})
+    for source in sources:
+        for key in keys:
+            value = source.get(key)
+            if value not in (None, ""):
+                return value
+    return None
+
+
+def _position_numeric(position: dict[str, Any], *keys: str) -> float:
+    value = _position_value(position, *keys)
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _effective_position_leverage(position: dict[str, Any]) -> float:
+    direct = _position_numeric(position, "leverage")
+    if direct > 0:
+        return direct
+    notional = abs(_position_numeric(position, "notional", "notionalValue"))
+    margin = abs(_position_numeric(position, "initialMargin", "collateral", "isolatedMargin"))
+    if notional > 0 and margin > 0:
+        return notional / margin
+    return 0.0
+
+
 def _binance_mode_urls(*, api_backend: str | None = None) -> tuple[str, str, str]:
     """Return (trading_mode label, api_base, web_ui_url) for the active paper backend."""
     backend = (api_backend or settings.binance_trading_mode or "demo").lower()
@@ -858,6 +936,7 @@ def _probe_testnet_account_once(
         gateway = BinanceUsdtPerpetualGateway(use_testnet=True)
         snapshot = gateway.sync_account(live_run_id="console_probe")
         client = gateway.client
+        leverage_by_symbol = gateway._fetch_position_leverages()
         api_backend = getattr(gateway, "api_backend", "demo")
         trading_mode, api_base, web_ui_url = _binance_mode_urls(api_backend=api_backend)
         warning = _binance_account_warning(api_backend=api_backend)
@@ -866,9 +945,9 @@ def _probe_testnet_account_once(
             contracts = float(raw.get("contracts") or 0)
             if abs(contracts) <= 0:
                 continue
-            mark_price = float(raw.get("markPrice") or raw.get("mark_price") or 0)
-            entry_price = float(raw.get("entryPrice") or raw.get("entry_price") or 0)
-            notional = float(raw.get("notional") or 0)
+            mark_price = _position_numeric(raw, "markPrice", "mark_price")
+            entry_price = _position_numeric(raw, "entryPrice", "entry_price")
+            notional = _position_numeric(raw, "notional")
             if not notional and mark_price > 0:
                 notional = abs(contracts) * mark_price
             positions.append(
@@ -879,12 +958,16 @@ def _probe_testnet_account_once(
                     entry_price=entry_price,
                     mark_price=mark_price,
                     notional_usdt=abs(notional),
-                    margin_usdt=float(raw.get("initialMargin") or raw.get("collateral") or 0),
-                    leverage=float(raw.get("leverage") or 0),
-                    unrealized_pnl=float(raw.get("unrealizedPnl") or raw.get("unrealized_pnl") or 0),
+                    margin_usdt=_position_numeric(raw, "initialMargin", "collateral"),
+                    leverage=_effective_position_leverage(raw)
+                    or leverage_by_symbol.get(
+                        _binance_market_id(str(raw.get("symbol") or "")),
+                        0.0,
+                    ),
+                    unrealized_pnl=_position_numeric(raw, "unrealizedPnl", "unrealized_pnl"),
                     liquidation_price=(
-                        float(raw["liquidationPrice"])
-                        if raw.get("liquidationPrice") not in (None, "", 0, "0")
+                        _position_numeric(raw, "liquidationPrice")
+                        if _position_value(raw, "liquidationPrice") not in (None, "", 0, "0")
                         else None
                     ),
                 )
