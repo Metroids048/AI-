@@ -199,6 +199,7 @@ def test_binance_gateway_exposes_acceptance_adapter_without_bypassing_submit_ord
         reference_price=60_000,
         reduce_only=False,
         stoploss_price=58_500,
+        takeprofit_price=63_000,
         idempotency_key="accept-btc-open",
     )
     closed = gateway.submit_acceptance_order(
@@ -208,6 +209,7 @@ def test_binance_gateway_exposes_acceptance_adapter_without_bypassing_submit_ord
         reference_price=60_000,
         reduce_only=True,
         stoploss_price=None,
+        takeprofit_price=None,
         idempotency_key="accept-btc-close",
     )
 

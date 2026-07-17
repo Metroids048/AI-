@@ -51,7 +51,8 @@ class FakeAcceptanceGateway:
             "protection_order_refs": ([{"gateway_order_id": f"stop-{symbol}"}] if not reduce_only else []),
         }
         self.orders.append(order)
-        self.protection_prices[symbol] = (stoploss_price, takeprofit_price)
+        if not reduce_only:
+            self.protection_prices[symbol] = (stoploss_price, takeprofit_price)
         self.positions[symbol] = 0.0 if reduce_only else quantity
         if not reduce_only:
             order["protection_order_refs"] = [

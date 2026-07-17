@@ -246,6 +246,7 @@ class BinanceUsdtPerpetualGateway:
         reference_price: float,
         reduce_only: bool,
         stoploss_price: float | None,
+        takeprofit_price: float | None,
         idempotency_key: str,
     ) -> dict[str, Any]:
         quantity = requested_notional / reference_price
@@ -264,6 +265,7 @@ class BinanceUsdtPerpetualGateway:
                     "reduce_only": reduce_only,
                 },
                 stoploss_plan={"price": stoploss_price} if stoploss_price is not None else {},
+                takeprofit_plan={"price": takeprofit_price} if takeprofit_price is not None else {},
                 idempotency_key=idempotency_key,
             ),
         )
