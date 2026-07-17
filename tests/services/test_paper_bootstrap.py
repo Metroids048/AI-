@@ -154,6 +154,38 @@ def test_signal_observation_run_is_automatically_scheduled_but_cannot_mirror_to_
     assert paper_run.execution_profile.get("execution_mode") == "paper_only"
     assert paper_run.execution_profile.get("mirror_to_gateway") is False
     assert paper_run.candidate_symbols == list(AUTO_PAPER_RESEARCH_SYMBOLS)
+    assert paper_run.execution_profile["asset_risk_tiers"]["core"]["leverage"] == 40.0
+    assert paper_run.execution_profile["asset_risk_tiers"]["core"]["max_position_fraction"] == 0.35
+
+
+def test_signal_observation_bootstrap_preserves_verified_simulation_authorization(db_session) -> None:
+    from services.strategy_library import PaperRunRepository
+
+    paper_run_id = bootstrap_signal_observation_strategy()
+    assert paper_run_id is not None
+    repo = PaperRunRepository(db_session)
+    paper_run = repo.get_paper_run(paper_run_id)
+    assert paper_run is not None
+    repo.update_paper_run(
+        paper_run_id,
+        execution_profile={
+            **paper_run.execution_profile,
+            "execution_mode": "binance_simulation_first",
+            "mirror_to_gateway": True,
+            "cost_gate_verified": True,
+            "testnet_acceptance_verified_at": "2026-07-17T00:00:00+00:00",
+            "acceptance_symbols": list(AUTO_PAPER_RESEARCH_SYMBOLS),
+            "acceptance_scope_hash": "scope-hash",
+        },
+    )
+
+    assert bootstrap_signal_observation_strategy() == paper_run_id
+    refreshed = repo.get_paper_run(paper_run_id)
+    assert refreshed is not None
+    assert refreshed.execution_profile["execution_mode"] == "binance_simulation_first"
+    assert refreshed.execution_profile["mirror_to_gateway"] is True
+    assert refreshed.execution_profile["cost_gate_verified"] is True
+    assert refreshed.execution_profile["acceptance_scope_hash"] == "scope-hash"
 
 
 def test_directional_auto_run_uses_research_top3_scope(db_session, monkeypatch) -> None:
@@ -239,8 +271,8 @@ def test_has_verified_testnet_acceptance_ignores_recent_task_window(db_session) 
             input_ref="acceptance-proof",
             output_payload={
                 "run_status": "completed",
-                "completed_symbols": [f"S{i}" for i in range(20)],
-                "filled_order_count": 40,
+                "completed_symbols": list(AUTO_PAPER_RESEARCH_SYMBOLS),
+                "filled_order_count": 2 * len(AUTO_PAPER_RESEARCH_SYMBOLS),
                 "final_open_position_count": 0,
                 "final_open_order_count": 0,
             },
@@ -263,7 +295,8 @@ def test_has_verified_testnet_acceptance_ignores_recent_task_window(db_session) 
             )
         )
 
-    assert repo.has_verified_testnet_acceptance() is True
+    assert repo.has_verified_testnet_acceptance(list(AUTO_PAPER_RESEARCH_SYMBOLS)) is True
+    assert repo.has_verified_testnet_acceptance(["BTC/USDT"]) is False
     recent = repo.list_tasks(limit=50)
     assert all(task.task_type != "testnet_acceptance" for task in recent)
 

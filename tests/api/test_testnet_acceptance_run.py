@@ -88,13 +88,14 @@ def test_testnet_acceptance_api_accepts_direct_demo_network(api_client, monkeypa
     assert response.json()["run_status"] == "completed"
 
 
-def test_full_top20_acceptance_arms_auto_paper_runs(api_client, db_session, monkeypatch) -> None:
+def test_execution_scope_acceptance_arms_only_signal_observation(api_client, db_session, monkeypatch) -> None:
     from apps.api.routers import runs as runs_router
-    from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY
+    from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
+    from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY, SIGNAL_OBSERVATION_RUNTIME_KEY
     from services.strategy_library import PaperRunRepository
     from shared.models import PaperRun
 
-    symbols = [f"ASSET{index}/USDT" for index in range(20)]
+    symbols = list(AUTO_PAPER_RESEARCH_SYMBOLS)
 
     class FullAcceptanceService:
         def run(self, request):  # noqa: ANN001
@@ -102,7 +103,7 @@ def test_full_top20_acceptance_arms_auto_paper_runs(api_client, db_session, monk
                 run_status="completed",
                 requested_symbols=symbols,
                 completed_symbols=symbols,
-                filled_order_count=40,
+                filled_order_count=2 * len(symbols),
                 final_open_position_count=0,
                 final_open_order_count=0,
             )
@@ -124,14 +125,33 @@ def test_full_top20_acceptance_arms_auto_paper_runs(api_client, db_session, monk
             paper_status="running",
         )
     )
+    observation_run = PaperRunRepository(db_session).create_paper_run(
+        PaperRun(
+            strategy_id="observation-strategy",
+            execution_profile={
+                "auto_paper_runtime_key": SIGNAL_OBSERVATION_RUNTIME_KEY,
+                "execution_mode": "paper_only",
+                "mirror_to_gateway": False,
+                "cost_gate_verified": False,
+            },
+            paper_status="running",
+        )
+    )
 
     response = api_client.post("/api/v1/execution/testnet-acceptance-runs", json={"symbols": symbols})
 
     assert response.status_code == 201
-    promoted = PaperRunRepository(db_session).get_paper_run(technical_run.paper_run_id)
-    assert promoted is not None
-    assert promoted.execution_profile["cost_gate_verified"] is True
-    assert promoted.execution_profile["execution_mode"] == "binance_simulation_first"
+    technical = PaperRunRepository(db_session).get_paper_run(technical_run.paper_run_id)
+    observation = PaperRunRepository(db_session).get_paper_run(observation_run.paper_run_id)
+    assert technical is not None
+    assert observation is not None
+    assert technical.execution_profile["cost_gate_verified"] is False
+    assert technical.execution_profile["execution_mode"] == "paper_only"
+    assert observation.execution_profile["cost_gate_verified"] is True
+    assert observation.execution_profile["execution_mode"] == "binance_simulation_first"
+    assert observation.execution_profile["mirror_to_gateway"] is True
+    assert observation.execution_profile["acceptance_symbols"] == symbols
+    assert observation.execution_profile["acceptance_scope_hash"]
 
 
 def test_binance_testnet_account_probe_persists_a_local_balance_snapshot(api_client, db_session, monkeypatch) -> None:

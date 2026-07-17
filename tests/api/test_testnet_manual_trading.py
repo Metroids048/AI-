@@ -192,6 +192,61 @@ def test_trading_status_reports_external_desktop_scheduler(api_client, monkeypat
     assert response.json()["scheduler_running"] is True
 
 
+def test_trading_status_treats_top3_execution_scope_as_complete(api_client, db_session, monkeypatch) -> None:
+    from apps.api.config import settings
+    from apps.api.routers import runs as runs_router
+    from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
+    from services.execution.runtime_state import ExternalSchedulerState
+    from services.strategy_library import AgentTaskRepository
+    from shared.models import AgentTask
+
+    monkeypatch.setattr(settings, "binance_api_key", "key")
+    monkeypatch.setattr(settings, "binance_api_secret", "secret")
+    monkeypatch.setattr(settings, "binance_use_testnet", True)
+    monkeypatch.setattr(settings, "live_trading_enabled", False)
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
+    monkeypatch.setattr(runs_router, "_local_scheduler_process_running", lambda: True)
+    monkeypatch.setattr(
+        runs_router,
+        "load_external_scheduler_state",
+        lambda: ExternalSchedulerState(
+            running=True,
+            top20_coverage_count=len(AUTO_PAPER_RESEARCH_SYMBOLS),
+            exchange_info_ready=True,
+            data_fresh=True,
+        ),
+    )
+    AgentTaskRepository(db_session).create_task(
+        AgentTask(
+            agent_type="execution",
+            task_type="testnet_acceptance",
+            task_status="completed",
+            output_payload={
+                "run_status": "completed",
+                "requested_symbols": list(AUTO_PAPER_RESEARCH_SYMBOLS),
+                "completed_symbols": list(AUTO_PAPER_RESEARCH_SYMBOLS),
+                "filled_order_count": 2 * len(AUTO_PAPER_RESEARCH_SYMBOLS),
+                "final_open_position_count": 0,
+                "final_open_order_count": 0,
+            },
+        )
+    )
+
+    response = api_client.get("/api/v1/execution/trading-status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["execution_ready"] is True
+    assert "top20_coverage_incomplete" not in body["execution_blockers"]
+    assert body["active_execution_symbols"] == list(AUTO_PAPER_RESEARCH_SYMBOLS)
+    assert body["active_execution_count"] == 3
+    assert body["market_data_coverage_count"] == 3
+    assert body["acceptance_symbols"] == list(AUTO_PAPER_RESEARCH_SYMBOLS)
+    assert body["acceptance_scope_hash"]
+    assert "last_strategy_gateway_order_at" in body
+    assert "last_strategy_gateway_order_id" in body
+
+
 def test_manual_trading_context_is_paper_only_and_reused(api_client) -> None:
     first = api_client.get("/api/v1/execution/manual-trading-context", params={"mode": "paper"})
     second = api_client.post("/api/v1/execution/manual-trading-context", params={"mode": "paper"})
