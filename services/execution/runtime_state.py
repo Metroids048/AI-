@@ -22,6 +22,8 @@ class ExternalSchedulerState:
     running: bool = False
     heartbeat_at: datetime | None = None
     top20_coverage_count: int = 0
+    execution_coverage_count: int = 0
+    execution_symbols: tuple[str, ...] = ()
     exchange_info_ready: bool = False
     data_fresh: bool = False
     last_auto_cycle_at: datetime | None = None
@@ -72,10 +74,14 @@ def load_external_scheduler_state(
             reason="scheduler_heartbeat_stale",
         )
 
+    execution_coverage_count = int(raw.get("execution_coverage_count", raw.get("top20_coverage_count", 0)) or 0)
+    execution_symbols = tuple(str(value) for value in raw.get("execution_symbols", []) if value)
     return ExternalSchedulerState(
         running=bool(raw.get("running")),
         heartbeat_at=heartbeat_at,
         top20_coverage_count=int(raw.get("top20_coverage_count", 0)),
+        execution_coverage_count=execution_coverage_count,
+        execution_symbols=execution_symbols,
         exchange_info_ready=bool(raw.get("exchange_info_ready")),
         data_fresh=bool(raw.get("data_fresh")),
         last_auto_cycle_at=_parse_datetime(raw.get("last_auto_cycle_at")),

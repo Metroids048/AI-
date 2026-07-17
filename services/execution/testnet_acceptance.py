@@ -5,15 +5,16 @@ from __future__ import annotations
 import contextlib
 from typing import Protocol
 
-from services.data.universe import FIXED_TOP20_SYMBOLS
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from shared.models import (
     TestnetAcceptanceOrderEvidence,
     TestnetAcceptanceRunRequest,
     TestnetAcceptanceRunResult,
     TestnetAcceptanceSymbolResult,
 )
+from shared.models.risk import medium_risk_profile
 
-from .risk_tiers import default_asset_risk_tiers, resolve_asset_risk_tier
+from .risk_tiers import default_asset_risk_tiers, resolve_asset_risk_tier, scale_asset_risk_tiers
 
 
 class AcceptanceGateway(Protocol):
@@ -51,9 +52,14 @@ class TestnetAcceptanceService:
         if preflight.get("open_orders") or preflight.get("open_positions"):
             raise ValueError("testnet acceptance requires zero existing positions and open orders")
 
-        symbols = request.symbols or list(FIXED_TOP20_SYMBOLS)
+        symbols = request.symbols or list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
         equity = self.gateway.account_equity()
-        tiers = request.asset_risk_tiers or default_asset_risk_tiers()
+        profile = medium_risk_profile()
+        tiers = request.asset_risk_tiers or scale_asset_risk_tiers(
+            default_asset_risk_tiers(),
+            max_leverage=profile.max_leverage,
+            max_symbol_exposure=profile.max_symbol_exposure,
+        )
         completed: list[str] = []
         evidence: list[TestnetAcceptanceOrderEvidence] = []
         symbol_results: list[TestnetAcceptanceSymbolResult] = []

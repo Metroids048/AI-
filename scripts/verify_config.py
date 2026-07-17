@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
+from services.data.universe import (
+    AUTO_PAPER_RESEARCH_SYMBOLS,
+    AUTO_SIMULATION_EXECUTION_SYMBOLS,
+    execution_scope_hash,
+)
 from services.execution.gateway import probe_testnet_account
 from shared.config import settings
 
@@ -37,6 +41,8 @@ def _parse_datetime(value: object) -> datetime | None:
 
 
 def _json_object(value: object) -> dict:
+    if isinstance(value, dict):
+        return value
     if not isinstance(value, str) or not value:
         return {}
     try:
@@ -44,6 +50,28 @@ def _json_object(value: object) -> dict:
     except json.JSONDecodeError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _is_current_sampling_gateway_order(
+    row,
+    context: dict,
+    *,
+    now: datetime,
+    build_id: str,
+    max_age: timedelta = timedelta(hours=24),
+) -> bool:
+    created_at = _parse_datetime(row["created_at"])
+    return bool(
+        row["gateway_order_id"]
+        and str(row["execution_status"]).lower() in ACTIVE_ORDER_STATUSES
+        and row["symbol"] in AUTO_SIMULATION_EXECUTION_SYMBOLS
+        and created_at is not None
+        and timedelta(0) <= now - created_at <= max_age
+        and context.get("execution_kind") == "strategy_trade"
+        and context.get("strategy_lane") == "signal_observation"
+        and context.get("runtime_build_id") == build_id
+        and context.get("execution_scope_hash") == execution_scope_hash()
+    )
 
 
 def main() -> int:
@@ -126,14 +154,28 @@ def main() -> int:
         simulation_profiles_ok = True
         for row in runs:
             profile = _json_object(row["execution_profile"])
-            simulation_profiles_ok = simulation_profiles_ok and (
-                profile.get("execution_mode") in {"paper_only", "binance_simulation_first"}
-                and not bool(profile.get("mirror_to_gateway"))
-            )
+            if row["strategy_key"] == "auto_paper_mature_templates":
+                simulation_profiles_ok = simulation_profiles_ok and (
+                    profile.get("execution_mode") == "paper_only"
+                    and not bool(profile.get("mirror_to_gateway"))
+                )
+            else:
+                mode = profile.get("execution_mode")
+                mirror = bool(profile.get("mirror_to_gateway"))
+                simulation_profiles_ok = simulation_profiles_ok and (
+                    (mode == "paper_only" and not mirror)
+                    or (
+                        mode == "binance_simulation_first"
+                        and mirror
+                        and bool(profile.get("cost_gate_verified"))
+                        and profile.get("acceptance_symbols") == expected_symbols
+                        and profile.get("acceptance_scope_hash") == execution_scope_hash()
+                    )
+                )
         record(
             "Paper 执行隔离配置",
             len(runs) == len(AUTO_STRATEGY_KEYS) and simulation_profiles_ok,
-            "directional/observation 均保持 Paper-only，未自动镜像",
+            "主策略保持 Paper-only；观察通道仅可在 Top3 验收后镜像",
         )
 
         run_coverage_ok = True
@@ -158,20 +200,16 @@ def main() -> int:
         automatic_orders = []
         for row in automatic_rows:
             context = _json_object(row["entry_context"])
-            pipeline = context.get("decision_pipeline")
-            if (
-                isinstance(pipeline, dict)
-                and context.get("execution_kind") == "strategy_trade"
-                and bool(row["gateway_order_id"])
+            if _is_current_sampling_gateway_order(
+                row,
+                context,
+                now=now,
+                build_id=settings.app_build_id,
             ):
                 automatic_orders.append((row, context))
-        record("币安自动订单记录", True, f"count={len(automatic_orders)}（无 evidence 时允许为 0）")
+        record("当前采样策略网关订单", bool(automatic_orders), f"count={len(automatic_orders)}（24h/current build）")
 
-        active_orders = [
-            (row, context)
-            for row, context in automatic_orders
-            if str(row["execution_status"]).lower() in ACTIVE_ORDER_STATUSES
-        ]
+        active_orders = automatic_orders
         active_detail = (
             f"{active_orders[0][0]['symbol']} gateway_order_id={active_orders[0][0]['gateway_order_id']}"
             if active_orders

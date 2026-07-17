@@ -930,6 +930,21 @@ class PaperRuntimeService:
                     order_request=base_order,
                     position=None,
                 )
+                if order.execution_status in {"submitted", "open"}:
+                    skipped_symbols += 1
+                    actions.append(
+                        PaperRuntimeAction(
+                            symbol=symbol,
+                            action="pending_gateway_fill",
+                            direction=base_order.direction,
+                            reason="Binance entry accepted but not filled; local position remains flat",
+                            order_execution_id=order.order_execution_id,
+                            reference_price=reference_price,
+                            idempotency_key=cycle_key,
+                            decision_trace=decision_trace,
+                        )
+                    )
+                    continue
                 if order.execution_status != "accepted":
                     rejected_orders += 1
                     actions.append(
@@ -1784,9 +1799,25 @@ class PaperRuntimeService:
                 )
                 or order
             )
+        gateway_status = str(gateway_result.get("gateway_status", "submitted")).lower()
+        if gateway_status in {"filled", "closed"}:
+            execution_status = "accepted"
+            rejection_reason = None
+            rejection_codes = order.rejection_codes
+        elif gateway_status in {"rejected", "cancelled", "canceled", "expired"}:
+            execution_status = "rejected"
+            rejection_reason = f"binance_entry_not_filled: {gateway_status}"
+            rejection_codes = [*order.rejection_codes, "binance_entry_not_filled"]
+        else:
+            execution_status = "submitted"
+            rejection_reason = None
+            rejection_codes = order.rejection_codes
         return (
             self.execution_repo.update_order(
                 order.order_execution_id or "",
+                execution_status=execution_status,
+                rejection_reason=rejection_reason,
+                rejection_codes=rejection_codes,
                 entry_context={
                     **order.entry_context,
                     "protection_order_refs": gateway_result.get("protection_order_refs", []),

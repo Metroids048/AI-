@@ -17,7 +17,12 @@ from services.data import DataRepository
 from services.data.binance import BinanceCcxtClient
 from services.data.live_feed_bus import live_feed_bus
 from services.data.market import MarketQueryService
-from services.data.universe import FIXED_TOP20_SYMBOLS, exchange_to_platform_symbol
+from services.data.universe import (
+    AUTO_SIMULATION_EXECUTION_SYMBOLS,
+    FIXED_TOP20_SYMBOLS,
+    exchange_to_platform_symbol,
+    execution_scope_hash,
+)
 from services.database import get_db_session
 from services.execution import (
     BinanceSpotTestnetGateway,
@@ -204,25 +209,24 @@ def _carry_status(task: AgentTask) -> CarryExecutionStatus:
     )
 
 
-def _is_complete_top20_acceptance(result: TestnetAcceptanceRunResult) -> bool:
+def _is_complete_execution_acceptance(result: TestnetAcceptanceRunResult) -> bool:
+    expected = list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     return (
         result.run_status == "completed"
-        and len(result.completed_symbols) == 20
-        and result.filled_order_count >= 40
+        and result.requested_symbols == expected
+        and result.completed_symbols == expected
+        and result.filled_order_count >= 2 * len(expected)
         and result.final_open_position_count == 0
         and result.final_open_order_count == 0
     )
 
 
 def _arm_auto_testnet_runs_after_acceptance(db: Session, result: TestnetAcceptanceRunResult) -> None:
-    if not _is_complete_top20_acceptance(result):
+    if not _is_complete_execution_acceptance(result):
         return
     repo = PaperRunRepository(db)
     for run in repo.list_paper_runs():
-        if run.execution_profile.get("auto_paper_runtime_key") not in {
-            "auto_paper_btc_funding",
-            "auto_paper_mature_templates",
-        }:
+        if run.execution_profile.get("auto_paper_runtime_key") != "signal_observation":
             continue
         repo.update_paper_run(
             run.paper_run_id or "",
@@ -232,6 +236,8 @@ def _arm_auto_testnet_runs_after_acceptance(db: Session, result: TestnetAcceptan
                 "mirror_to_gateway": True,
                 "cost_gate_verified": True,
                 "testnet_acceptance_verified_at": datetime.now(UTC).isoformat(),
+                "acceptance_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+                "acceptance_scope_hash": execution_scope_hash(),
             },
         )
 
@@ -282,8 +288,11 @@ def get_trading_status(db: Session = Depends(get_db_session)) -> TradingRuntimeS
         blockers.append("auto_execute_disabled")
     if not external_state.running:
         blockers.append(external_state.reason or "scheduler_offline")
-    if external_state.top20_coverage_count != 20:
-        blockers.append("top20_coverage_incomplete")
+    active_symbols = list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    expected_coverage = len(active_symbols)
+    market_data_coverage = external_state.execution_coverage_count or external_state.top20_coverage_count
+    if market_data_coverage != expected_coverage:
+        blockers.append("market_data_coverage_incomplete")
     if not external_state.exchange_info_ready:
         blockers.append("exchange_info_not_ready")
     if not external_state.data_fresh:
@@ -291,7 +300,8 @@ def get_trading_status(db: Session = Depends(get_db_session)) -> TradingRuntimeS
     blocking_risk = DataRepository(db).has_blocking_risk_event(scope=None, reference_time=datetime.now(UTC))
     if blocking_risk:
         blockers.append("blocking_risk_event")
-    acceptance_verified = AgentTaskRepository(db).has_verified_testnet_acceptance()
+    acceptance_task = AgentTaskRepository(db).find_verified_testnet_acceptance(active_symbols)
+    acceptance_verified = acceptance_task is not None
     if not acceptance_verified:
         blockers.append("testnet_acceptance_not_verified")
     execution_ready = not blockers
@@ -303,6 +313,14 @@ def get_trading_status(db: Session = Depends(get_db_session)) -> TradingRuntimeS
     external_scheduler_running = external_state.running and _local_scheduler_process_running()
     heartbeat = scheduler_status.last_results.get("market_data_heartbeat", {})
     heartbeat_symbols = heartbeat.get("checked_symbols", []) if isinstance(heartbeat, dict) else []
+    strategy_gateway_orders = [
+        order
+        for order in _execution_repo(db).list_orders()
+        if order.gateway_order_id
+        and order.entry_context.get("execution_kind") == "strategy_trade"
+        and order.entry_context.get("strategy_lane") == "signal_observation"
+    ]
+    latest_strategy_gateway_order = strategy_gateway_orders[-1] if strategy_gateway_orders else None
     return TradingRuntimeStatus(
         exchange="binance",
         mode="testnet" if settings.binance_use_testnet and credentials_configured else "paper",
@@ -317,6 +335,18 @@ def get_trading_status(db: Session = Depends(get_db_session)) -> TradingRuntimeS
         execution_blockers=blockers,
         testnet_acceptance_verified=acceptance_verified,
         fixed_top20_count=20,
+        simulation_catalog_count=len(FIXED_TOP20_SYMBOLS),
+        active_execution_symbols=active_symbols,
+        active_execution_count=expected_coverage,
+        market_data_coverage_count=market_data_coverage,
+        acceptance_symbols=active_symbols if acceptance_verified else [],
+        acceptance_scope_hash=execution_scope_hash() if acceptance_verified else None,
+        last_strategy_gateway_order_at=(
+            latest_strategy_gateway_order.created_at if latest_strategy_gateway_order else None
+        ),
+        last_strategy_gateway_order_id=(
+            latest_strategy_gateway_order.gateway_order_id if latest_strategy_gateway_order else None
+        ),
         backend_build_id=settings.app_build_id,
         scheduler_mode="external_local" if external_scheduler_running else scheduler_status.mode,
         scheduler_running=external_scheduler_running or scheduler_status.running,

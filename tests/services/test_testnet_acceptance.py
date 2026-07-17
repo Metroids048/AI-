@@ -101,4 +101,6 @@ def test_acceptance_run_retries_compensating_close_and_stops_after_failure() -> 
     assert failed.final_stage == "compensated"
     assert failed.compensation_succeeded is True
     assert failed.failure_class == "ValueError"
-    assert sum(item.run_status == "skipped" for item in result.symbol_results) == len(AUTO_SIMULATION_EXECUTION_SYMBOLS) - 2
+    assert sum(item.run_status == "skipped" for item in result.symbol_results) == (
+        len(AUTO_SIMULATION_EXECUTION_SYMBOLS) - 2
+    )
