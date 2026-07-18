@@ -161,7 +161,8 @@ def compute_and_write_edge_stats(
     stored = _load_stored(days=days, end_at=resolved_end)
     computed_at = datetime.now(UTC)
     service = TechnicalStrategyValidationService(oos_fraction=0.30, walk_forward_windows=3, max_workers=1)
-    replay_jobs: list[tuple[str, str, Any, Any, int]] = []
+    _WARMUP_BARS = 80
+    replay_jobs: list[tuple[str, str, Any, Any, int, Any, Any, Any]] = []
     for candidate_id in resolved_candidates:
         config = get_candidate(candidate_id).get_config()
         strategy = _template(strategy_key=strategy_key, rules=config, timeframe=Timeframe.M15)
@@ -169,11 +170,20 @@ def compute_and_write_edge_stats(
             set(config["entry_rules"].get("entry_signals", []))
         )
         for symbol in resolved_symbols:
-            replay_jobs.append((candidate_id, symbol, strategy, strategy.rules, signal_count))
+            sym_data = stored.get(symbol, {})
+            entry_bars = sym_data.get("15m", [])
+            start_at = entry_bars[_WARMUP_BARS].timestamp if len(entry_bars) > _WARMUP_BARS else None
+            end_at = entry_bars[-1].timestamp if entry_bars else None
+            replay_jobs.append((candidate_id, symbol, strategy, strategy.rules, signal_count, sym_data, start_at, end_at))
 
-    def replay_job(job: tuple[str, str, Any, Any, int]) -> dict[str, Any]:
-        candidate_id, symbol, strategy, rules, signal_count = job
-        full_metrics = service.replay(strategy=strategy, market_data={symbol: stored.get(symbol, {})})
+    def replay_job(job: tuple[str, str, Any, Any, int, Any, Any, Any]) -> dict[str, Any]:
+        candidate_id, symbol, strategy, rules, signal_count, sym_data, job_start_at, job_end_at = job
+        full_metrics = service.replay(
+            strategy=strategy,
+            market_data={symbol: sym_data},
+            start_at=job_start_at,
+            end_at=job_end_at,
+        )
         oos_metrics = _oos_metrics(service, full_metrics)
         payload = build_artifact_payload(
             strategy_key=strategy_key,

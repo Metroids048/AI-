@@ -81,9 +81,9 @@ def test_acceptance_run_completes_fixed_universe_round_trips_with_tiered_risk() 
     assert result.completed_symbols == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     assert result.filled_order_count == len(AUTO_SIMULATION_EXECUTION_SYMBOLS) * 2
     assert len(gateway.orders) == len(AUTO_SIMULATION_EXECUTION_SYMBOLS) * 2
-    assert gateway.leverages["BTC/USDT"] == 40
-    assert gateway.leverages["ETH/USDT"] == 40
-    assert gateway.leverages["SOL/USDT"] == 40
+    assert gateway.leverages["BTC/USDT"] == 8.0
+    assert gateway.leverages["ETH/USDT"] == 8.0
+    assert gateway.leverages["SOL/USDT"] == 8.0
     assert gateway.orders[0]["requested_notional"] == 120
     assert gateway.orders[-1]["requested_notional"] == 120
     assert result.final_open_position_count == 0

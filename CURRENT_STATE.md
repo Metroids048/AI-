@@ -25,12 +25,47 @@ The operator-selected aggressive sampling profile remains active: 5% single-trad
 
 ## Evidence
 
-- Candidate set: `operator_heuristic_v1`, `trend_momentum_v1`, `trend_breakout_v1`.
-- Evidence is computed independently per candidate and symbol using a chronological 70/30 split.
+Last updated: 2026-07-18
+
+### Sharpe 计算修正（2026-07-18）
+
+`services/validation/technical_replay.py` 原先用 M15 K线频率（35,040根/年）作为 `periods_per_year`，但 `net_returns` 是逐笔交易收益，导致 Sharpe 被放大约9-10倍（修正前BTC/ETH显示33-40，SOL显示-38到-40）。已修正为基于实际交易频率的年化因子。修正后数值在合理范围（BTC 2.0-3.0，ETH 2.4-2.6，SOL -4.1到-3.8），不影响 min_sharpe=1.0 的通过/失败判定结论。
+
+### 五候选竞赛报告（2026-07-18，修正 Sharpe 后）
+
+报告：`docs/audits/2026-07-18-five-candidate-competition.json`，status=completed，评估区间 2026-03-30 ~ 2026-07-18（~110天），5候选×3币种=15行，70/30 时间顺序拆分。
+
+**通过全部门槛的候选（无failed_reasons）：**
+
+| 候选 | 币种 | OOS笔数 | 胜率 | 净期望 | Sharpe | PF | 最大回撤 |
+|---|---|---|---|---|---|---|---|
+| trend_momentum_v1 | BTC/USDT | 35 | 42.9% | +0.00664 | 2.01 | 1.465 | 18.0% |
+| trend_momentum_v1 | ETH/USDT | 64 | 43.8% | +0.00661 | 2.65 | 1.449 | 16.5% |
+| trend_breakout_v1 | BTC/USDT | 34 | 44.1% | +0.00719 | 2.15 | 1.501 | 13.8% |
+
+**SOL排除原因：** 全部5个候选在SOL上均显示78-87%最大回撤、负期望，推断110天内SOL走势对所有趋势跟随策略系统性不利。本轮不开SOL，不为SOL放宽任何阈值。
+
+**新候选结论：** `pandas_ta_broad_screen_v1` 在所有币种上仅产生1-4笔信号，不具可用性。`operator_heuristic_v1/v2_relaxed` 在BTC上OOS笔数27/28笔，仅差2-3笔未过30笔门槛，可作为下一轮候选跟踪。
+
+### 当前活跃 Manifest
+
+- 路径：`artifacts/signal_edge_stats/auto_paper_mature_templates/active-manifest.json`
+- 选中候选：`trend_momentum_v1`
+- 可交易范围：`BTC/USDT`、`ETH/USDT`（SOL/USDT不在eligible_symbols中）
+- 依据报告：`artifacts/signal_edge_stats/auto_paper_mature_templates/reports/20260718T071508Z.json`
+- OOS验证指标（基于manifest生成报告）：BTC OOS 36笔 Sharpe 3.02 PF 1.752 MaxDD 10.9%；ETH OOS 73笔 Sharpe 2.42 PF 1.375 MaxDD 19.4%
+
+### 仓位参数（2026-07-18 保守档）
+
+`services/execution/bootstrap.py` `AUTO_PAPER_TECHNICAL_RULES` `position_rules`：
+- `risk_per_trade`: 0.01（原0.05）
+- `max_leverage`: 8（原40）
+- `max_position_fraction`: 0.12（原0.35）
+
+⚠️ 配置已修改，**必须重启系统才能生效**：运行 `完全重启系统.cmd`，等待启动后运行 `python scripts/verify_config.py` 验证。
+
 - Missing, stale, ineligible, or rules-mismatched evidence rejects the main lane with `validated_edge_stats_missing_or_stale`.
 - Local artifacts live under `artifacts/signal_edge_stats/` and are intentionally not committed.
-- Latest 365-day local replay report: `artifacts/signal_edge_stats/auto_paper_mature_templates/reports/20260716T145629Z.json`.
-- Result: no candidate/symbol reached the 30-trade OOS minimum; no active manifest was created. The main lane therefore remains non-trading by design.
 
 ## Supported Checks
 

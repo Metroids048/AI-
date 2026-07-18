@@ -42,7 +42,7 @@ class _StubReplayService:
     def __init__(self, metrics: ReplayMetrics) -> None:
         self._metrics = metrics
 
-    def replay(self, *, strategy, market_data) -> ReplayMetrics:  # noqa: ANN001
+    def replay(self, *, strategy, market_data, start_at=None, end_at=None) -> ReplayMetrics:  # noqa: ANN001
         return self._metrics
 
 

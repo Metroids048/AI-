@@ -37,12 +37,12 @@ def test_binance_urlopen_disables_ambient_proxy_when_no_scoped_proxy(monkeypatch
     assert captured["proxies"] == {}
 
 
-def test_medium_risk_profile_supports_aggressive_testnet_sampling() -> None:
+def test_medium_risk_profile_conservative_promote_sizing() -> None:
     profile = medium_risk_profile()
     assert profile.risk_profile_id == MEDIUM_RISK_PROFILE_KEY
     assert profile.max_open_positions == 10
     assert profile.max_total_exposure == 0.90
-    assert profile.max_leverage == 40
+    assert profile.max_leverage == 8.0
     assert profile.daily_loss_limit == 0.20
     assert profile.hard_stop_drawdown_limit == 0.40
 

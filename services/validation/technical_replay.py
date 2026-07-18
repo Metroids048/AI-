@@ -1026,7 +1026,14 @@ class TechnicalStrategyValidationService:
         losses = [value for value in net_returns if value < 0]
         gross_profit = sum(value for value in gross_returns if value > 0)
         total_cost = sum((trade.fee_bps + trade.slippage_bps) / 10_000 for trade in ordered)
-        periods_per_year = 365 * 24 / _timeframe_hours(entry_timeframe)
+        # Annualize by observed trade frequency, not bar frequency.
+        # Using bar frequency (35,040/year for M15) with per-trade returns inflates
+        # Sharpe by sqrt(bars_per_year / trades_per_year) — ~9-10x for these strategies.
+        if len(ordered) >= 2:
+            span_years = (ordered[-1].closed_at - ordered[0].closed_at).total_seconds() / (365.25 * 86400)
+            periods_per_year = max(1.0, len(ordered) / span_years) if span_years > 0 else float(len(ordered))
+        else:
+            periods_per_year = 1.0
         hold_hours = [
             max(0.0, (trade.closed_at - trade.opened_at).total_seconds() / 3600.0) for trade in ordered
         ]

@@ -39,28 +39,27 @@ class RiskProfile(PlatformModel):
 
 
 def medium_risk_profile() -> RiskProfile:
-    """Operator medium preset: ULTRA-AGGRESSIVE Paper testing limits (2026-07-15 v2).
+    """Conservative promote sizing (2026-07-18): BTC/ETH verified-edge promote.
 
-    MAXIMUM loosened for Paper/Testnet trade sampling - prioritize order flow and data
-    collection over risk management. Goal: generate 10-20 orders/day to rapidly build
-    statistical edge database. TESTNET-ONLY, absolutely forbidden for live trading.
+    Tightened from ultra-aggressive Paper sampling profile. These values must stay
+    in sync with AUTO_PAPER_TECHNICAL_RULES["position_rules"] in bootstrap.py.
     """
     return RiskProfile(
         risk_profile_id=MEDIUM_RISK_PROFILE_KEY,
-        single_trade_risk_limit=0.05,       # Was 0.035, now 5%
-        max_symbol_exposure=0.35,           # Was 0.25, now 35%
-        max_total_exposure=0.90,            # Was 0.80, now 90%
-        max_open_positions=10,              # Was 8, now 10
-        max_leverage=40.0,                  # Was 30.0, now 40x
-        daily_loss_limit=0.20,              # Was 0.10, now 20%
-        weekly_loss_limit=0.25,             # Was 0.15, now 25%
-        drawdown_limit=0.25,                # Was 0.20, now 25%
-        hard_stop_drawdown_limit=0.40,      # Was 0.30, now 40%
-        consecutive_loss_limit=10,          # Was 8, now 10
+        single_trade_risk_limit=0.01,       # Conservative: was 0.05
+        max_symbol_exposure=0.12,           # Conservative: was 0.35
+        max_total_exposure=0.90,
+        max_open_positions=10,
+        max_leverage=8.0,                   # Conservative: was 40.0
+        daily_loss_limit=0.20,
+        weekly_loss_limit=0.25,
+        drawdown_limit=0.25,
+        hard_stop_drawdown_limit=0.40,
+        consecutive_loss_limit=10,
         api_failure_limit=5,
         api_failure_window_minutes=10,
         market_scope="Binance USDT-M Top20",
-        config_source="ULTRA-AGGRESSIVE Paper testing v2 (Testnet only, 2026-07-15)",
+        config_source="conservative promote sizing (2026-07-18, BTC/ETH only)",
     )
 
 

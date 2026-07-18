@@ -103,12 +103,13 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
     # only exit config with real positive-net-expectancy evidence on this entry signal.
     "takeprofit_rules": {"risk_reward": 2.0},
     "position_rules": {
-        # ULTRA-AGGRESSIVE Paper testing sizing (2026-07-15 v2): increased to 5%
-        # to maximize signal strength and P&L visibility during sampling phase.
-        "risk_per_trade": 0.05,
-        "max_portfolio_initial_risk_fraction": 0.25,  # Increased from 0.20
-        "max_leverage": 40,                           # Increased from 25 (BTC/ETH/SOL)
-        "max_position_fraction": 0.35,                # Increased from 0.25
+        # Conservative promote sizing (2026-07-18): BTC/ETH verified-edge promote.
+        # Tightened from ultra-aggressive sampling profile (5%/40x/35%) now that
+        # trend_momentum_v1 has OOS evidence on BTC/ETH. SOL excluded entirely.
+        "risk_per_trade": 0.01,
+        "max_portfolio_initial_risk_fraction": 0.25,
+        "max_leverage": 8,
+        "max_position_fraction": 0.12,
         "min_notional_usdt": 20,
     },
 }
@@ -585,7 +586,10 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
         return None
 
     risk_profile_id = bootstrap_medium_risk_profile()
-    resolved_rules, resolved_symbols = resolve_auto_paper_technical_evidence()
+    resolved_rules, _eligible_symbols = resolve_auto_paper_technical_evidence()
+    # candidate_symbols is the research-universe scope (always Top3 for monitoring).
+    # The manifest's eligible_symbols are the per-symbol trading gate enforced at
+    # signal time via active.json presence — not the paper-run scope definition.
     return _ensure_auto_paper_run(
         runtime_key=AUTO_PAPER_TECHNICAL_KEY,
         strategy_key=AUTO_PAPER_TECHNICAL_KEY,
@@ -600,7 +604,7 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
         risk_profile_id=risk_profile_id,
         auto_schedule_enabled=True,
         force_paper_only=True,
-        symbols=resolved_symbols,
+        symbols=AUTO_PAPER_RESEARCH_SYMBOLS,
     )
 
 

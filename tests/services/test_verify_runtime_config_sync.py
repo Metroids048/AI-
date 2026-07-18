@@ -29,10 +29,18 @@ def test_diff_reports_mismatched_field_with_both_values() -> None:
 def test_load_live_strategy_rules_detects_drift_without_a_restart(db_session, monkeypatch) -> None:
     """Scenario 1: a rules dict changes in code, but nothing re-bootstraps the
     Strategy row (the exact "stale process" failure mode Module 0 exists to catch)."""
+    import services.execution.bootstrap as bootstrap_module
     from services.execution.bootstrap import bootstrap_auto_trading_technical_paper_run
 
     monkeypatch.setattr(settings, "binance_api_key", "key")
     monkeypatch.setattr(settings, "binance_api_secret", "secret")
+    # Pin evidence resolution to the fallback path so the test is independent
+    # of any local manifest artifact that may exist on the test machine.
+    monkeypatch.setattr(
+        bootstrap_module,
+        "resolve_auto_paper_technical_evidence",
+        lambda: (AUTO_PAPER_TECHNICAL_RULES, tuple(("BTC/USDT", "ETH/USDT", "SOL/USDT"))),
+    )
     assert bootstrap_auto_trading_technical_paper_run() is not None
 
     database_url = str(db_session.get_bind().engine.url)
@@ -69,10 +77,16 @@ def test_load_live_strategy_rules_detects_drift_without_a_restart(db_session, mo
 def test_load_live_strategy_rules_goes_green_after_proper_restart(db_session, monkeypatch) -> None:
     """Scenario 2: re-running bootstrap (what a proper restart does) re-syncs the
     Strategy row, so the diff goes back to empty."""
+    import services.execution.bootstrap as bootstrap_module
     from services.execution.bootstrap import bootstrap_auto_trading_technical_paper_run
 
     monkeypatch.setattr(settings, "binance_api_key", "key")
     monkeypatch.setattr(settings, "binance_api_secret", "secret")
+    monkeypatch.setattr(
+        bootstrap_module,
+        "resolve_auto_paper_technical_evidence",
+        lambda: (AUTO_PAPER_TECHNICAL_RULES, tuple(("BTC/USDT", "ETH/USDT", "SOL/USDT"))),
+    )
     assert bootstrap_auto_trading_technical_paper_run() is not None
 
     from services.strategy_library import StrategyRepository
