@@ -1,5 +1,19 @@
 # Task History
 
+## 2026-07-17 — Binance exchange-truth reconciliation and protection completeness
+
+- **Summary**: After the first real sampling cycle, fixed Algo-order blind spots in acceptance/reconciliation, added exchange-only position recovery and two-read transient confirmation, cleaned orphan ReduceOnly protections, re-armed missing Stop/TP pairs, corrected ReduceOnly `-2022` handling, and added leverage readback fallback.
+- **External evidence**: Top3 acceptance `da7edfd9-c1d4-4b04-8b66-02fe82e4af89` completed 6/6 fills at 40x with final zero positions/orders. Real observation entries `22305428148` (BTC) and `3246292050` (SOL) were read back; current account positions have 40x and four native ReduceOnly protection orders. `verify_config.py` is `GREEN: 19/19`.
+- **Verification**: Full backend `464 passed, 4 skipped`; Ruff clean; production mypy `144` files clean; frontend `35 passed`; production build passed.
+- **Safety boundary**: Main strategy remains Paper-only and OOS-gated; observation remains non-authoritative; mainnet remains disabled.
+
+## 2026-07-17 — Binance Simulation Top3 real-signal auto-link
+
+- **Summary**: Removed the Top3-vs-hardcoded-20 readiness deadlock, made acceptance exact-scope and durable, armed only the real-signal observation lane for Binance Simulation, synchronized effective risk tiers to 40x/35%, prevented local fills for pending gateway entries, and separated sampling/acceptance/reconciliation provenance in the console.
+- **Safety boundary**: Main directional strategy remains Paper-only and OOS-evidence-gated; observation trades are excluded from performance; mainnet remains disabled; stoploss, takeprofit, exposure, correlation and kill-switch gates remain active.
+- **External evidence**: Top3 acceptance run `4e08f295-edb4-463f-850c-5409dd064921` completed 6/6 Binance fills with protection refs, 40x leverage, final 0 positions and 0 open orders; runtime status `ready`, coverage 3/3.
+- **Verification**: backend `455 passed, 4 skipped`; Ruff clean; production mypy `135` files clean; frontend `35 passed`; production build and `git diff --check` passed.
+
 ## 2026-07-16 — AI Quant evidence-based convergence and runtime verification
 
 - **Summary**: Consolidated the current fact source, archived contradictory reports and unsupported one-off scripts, restricted scheduled research to the Top3 main/observation lanes, added the decision-funnel audit, and switched the main lane to candidate/symbol/rules-hash-scoped OOS evidence. Fixed artifact-v2 typing and edge-stat correctness boundaries (loss sign, cost double counting, OOS scope), plus full static-check compatibility.
@@ -585,3 +599,11 @@
 - **Summary**: Confirmed the scheduler was running and the account was Binance simulation rather than a local-only Paper ledger. Fixed legacy `strategies.paper_status='paused'` deserialization, made Demo the preferred backend with transparent legacy-Testnet fallback, and repaired protection submissions by rounding raw conditional trigger prices to Binance symbol precision. Protection failures now fail closed by cancelling an unfilled entry or sending a reduce-only close for a filled entry.
 - **External evidence**: Scheduler-created BTC automatic verification order `gateway_order_id=22004526655` was read back from Binance simulation. It created a `0.0015 BTC` long plus Binance reduce-only stop `1000000137072612` and take-profit `1000000137072614`; the isolated verification run was then paused and the simulation account was returned to zero positions and zero open orders.
 - **Verification**: `scripts/verify_config.py` -> `GREEN: 18/18 checks passed`, including external Binance order-id reconciliation and mainnet protection. Full `pytest -q` -> `432 passed, 4 skipped`; changed-file Ruff clean.
+
+## 2026-07-18 — Candidate wiring and OOS competition remediation (in progress)
+
+- **Runtime finding**: The scheduler remained healthy and continued auto cycles; the absence of overnight strategy orders was primarily deterministic filtering, not a change-trigger-only execution path. The main directional lane remained deliberately blocked by missing eligible OOS evidence; the observation lane most often rejected on technical-signal insufficiency, multi-timeframe disagreement, or ensemble discard.
+- **Changes**: Registered `pandas_ta_broad_screen_v1` and `operator_heuristic_v2_relaxed`; added the relaxed two-direction-source fusion method; wired pandas-ta names into the production decision pipeline with lazy import; and corrected focused two-direction candidates to use weighted fusion after existing multi-timeframe confirmation. Added an offline five-candidate competition runner with a 70/30 chronological OOS split and per-row checkpoints.
+- **Evidence**: All BTC/ETH/SOL 15m/1h/4h data sets cover 365 days (35,071 / 8,768 / 2,192 bars). The first 9 of 15 OOS rows are persisted in `docs/audits/2026-07-18-five-candidate-competition.json`; qualifying rows include trend momentum BTC/ETH and trend breakout BTC, while all evaluated SOL rows fail. No candidate was promoted because pandas-ta and relaxed-v2 rows remain incomplete.
+- **Blocker**: pandas-ta replay recomputes indicators for every 15m historical bar and occupies all competition workers for an impractical duration. Precompute/cache its indicator outputs in the replay path, then rerun the complete 15-row report before selecting a single symbol-candidate pair or restarting the scheduler to load new code.
+- **Verification**: `27 passed` across candidate-registry, ensemble, timeframe-split, and research-scope regression tests; changed modules compiled; `git diff --check` passed. Scheduler state at verification: running, fresh BTC/ETH/SOL data, no scheduler error.

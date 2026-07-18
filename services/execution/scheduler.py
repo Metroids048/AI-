@@ -284,6 +284,8 @@ class RuntimeScheduler:
                 "running": self.status.running,
                 "heartbeat_at": datetime.now(UTC).isoformat(),
                 "top20_coverage_count": len(checked_symbols),
+                "execution_coverage_count": len(checked_symbols),
+                "execution_symbols": list(checked_symbols),
                 "exchange_info_ready": bool(exchange_info.get("ready"))
                 if isinstance(exchange_info, dict)
                 else False,

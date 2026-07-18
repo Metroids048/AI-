@@ -1,5 +1,19 @@
 # Project Memory
 
+## Binance Simulation sampling and exchange-truth reconciliation (2026-07-17)
+
+- Exact Top3 acceptance run `da7edfd9-c1d4-4b04-8b66-02fe82e4af89` completed 6/6 open/close fills at 40x for BTC/ETH/SOL with native STOP_MARKET and TAKE_PROFIT_MARKET ReduceOnly protections and final zero positions/orders.
+- Real `signal_observation` orders were then created on the current build/scope: BTC `22305428148` and SOL `3246292050`; both are market entries, 40x, 2.5%/2R protection, and excluded from strategy performance. `verify_config.py` is green 19/19 only because these are current real sampling orders.
+- Reconciliation now scans Binance Algo orders, requires missing positions across two scheduler cycles, recovers exchange-only positions locally, cancels orphan protections, re-arms missing Stop/TP, and refuses to interpret ReduceOnly `-2022` as flat without a fresh exchange-flat check. Leverage display falls back to native position-risk or notional/margin ratio.
+
+## Top3 Binance Simulation real-signal sampling armed (2026-07-17)
+
+- Root cause of "all green but no Binance strategy order": active scheduler coverage was Top3 while API/acceptance required literal 20; both scheduled lanes were forced local Paper; the verification script counted old link/reconciliation gateway rows.
+- Runtime contract: `auto_paper_mature_templates` stays Paper-only and requires eligible OOS artifact v2. `signal_observation_technical` alone may execute on Binance Simulation after exact BTC/ETH/SOL acceptance, remains non-authoritative, and never counts toward strategy performance.
+- Acceptance evidence: run `4e08f295-edb4-463f-850c-5409dd064921`, BTC/ETH/SOL open+close, 6 filled orders at 40x, protection algo refs for all three, final zero positions and zero open orders. Runtime status became `ready`, coverage 3/3.
+- Effective sampling profile is synchronized to 5% risk budget, 40x leverage ceiling, 35% symbol cap, 90% total exposure, 25% portfolio initial-risk cap, fixed 2.5% stop and 2R take-profit. Simulation-only; mainnet remains disabled.
+- Verification now rejects stale or wrong-provenance gateway evidence and local positions cannot be filled before a Binance fill acknowledgement.
+
 ## One-click startup unblocked after hedge migration mismatch (2026-07-16)
 
 - Symptom: `一键启动` died at local DB prep — alembic `0008→0009` tried `ADD COLUMN hedge_group_id` but the column already existed on `.local_paper_console.db`.

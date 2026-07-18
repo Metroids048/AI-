@@ -37,6 +37,14 @@ class TradingRuntimeStatus(PlatformModel):
     execution_blockers: list[str] = Field(default_factory=list)
     testnet_acceptance_verified: bool = False
     fixed_top20_count: int = 20
+    simulation_catalog_count: int = 0
+    active_execution_symbols: list[str] = Field(default_factory=list)
+    active_execution_count: int = 0
+    market_data_coverage_count: int = 0
+    acceptance_symbols: list[str] = Field(default_factory=list)
+    acceptance_scope_hash: str | None = None
+    last_strategy_gateway_order_at: datetime | None = None
+    last_strategy_gateway_order_id: str | None = None
     backend_build_id: str = "development"
     supported_modes: list[str] = Field(default_factory=lambda: ["paper", "testnet"])
     scheduler_mode: str = "disabled"

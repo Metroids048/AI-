@@ -8,7 +8,7 @@ from typing import Any
 
 from services.data.service import DEFAULT_BINANCE_TOP20
 from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS, fixed_top20_assets
-from services.execution.risk_tiers import default_asset_risk_tiers
+from services.execution.risk_tiers import default_asset_risk_tiers, scale_asset_risk_tiers
 from shared.config import settings
 from shared.models.risk import MEDIUM_RISK_PROFILE_KEY, medium_risk_profile
 
@@ -285,6 +285,7 @@ SIGNAL_OBSERVATION_RULES: dict[str, Any] = {
     "entry_rules": {
         **AUTO_PAPER_TECHNICAL_RULES["entry_rules"],
         "default_enabled_for_auto_trading": False,  # Explicit operator opt-in only
+        "order_type": "market",
     },
 }
 
@@ -384,6 +385,7 @@ def _ensure_auto_paper_run(
     risk_profile_id: str,
     auto_schedule_enabled: bool,
     force_paper_only: bool = False,
+    preserve_testnet_authorization: bool = False,
     symbols: tuple[str, ...] | list[str] | None = None,
 ) -> str | None:
     from services.database import get_session_factory
@@ -475,6 +477,8 @@ def _ensure_auto_paper_run(
             ):
                 paper_run = paper_candidate
                 break
+        max_leverage = float(rules["position_rules"]["max_leverage"])
+        max_symbol_exposure = float(rules["position_rules"].get("max_position_fraction", 0.2))
         execution_profile = {
             "auto_paper_runtime_key": runtime_key,
             "strategy_lane": strategy_lane,
@@ -488,9 +492,13 @@ def _ensure_auto_paper_run(
             "auto_schedule_enabled": auto_schedule_enabled,
             "cost_gate_verified": False,
             "risk_profile_id": risk_profile_id,
-            "max_leverage": rules["position_rules"]["max_leverage"],
-            "max_symbol_exposure": float(rules["position_rules"].get("max_position_fraction", 0.2)),
-            "asset_risk_tiers": default_asset_risk_tiers(),
+            "max_leverage": max_leverage,
+            "max_symbol_exposure": max_symbol_exposure,
+            "asset_risk_tiers": scale_asset_risk_tiers(
+                default_asset_risk_tiers(),
+                max_leverage=max_leverage,
+                max_symbol_exposure=max_symbol_exposure,
+            ),
             "max_symbols": len(runtime_symbols),
             "universe_mode": "fixed_top20",
             "universe_assets": universe_assets,
@@ -520,8 +528,10 @@ def _ensure_auto_paper_run(
                 # enabled on every bootstrap restart (hardcoded True above).
                 "llm_veto_enabled",
             ]
-            if not force_paper_only:
+            if not force_paper_only or preserve_testnet_authorization:
                 preserved_keys.extend(("mirror_to_gateway", "execution_mode"))
+            if preserve_testnet_authorization:
+                preserved_keys.extend(("acceptance_symbols", "acceptance_scope_hash"))
             preserved = {key: previous[key] for key in preserved_keys if key in previous}
             profile = {**previous, **execution_profile, **preserved}
             paper_run = (
@@ -650,6 +660,7 @@ def bootstrap_signal_observation_strategy() -> str | None:
         risk_profile_id=risk_profile_id,
         auto_schedule_enabled=True,
         force_paper_only=True,
+        preserve_testnet_authorization=True,
         symbols=AUTO_PAPER_RESEARCH_SYMBOLS,
     )
 

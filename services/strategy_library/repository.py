@@ -1326,7 +1326,7 @@ class AgentTaskRepository:
         )
         return [_agent_task_from_orm(row) for row in rows]
 
-    def has_verified_testnet_acceptance(self) -> bool:
+    def find_verified_testnet_acceptance(self, expected_symbols: list[str]) -> AgentTask | None:
         """Acceptance proof must not depend on the generic recent-task window.
 
         Trading status used to scan only the latest 50 AgentTasks. Once other
@@ -1343,15 +1343,21 @@ class AgentTaskRepository:
             .limit(20)
             .all()
         )
+        expected = list(expected_symbols)
         for row in rows:
             payload = row.output_payload if isinstance(row.output_payload, dict) else {}
             if (
                 payload.get("final_open_position_count") == 0
                 and payload.get("final_open_order_count") == 0
-                and len(payload.get("completed_symbols") or []) == 20
+                and list(payload.get("requested_symbols") or payload.get("completed_symbols") or []) == expected
+                and list(payload.get("completed_symbols") or []) == expected
+                and int(payload.get("filled_order_count") or 0) >= 2 * len(expected)
             ):
-                return True
-        return False
+                return _agent_task_from_orm(row)
+        return None
+
+    def has_verified_testnet_acceptance(self, expected_symbols: list[str]) -> bool:
+        return self.find_verified_testnet_acceptance(expected_symbols) is not None
 
     def get_task(self, agent_task_id: str) -> AgentTask | None:
         row = self.session.get(models.AgentTask, agent_task_id)

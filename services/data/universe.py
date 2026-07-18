@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Iterable, Mapping
 from decimal import Decimal
 from typing import Any
@@ -9,6 +11,15 @@ from typing import Any
 from shared.models import MarketUniverseItem, UniverseAsset
 
 AUTO_PAPER_RESEARCH_SYMBOLS: tuple[str, ...] = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
+AUTO_SIMULATION_EXECUTION_SYMBOLS: tuple[str, ...] = AUTO_PAPER_RESEARCH_SYMBOLS
+
+
+def execution_scope_hash(symbols: Iterable[str] = AUTO_SIMULATION_EXECUTION_SYMBOLS) -> str:
+    """Stable identity for the exact ordered Binance simulation execution scope."""
+
+    normalized = [exchange_to_platform_symbol(str(symbol)) for symbol in symbols]
+    payload = json.dumps(normalized, ensure_ascii=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("ascii")).hexdigest()
 
 # ULTRA-AGGRESSIVE Paper testing: reduced from Top20 to Top10 (2026-07-15 v2)
 # Concentrating on highest-liquidity majors to maximize single-symbol exposure

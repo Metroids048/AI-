@@ -5,15 +5,16 @@ from __future__ import annotations
 import contextlib
 from typing import Protocol
 
-from services.data.universe import FIXED_TOP20_SYMBOLS
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from shared.models import (
     TestnetAcceptanceOrderEvidence,
     TestnetAcceptanceRunRequest,
     TestnetAcceptanceRunResult,
     TestnetAcceptanceSymbolResult,
 )
+from shared.models.risk import medium_risk_profile
 
-from .risk_tiers import default_asset_risk_tiers, resolve_asset_risk_tier
+from .risk_tiers import default_asset_risk_tiers, resolve_asset_risk_tier, scale_asset_risk_tiers
 
 
 class AcceptanceGateway(Protocol):
@@ -34,6 +35,7 @@ class AcceptanceGateway(Protocol):
         reference_price: float,
         reduce_only: bool,
         stoploss_price: float | None,
+        takeprofit_price: float | None,
         idempotency_key: str,
     ) -> dict: ...
 
@@ -51,9 +53,14 @@ class TestnetAcceptanceService:
         if preflight.get("open_orders") or preflight.get("open_positions"):
             raise ValueError("testnet acceptance requires zero existing positions and open orders")
 
-        symbols = request.symbols or list(FIXED_TOP20_SYMBOLS)
+        symbols = request.symbols or list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
         equity = self.gateway.account_equity()
-        tiers = request.asset_risk_tiers or default_asset_risk_tiers()
+        profile = medium_risk_profile()
+        tiers = request.asset_risk_tiers or scale_asset_risk_tiers(
+            default_asset_risk_tiers(),
+            max_leverage=profile.max_leverage,
+            max_symbol_exposure=profile.max_symbol_exposure,
+        )
         completed: list[str] = []
         evidence: list[TestnetAcceptanceOrderEvidence] = []
         symbol_results: list[TestnetAcceptanceSymbolResult] = []
@@ -66,6 +73,7 @@ class TestnetAcceptanceService:
             notional = min(equity * tier.max_position_fraction, request.max_notional_usdt)
             reference_price = self.gateway.fetch_last_price(symbol)
             stoploss_price = reference_price * (1 - request.stoploss_bps / 10_000)
+            takeprofit_price = reference_price + 2.0 * (reference_price - stoploss_price)
             self.gateway.set_leverage(symbol=symbol, leverage=tier.leverage)
             protection_refs: list[dict] = []
             order_refs: list[str] = []
@@ -77,6 +85,7 @@ class TestnetAcceptanceService:
                     reference_price=reference_price,
                     reduce_only=False,
                     stoploss_price=stoploss_price,
+                    takeprofit_price=takeprofit_price,
                     idempotency_key=f"{request.idempotency_key or 'acceptance'}-{index}-open",
                 )
                 evidence.append(self._evidence(opened, leverage=tier.leverage, action="open"))
@@ -89,6 +98,7 @@ class TestnetAcceptanceService:
                     reference_price=reference_price,
                     reduce_only=True,
                     stoploss_price=None,
+                    takeprofit_price=None,
                     idempotency_key=f"{request.idempotency_key or 'acceptance'}-{index}-close",
                 )
                 evidence.append(self._evidence(closed, leverage=tier.leverage, action="close"))
@@ -120,6 +130,7 @@ class TestnetAcceptanceService:
                         reference_price=reference_price,
                         reduce_only=True,
                         stoploss_price=None,
+                        takeprofit_price=None,
                         idempotency_key=f"{request.idempotency_key or 'acceptance'}-{index}-compensate",
                     )
                     evidence.append(self._evidence(compensated, leverage=tier.leverage, action="compensate"))

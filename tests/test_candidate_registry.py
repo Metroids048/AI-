@@ -12,19 +12,27 @@ from services.strategy_library.candidates.registry import (
 )
 
 
-def test_registry_has_three_candidates():
-    """验证注册表包含3个初始候选。"""
-    assert len(CANDIDATE_REGISTRY) == 3
+def test_registry_has_five_candidates():
+    """验证注册表包含全部可回放候选。"""
+    assert len(CANDIDATE_REGISTRY) == 5
     assert "operator_heuristic_v1" in CANDIDATE_REGISTRY
     assert "trend_momentum_v1" in CANDIDATE_REGISTRY
     assert "trend_breakout_v1" in CANDIDATE_REGISTRY
+    assert "pandas_ta_broad_screen_v1" in CANDIDATE_REGISTRY
+    assert "operator_heuristic_v2_relaxed" in CANDIDATE_REGISTRY
 
 
 def test_list_candidates():
     """验证list_candidates返回所有候选ID。"""
     candidates = list_candidates()
-    assert len(candidates) == 3
-    assert set(candidates) == {"operator_heuristic_v1", "trend_momentum_v1", "trend_breakout_v1"}
+    assert len(candidates) == 5
+    assert set(candidates) == {
+        "operator_heuristic_v1",
+        "trend_momentum_v1",
+        "trend_breakout_v1",
+        "pandas_ta_broad_screen_v1",
+        "operator_heuristic_v2_relaxed",
+    }
 
 
 def test_get_candidate_success():
@@ -80,8 +88,8 @@ def test_v2_relaxed_config_format():
     config = OPERATOR_HEURISTIC_V2_RELAXED.get_config()
 
     assert "entry_rules" in config
-    # TODO: 当实现relaxed fusion_method后，验证它使用了新的融合方法
-    # assert config["entry_rules"]["fusion_method"] == "layered_regime_entry_relaxed"
+    assert config["entry_rules"]["candidate_id"] == "operator_heuristic_v2_relaxed"
+    assert config["entry_rules"]["fusion_method"] == "layered_regime_entry_relaxed"
 
 
 def test_all_candidates_have_required_metadata():

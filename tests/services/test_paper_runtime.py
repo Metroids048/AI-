@@ -587,11 +587,17 @@ def test_runtime_reconciles_local_close_when_exchange_flat_even_if_entry_cycle_a
         },
     )
 
+    first = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="15m", enable_decision_veto=False),
+    )
     result = runtime.run_cycle(
         paper_run_id=paper_run.paper_run_id or "",
         request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="15m", enable_decision_veto=False),
     )
 
+    assert first.closed_positions == 0
+    assert first.actions[0].action == "reconcile_exchange_position_missing_pending"
     assert result.closed_positions == 1
     assert result.actions[0].action == "reconcile_flat_close_long"
     assert result.open_position_symbols == []
@@ -663,10 +669,15 @@ def test_reduce_only_already_flat_closes_local_ghost(db_session, monkeypatch) ->
     # Reconcile empties first if exchange flat — seed bar then force protective path by
     # making reconcile report the position still "present" would skip. Here reconcile is
     # empty so ghost is cleared at reconcile stage before protective close.
+    first = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
+    )
     result = runtime.run_cycle(
         paper_run_id=paper_run.paper_run_id or "",
         request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
     )
+    assert first.closed_positions == 0
     assert result.closed_positions == 1
     assert result.open_position_symbols == []
     assert any(action.action.startswith("reconcile_flat_close_") for action in result.actions)
@@ -703,13 +714,12 @@ def test_reduce_only_flat_on_protective_close_clears_local(db_session, monkeypat
         request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
     )
 
-    assert result.closed_positions == 1
-    assert result.open_position_symbols == []
-    assert result.rejected_orders == 0
+    assert result.closed_positions == 0
+    assert result.open_position_symbols == ["BTC/USDT"]
+    assert result.rejected_orders >= 1
     closed_order = ExecutionRepository(db_session).list_orders()[-1]
-    assert closed_order.execution_status == "filled"
-    assert closed_order.entry_context.get("exchange_already_flat") is True
-    assert any("exchange_already_flat" in str(item.get("status", "")) for item in closed_order.lifecycle_history)
+    assert closed_order.execution_status == "rejected"
+    assert closed_order.entry_context.get("exchange_already_flat") is not True
 
 
 def test_runtime_persists_decision_snapshot_for_skip_no_trade_decision(db_session, monkeypatch) -> None:
@@ -776,7 +786,12 @@ def test_paper_only_fixed_universe_does_not_block_on_initial_unknown_exchange_st
     assert _fixed_universe_skip_reason(mirrored, "BTC/USDT") == "exchangeInfo unavailable during bootstrap"
 
 
-def _runtime_without_position(db_session) -> tuple[PaperRuntimeService, PaperRun]:
+def _runtime_without_position(
+    db_session,
+    *,
+    gateway=None,
+    mirror_to_gateway: bool = False,
+) -> tuple[PaperRuntimeService, PaperRun]:
     strategy = StrategyRepository(db_session).create_strategy(
         StrategyCreate(
             strategy_key="decision_snapshot_persistence",
@@ -812,6 +827,9 @@ def _runtime_without_position(db_session) -> tuple[PaperRuntimeService, PaperRun
                 "account_equity": 10_000,
                 "equity_peak": 10_000,
                 "strategy_lane": "directional",
+                "execution_mode": "binance_simulation_first" if mirror_to_gateway else "paper_only",
+                "mirror_to_gateway": mirror_to_gateway,
+                "cost_gate_verified": mirror_to_gateway,
             },
             paper_status="running",
         )
@@ -834,8 +852,311 @@ def _runtime_without_position(db_session) -> tuple[PaperRuntimeService, PaperRun
             paper_repo=PaperRunRepository(db_session),
             review_repo=ReviewRepository(db_session),
         ),
+        gateway=gateway,
     )
     return runtime, paper_run
+
+
+def test_binance_submitted_entry_does_not_create_local_filled_position(db_session, monkeypatch) -> None:
+    from shared.config import settings
+
+    class SubmittedGateway:
+        capability = type("Cap", (), {"gateway_name": "submitted_gateway"})()
+
+        def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
+            return {
+                "gateway_order_id": "pending-entry-1",
+                "gateway_status": "submitted",
+                "protection_order_refs": [],
+            }
+
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
+    monkeypatch.setattr(settings, "binance_use_testnet", True)
+    monkeypatch.setattr(settings, "live_trading_enabled", False)
+    runtime, paper_run = _runtime_without_position(
+        db_session,
+        gateway=SubmittedGateway(),
+        mirror_to_gateway=True,
+    )
+    _store_bar(db_session, low=99, high=101, close=100)
+    latest = DataRepository(db_session).get_latest_ohlcv_bar(symbol="BTC/USDT", timeframe="1h")
+    assert latest is not None
+
+    def _forced_trade(*, strategy, symbol, timeframe, **_kwargs) -> DecisionPipelineResult:
+        return DecisionPipelineResult(
+            direction=TradeSide.LONG,
+            should_trade=True,
+            reason="forced_trade",
+            reference_price=Decimal("100"),
+            bar_time=latest.timestamp,
+            signals=[],
+            ensemble=None,
+            meta_label=None,
+            veto_result=None,
+            confidence_multiplier=1.0,
+            atr=None,
+            volatility_context={},
+            trace={
+                "pipeline_status": "bet_taken",
+                "strategy_lane": "directional",
+                "meta_label_win_rate": 1.0,
+                "meta_label_average_win": 0.10,
+                "meta_label_average_loss": 0.0,
+                "round_trip_fee_rate": 0.001,
+                "round_trip_slippage_rate": 0.0002,
+            },
+        )
+
+    monkeypatch.setattr(runtime.signal_generator.decision_pipeline, "evaluate", _forced_trade)
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
+    )
+
+    assert result.opened_positions == 0
+    assert result.rejected_orders == 0
+    assert result.actions[0].action == "pending_gateway_fill"
+    assert result.open_position_symbols == []
+    order = ExecutionRepository(db_session).list_orders()[-1]
+    assert order.execution_status == "submitted"
+    assert order.gateway_order_id == "pending-entry-1"
+
+
+def test_runtime_reconcile_requires_confirmed_exchange_flat_before_closing_local(db_session) -> None:
+    class EventuallyConsistentGateway:
+        capability = type("Cap", (), {"gateway_name": "eventual_gateway"})()
+
+        def __init__(self) -> None:
+            self.reconcile_calls = 0
+
+        def reconcile(self, *, live_run_id: str) -> dict:
+            self.reconcile_calls += 1
+            positions = []
+            if self.reconcile_calls > 1:
+                positions = [
+                    {
+                        "symbol": "BTC/USDT:USDT",
+                        "contracts": 1.0,
+                        "side": "long",
+                        "entry_price": 100.0,
+                        "mark_price": 100.0,
+                    }
+                ]
+            return {"open_positions": positions, "open_orders": []}
+
+        def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
+            raise AssertionError("protected position must not be resubmitted")
+
+    gateway = EventuallyConsistentGateway()
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+        mirror_to_gateway=True,
+        gateway=gateway,
+    )
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=[], timeframe="15m", enable_decision_veto=False),
+    )
+
+    assert gateway.reconcile_calls == 2
+    assert result.closed_positions == 0
+    assert result.open_position_symbols == ["BTC/USDT"]
+
+
+def test_runtime_reconcile_recovers_exchange_only_position(db_session) -> None:
+    class ExchangePositionGateway:
+        capability = type("Cap", (), {"gateway_name": "recovery_gateway"})()
+
+        def reconcile(self, *, live_run_id: str) -> dict:
+            return {
+                "open_positions": [
+                    {
+                        "symbol": "BTC/USDT:USDT",
+                        "contracts": 0.25,
+                        "side": "short",
+                        "entry_price": 101.0,
+                        "mark_price": 100.0,
+                        "unrealized_pnl": 0.25,
+                    }
+                ],
+                "open_orders": [],
+            }
+
+        def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
+            raise AssertionError("recovery must not submit an entry")
+
+    runtime, paper_run = _runtime_without_position(
+        db_session,
+        gateway=ExchangePositionGateway(),
+        mirror_to_gateway=True,
+    )
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=[], timeframe="15m", enable_decision_veto=False),
+    )
+
+    assert result.open_position_symbols == ["BTC/USDT"]
+    assert any(action.action == "reconcile_exchange_open_short" for action in result.actions)
+    recovered = ExecutionRepository(db_session).list_latest_positions_for_run(
+        run_type="paper",
+        run_id=paper_run.paper_run_id or "",
+    )[0]
+    assert recovered.side == TradeSide.SHORT
+    assert recovered.quantity == 0.25
+    assert recovered.entry_price == 101.0
+
+
+def test_runtime_reconcile_cancels_orphan_exchange_protection(db_session) -> None:
+    class OrphanProtectionGateway:
+        capability = type("Cap", (), {"gateway_name": "orphan_gateway"})()
+
+        def __init__(self) -> None:
+            self.cancelled: list[tuple[str, str]] = []
+
+        def reconcile(self, *, live_run_id: str) -> dict:
+            return {
+                "open_positions": [],
+                "open_orders": [
+                    {
+                        "algoId": "orphan-tp-1",
+                        "symbol": "BTCUSDT",
+                        "orderType": "TAKE_PROFIT_MARKET",
+                        "reduceOnly": True,
+                    }
+                ],
+            }
+
+        def cancel_protection_order(self, *, symbol: str, gateway_order_id: str) -> None:
+            self.cancelled.append((symbol, gateway_order_id))
+
+        def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
+            raise AssertionError("orphan cleanup must not submit an order")
+
+    gateway = OrphanProtectionGateway()
+    runtime, paper_run = _runtime_without_position(db_session, gateway=gateway, mirror_to_gateway=True)
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=[], timeframe="15m", enable_decision_veto=False),
+    )
+
+    assert gateway.cancelled == [("BTC/USDT", "orphan-tp-1")]
+    assert any(action.action == "reconcile_cancel_orphan_protection" for action in result.actions)
+
+
+def test_runtime_reconcile_rearms_missing_exchange_protection(db_session) -> None:
+    class MissingProtectionGateway:
+        capability = type("Cap", (), {"gateway_name": "missing_protection_gateway"})()
+
+        def __init__(self) -> None:
+            self.refresh_calls: list[tuple[str, float]] = []
+
+        def reconcile(self, *, live_run_id: str) -> dict:
+            return {
+                "open_positions": [
+                    {
+                        "symbol": "BTC/USDT:USDT",
+                        "contracts": 1.0,
+                        "side": "long",
+                        "entry_price": 100.0,
+                        "mark_price": 101.0,
+                    }
+                ],
+                "open_orders": [],
+            }
+
+        def refresh_protection_orders(self, *, order_request, quantity, previous_refs):  # noqa: ANN001
+            self.refresh_calls.append((order_request.symbol, quantity))
+            assert order_request.stoploss_plan["price"] == 95.0
+            assert order_request.takeprofit_plan["price"] == 120.0
+            return [
+                {"algoId": "rearmed-stop", "orderType": "STOP_MARKET"},
+                {"algoId": "rearmed-take", "orderType": "TAKE_PROFIT_MARKET"},
+            ]
+
+    gateway = MissingProtectionGateway()
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+        mirror_to_gateway=True,
+        gateway=gateway,
+    )
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=[], timeframe="15m", enable_decision_veto=False),
+    )
+
+    assert gateway.refresh_calls == [("BTC/USDT", 1.0)]
+    assert any(action.action == "reconcile_rearm_protection" for action in result.actions)
+
+
+def test_runtime_gateway_close_cancels_entry_protection_orders(db_session, monkeypatch) -> None:
+    from shared.config import settings
+
+    class ProtectedPositionGateway:
+        capability = type("Cap", (), {"gateway_name": "protected_gateway"})()
+
+        def __init__(self) -> None:
+            self.cancelled: list[str] = []
+
+        def reconcile(self, *, live_run_id: str) -> dict:
+            return {
+                "open_positions": [{"symbol": "BTC/USDT:USDT", "contracts": 1.0, "side": "long"}],
+                "open_orders": [],
+            }
+
+        def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
+            assert order_request.entry_context["close_only_mode"] is True
+            return {"gateway_order_id": "close-1", "gateway_status": "filled", "protection_order_refs": []}
+
+        def cancel_protection_order(self, *, symbol: str, gateway_order_id: str) -> None:
+            assert symbol == "BTC/USDT"
+            self.cancelled.append(gateway_order_id)
+
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
+    gateway = ProtectedPositionGateway()
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+        mirror_to_gateway=True,
+        gateway=gateway,
+    )
+    entry = ExecutionRepository(db_session).find_latest_filled_entry_order(
+        run_type="paper",
+        run_id=paper_run.paper_run_id or "",
+        symbol="BTC/USDT",
+    )
+    assert entry is not None
+    ExecutionRepository(db_session).update_order(
+        entry.order_execution_id or "",
+        entry_context={
+            **entry.entry_context,
+            "protection_order_refs": [
+                {"algoId": "stop-1", "orderType": "STOP_MARKET"},
+                {"algoId": "take-1", "orderType": "TAKE_PROFIT_MARKET"},
+            ],
+        },
+    )
+    _store_bar(db_session, low=94, high=100, close=96, timeframe="1m")
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="15m", enable_decision_veto=False),
+    )
+
+    assert result.closed_positions == 1
+    assert gateway.cancelled == ["stop-1", "take-1"]
 
 
 def _runtime_with_position(

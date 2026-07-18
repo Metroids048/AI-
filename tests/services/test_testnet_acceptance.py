@@ -1,4 +1,4 @@
-from services.data.universe import FIXED_TOP20_SYMBOLS
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.execution.testnet_acceptance import TestnetAcceptanceService as AcceptanceService
 from shared.models import TestnetAcceptanceRunRequest as AcceptanceRequest
 
@@ -9,6 +9,7 @@ class FakeAcceptanceGateway:
         self.orders: list[dict] = []
         self.leverages: dict[str, float] = {}
         self.positions: dict[str, float] = {}
+        self.protection_prices: dict[str, tuple[float | None, float | None]] = {}
 
     def preflight(self) -> dict:
         return {"open_orders": [], "open_positions": []}
@@ -32,6 +33,7 @@ class FakeAcceptanceGateway:
         reference_price: float,
         reduce_only: bool,
         stoploss_price: float | None,
+        takeprofit_price: float | None,
         idempotency_key: str,
     ) -> dict:
         if reduce_only and symbol == self.fail_close_symbol:
@@ -49,7 +51,14 @@ class FakeAcceptanceGateway:
             "protection_order_refs": ([{"gateway_order_id": f"stop-{symbol}"}] if not reduce_only else []),
         }
         self.orders.append(order)
+        if not reduce_only:
+            self.protection_prices[symbol] = (stoploss_price, takeprofit_price)
         self.positions[symbol] = 0.0 if reduce_only else quantity
+        if not reduce_only:
+            order["protection_order_refs"] = [
+                {"gateway_order_id": f"stop-{symbol}"},
+                {"gateway_order_id": f"take-{symbol}"},
+            ]
         return order
 
     def cancel_protection_order(self, *, symbol: str, gateway_order_id: str) -> None:
@@ -69,23 +78,21 @@ def test_acceptance_run_completes_fixed_universe_round_trips_with_tiered_risk() 
     result = service.run(AcceptanceRequest())
 
     assert result.run_status == "completed"
-    assert result.completed_symbols == list(FIXED_TOP20_SYMBOLS)
-    assert result.filled_order_count == len(FIXED_TOP20_SYMBOLS) * 2
-    assert len(gateway.orders) == len(FIXED_TOP20_SYMBOLS) * 2
-    # Tier defaults bumped moderately more aggressive (core 20x->25x, standard 10x->15x)
-    # per operator request, alongside the paper-sizing floor fix.
-    assert gateway.leverages["BTC/USDT"] == 25
-    assert gateway.leverages["ETH/USDT"] == 25
-    assert gateway.leverages["SOL/USDT"] == 25
-    assert gateway.leverages["XRP/USDT"] == 15
+    assert result.completed_symbols == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    assert result.filled_order_count == len(AUTO_SIMULATION_EXECUTION_SYMBOLS) * 2
+    assert len(gateway.orders) == len(AUTO_SIMULATION_EXECUTION_SYMBOLS) * 2
+    assert gateway.leverages["BTC/USDT"] == 40
+    assert gateway.leverages["ETH/USDT"] == 40
+    assert gateway.leverages["SOL/USDT"] == 40
     assert gateway.orders[0]["requested_notional"] == 120
-    assert gateway.orders[6]["requested_notional"] == 120
+    assert gateway.orders[-1]["requested_notional"] == 120
     assert result.final_open_position_count == 0
     assert result.final_open_order_count == 0
-    assert len(result.symbol_results) == len(FIXED_TOP20_SYMBOLS)
+    assert len(result.symbol_results) == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     assert all(item.run_status == "completed" for item in result.symbol_results)
     assert result.symbol_results[0].final_stage == "closed"
-    assert result.symbol_results[0].protection_order_refs == ["stop-BTC/USDT"]
+    assert result.symbol_results[0].protection_order_refs == ["stop-BTC/USDT", "take-BTC/USDT"]
+    assert gateway.protection_prices["BTC/USDT"] == (97.5, 105.0)
 
 
 def test_acceptance_run_retries_compensating_close_and_stops_after_failure() -> None:
@@ -104,4 +111,6 @@ def test_acceptance_run_retries_compensating_close_and_stops_after_failure() -> 
     assert failed.final_stage == "compensated"
     assert failed.compensation_succeeded is True
     assert failed.failure_class == "ValueError"
-    assert sum(item.run_status == "skipped" for item in result.symbol_results) == len(FIXED_TOP20_SYMBOLS) - 2
+    assert sum(item.run_status == "skipped" for item in result.symbol_results) == (
+        len(AUTO_SIMULATION_EXECUTION_SYMBOLS) - 2
+    )

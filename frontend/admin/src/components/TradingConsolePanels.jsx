@@ -510,9 +510,16 @@ export function AutoEngineStatusBadge({ status }) {
   const eta = status?.next_cycle_eta_seconds;
   const etaLabel = Number.isFinite(Number(eta)) ? ` / 下次 ${formatEta(Number(eta))}` : "";
   const error = status?.scheduler_error ? ` / ${status.scheduler_error}` : "";
+  const activeSymbols = asArray(status?.active_execution_symbols);
+  const scopeLabel = activeSymbols.length
+    ? activeSymbols.map((symbol) => String(symbol).split("/")[0]).join("、")
+    : "BTC、ETH、SOL";
+  const expectedCoverage = status?.active_execution_count ?? activeSymbols.length ?? 0;
+  const actualCoverage = status?.market_data_coverage_count ?? status?.top20_coverage_count ?? 0;
+  const coverageLabel = `数据 ${actualCoverage}/${expectedCoverage || 3}`;
   const executionLabel = {
-    ready: `Mock 自动下单可执行 / Top${status?.fixed_top20_count ?? 20} 数据、风控与验收均已通过`,
-    armed: `Mock 自动下单已武装 / Top${status?.fixed_top20_count ?? 20} 监控中`,
+    ready: `Mock 自动下单可执行 / ${scopeLabel} / ${coverageLabel}`,
+    armed: `Mock 自动下单已武装 / ${scopeLabel} / ${coverageLabel}`,
     monitoring_only: "仅监控，Mock 自动下单未开启",
     blocked_missing_credentials: "缺少 Mock API 凭据",
     blocked_gateway_unavailable: "Mock 下单网关不可用",
@@ -711,8 +718,14 @@ function orderStatusLabel(status) {
 
 function orderSourceLabel(order) {
   const kind = order?.entry_context?.execution_kind;
+  const lane = order?.entry_context?.strategy_lane;
   if (kind === "testnet_acceptance") return "连通性验收（不计策略收益）";
   if (kind === "binance_demo_reconciliation") return "币安模拟盘补录（不计策略收益）";
+  if (kind === "strategy_trade" && lane === "signal_observation" && order?.gateway_order_id) {
+    return "Binance 真实信号采样（不计策略收益）";
+  }
+  if (kind === "strategy_trade" && lane === "signal_observation") return "本地信号采样（不计策略收益）";
+  if (kind === "strategy_trade" && lane === "directional") return "主方向策略";
   if (order?.paper_run_id) return "自动策略";
   return "手动模拟单";
 }

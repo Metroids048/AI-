@@ -190,13 +190,16 @@ describe("Trading console panels", () => {
           next_cycle_eta_seconds: 42,
           auto_execution_state: "armed",
           fixed_top20_count: 20,
+          active_execution_count: 3,
+          market_data_coverage_count: 3,
+          active_execution_symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
         }}
       />,
     );
 
     expect(screen.getByText("自动运行中")).toBeInTheDocument();
     expect(screen.getByText("inprocess / 下次 00:42")).toBeInTheDocument();
-    expect(screen.getByText("Mock 自动下单已武装 / Top20 监控中")).toBeInTheDocument();
+    expect(screen.getByText("Mock 自动下单已武装 / BTC、ETH、SOL / 数据 3/3")).toBeInTheDocument();
   });
 
   it("shows matched and unmatched Binance order reconciliation", () => {
@@ -251,6 +254,32 @@ describe("Trading console panels", () => {
     expect(screen.getByText("连通性验收（不计策略收益）")).toBeInTheDocument();
     expect(screen.getByText("已成交")).toBeInTheDocument();
     expect(screen.getByText("多")).toBeInTheDocument();
+  });
+
+  it("labels signal observation gateway fills as Binance sampling strategy orders", () => {
+    render(
+      <OrdersTable
+        orders={[
+          {
+            order_execution_id: "sample-1",
+            created_at: "2026-07-17T00:43:14Z",
+            symbol: "ETH/USDT",
+            direction: "short",
+            execution_status: "filled",
+            paper_run_id: "observation-run",
+            gateway_order_id: "gateway-sample-1",
+            entry_context: {
+              execution_kind: "strategy_trade",
+              strategy_lane: "signal_observation",
+              order_type: "market",
+            },
+          },
+        ]}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Binance 真实信号采样（不计策略收益）")).toBeInTheDocument();
   });
 
   it("translates stale market data status in the page header", () => {

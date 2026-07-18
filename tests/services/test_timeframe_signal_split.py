@@ -35,3 +35,37 @@ def test_enabled_signals_falls_back_to_union_when_no_role_config() -> None:
         rules=StrategyRules(entry_rules={"enabled_signals": ["ema_trend", "rsi"]}),
     )
     assert _enabled_signals(strategy, timeframe="15m") == {"ema_trend", "rsi"}
+
+
+def test_enabled_signals_keeps_registered_pandas_ta_signals() -> None:
+    strategy = StrategyContract(
+        strategy_id="pandas-ta",
+        strategy_key="pandas-ta",
+        source="test",
+        core_thesis="adapter wiring",
+        rules=StrategyRules(
+            entry_rules={"enabled_signals": ["pandas_ta_supertrend", "pandas_ta_stoch_rsi"]}
+        ),
+    )
+
+    assert _enabled_signals(strategy, timeframe="15m") == {
+        "pandas_ta_supertrend",
+        "pandas_ta_stoch_rsi",
+    }
+
+
+def test_enabled_signals_keeps_registered_pandas_ta_signals() -> None:
+    strategy = StrategyContract(
+        strategy_id="pandas-ta",
+        strategy_key="pandas-ta",
+        source="test",
+        core_thesis="adapter wiring",
+        rules=StrategyRules(
+            entry_rules={"enabled_signals": ["pandas_ta_supertrend", "pandas_ta_stoch_rsi"]}
+        ),
+    )
+
+    assert _enabled_signals(strategy, timeframe="15m") == {
+        "pandas_ta_supertrend",
+        "pandas_ta_stoch_rsi",
+    }

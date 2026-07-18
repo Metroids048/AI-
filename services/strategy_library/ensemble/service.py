@@ -27,6 +27,7 @@ DIRECTION_SOURCES = frozenset(
 ENTRY_SOURCES = frozenset({"technical_macd", "technical_rsi", "technical_fvg", "market_intelligence"})
 RANGE_SOURCES = frozenset({"technical_vwap", "technical_bollinger"})
 LAYERED_FUSION_METHOD = "layered_regime_entry"
+LAYERED_RELAXED_FUSION_METHOD = "layered_regime_entry_relaxed"
 
 # Minimum number of DIRECTION_SOURCES that must report before a direction can be
 # resolved at all (fail-closed on thin data), and the quorum a majority is judged
@@ -35,6 +36,7 @@ LAYERED_FUSION_METHOD = "layered_regime_entry"
 # ties, but now allows a clear majority (e.g. 2-of-3, or 3-of-4 once mtf_ma reports)
 # to resolve a direction instead of requiring unanimity.
 MIN_DIRECTION_SOURCE_QUORUM = 3
+RELAXED_DIRECTION_SOURCE_QUORUM = 2
 
 
 class SignalEnsembleService:
@@ -43,8 +45,13 @@ class SignalEnsembleService:
     def create_ensemble(self, request: SignalEnsembleRequest) -> SignalEnsemble:
         if not request.signals:
             raise ValueError("at least one signal is required")
-        if request.fusion_method == LAYERED_FUSION_METHOD:
-            return self._create_layered_ensemble(request)
+        if request.fusion_method in {LAYERED_FUSION_METHOD, LAYERED_RELAXED_FUSION_METHOD}:
+            min_direction_sources = (
+                RELAXED_DIRECTION_SOURCE_QUORUM
+                if request.fusion_method == LAYERED_RELAXED_FUSION_METHOD
+                else MIN_DIRECTION_SOURCE_QUORUM
+            )
+            return self._create_layered_ensemble(request, min_direction_sources=min_direction_sources)
         return self._create_weighted_ensemble(request)
 
     def _create_weighted_ensemble(self, request: SignalEnsembleRequest) -> SignalEnsemble:
@@ -75,8 +82,12 @@ class SignalEnsembleService:
             correlation_prefix="correlation_filter",
         )
 
-    def _create_layered_ensemble(self, request: SignalEnsembleRequest) -> SignalEnsemble:
-        allowed_direction = self._resolve_allowed_direction(request.signals)
+    def _create_layered_ensemble(
+        self, request: SignalEnsembleRequest, *, min_direction_sources: int
+    ) -> SignalEnsemble:
+        allowed_direction = self._resolve_allowed_direction(
+            request.signals, min_direction_sources=min_direction_sources
+        )
         eligible = self._eligible_layered_signals(request.signals, allowed_direction=allowed_direction)
         adjusted = self._correlation_filter(
             eligible,
@@ -98,7 +109,8 @@ class SignalEnsembleService:
             request=request,
             votes=votes,
             audit={
-                "fusion_method": LAYERED_FUSION_METHOD,
+                "fusion_method": request.fusion_method,
+                "min_direction_sources": min_direction_sources,
                 "allowed_direction": direction_label,
                 "correlation_threshold": request.correlation_threshold,
                 "min_history": request.min_history,
@@ -106,7 +118,7 @@ class SignalEnsembleService:
                 "eligible_count": len(eligible),
                 "kept_count": len(votes),
             },
-            correlation_prefix=f"layered_regime_entry:allowed_direction={direction_label}",
+            correlation_prefix=f"{request.fusion_method}:allowed_direction={direction_label}",
         )
 
     def _finalize_votes(
@@ -240,7 +252,12 @@ class SignalEnsembleService:
         return "entry"
 
     @classmethod
-    def _resolve_allowed_direction(cls, signals: list[CandidateSignalSeries]) -> TradeSide | None:
+    def _resolve_allowed_direction(
+        cls,
+        signals: list[CandidateSignalSeries],
+        *,
+        min_direction_sources: int = MIN_DIRECTION_SOURCE_QUORUM,
+    ) -> TradeSide | None:
         """Resolve the regime direction by majority vote across DIRECTION_SOURCES.
 
         Previously required ALL direction sources to report and unanimously agree,
@@ -258,7 +275,7 @@ class SignalEnsembleService:
             if existing is not None and existing != signal.direction:
                 return None
             by_source[source] = signal.direction
-        if len(by_source) < MIN_DIRECTION_SOURCE_QUORUM:
+        if len(by_source) < min_direction_sources:
             return None
         long_votes = sum(1 for direction in by_source.values() if direction == TradeSide.LONG)
         short_votes = sum(1 for direction in by_source.values() if direction == TradeSide.SHORT)

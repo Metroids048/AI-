@@ -212,7 +212,13 @@ function schedulerRows(status) {
     { name: "last_auto_cycle_at", value: formatTime(status.last_auto_cycle_at) },
     { name: "next_cycle_eta_seconds", value: status.next_cycle_eta_seconds ?? "-" },
     { name: "scheduler_error", value: status.scheduler_error ?? "none" },
-    { name: "top20_coverage", value: `${status.top20_coverage_count ?? 0}/${status.fixed_top20_count ?? 20}` },
+    {
+      name: "execution_scope_coverage",
+      value: `${status.market_data_coverage_count ?? status.top20_coverage_count ?? 0}/${status.active_execution_count ?? 3}`,
+    },
+    { name: "execution_symbols", value: (status.active_execution_symbols ?? []).join(", ") || "BTC/USDT, ETH/USDT, SOL/USDT" },
+    { name: "acceptance_scope", value: status.acceptance_scope_hash ?? "not_verified" },
+    { name: "last_strategy_gateway_order", value: status.last_strategy_gateway_order_id ?? "none" },
     { name: "queue_backlog", value: status.queue_backlog_status ?? "not_probed" },
     ...taskRows,
   ];

@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from services.data import DataRepository
 from services.data.market import MarketQueryService
+from services.data.universe import execution_scope_hash
 from services.execution.account_equity import resolve_paper_account_equity
 from services.execution.decision_pipeline import DecisionPipeline, DecisionPipelineResult
 from services.strategy_library import (
@@ -143,6 +144,8 @@ class PaperSignalGenerator:
             risk_profile_id=paper_run.execution_profile.get("risk_profile_id"),
             entry_context={
                 "timeframe": timeframe,
+                "runtime_build_id": settings.app_build_id,
+                "execution_scope_hash": execution_scope_hash(),
                 "paper_signal_source": "paper_signal_generator",
                 "paper_strategy_source": strategy.source,
                 "reference_price": str(reference_price),

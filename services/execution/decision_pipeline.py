@@ -71,6 +71,7 @@ DEFAULT_TECHNICAL_SIGNALS: frozenset[str] = frozenset(
         "mtf_ma",
     }
 )
+PANDAS_TA_TECHNICAL_SIGNALS: frozenset[str] = frozenset({"pandas_ta_supertrend", "pandas_ta_stoch_rsi"})
 
 _SIGNAL_ALIASES = {
     "dow": "dow_trend",
@@ -205,10 +206,14 @@ class DecisionPipeline:
                 volatility={**volatility, "multi_timeframe": multi_timeframe},
             )
         volatility = {**volatility, "multi_timeframe": multi_timeframe}
+        confirmation_direction_signals = list(multi_timeframe.get("direction_signals", []))
 
         ensemble = self.ensemble_service.create_ensemble(
             SignalEnsembleRequest(
-                signals=[_candidate_from_signal(signal, bars) for signal in signals],
+                signals=[
+                    _candidate_from_signal(signal, bars)
+                    for signal in [*signals, *confirmation_direction_signals]
+                ],
                 fusion_method=str(strategy.rules.entry_rules.get("fusion_method", "weighted_vote")),
             )
         )
@@ -357,6 +362,20 @@ class DecisionPipeline:
             candidates.append(generate_bollinger_reversion_signal(frame, symbol=symbol))
         if "fvg" in enabled_signals:
             candidates.append(generate_fvg_signal(frame, symbol=symbol))
+        for signal_name in sorted(PANDAS_TA_TECHNICAL_SIGNALS & set(enabled_signals)):
+            try:
+                from services.strategy_library.technical.pandas_ta_adapter import generate_pandas_ta_signal
+
+                candidates.append(
+                    generate_pandas_ta_signal(
+                        name=signal_name.removeprefix("pandas_ta_"),
+                        symbol=symbol,
+                        frame=frame,
+                    )
+                )
+            except ImportError:
+                # The optional dependency must never interrupt the scheduler.
+                continue
         return [signal for signal in candidates if signal is not None]
 
     def _mtf_ma_signal(
@@ -467,6 +486,11 @@ class DecisionPipeline:
             "main_direction": str(main_direction),
             "confirm_direction": str(confirm_direction),
             "confirm_signal_count": len(confirm_signals),
+            # These are the canonical 4h regime votes.  The 15m/1h checks above
+            # already establish cross-timeframe agreement; passing the 4h votes
+            # into the ensemble prevents its layered direction gate from seeing
+            # only 15m entry signals and incorrectly resolving no direction.
+            "direction_signals": confirm_signals,
             **({"state_confirmation": state_confirmation} if state_confirmation else {}),
         }
 
@@ -693,7 +717,7 @@ def _enabled_signals(strategy: StrategyContract, *, timeframe: str | None = None
         if key in {"all", "default", "defaults"}:
             return set(DEFAULT_TECHNICAL_SIGNALS)
         normalized.add(_SIGNAL_ALIASES.get(key, key))
-    supported = set(DEFAULT_TECHNICAL_SIGNALS) | {"false_breakout"}
+    supported = set(DEFAULT_TECHNICAL_SIGNALS) | set(PANDAS_TA_TECHNICAL_SIGNALS) | {"false_breakout"}
     return {key for key in normalized if key in supported} or set(DEFAULT_TECHNICAL_SIGNALS)
 
 
