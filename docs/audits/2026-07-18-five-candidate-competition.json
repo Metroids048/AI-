@@ -1,0 +1,164 @@
+{
+  "status": "running",
+  "started_at": "2026-07-18T04:38:42.055618+00:00",
+  "completed_rows": [
+    {
+      "candidate_id": "operator_heuristic_v1",
+      "symbol": "BTC/USDT",
+      "sample_count": 197,
+      "oos_sample_count": 27,
+      "win_rate": 0.4444444444444444,
+      "net_expectancy": 0.007683824738593766,
+      "sharpe": 39.00130190640097,
+      "profit_factor": 1.5486461651396177,
+      "max_drawdown": 0.13519375361480623,
+      "failed_reasons": [
+        "insufficient_oos_trades"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-03-30T18:00:00+00:00",
+      "evaluation_end": "2026-07-18T00:00:00+00:00"
+    },
+    {
+      "candidate_id": "trend_momentum_v1",
+      "symbol": "BTC/USDT",
+      "sample_count": 205,
+      "oos_sample_count": 35,
+      "win_rate": 0.42857142857142855,
+      "net_expectancy": 0.006637838894580025,
+      "sharpe": 33.826355021759646,
+      "profit_factor": 1.4649503464277864,
+      "max_drawdown": 0.17979962090441373,
+      "failed_reasons": [],
+      "data_issues": [],
+      "evaluation_start": "2026-03-30T18:00:00+00:00",
+      "evaluation_end": "2026-07-18T00:00:00+00:00"
+    },
+    {
+      "candidate_id": "trend_momentum_v1",
+      "symbol": "ETH/USDT",
+      "sample_count": 538,
+      "oos_sample_count": 64,
+      "win_rate": 0.4375,
+      "net_expectancy": 0.0066125000000000055,
+      "sharpe": 33.26872662133752,
+      "profit_factor": 1.4486853265479223,
+      "max_drawdown": 0.1653145844600684,
+      "failed_reasons": [],
+      "data_issues": [],
+      "evaluation_start": "2026-03-30T18:00:00+00:00",
+      "evaluation_end": "2026-07-18T00:00:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v1",
+      "symbol": "ETH/USDT",
+      "sample_count": 482,
+      "oos_sample_count": 60,
+      "win_rate": 0.38333333333333336,
+      "net_expectancy": 0.002549999999999994,
+      "sharpe": 13.090234786607416,
+      "profit_factor": 1.157829585310501,
+      "max_drawdown": 0.2079532497149375,
+      "failed_reasons": [
+        "profit_factor_not_above_1_3"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-03-30T18:00:00+00:00",
+      "evaluation_end": "2026-07-18T00:00:00+00:00"
+    },
+    {
+      "candidate_id": "trend_momentum_v1",
+      "symbol": "SOL/USDT",
+      "sample_count": 488,
+      "oos_sample_count": 106,
+      "win_rate": 0.2641509433962264,
+      "net_expectancy": -0.006737681317482822,
+      "sharpe": -38.59957701669634,
+      "profit_factor": 0.6505215210152774,
+      "max_drawdown": 0.7846250589529947,
+      "failed_reasons": [
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "max_drawdown_not_below_25pct",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-03-30T18:00:00+00:00",
+      "evaluation_end": "2026-07-18T00:00:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v1",
+      "symbol": "SOL/USDT",
+      "sample_count": 441,
+      "oos_sample_count": 110,
+      "win_rate": 0.2545454545454545,
+      "net_expectancy": -0.00695500408621299,
+      "sharpe": -39.911346145920454,
+      "profit_factor": 0.6410658058371267,
+      "max_drawdown": 0.8652914798206274,
+      "failed_reasons": [
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "max_drawdown_not_below_25pct",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-03-30T18:00:00+00:00",
+      "evaluation_end": "2026-07-18T00:00:00+00:00"
+    },
+    {
+      "candidate_id": "trend_breakout_v1",
+      "symbol": "BTC/USDT",
+      "sample_count": 208,
+      "oos_sample_count": 34,
+      "win_rate": 0.4411764705882353,
+      "net_expectancy": 0.007185804984564725,
+      "sharpe": 36.34081050528605,
+      "profit_factor": 1.5009761557681247,
+      "max_drawdown": 0.1381650024413349,
+      "failed_reasons": [],
+      "data_issues": [],
+      "evaluation_start": "2026-03-30T18:00:00+00:00",
+      "evaluation_end": "2026-07-18T00:00:00+00:00"
+    },
+    {
+      "candidate_id": "trend_breakout_v1",
+      "symbol": "ETH/USDT",
+      "sample_count": 460,
+      "oos_sample_count": 62,
+      "win_rate": 0.3387096774193548,
+      "net_expectancy": -0.0005483038063646411,
+      "sharpe": -2.9017782091597337,
+      "profit_factor": 0.9678928959238134,
+      "max_drawdown": 0.1955320086564022,
+      "failed_reasons": [
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-03-30T18:00:00+00:00",
+      "evaluation_end": "2026-07-18T00:00:00+00:00"
+    },
+    {
+      "candidate_id": "trend_breakout_v1",
+      "symbol": "SOL/USDT",
+      "sample_count": 497,
+      "oos_sample_count": 108,
+      "win_rate": 0.25925925925925924,
+      "net_expectancy": -0.007101697794522084,
+      "sharpe": -40.93539168694918,
+      "profit_factor": 0.634072823564702,
+      "max_drawdown": 0.7914549218897048,
+      "failed_reasons": [
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "max_drawdown_not_below_25pct",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-03-30T18:00:00+00:00",
+      "evaluation_end": "2026-07-18T00:00:00+00:00"
+    }
+  ]
+}

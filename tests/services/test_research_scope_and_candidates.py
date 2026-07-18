@@ -21,10 +21,12 @@ def test_evidence_candidates_have_explicit_role_specific_signal_sets() -> None:
     momentum = get_candidate("trend_momentum_v1").get_config()["entry_rules"]
     assert momentum["direction_signals"] == ["ema_trend", "adx"]
     assert momentum["entry_signals"] == ["macd"]
+    assert momentum["fusion_method"] == "weighted_vote"
 
     breakout = get_candidate("trend_breakout_v1").get_config()["entry_rules"]
     assert breakout["direction_signals"] == ["dow_trend", "adx"]
     assert breakout["entry_signals"] == ["price_action", "fvg"]
+    assert breakout["fusion_method"] == "weighted_vote"
 
 
 def test_all_evidence_candidates_share_cost_exit_and_timeframe_contracts() -> None:

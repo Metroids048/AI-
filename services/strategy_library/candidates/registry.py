@@ -141,6 +141,12 @@ def _focused_candidate_config(
         "direction_signals": direction_signals,
         "entry_signals": entry_signals,
         "enabled_signals": [*direction_signals, *entry_signals],
+        # Focused candidates intentionally use fewer than the layered fusion
+        # quorum of three direction sources.  The shared multi-timeframe
+        # confirmation still runs first; weighted voting then evaluates the
+        # reduced signal set instead of making these candidates impossible to
+        # trade by construction.
+        "fusion_method": "weighted_vote",
     }
     return config
 
@@ -216,8 +222,9 @@ def _pandas_ta_broad_screen_config() -> dict[str, Any]:
                 "pandas_ta_supertrend",
                 "pandas_ta_stoch_rsi",
             ],
+            "candidate_id": "pandas_ta_broad_screen_v1",
             "meta_label_min_win_rate": 0.50,
-            "fusion_method": "layered_regime_entry",
+            "fusion_method": "weighted_vote",
             "core_fee_bps": 5.0,
             "core_slippage_bps": 1.0,
             "standard_fee_bps": 5.0,
@@ -275,14 +282,12 @@ def _operator_heuristic_v2_relaxed_config() -> dict[str, Any]:
     to miss valid entries. This candidate tests whether "any 2 out of 3 timeframes
     agree" can increase sample size while maintaining positive net expectancy.
 
-    Implementation note: This requires modifying the signal fusion logic to accept
-    majority vote instead of unanimous agreement. For now, this is a placeholder
-    config identical to v1 -- the actual relaxed logic will be implemented in
-    services/execution/paper_signal.py's fusion method.
+    The relaxed fusion method accepts a clear 2-of-3 direction majority while
+    retaining the existing entry-signal voting and all downstream risk gates.
     """
     config = _operator_heuristic_v1_config()
-    # TODO: Change fusion_method to "layered_regime_entry_relaxed" once implemented
-    config["entry_rules"]["fusion_method"] = "layered_regime_entry"  # Placeholder
+    config["entry_rules"]["candidate_id"] = "operator_heuristic_v2_relaxed"
+    config["entry_rules"]["fusion_method"] = "layered_regime_entry_relaxed"
     return config
 
 
@@ -310,6 +315,8 @@ CANDIDATE_REGISTRY: dict[str, StrategyCandidate] = {
     "operator_heuristic_v1": OPERATOR_HEURISTIC_V1,
     "trend_momentum_v1": TREND_MOMENTUM_V1,
     "trend_breakout_v1": TREND_BREAKOUT_V1,
+    "pandas_ta_broad_screen_v1": PANDAS_TA_BROAD_SCREEN,
+    "operator_heuristic_v2_relaxed": OPERATOR_HEURISTIC_V2_RELAXED,
 }
 
 
