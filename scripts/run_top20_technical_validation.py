@@ -12,7 +12,7 @@ import os
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from services.data import DataRepository
 from services.data.binance import BinanceCcxtClient
@@ -23,7 +23,7 @@ from services.execution.bootstrap import (
     AUTO_PAPER_TECHNICAL_RULES,
 )
 from services.validation.technical_replay import MarketData, TechnicalStrategyValidationService
-from shared.models import StrategyContract, StrategyRules, Timeframe
+from shared.models import OHLCVBar, StrategyContract, StrategyRules, Timeframe
 
 ONE_HOUR_BASELINE_STRATEGY_KEY = "validated_template_1h"
 
@@ -86,10 +86,10 @@ def _load_or_backfill(*, days: int, end_at: datetime) -> MarketData:
                     start_at=start_at,
                     end_at=end_at,
                 )
-                platform_bars = [bar.model_copy(update={"symbol": symbol}) for bar in bars]
+                platform_bars: list[OHLCVBar | dict[str, Any]] = [bar.model_copy(update={"symbol": symbol}) for bar in bars]
                 repository.store_ohlcv_bars(platform_bars)
                 session.commit()
-                market_data[symbol][timeframe] = cast(list, platform_bars)
+                market_data[symbol][timeframe] = platform_bars
     return market_data
 
 

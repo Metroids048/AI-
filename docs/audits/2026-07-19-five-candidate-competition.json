@@ -1,0 +1,1447 @@
+{
+  "status": "completed",
+  "generated_at": "2026-07-19T12:07:02.244444+00:00",
+  "days": 365,
+  "symbols": [
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "XRP/USDT",
+    "BNB/USDT",
+    "DOGE/USDT",
+    "ADA/USDT",
+    "LINK/USDT",
+    "AVAX/USDT",
+    "TRX/USDT"
+  ],
+  "candidate_ids": [
+    "operator_heuristic_v1",
+    "trend_momentum_v1",
+    "trend_breakout_v1",
+    "pandas_ta_broad_screen_v1",
+    "operator_heuristic_v2_relaxed"
+  ],
+  "split": "chronological 70/30",
+  "rows": [
+    {
+      "candidate_id": "pandas_ta_broad_screen_v1",
+      "symbol": "ETH/USDT",
+      "sample_count": 4,
+      "oos_sample_count": 1,
+      "oos_trade_count": 1,
+      "win_rate": 1.0,
+      "net_expectancy": 0.048799999999999906,
+      "sharpe": 0.0,
+      "profit_factor": 9.99,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v2_relaxed",
+      "symbol": "BTC/USDT",
+      "sample_count": 218,
+      "oos_sample_count": 29,
+      "oos_trade_count": 29,
+      "win_rate": 0.4482758620689655,
+      "net_expectancy": 0.008288251569370094,
+      "sharpe": 2.290953467816825,
+      "profit_factor": 1.6099859551918185,
+      "max_drawdown": 0.13382730760353836,
+      "sharpe_ci_90": [
+        -0.8571390969645238,
+        5.604147745124438
+      ],
+      "expectancy_ci_90": [
+        -0.0029241379310344867,
+        0.01950064106977466
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "trend_momentum_v1",
+      "symbol": "BTC/USDT",
+      "sample_count": 204,
+      "oos_sample_count": 35,
+      "oos_trade_count": 35,
+      "win_rate": 0.45714285714285713,
+      "net_expectancy": 0.006983567501868386,
+      "sharpe": 2.1053608415587326,
+      "profit_factor": 1.4910101698782516,
+      "max_drawdown": 0.17979962090441373,
+      "sharpe_ci_90": [
+        -0.8354756953670377,
+        5.380141461894232
+      ],
+      "expectancy_ci_90": [
+        -0.0026285714285714436,
+        0.017697853216154084
+      ],
+      "failed_reasons": [],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v1",
+      "symbol": "BTC/USDT",
+      "sample_count": 199,
+      "oos_sample_count": 28,
+      "oos_trade_count": 28,
+      "win_rate": 0.42857142857142855,
+      "net_expectancy": 0.006841403411133327,
+      "sharpe": 1.8666754133938954,
+      "profit_factor": 1.486140881715526,
+      "max_drawdown": 0.13854880312916926,
+      "sharpe_ci_90": [
+        -1.1507688338328856,
+        5.184396565675125
+      ],
+      "expectancy_ci_90": [
+        -0.003872882303152404,
+        0.01845423539369524
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "trend_breakout_v1",
+      "symbol": "BTC/USDT",
+      "sample_count": 209,
+      "oos_sample_count": 35,
+      "oos_trade_count": 35,
+      "win_rate": 0.42857142857142855,
+      "net_expectancy": 0.006657142857142858,
+      "sharpe": 2.0252245300220952,
+      "profit_factor": 1.466933867735471,
+      "max_drawdown": 0.1460036016068707,
+      "sharpe_ci_90": [
+        -1.3457640925152146,
+        5.314944955144157
+      ],
+      "expectancy_ci_90": [
+        -0.004057142857142863,
+        0.017371428571428555
+      ],
+      "failed_reasons": [],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "trend_momentum_v1",
+      "symbol": "ETH/USDT",
+      "sample_count": 525,
+      "oos_sample_count": 65,
+      "oos_trade_count": 65,
+      "win_rate": 0.4461538461538462,
+      "net_expectancy": 0.006569027808148459,
+      "sharpe": 2.635218320020499,
+      "profit_factor": 1.4527001776183732,
+      "max_drawdown": 0.1653145844600684,
+      "sharpe_ci_90": [
+        -0.340289596138439,
+        5.608706540607674
+      ],
+      "expectancy_ci_90": [
+        -0.0008153846153846209,
+        0.013953440231681524
+      ],
+      "failed_reasons": [],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v2_relaxed",
+      "symbol": "ETH/USDT",
+      "sample_count": 573,
+      "oos_sample_count": 60,
+      "oos_trade_count": 60,
+      "win_rate": 0.4,
+      "net_expectancy": 0.0038,
+      "sharpe": 1.4860587334866457,
+      "profit_factor": 1.2417302798982188,
+      "max_drawdown": 0.19740224597483427,
+      "sharpe_ci_90": [
+        -1.5468566735430023,
+        4.329786059030799
+      ],
+      "expectancy_ci_90": [
+        -0.0037000000000000106,
+        0.011300000000000008
+      ],
+      "failed_reasons": [
+        "profit_factor_not_above_1_3"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v1",
+      "symbol": "ETH/USDT",
+      "sample_count": 474,
+      "oos_sample_count": 60,
+      "oos_trade_count": 60,
+      "win_rate": 0.38333333333333336,
+      "net_expectancy": 0.002549999999999994,
+      "sharpe": 1.0048116214731027,
+      "profit_factor": 1.157829585310501,
+      "max_drawdown": 0.2079532497149375,
+      "sharpe_ci_90": [
+        -2.6860531930198226,
+        3.8529685571940586
+      ],
+      "expectancy_ci_90": [
+        -0.006199999999999993,
+        0.01005
+      ],
+      "failed_reasons": [
+        "profit_factor_not_above_1_3"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v1",
+      "symbol": "XRP/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v1",
+      "symbol": "BNB/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v1",
+      "symbol": "DOGE/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v1",
+      "symbol": "ADA/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v1",
+      "symbol": "TRX/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_momentum_v1",
+      "symbol": "XRP/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_momentum_v1",
+      "symbol": "BNB/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_momentum_v1",
+      "symbol": "DOGE/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_momentum_v1",
+      "symbol": "ADA/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_momentum_v1",
+      "symbol": "LINK/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_momentum_v1",
+      "symbol": "TRX/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_breakout_v1",
+      "symbol": "XRP/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_breakout_v1",
+      "symbol": "DOGE/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_breakout_v1",
+      "symbol": "TRX/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "pandas_ta_broad_screen_v1",
+      "symbol": "XRP/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "pandas_ta_broad_screen_v1",
+      "symbol": "BNB/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "pandas_ta_broad_screen_v1",
+      "symbol": "DOGE/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "pandas_ta_broad_screen_v1",
+      "symbol": "ADA/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "pandas_ta_broad_screen_v1",
+      "symbol": "LINK/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "pandas_ta_broad_screen_v1",
+      "symbol": "AVAX/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "pandas_ta_broad_screen_v1",
+      "symbol": "TRX/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "pandas_ta_broad_screen_v1",
+      "symbol": "SOL/USDT",
+      "sample_count": 2,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v2_relaxed",
+      "symbol": "XRP/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v2_relaxed",
+      "symbol": "DOGE/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v2_relaxed",
+      "symbol": "ADA/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v2_relaxed",
+      "symbol": "TRX/USDT",
+      "sample_count": 0,
+      "oos_sample_count": 0,
+      "oos_trade_count": 0,
+      "win_rate": 0.0,
+      "net_expectancy": 0.0,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_breakout_v1",
+      "symbol": "ETH/USDT",
+      "sample_count": 437,
+      "oos_sample_count": 61,
+      "oos_trade_count": 61,
+      "win_rate": 0.3442622950819672,
+      "net_expectancy": -0.0003803278688524537,
+      "sharpe": -0.15337153756968175,
+      "profit_factor": 0.9778625954198477,
+      "max_drawdown": 0.20391198044009753,
+      "sharpe_ci_90": [
+        -3.451569480274229,
+        2.6989789645867206
+      ],
+      "expectancy_ci_90": [
+        -0.007757377049180313,
+        0.006996721311475413
+      ],
+      "failed_reasons": [
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "trend_breakout_v1",
+      "symbol": "ADA/USDT",
+      "sample_count": 1,
+      "oos_sample_count": 1,
+      "oos_trade_count": 1,
+      "win_rate": 0.0,
+      "net_expectancy": -0.003422600243013334,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.003422600243013334,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_breakout_v1",
+      "symbol": "BNB/USDT",
+      "sample_count": 1,
+      "oos_sample_count": 1,
+      "oos_trade_count": 1,
+      "win_rate": 0.0,
+      "net_expectancy": -0.0046043434222046735,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0046043434222046735,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v2_relaxed",
+      "symbol": "BNB/USDT",
+      "sample_count": 1,
+      "oos_sample_count": 1,
+      "oos_trade_count": 1,
+      "win_rate": 0.0,
+      "net_expectancy": -0.0046043434222046735,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.0046043434222046735,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v2_relaxed",
+      "symbol": "SOL/USDT",
+      "sample_count": 553,
+      "oos_sample_count": 114,
+      "oos_trade_count": 114,
+      "win_rate": 0.2631578947368421,
+      "net_expectancy": -0.006463157894736842,
+      "sharpe": -3.8394409046179687,
+      "profit_factor": 0.6652126499454744,
+      "max_drawdown": 0.8481012658227844,
+      "sharpe_ci_90": [
+        -7.7728417074561005,
+        -0.6658955974851629
+      ],
+      "expectancy_ci_90": [
+        -0.011726315789473678,
+        -0.0012000000000000023
+      ],
+      "failed_reasons": [
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "max_drawdown_not_below_25pct",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "trend_momentum_v1",
+      "symbol": "SOL/USDT",
+      "sample_count": 486,
+      "oos_sample_count": 106,
+      "oos_trade_count": 106,
+      "win_rate": 0.25471698113207547,
+      "net_expectancy": -0.006872770897986298,
+      "sharpe": -3.9768136018624785,
+      "profit_factor": 0.6439524793859623,
+      "max_drawdown": 0.7866009394643511,
+      "sharpe_ci_90": [
+        -8.086613702491483,
+        -1.0377388019741107
+      ],
+      "expectancy_ci_90": [
+        -0.012309692739368813,
+        -0.001919940709307052
+      ],
+      "failed_reasons": [
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "max_drawdown_not_below_25pct",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v1",
+      "symbol": "SOL/USDT",
+      "sample_count": 440,
+      "oos_sample_count": 110,
+      "oos_trade_count": 110,
+      "win_rate": 0.2545454545454545,
+      "net_expectancy": -0.007109090909090903,
+      "sharpe": -4.1893313183669845,
+      "profit_factor": 0.6360081921429904,
+      "max_drawdown": 0.8652914798206274,
+      "sharpe_ci_90": [
+        -8.36172129028109,
+        -1.287633795338961
+      ],
+      "expectancy_ci_90": [
+        -0.012563636363636355,
+        -0.002336363636363633
+      ],
+      "failed_reasons": [
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "max_drawdown_not_below_25pct",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "trend_breakout_v1",
+      "symbol": "SOL/USDT",
+      "sample_count": 497,
+      "oos_sample_count": 108,
+      "oos_trade_count": 108,
+      "win_rate": 0.25,
+      "net_expectancy": -0.007234337991559705,
+      "sharpe": -4.251286775357611,
+      "profit_factor": 0.6277548535637508,
+      "max_drawdown": 0.7941920789464032,
+      "sharpe_ci_90": [
+        -8.398851376291233,
+        -0.797912942519036
+      ],
+      "expectancy_ci_90": [
+        -0.01257423153867496,
+        -0.001463120427563862
+      ],
+      "failed_reasons": [
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "max_drawdown_not_below_25pct",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v1",
+      "symbol": "LINK/USDT",
+      "sample_count": 1,
+      "oos_sample_count": 1,
+      "oos_trade_count": 1,
+      "win_rate": 0.0,
+      "net_expectancy": -0.009927468918601893,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.009927468918601893,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_breakout_v1",
+      "symbol": "LINK/USDT",
+      "sample_count": 1,
+      "oos_sample_count": 1,
+      "oos_trade_count": 1,
+      "win_rate": 0.0,
+      "net_expectancy": -0.009927468918601893,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.009927468918601893,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v2_relaxed",
+      "symbol": "LINK/USDT",
+      "sample_count": 1,
+      "oos_sample_count": 1,
+      "oos_trade_count": 1,
+      "win_rate": 0.0,
+      "net_expectancy": -0.009927468918601893,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.009927468918601893,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_momentum_v1",
+      "symbol": "AVAX/USDT",
+      "sample_count": 2,
+      "oos_sample_count": 2,
+      "oos_trade_count": 2,
+      "win_rate": 0.0,
+      "net_expectancy": -0.0225226646248085,
+      "sharpe": -487.6046142676051,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.045045329249616996,
+      "sharpe_ci_90": [
+        -487.6046142676051,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        -0.026599999999999936,
+        -0.018445329249617063
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "pandas_ta_broad_screen_v1",
+      "symbol": "BTC/USDT",
+      "sample_count": 1,
+      "oos_sample_count": 1,
+      "oos_trade_count": 1,
+      "win_rate": 0.0,
+      "net_expectancy": -0.02620000000000001,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.02620000000000001,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-04-01T02:00:00+00:00",
+      "evaluation_end": "2026-07-19T08:00:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v1",
+      "symbol": "AVAX/USDT",
+      "sample_count": 1,
+      "oos_sample_count": 1,
+      "oos_trade_count": 1,
+      "win_rate": 0.0,
+      "net_expectancy": -0.026600000000000082,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.026600000000000082,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "trend_breakout_v1",
+      "symbol": "AVAX/USDT",
+      "sample_count": 1,
+      "oos_sample_count": 1,
+      "oos_trade_count": 1,
+      "win_rate": 0.0,
+      "net_expectancy": -0.026600000000000082,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.026600000000000082,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    },
+    {
+      "candidate_id": "operator_heuristic_v2_relaxed",
+      "symbol": "AVAX/USDT",
+      "sample_count": 1,
+      "oos_sample_count": 1,
+      "oos_trade_count": 1,
+      "win_rate": 0.0,
+      "net_expectancy": -0.026600000000000082,
+      "sharpe": 0.0,
+      "profit_factor": 0.0,
+      "max_drawdown": 0.026600000000000082,
+      "sharpe_ci_90": [
+        0.0,
+        0.0
+      ],
+      "expectancy_ci_90": [
+        0.0,
+        0.0
+      ],
+      "failed_reasons": [
+        "insufficient_oos_trades",
+        "sharpe_not_above_1",
+        "profit_factor_not_above_1_3",
+        "net_expectancy_not_positive"
+      ],
+      "data_issues": [],
+      "evaluation_start": "2026-07-16T11:45:00+00:00",
+      "evaluation_end": "2026-07-16T14:45:00+00:00"
+    }
+  ]
+}

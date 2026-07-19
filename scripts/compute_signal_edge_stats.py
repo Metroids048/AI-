@@ -172,8 +172,9 @@ def compute_and_write_edge_stats(
         for symbol in resolved_symbols:
             sym_data = stored.get(symbol, {})
             entry_bars = sym_data.get("15m", [])
-            start_at = entry_bars[_WARMUP_BARS].timestamp if len(entry_bars) > _WARMUP_BARS else None
-            end_at = entry_bars[-1].timestamp if entry_bars else None
+            _bar_ts = lambda b: b.timestamp if hasattr(b, "timestamp") else b["timestamp"]  # noqa: E731
+            start_at = _bar_ts(entry_bars[_WARMUP_BARS]) if len(entry_bars) > _WARMUP_BARS else None
+            end_at = _bar_ts(entry_bars[-1]) if entry_bars else None
             replay_jobs.append(
                 (candidate_id, symbol, strategy, strategy.rules, signal_count, sym_data, start_at, end_at)
             )

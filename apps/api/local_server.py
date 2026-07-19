@@ -39,7 +39,7 @@ def main() -> None:
         port=args.port,
         access_log=False,
         log_level=args.log_level,
-        loop="apps.api.local_server:selector_loop_factory",  # type: ignore[arg-type]  # custom factory not in stubs
+        loop="apps.api.local_server:selector_loop_factory",
     )
 
 

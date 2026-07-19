@@ -20,6 +20,8 @@
 
 ## Start And Verify
 
+`一键启动.cmd`（根目录）是本项目的标准启动入口：停止旧进程 → 通过 `scripts/launch-paper-console.ps1` 启动 API + 前端 → 打开浏览器。克隆仓库后第一次运行，以及每次重启系统时使用。
+
 ```powershell
 .\一键启动.cmd
 agent-python -m scripts.verify_runtime_config_sync --database-url sqlite:///.local_paper_console.db

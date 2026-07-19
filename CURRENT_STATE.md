@@ -27,27 +27,29 @@ The operator-selected aggressive sampling profile remains active: 5% single-trad
 
 ## Evidence
 
-Last updated: 2026-07-18
+Last updated: 2026-07-19
 
 ### Sharpe 计算修正（2026-07-18）
 
 `services/validation/technical_replay.py` 原先用 M15 K线频率（35,040根/年）作为 `periods_per_year`，但 `net_returns` 是逐笔交易收益，导致 Sharpe 被放大约9-10倍（修正前BTC/ETH显示33-40，SOL显示-38到-40）。已修正为基于实际交易频率的年化因子。修正后数值在合理范围（BTC 2.0-3.0，ETH 2.4-2.6，SOL -4.1到-3.8），不影响 min_sharpe=1.0 的通过/失败判定结论。
 
-### 五候选竞赛报告（2026-07-18，修正 Sharpe 后）
+### 五候选竞赛报告（2026-07-19，含 Bootstrap CI）
 
-报告：`docs/audits/2026-07-18-five-candidate-competition.json`，status=completed，评估区间 2026-03-30 ~ 2026-07-18（~110天），5候选×3币种=15行，70/30 时间顺序拆分。
+报告：`docs/audits/2026-07-19-five-candidate-competition.json`，status=completed，365天窗口70/30时序切分，5候选×10币种，CI列：90% bootstrap置信区间（1000次重采样，百分位法）。
 
 **通过全部门槛的候选（无failed_reasons）：**
 
-| 候选 | 币种 | OOS笔数 | 胜率 | 净期望 | Sharpe | PF | 最大回撤 |
-|---|---|---|---|---|---|---|---|
-| trend_momentum_v1 | BTC/USDT | 35 | 42.9% | +0.00664 | 2.01 | 1.465 | 18.0% |
-| trend_momentum_v1 | ETH/USDT | 64 | 43.8% | +0.00661 | 2.65 | 1.449 | 16.5% |
-| trend_breakout_v1 | BTC/USDT | 34 | 44.1% | +0.00719 | 2.15 | 1.501 | 13.8% |
+| 候选 | 币种 | OOS笔数 | 胜率 | 净期望 | 净期望CI90% | Sharpe | Sharpe CI90% | PF | 最大回撤 |
+|---|---|---|---|---|---|---|---|---|---|
+| trend_momentum_v1 | BTC/USDT | 35 | 45.7% | +0.006984 | [-0.002629, 0.017698] | 2.1054 | [-0.8355, 5.3801] | 1.4910 | 18.0% |
+| trend_breakout_v1 | BTC/USDT | 35 | 42.9% | +0.006657 | [-0.004057, 0.017371] | 2.0252 | [-1.3458, 5.3149] | 1.4669 | 14.6% |
+| trend_momentum_v1 | ETH/USDT | 65 | 44.6% | +0.006569 | [-0.000815, 0.013953] | 2.6352 | [-0.3403, 5.6087] | 1.4527 | 16.5% |
 
-**SOL排除原因：** 全部5个候选在SOL上均显示78-87%最大回撤、负期望，推断110天内SOL走势对所有趋势跟随策略系统性不利。本轮不开SOL，不为SOL放宽任何阈值。
+**CI解读（重要）：** OOS样本量（35-65笔）较小，所有90%置信区间均包含0（负值端），说明单次历史窗口不足以精确估计长期期望；结论应理解为"中位点估计为正，但区间宽"，不应过度自信。积累更多样本后需重新评估。
 
-**新候选结论：** `pandas_ta_broad_screen_v1` 在所有币种上仅产生1-4笔信号，不具可用性。`operator_heuristic_v1/v2_relaxed` 在BTC上OOS笔数27/28笔，仅差2-3笔未过30笔门槛，可作为下一轮候选跟踪。
+**SOL排除原因（与上期一致）：** 全部候选在SOL上均显示78-87%最大回撤、负期望，推断SOL走势对所有趋势跟随策略系统性不利。本轮不开SOL。
+
+**新候选结论：** `pandas_ta_broad_screen_v1` 在所有币种上仅产生1-4笔信号，不具可用性。`operator_heuristic_v1/v2_relaxed` 在BTC上OOS笔数28/29笔，仅差1-2笔未过30笔门槛，可作为下一轮候选跟踪。与上期结论一致（样本窗口自然推进±1天）。
 
 ### trend_momentum_v1 MAE/MFE 诊断（2026-07-18）
 
