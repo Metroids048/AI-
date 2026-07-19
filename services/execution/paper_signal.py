@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from datetime import timedelta
 from decimal import Decimal
 
 from services.data import DataRepository
@@ -151,13 +152,26 @@ class PaperSignalGenerator:
                 "reference_price": str(reference_price),
                 "order_type": order_type,
                 "limit_price": limit_price,
+                "entry_limit_expiry_at": (
+                    (decision.bar_time + timedelta(minutes=15)).isoformat()
+                    if order_type == OrderType.LIMIT and decision.bar_time is not None
+                    else None
+                ),
                 "requested_notional": requested_notional,
                 "requested_leverage": requested_leverage,
                 "estimated_round_trip_cost_bps": self._round_trip_cost_bps(strategy=strategy, symbol=symbol),
+                "runtime_config_version": paper_run.execution_profile.get("runtime_config_version"),
                 "max_portfolio_initial_risk_fraction": float(
-                    strategy.rules.position_rules.get("max_portfolio_initial_risk_fraction", 0.05)
+                    paper_run.execution_profile.get(
+                        "max_portfolio_initial_risk_fraction",
+                        strategy.rules.position_rules.get("max_portfolio_initial_risk_fraction", 0.05),
+                    )
                 ),
-                "min_notional_usdt": float(strategy.rules.position_rules.get("min_notional_usdt", 50.0)),
+                "min_notional_usdt": float(
+                    paper_run.execution_profile.get(
+                        "min_notional_usdt", strategy.rules.position_rules.get("min_notional_usdt", 50.0)
+                    )
+                ),
                 "correlated_peer_count_limit": int(paper_run.execution_profile.get("correlated_peer_count_limit", 2)),
                 "correlated_cluster_exposure_limit": float(
                     paper_run.execution_profile.get("correlated_cluster_exposure_limit", 0.35)
@@ -484,10 +498,9 @@ class PaperSignalGenerator:
 
         if order_type != OrderType.LIMIT:
             return None
-        buffer = reference_price * Decimal(str(settings.execution_limit_slippage_bps)) / Decimal("10000")
-        if direction == TradeSide.LONG:
-            return float(reference_price + buffer)
-        return float(max(reference_price - buffer, Decimal("0.00000001")))
+        # Rest at the signal price.  A marketable offset turns a limit entry
+        # into a disguised market order and defeats the no-chasing policy.
+        return float(reference_price)
 
     @staticmethod
     def _stop_distance(
@@ -574,7 +587,8 @@ class PaperSignalGenerator:
             sizing_basis = "order_notional_usdt"
             notional = float(position_rules["order_notional_usdt"]) * max(confidence_multiplier, 0.0)
         elif "risk_per_trade" in position_rules:
-            risk_budget = account_equity * float(position_rules["risk_per_trade"])
+            risk_per_trade = float(paper_run.execution_profile.get("risk_per_trade", position_rules["risk_per_trade"]))
+            risk_budget = account_equity * risk_per_trade
             stop_distance = (
                 abs(float(reference_price - stoploss_price))
                 if reference_price is not None and stoploss_price is not None
@@ -706,7 +720,9 @@ class PaperSignalGenerator:
             requested_stop_risk_fraction = (
                 requested_quantity * abs(float(reference_price - stoploss_price)) / account_equity
             )
-        assumed_existing_risk = len(active_positions) * float(strategy.rules.position_rules.get("risk_per_trade", 0.0))
+        assumed_existing_risk = len(active_positions) * float(
+            paper_run.execution_profile.get("risk_per_trade", strategy.rules.position_rules.get("risk_per_trade", 0.0))
+        )
         return ExecutionRiskState(
             account_equity=account_equity,
             equity_peak=max(equity_peak, account_equity),

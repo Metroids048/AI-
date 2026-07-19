@@ -174,7 +174,9 @@ def compute_and_write_edge_stats(
             entry_bars = sym_data.get("15m", [])
             start_at = entry_bars[_WARMUP_BARS].timestamp if len(entry_bars) > _WARMUP_BARS else None
             end_at = entry_bars[-1].timestamp if entry_bars else None
-            replay_jobs.append((candidate_id, symbol, strategy, strategy.rules, signal_count, sym_data, start_at, end_at))
+            replay_jobs.append(
+                (candidate_id, symbol, strategy, strategy.rules, signal_count, sym_data, start_at, end_at)
+            )
 
     def replay_job(job: tuple[str, str, Any, Any, int, Any, Any, Any]) -> dict[str, Any]:
         candidate_id, symbol, strategy, rules, signal_count, sym_data, job_start_at, job_end_at = job

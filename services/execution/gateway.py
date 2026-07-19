@@ -321,13 +321,16 @@ class BinanceUsdtPerpetualGateway:
     def cancel_protection_order(self, *, symbol: str, gateway_order_id: str) -> None:
         cancel_algo = getattr(self.client, "fapiPrivateDeleteAlgoOrder", None)
         if callable(cancel_algo):
-            cancel_algo(
-                {
-                    "symbol": _binance_market_id(_normalize_binance_symbol(symbol)),
-                    "algoId": gateway_order_id,
-                }
-            )
-            return
+            try:
+                cancel_algo(
+                    {
+                        "symbol": _binance_market_id(_normalize_binance_symbol(symbol)),
+                        "algoId": gateway_order_id,
+                    }
+                )
+                return
+            except Exception:  # A fixed take-profit is a regular reduce-only LIMIT.
+                pass
         self.client.cancel_order(gateway_order_id, _normalize_binance_symbol(symbol))
 
     def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict[str, Any]:
@@ -354,10 +357,6 @@ class BinanceUsdtPerpetualGateway:
         if close_only:
             params["reduceOnly"] = True
         _validate_protection_prices(order_request)
-        if "price" in order_request.stoploss_plan:
-            params["stopLoss"] = {"triggerPrice": order_request.stoploss_plan["price"]}
-        if "price" in order_request.takeprofit_plan:
-            params["takeProfit"] = {"triggerPrice": order_request.takeprofit_plan["price"]}
         try:
             created = self.client.create_order(
                 _normalize_binance_symbol(order_request.symbol),
@@ -378,8 +377,12 @@ class BinanceUsdtPerpetualGateway:
                     "origClientOrderId": client_order_id,
                 }
             )
+        gateway_status = _normalize_order_status(created.get("status"))
         protection_refs: list[dict[str, Any]] = []
-        if not close_only:
+        # A resting limit entry has no position to protect yet.  Submitting
+        # ReduceOnly brackets before its fill reserves close capacity and makes
+        # a later emergency close fail with Binance -2022.
+        if not close_only and gateway_status in {"filled", "closed"}:
             try:
                 protection_refs = self._submit_protection_algo_orders(
                     order_request=order_request,
@@ -399,7 +402,7 @@ class BinanceUsdtPerpetualGateway:
         return {
             "live_run_id": live_run_id,
             "gateway_order_id": _order_id(created),
-            "gateway_status": _normalize_order_status(created.get("status")),
+            "gateway_status": gateway_status,
             "symbol": order_request.symbol,
             "quantity": quantity,
             "requested_notional": float(order_request.entry_context.get("requested_notional") or 0.0),
@@ -563,7 +566,8 @@ class BinanceUsdtPerpetualGateway:
                 order_request.stoploss_plan["price"],
             )
             refs.append(
-                self._submit_algo_order(
+                {
+                    **self._submit_algo_order(
                     method,
                     {
                         "algoType": "CONDITIONAL",
@@ -574,26 +578,27 @@ class BinanceUsdtPerpetualGateway:
                         "triggerPrice": trigger_price,
                         "reduceOnly": "true",
                     },
-                )
+                    ),
+                    "protection_order_kind": "algo",
+                }
             )
         if "price" in order_request.takeprofit_plan:
-            trigger_price = self._protection_trigger_price(
+            target_price = self._protection_trigger_price(
                 order_request.symbol,
                 order_request.takeprofit_plan["price"],
             )
             refs.append(
-                self._submit_algo_order(
-                    method,
-                    {
-                        "algoType": "CONDITIONAL",
-                        "symbol": symbol,
-                        "side": close_side,
-                        "type": "TAKE_PROFIT_MARKET",
-                        "quantity": quantity,
-                        "triggerPrice": trigger_price,
-                        "reduceOnly": "true",
-                    },
-                )
+                {
+                    **self.client.create_order(
+                        _normalize_binance_symbol(order_request.symbol),
+                        "limit",
+                        close_side.lower(),
+                        quantity,
+                        target_price,
+                        {"positionSide": "BOTH", "reduceOnly": True},
+                    ),
+                    "protection_order_kind": "regular_limit",
+                }
             )
         return [ref for ref in refs if ref is not None]
 

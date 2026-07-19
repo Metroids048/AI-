@@ -46,8 +46,8 @@ def test_default_asset_risk_tiers_separate_core_and_standard_symbols() -> None:
     standard = resolve_asset_risk_tier("XRP/USDT", tiers)
 
     assert core.tier == "core"
-    assert core.leverage == 25
-    assert core.max_position_fraction == 0.20
+    assert core.leverage == 40
+    assert core.max_position_fraction == 0.35
     assert standard.tier == "standard"
     assert standard.leverage == 15
     assert standard.max_position_fraction == 0.09
@@ -121,11 +121,8 @@ def test_tier_position_fraction_caps_notional_without_multiplying_leverage(db_se
         stoploss_price=Decimal("0.975"),
     )
 
-    # Tier defaults were bumped moderately more aggressive per operator request
-    # (core 20x/0.15 -> 25x/0.20, standard 10x/0.06 -> 15x/0.09); expected notional
-    # scales with the new max_position_fraction caps.
-    assert core_leverage == 25
-    assert core_notional == 2_000
+    assert core_leverage == 40
+    assert core_notional == 3_500
     assert standard_notional == 900
 
 
@@ -164,9 +161,9 @@ def test_scale_asset_risk_tiers_falls_back_to_defaults_when_missing() -> None:
 def test_medium_risk_profile_allows_core_tier_but_keeps_hard_limits() -> None:
     profile = medium_risk_profile()
 
-    assert profile.max_leverage == 8.0
-    assert profile.max_symbol_exposure == 0.12
+    assert profile.max_leverage == 40.0
+    assert profile.max_symbol_exposure == 0.35
     assert profile.max_total_exposure == 0.90
-    assert profile.max_open_positions == 10
+    assert profile.max_open_positions == 2
     assert profile.daily_loss_limit == 0.20
     assert profile.hard_stop_drawdown_limit == 0.40

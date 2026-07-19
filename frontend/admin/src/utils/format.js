@@ -29,14 +29,14 @@ export function formatTime(value) {
   if (!value) return "--";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "--";
-  return date.toLocaleString("zh-CN", { hour12: false });
+  return date.toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" });
 }
 
 export function formatClock(value) {
   if (!value) return "--";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "--";
-  return date.toLocaleTimeString("zh-CN", { hour12: false });
+  return date.toLocaleTimeString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" });
 }
 
 export function asArray(value) {

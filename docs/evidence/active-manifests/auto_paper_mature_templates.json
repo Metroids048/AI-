@@ -1,0 +1,9 @@
+{
+  "schema_version": 2,
+  "strategy_key": "auto_paper_mature_templates",
+  "candidate_id": "trend_momentum_v1",
+  "rules_hash": "41a4c796502b5d6d2a739714bc945d455882acd0e7ab97c21a8d00c2938124b2",
+  "eligible_symbols": ["BTC/USDT", "ETH/USDT"],
+  "computed_at": "2026-07-18T07:15:08.801482+00:00",
+  "report_path": "artifacts/signal_edge_stats/auto_paper_mature_templates/reports/20260718T071508Z.json"
+}

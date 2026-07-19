@@ -84,7 +84,8 @@ def test_paper_signal_uses_decision_pipeline_and_atr_stop(db_session) -> None:
     assert order.stoploss_plan["price"] != float(Decimal(order.entry_context["reference_price"]) * Decimal("0.98"))
     assert order.entry_context["requested_notional"] > 0
     assert order.entry_context["order_type"] == "limit"
-    assert order.entry_context["limit_price"] > float(order.entry_context["reference_price"])
+    assert order.entry_context["limit_price"] == float(order.entry_context["reference_price"])
+    assert order.entry_context["entry_limit_expiry_at"] is not None
 
 
 def test_signal_observation_orders_relax_sampling_filters_but_remain_observational(db_session, monkeypatch) -> None:

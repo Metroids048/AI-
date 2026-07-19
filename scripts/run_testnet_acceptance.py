@@ -7,6 +7,7 @@ import uuid
 
 from services.execution.gateway import BinanceUsdtPerpetualGateway
 from services.execution.testnet_acceptance import TestnetAcceptanceService
+from services.execution.testnet_cleanup import testnet_account_cleanup
 from shared.config import settings
 from shared.models import TestnetAcceptanceRunRequest
 
@@ -15,7 +16,20 @@ def main() -> int:
     if not settings.binance_use_testnet or settings.live_trading_enabled:
         print(json.dumps({"status": "blocked_safety_boundary"}))
         return 2
-    service = TestnetAcceptanceService(gateway=BinanceUsdtPerpetualGateway(use_testnet=True))
+    gateway = BinanceUsdtPerpetualGateway(use_testnet=True)
+    cleanup_result = testnet_account_cleanup(gateway)
+    if not cleanup_result["skipped"]:
+        print(
+            json.dumps(
+                {
+                    "pre_acceptance_cleanup": "performed",
+                    "cancelled_orders": cleanup_result["cancelled_orders"],
+                    "closed_positions": cleanup_result["closed_positions"],
+                },
+                ensure_ascii=False,
+            )
+        )
+    service = TestnetAcceptanceService(gateway=gateway)
     result = service.run(
         TestnetAcceptanceRunRequest(
             idempotency_key=f"top20-{uuid.uuid4().hex[:12]}",

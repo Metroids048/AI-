@@ -282,6 +282,43 @@ describe("Trading console panels", () => {
     expect(screen.getByText("Binance 真实信号采样（不计策略收益）")).toBeInTheDocument();
   });
 
+  it("labels exchange reduce-only orders as protection orders", () => {
+    render(
+      <OrdersTable
+        orders={[
+          {
+            order_execution_id: "take-profit-1",
+            created_at: "2026-07-18T13:00:00Z",
+            symbol: "BTC/USDT",
+            direction: "short",
+            execution_status: "open",
+            entry_context: {
+              execution_kind: "binance_open_order",
+              order_type: "limit",
+              reduce_only: true,
+            },
+          },
+          {
+            order_execution_id: "stop-loss-1",
+            created_at: "2026-07-18T13:00:00Z",
+            symbol: "BTC/USDT",
+            direction: "short",
+            execution_status: "new",
+            entry_context: {
+              execution_kind: "binance_open_order",
+              order_type: "STOP_MARKET",
+              reduce_only: true,
+            },
+          },
+        ]}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("交易所保护止盈（限价）")).toBeInTheDocument();
+    expect(screen.getByText("交易所保护止损（市价）")).toBeInTheDocument();
+  });
+
   it("translates stale market data status in the page header", () => {
     render(
       <AppShell overview={{ global_risk_status: "normal" }} snapshot={{ data_status: "stale" }} streamStatus="polling">

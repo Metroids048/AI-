@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import uuid
 from datetime import UTC, datetime
@@ -94,6 +95,69 @@ from shared.models import (
 )
 
 router = APIRouter(prefix="/execution", tags=["execution"])
+
+_REJECTION_CATEGORIES = ("信号不足", "OOS 证据", "风控限制", "网关失败", "交易所拒绝")
+
+
+def _redact_gateway_message(value: object) -> str | None:
+    if value is None:
+        return None
+    message = str(value).strip()
+    if not message:
+        return None
+    message = re.sub(r"(?i)(api[_-]?key|secret|signature)=([^\s&]+)", r"\1=[redacted]", message)
+    return message[:500]
+
+
+def _rejection_category(codes: list[str]) -> str:
+    normalized = {str(code).lower() for code in codes}
+    if any("binance_auto_execute_failed" in code or "gateway" in code for code in normalized):
+        return "网关失败"
+    if any("validated_edge" in code or "oos" in code for code in normalized):
+        return "OOS 证据"
+    if any(
+        token in code
+        for code in normalized
+        for token in ("exposure", "leverage", "portfolio", "daily_loss", "drawdown", "risk_")
+    ):
+        return "风控限制"
+    if any(token in code for code in normalized for token in ("signal", "edge", "technical", "ensemble", "meta_label")):
+        return "信号不足"
+    return "交易所拒绝"
+
+
+def summarize_order_rejections(orders: list[dict[str, object]]) -> dict[str, object]:
+    """Return safe, operator-readable rejection evidence without exposing credentials."""
+    counts = dict.fromkeys(_REJECTION_CATEGORIES, 0)
+    recent: list[dict[str, object]] = []
+    for order in orders:
+        raw_codes = order.get("rejection_codes", [])
+        codes = [str(code) for code in raw_codes if code] if isinstance(raw_codes, list) else []
+        message = _redact_gateway_message(order.get("rejection_reason"))
+        if not codes and message is None:
+            continue
+        category = _rejection_category(codes)
+        counts[category] += 1
+        context = order.get("entry_context")
+        context = context if isinstance(context, dict) else {}
+        recent.append(
+            {
+                "order_execution_id": order.get("order_execution_id"),
+                "symbol": order.get("symbol"),
+                "created_at": order.get("created_at"),
+                "category": category,
+                "codes": codes,
+                "message": message,
+                "gateway_order_id": order.get("gateway_order_id"),
+                "request": {
+                    key: context.get(key)
+                    for key in ("order_type", "requested_notional", "requested_leverage", "runtime_config_version")
+                    if context.get(key) is not None
+                },
+                "protection_order_refs": context.get("protection_order_refs", []),
+            }
+        )
+    return {"counts": counts, "recent": recent[:50]}
 
 
 def _execution_repo(db: Session) -> ExecutionRepository:
@@ -984,6 +1048,11 @@ def get_paper_decision_trace(paper_run_id: str, db: Session = Depends(get_db_ses
         raise not_found("paper_run", paper_run_id)
     metrics = run.paper_metrics_summary
     profile = run.execution_profile or {}
+    orders = [
+        order.model_dump(mode="json")
+        for order in _execution_repo(db).list_orders()
+        if order.paper_run_id == paper_run_id
+    ]
     return {
         "paper_run_id": paper_run_id,
         "strategy_lane": profile.get("strategy_lane"),
@@ -1019,6 +1088,7 @@ def get_paper_decision_trace(paper_run_id: str, db: Session = Depends(get_db_ses
         "last_cycle_actions": metrics.get("last_cycle_actions", []),
         "last_cycle_decisions": metrics.get("last_cycle_decisions", []),
         "processed_cycle_keys": metrics.get("processed_cycle_keys", []),
+        "rejection_summary": summarize_order_rejections(orders),
     }
 
 

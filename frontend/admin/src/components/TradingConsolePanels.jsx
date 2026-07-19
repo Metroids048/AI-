@@ -604,6 +604,9 @@ export function PositionsTable({ positions }) {
             <th>交易对</th>
             <th>方向</th>
             <th>数量</th>
+            <th>名义价值</th>
+            <th>保证金</th>
+            <th>杠杆</th>
             <th>开仓价</th>
             <th>标记价</th>
             <th>未实现 PnL</th>
@@ -617,13 +620,16 @@ export function PositionsTable({ positions }) {
                 <td>{position.symbol}</td>
                 <td>{sideLabel(position.side)}</td>
                 <td>{formatNumber(position.quantity, 4)}</td>
+                <td>{formatNumber(position.notional_usdt)}</td>
+                <td>{formatNumber(position.margin_usdt)}</td>
+                <td>{formatNumber(position.leverage, 2)}x</td>
                 <td>{formatNumber(position.entry_price)}</td>
                 <td>{formatNumber(position.mark_price)}</td>
                 <td>{formatNumber(position.unrealized_pnl)}</td>
               </tr>
             ))
           ) : (
-            <tr><td colSpan="7">暂无持仓</td></tr>
+            <tr><td colSpan="10">暂无持仓</td></tr>
           )}
         </tbody>
       </table>
@@ -719,6 +725,12 @@ function orderStatusLabel(status) {
 function orderSourceLabel(order) {
   const kind = order?.entry_context?.execution_kind;
   const lane = order?.entry_context?.strategy_lane;
+  const orderType = String(order?.entry_context?.order_type || "").toUpperCase();
+  if (kind === "binance_open_order" && order?.entry_context?.reduce_only) {
+    if (orderType === "STOP_MARKET") return "交易所保护止损（市价）";
+    if (orderType === "LIMIT") return "交易所保护止盈（限价）";
+    return "交易所保护单";
+  }
   if (kind === "testnet_acceptance") return "连通性验收（不计策略收益）";
   if (kind === "binance_demo_reconciliation") return "币安模拟盘补录（不计策略收益）";
   if (kind === "strategy_trade" && lane === "signal_observation" && order?.gateway_order_id) {

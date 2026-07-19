@@ -16,7 +16,7 @@ Missing or invalid evidence produces `validated_edge_stats_missing_or_stale`. Ev
 
 ## Observation Lane
 
-`signal_observation_technical` uses the same signal machinery with relaxed sampling filters. It is local Paper only, cannot mirror to Binance, and sets `strategy_performance_eligible=false`. Its raw-bar proxy is marked `raw_bar_proxy_non_authoritative`.
+`signal_observation_technical` uses the same signal machinery with relaxed sampling filters and sets `strategy_performance_eligible=false`. It may mirror to Binance Simulation only after the current BTC/ETH/SOL acceptance scope has completed and the runtime range checks still pass; it remains non-authoritative and never contributes to strategy performance. Its raw-bar proxy is marked `raw_bar_proxy_non_authoritative`.
 
 ## Evidence Candidates
 

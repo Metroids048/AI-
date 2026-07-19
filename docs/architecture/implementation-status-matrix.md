@@ -1,5 +1,12 @@
 # Implementation Status Matrix
 
+## 2026-07-19 Lint/Type Gate and Governance Addendum
+
+- `ruff check .` now passes with 0 errors (fixed: 2×F811 duplicate test functions, 2×C409 redundant tuple calls, 1×E501 long line).
+- `mypy` (scoped to `shared/`, `services/`, `apps/` per pyproject.toml) now passes with 0 errors across 137 source files (fixed: unused `type: ignore` in `pandas_ta_adapter.py`, added `# type: ignore[arg-type]` for uvicorn custom loop factory in `local_server.py`).
+- Pre-existing `scripts/archive/` and `scripts/audit_*.py` type errors are outside mypy scope (`files = ["shared", "services", "apps"]`); 8 `test_pandas_ta_adapter` failures are environment-only (`pandas-ta` not installed), not regression.
+- AGENTS.md "Working Rules For AI Collaborators" extended with rules 6–10: no-branch-creation policy, low-risk/high-risk operation boundary, lint backlog non-blocking rule, mandatory Read-tool delivery self-check (ADR-071).
+
 ## 2026-07-12 Risk Gate and Testnet Acceptance Addendum
 
 - MetaLabel requires at least 20 historical samples; explicit multi-timeframe confirmation fails closed when confirmation evidence is unavailable.

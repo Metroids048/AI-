@@ -1,5 +1,28 @@
 # Project Memory
 
+## Execution runtime compatibility refactor (2026-07-19)
+
+- `PaperRuntimeService` keeps its constructor, `run_cycle()`, and `get_runtime_status()` contract while composing `PaperCycleOrchestrator`, `PaperExchangeExecutionService`, and `PaperOrderLifecycleService`.
+- Local fills, position snapshots, realized PnL, and estimated costs now live in `paper_order_lifecycle.py`; gateway request adaptation and expired entry-limit cancellation now live in `paper_exchange_execution.py`. ReduceOnly close requests preserve the position direction so the gateway performs the sole reversal.
+- Verification: backend `478 passed, 2 skipped, 2 deselected`; full mypy passed; frontend `37 passed`; production build passed; active-manifest evidence passed. Repo-wide Ruff remains red on unrelated pre-existing lint/format debt, while touched execution files pass targeted Ruff and Mypy.
+- Binance Simulation acceptance is pending: preflight confirmed mainnet disabled and Testnet connectivity, but found 2 existing positions. The zero-position/zero-open-order acceptance precondition was not met, so no external state was changed. `verify_config.py` reported `14/19` because current PaperRun isolation/Top3/provenance checks are unsatisfied; scheduler, data freshness, schema, and Testnet connectivity passed.
+
+## Binance Simulation reduce-only exit root cause and operator pause (2026-07-18)
+
+- The repeated Binance `-2022 ReduceOnly Order is rejected` failures were caused by a double side reversal in `PaperRuntimeService._gateway_order_request`: it changed a long close to `short`, then `BinanceUsdtPerpetualGateway` correctly applied its own close-side mapping and sent `BUY reduceOnly` against the long position. The symmetric short-close path incorrectly sent `SELL reduceOnly`.
+- The runtime now preserves the position direction until the gateway applies the single reversal. Regression coverage verifies long and short close requests retain the original position side.
+- Exchange proof: local close `42bbef8e-c576-4ad4-8b68-4e30bd8a35a7` submitted SOL short close `BUY MARKET reduceOnly`, Binance order `3280641713` filled at 74.65, and the SOL position is flat. This is the first post-fix real Simulation close evidence; prior green configuration checks alone were insufficient.
+- Automatic Binance Simulation execution is intentionally paused (`BINANCE_AUTO_EXECUTE=false`, runtime state `blocked_auto_execute_disabled`) pending operator review. BTC long 0.0261 and ETH short 0.451 remain protected by one reduce-only limit take-profit and one reduce-only STOP_MARKET each; mainnet remains disabled.
+- The Trading console now labels reconciled reduce-only exchange orders as `交易所保护止盈（限价）` or `交易所保护止损（市价）`, rather than the misleading `手动模拟单`.
+
+## Execution safety, evidence governance, and MAE/MFE diagnosis (2026-07-18)
+
+- Binance Simulation exit ordering now cancels and confirms native protection orders before a market ReduceOnly exit. If cancellation or the exit is uncertain, local state remains open, the exchange is reconciled, and protection is re-armed rather than repeatedly submitting `-2022` failures.
+- Entry limits now rest at the signal price for one 15m signal period and expire without a market fallback; protection brackets are submitted only after a confirmed entry fill. Stoploss, risk, and opposite-signal exits remain market exits.
+- `ReplayTrade` now records MAE/MFE in R, bars to MFE, and bars held. The first BTC/ETH diagnostic replay produced 716 trades: winning MFE median 2R; only 45/186 take-profit exits exceeded 2R; both trailing and early-entry gates are false, so `trend_momentum_v1` remains unchanged.
+- The active manifest is now committed under `docs/evidence/active-manifests/`; CI validates that its candidate, rules hash, eligible symbols, and report ID appear in `CURRENT_STATE.md`. Local artifacts remain non-promotional working evidence.
+- The Top10 is an offline technical research universe only. Automatic execution still requires per-symbol OOS evidence plus Simulation acceptance.
+
 ## Binance Simulation sampling and exchange-truth reconciliation (2026-07-17)
 
 - Exact Top3 acceptance run `da7edfd9-c1d4-4b04-8b66-02fe82e4af89` completed 6/6 open/close fills at 40x for BTC/ETH/SOL with native STOP_MARKET and TAKE_PROFIT_MARKET ReduceOnly protections and final zero positions/orders.
@@ -574,3 +597,10 @@
 - The main lane is evidence-only. It requires a fresh symbol-scoped artifact with matching candidate/rules hash and rejects missing or stale evidence as `validated_edge_stats_missing_or_stale`. Observation may retain the raw-bar proxy solely for diagnostics and never mirrors to Binance or counts toward strategy performance.
 - The 2026-07-16 three-candidate replay used local data, a 365-day window, a chronological 70/30 split, three walk-forward windows, fixed 2R exits, and shared costs. It produced zero OOS trades for every candidate/symbol, so no active manifest exists and no automatic strategy trade is authorized.
 - Scheduler/runtime verification after a full restart/bootstrap: `verify_runtime_config_sync` passed, `verify_config.py` returned `GREEN: 19/19`, Top3 data completeness passed, and the seven-day funnel audit reported 3,496 decisions. Mainnet remains disabled; the aggressive Paper risk profile is retained for sampling only.
+
+## Paper Execution And Desk Truth Repair (2026-07-18)
+
+- Paper execution is now constrained to BTC/ETH at the operator-selected 5% risk, 40x leverage, 35% per-symbol, 90% total-exposure profile. `paper-btc-eth-sampling-v1` is persisted into the PaperRun profile and takes precedence over stale strategy-rule sizing values.
+- Binance orders expose a server-normalized UTC timestamp; the desk renders all times in Asia/Shanghai and keeps exchange notional, margin, and leverage fields rather than dropping them during mapping.
+- The decision-trace API returns a sanitized rejection funnel and recent gateway evidence. It separates signal, OOS evidence, risk, gateway, and exchange rejections so exchange open orders cannot hide local failed submissions.
+- Mainnet remains disabled. `BINANCE_AUTO_EXECUTE=false` remains required until a zero-position BTC/ETH acceptance round trip proves entry, protection, close, and reconciliation.

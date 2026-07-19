@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { buildTop20EvidenceRows, DecisionDebugPanel } from "./RuntimePanels";
+import { buildTop20EvidenceRows, DecisionDebugPanel, RejectionFunnelPanel } from "./RuntimePanels";
 
 describe("DecisionDebugPanel", () => {
   it("renders ensemble, meta-label, and veto evidence", () => {
@@ -49,5 +49,22 @@ describe("Top20 evidence", () => {
     });
 
     expect(rows.map((item) => item.label)).toEqual(["候选", "已采集", "有信号", "过 Gate", "已提交", "已成交"]);
+  });
+});
+
+describe("RejectionFunnelPanel", () => {
+  it("keeps gateway failures visible with their latest safe error", () => {
+    render(
+      <RejectionFunnelPanel
+        summary={{
+          counts: { "网关失败": 2, "OOS 证据": 1 },
+          recent: [{ order_execution_id: "order-1", symbol: "BTC/USDT", category: "网关失败", message: "-2022" }],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("拒单漏斗")).toBeInTheDocument();
+    expect(screen.getByText("网关失败: 2")).toBeInTheDocument();
+    expect(screen.getByText("BTC/USDT · 网关失败 · -2022")).toBeInTheDocument();
   });
 });

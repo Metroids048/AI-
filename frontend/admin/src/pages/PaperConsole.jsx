@@ -12,6 +12,7 @@ import {
   MarketIntelligencePanel,
   MessageSourcesPanel,
   OrderSyncPanel,
+  RejectionFunnelPanel,
   Top20MonitorPanel,
 } from "../components/RuntimePanels";
 import {
@@ -55,6 +56,9 @@ export function deskPositionsFromAccount(account) {
       quantity: position.quantity,
       entry_price: position.entry_price,
       mark_price: position.mark_price,
+      notional_usdt: position.notional_usdt,
+      margin_usdt: position.margin_usdt,
+      leverage: position.leverage,
       unrealized_pnl: position.unrealized_pnl,
       snapshot_time: syncedAt,
       source: "binance_exchange",
@@ -76,8 +80,9 @@ export function deskOrdersFromAccount(account) {
       order_type: order.order_type,
       quantity: order.quantity,
       actual_avg_price: order.avg_price,
+      reduce_only: Boolean(order.reduce_only),
     },
-    created_at: order.update_time ? new Date(order.update_time).toISOString() : account.synced_at,
+    created_at: order.updated_at ?? account.synced_at,
   }));
   const recentRows = asArray(account.recent_orders).map((order) => ({
     order_execution_id: `binance:${order.order_id}`,
@@ -91,9 +96,10 @@ export function deskOrdersFromAccount(account) {
       order_type: order.order_type,
       quantity: order.quantity,
       actual_avg_price: order.avg_price,
+      reduce_only: Boolean(order.reduce_only),
       strategy_performance_eligible: false,
     },
-    created_at: order.update_time ? new Date(order.update_time).toISOString() : account.synced_at,
+    created_at: order.updated_at ?? account.synced_at,
   }));
   const seen = new Set(openRows.map((row) => row.gateway_order_id));
   return [...openRows, ...recentRows.filter((row) => !seen.has(row.gateway_order_id))];
@@ -301,7 +307,7 @@ export function PaperConsole() {
         { id: "positions", label: "持仓", count: deskPositions.length, content: <PositionsTable positions={deskPositions} /> },
         { id: "orders", label: "订单", count: deskOrders.length, content: <OrdersTable orders={deskOrders} onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })} /> },
         { id: "account", label: "币安账户", content: <><BinanceSyncHero account={data.testnetAccount} /><TestnetAccountPanel account={data.testnetAccount} /></> },
-        { id: "automation", label: "自动交易", content: <><ModeBanner status={data.tradingStatus} account={data.testnetAccount} /><div className="workspace-panel-grid"><RuntimeControlPanel streamStatus={data.streamStatus} tradingStatus={data.tradingStatus} mirrorToGateway={mirrorToGateway} onMirrorToggle={(enabled) => handleAction("toggleGatewayMirror", { enabled })} onRunCycle={() => handleAction("runAllCycles")} /><AutoSettingsPanel paperRunId={autoPaperRunId} autoSettings={autoSettings} onSave={(payload) => handleAction("saveAutoSettings", payload)} /><Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={data.tradingStatus} /></div></> },
+        { id: "automation", label: "自动交易", content: <><ModeBanner status={data.tradingStatus} account={data.testnetAccount} /><div className="workspace-panel-grid"><RuntimeControlPanel streamStatus={data.streamStatus} tradingStatus={data.tradingStatus} mirrorToGateway={mirrorToGateway} onMirrorToggle={(enabled) => handleAction("toggleGatewayMirror", { enabled })} onRunCycle={() => handleAction("runAllCycles")} /><AutoSettingsPanel paperRunId={autoPaperRunId} autoSettings={autoSettings} onSave={(payload) => handleAction("saveAutoSettings", payload)} /><Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={data.tradingStatus} /><RejectionFunnelPanel summary={data.decisionTrace?.rejection_summary} /></div></> },
         { id: "carry", label: "Carry", content: <div className="workspace-panel-grid"><FundingPanel signal={data.fundingSignal} onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })} /><ExecutionAcceptancePanel fundingSignal={data.fundingSignal} onRunAcceptance={() => handleAction("testnetAcceptance")} onRunCarry={() => handleAction("carryExecution")} /></div> },
         { id: "decision", label: "决策链", content: <div className="workspace-panel-grid"><DecisionDebugPanel decisionTrace={data.decisionTrace} /><MarketIntelligencePanel signal={data.intelligenceSignal} /></div> },
         { id: "risk-data", label: "风险与数据", content: <div className="workspace-panel-grid"><MessageSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} riskEvents={data.overview?.risk_events} /><DataSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} /><OrderSyncPanel orderSync={data.orderSync} /></div> },

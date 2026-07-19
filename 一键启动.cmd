@@ -1,4 +1,5 @@
 @echo off
+REM 项目主入口：启动 AI Quant Platform（停止旧进程 -> 启动纸面交易控制台 -> 打开浏览器）
 setlocal
 cd /d "%~dp0"
 

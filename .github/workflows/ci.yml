@@ -30,6 +30,8 @@ jobs:
           pip-audit --progress-spinner off
       - name: Pytest
         run: pytest -q -m "not integration"
+      - name: Verify active manifest evidence
+        run: python scripts/verify_current_state_evidence.py
       - uses: actions/setup-node@v4
         with:
           node-version: "20.19.0"

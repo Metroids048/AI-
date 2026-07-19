@@ -90,12 +90,12 @@ def test_testnet_acceptance_api_accepts_direct_demo_network(api_client, monkeypa
 
 def test_execution_scope_acceptance_arms_only_signal_observation(api_client, db_session, monkeypatch) -> None:
     from apps.api.routers import runs as runs_router
-    from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
+    from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
     from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY, SIGNAL_OBSERVATION_RUNTIME_KEY
     from services.strategy_library import PaperRunRepository
     from shared.models import PaperRun
 
-    symbols = list(AUTO_PAPER_RESEARCH_SYMBOLS)
+    symbols = list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
 
     class FullAcceptanceService:
         def run(self, request):  # noqa: ANN001

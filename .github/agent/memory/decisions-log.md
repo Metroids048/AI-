@@ -1,5 +1,29 @@
 # Decisions Log
 
+## ADR-071: Add AI Collaborator Workflow Rules to AGENTS.md
+
+- Date: 2026-07-19
+- Status: accepted
+- Context: Repeated friction in AI tool sessions (Codex, Claude Code) stemming from absent git-workflow and risk-boundary rules in AGENTS.md. Three specific failure patterns: (1) AI tools proposing new branches/worktrees without user instruction; (2) full-repo lint backlog blocking acceptance of already-compliant target files; (3) ambiguous "pause vs proceed" boundary causing unnecessary interruptions on low-risk operations.
+- Decision: Append rules 6–10 to the existing "Working Rules For AI Collaborators" section: (6) no branch/worktree creation without explicit user instruction, (7) low-risk operations that may proceed autonomously, (8) high-risk operations requiring user confirmation (risk thresholds, credentials, mainnet switches, DB migrations), (9) repo-wide lint/type backlog does not block target-file acceptance but must be reported, (10) mandatory delivery self-check using Read tool with explicit checklist in final reply.
+- Consequences: All future AI collaborator sessions reading AGENTS.md (per Working Rule 1) will inherit these constraints without per-session negotiation. High-risk operations remain gated on user approval. Repository hygiene tests still pass (3 passed, 0 failed).
+
+## ADR-070: Preserve PaperRuntimeService contracts during responsibility extraction
+
+- Date: 2026-07-19
+- Status: accepted
+- Context: PaperRuntimeService mixed cycle entry, gateway request adaptation, expired-limit management, and local order/position lifecycle behavior while existing Simulation safety fixes were uncommitted working-state baseline.
+- Decision: Keep its API, Celery, database, `paper_metrics_summary`, and `entry_context` contracts intact. Introduce internal cycle, exchange-execution, and order-lifecycle collaborators without changing strategy or risk behavior.
+- Consequences: The refactor is incremental and compatibility-first. Repository cleanup, strategy changes, and runtime-state repair remain outside this work.
+
+## ADR-069: Close protection first, and make active evidence reviewable in CI
+
+- Date: 2026-07-18
+- Status: accepted
+- Context: BTC and SOL opposite-signal exits repeatedly received Binance `-2022 ReduceOnly Order is rejected` because each full-size stop/target pair remained open when the runtime submitted another full-size ReduceOnly close. The active manifest was an ignored local artifact, allowing `CURRENT_STATE.md` to become stale without CI noticing.
+- Decision: Before a Simulation market close, cancel and reconcile all persisted protection references. Abort/re-arm if cancellation is unconfirmed; only mark an exchange-flat close after a fresh position read. Use signal-price limit entries with a one-15m-bar expiry and no market chase; create brackets only after fill. Promote evidence only from a committed manifest, and require CI to cross-check the current-state Evidence block.
+- Consequences: Protection is briefly removed only for a confirmed market close attempt and is restored if the exchange position remains. A manifest promotion now necessarily includes an auditable code/document diff. Mainnet stays disabled.
+
 ## ADR-068: Binance Simulation reconciliation must be exchange-truth and protection-complete
 
 - Date: 2026-07-17

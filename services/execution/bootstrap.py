@@ -4,18 +4,26 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
 from services.data.service import DEFAULT_BINANCE_TOP20
 from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS, fixed_top20_assets
 from services.execution.risk_tiers import default_asset_risk_tiers, scale_asset_risk_tiers
 from shared.config import settings
-from shared.models.risk import MEDIUM_RISK_PROFILE_KEY, medium_risk_profile
+from shared.models.risk import (
+    MEDIUM_RISK_PROFILE_KEY,
+    PAPER_RUNTIME_CONFIG_VERSION,
+    PAPER_RUNTIME_LIMITS,
+    medium_risk_profile,
+)
 
 logger = logging.getLogger(__name__)
 
 AUTO_PAPER_RUNTIME_KEY = "auto_paper_btc_funding"
 AUTO_PAPER_TECHNICAL_KEY = "auto_paper_mature_templates"
+AUTO_PAPER_EXECUTION_SYMBOLS = ("BTC/USDT", "ETH/USDT")
+CANONICAL_MANIFEST_ROOT = Path("docs/evidence/active-manifests")
 OPERATOR_EXPERIENCE_STRATEGY_KEY = "operator_experience_4h_15m_v1"
 LINK_VERIFICATION_STRATEGY_KEY = "link_verification_fixed_notional"
 LINK_VERIFICATION_RUNTIME_KEY = "link_verification"
@@ -103,26 +111,22 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
     # only exit config with real positive-net-expectancy evidence on this entry signal.
     "takeprofit_rules": {"risk_reward": 2.0},
     "position_rules": {
-        # Conservative promote sizing (2026-07-18): BTC/ETH verified-edge promote.
-        # Tightened from ultra-aggressive sampling profile (5%/40x/35%) now that
-        # trend_momentum_v1 has OOS evidence on BTC/ETH. SOL excluded entirely.
-        "risk_per_trade": 0.01,
-        "max_portfolio_initial_risk_fraction": 0.25,
-        "max_leverage": 8,
-        "max_position_fraction": 0.12,
-        "min_notional_usdt": 20,
+        "risk_per_trade": PAPER_RUNTIME_LIMITS["risk_per_trade"],
+        "max_portfolio_initial_risk_fraction": PAPER_RUNTIME_LIMITS["max_portfolio_initial_risk_fraction"],
+        "max_leverage": PAPER_RUNTIME_LIMITS["max_leverage"],
+        "max_position_fraction": PAPER_RUNTIME_LIMITS["max_symbol_exposure"],
+        "min_notional_usdt": PAPER_RUNTIME_LIMITS["min_notional_usdt"],
     },
 }
 
 
 def resolve_auto_paper_technical_evidence() -> tuple[dict[str, Any], tuple[str, ...]]:
     """Resolve an eligible candidate manifest without trusting stale or mismatched rules."""
-    from services.execution import signal_edge_stats as edge_module
     from services.execution.signal_edge_stats import strategy_rules_hash
     from services.strategy_library.candidates.registry import get_candidate
     from shared.models import StrategyRules
 
-    manifest_path = edge_module.EDGE_STATS_ARTIFACT_DIR / AUTO_PAPER_TECHNICAL_KEY / "active-manifest.json"
+    manifest_path = CANONICAL_MANIFEST_ROOT / f"{AUTO_PAPER_TECHNICAL_KEY}.json"
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if int(manifest["schema_version"]) != 2:
@@ -286,7 +290,7 @@ SIGNAL_OBSERVATION_RULES: dict[str, Any] = {
     "entry_rules": {
         **AUTO_PAPER_TECHNICAL_RULES["entry_rules"],
         "default_enabled_for_auto_trading": False,  # Explicit operator opt-in only
-        "order_type": "market",
+        "order_type": "limit",
     },
 }
 
@@ -493,6 +497,12 @@ def _ensure_auto_paper_run(
             "auto_schedule_enabled": auto_schedule_enabled,
             "cost_gate_verified": False,
             "risk_profile_id": risk_profile_id,
+            "runtime_config_version": PAPER_RUNTIME_CONFIG_VERSION,
+            "risk_per_trade": PAPER_RUNTIME_LIMITS["risk_per_trade"],
+            "max_portfolio_initial_risk_fraction": PAPER_RUNTIME_LIMITS["max_portfolio_initial_risk_fraction"],
+            "max_total_exposure": PAPER_RUNTIME_LIMITS["max_total_exposure"],
+            "daily_loss_limit": PAPER_RUNTIME_LIMITS["daily_loss_limit"],
+            "min_notional_usdt": PAPER_RUNTIME_LIMITS["min_notional_usdt"],
             "max_leverage": max_leverage,
             "max_symbol_exposure": max_symbol_exposure,
             "asset_risk_tiers": scale_asset_risk_tiers(
@@ -604,7 +614,7 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
         risk_profile_id=risk_profile_id,
         auto_schedule_enabled=True,
         force_paper_only=True,
-        symbols=AUTO_PAPER_RESEARCH_SYMBOLS,
+        symbols=AUTO_PAPER_EXECUTION_SYMBOLS,
     )
 
 

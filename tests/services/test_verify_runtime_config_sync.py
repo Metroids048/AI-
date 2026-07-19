@@ -39,7 +39,7 @@ def test_load_live_strategy_rules_detects_drift_without_a_restart(db_session, mo
     monkeypatch.setattr(
         bootstrap_module,
         "resolve_auto_paper_technical_evidence",
-        lambda: (AUTO_PAPER_TECHNICAL_RULES, tuple(("BTC/USDT", "ETH/USDT", "SOL/USDT"))),
+        lambda: (AUTO_PAPER_TECHNICAL_RULES, ("BTC/USDT", "ETH/USDT", "SOL/USDT")),
     )
     assert bootstrap_auto_trading_technical_paper_run() is not None
 
@@ -85,7 +85,7 @@ def test_load_live_strategy_rules_goes_green_after_proper_restart(db_session, mo
     monkeypatch.setattr(
         bootstrap_module,
         "resolve_auto_paper_technical_evidence",
-        lambda: (AUTO_PAPER_TECHNICAL_RULES, tuple(("BTC/USDT", "ETH/USDT", "SOL/USDT"))),
+        lambda: (AUTO_PAPER_TECHNICAL_RULES, ("BTC/USDT", "ETH/USDT", "SOL/USDT")),
     )
     assert bootstrap_auto_trading_technical_paper_run() is not None
 

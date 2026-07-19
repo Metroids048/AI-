@@ -21,7 +21,7 @@ import pandas as pd
 try:
     import pandas_ta as ta
 except ImportError:
-    ta = None  # type: ignore
+    ta = None
 
 from shared.models import TradeSide, TradeSignal
 

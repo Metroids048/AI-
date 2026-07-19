@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import sqlite3
 import sys
@@ -26,6 +27,7 @@ AUTO_STRATEGY_KEYS = (
 ACTIVE_ORDER_STATUSES = {"accepted", "filled", "submitted", "open"}
 
 GREEN = "\033[92m"
+YELLOW = "\033[93m"
 RED = "\033[91m"
 RESET = "\033[0m"
 
@@ -72,6 +74,81 @@ def _is_current_sampling_gateway_order(
         and context.get("runtime_build_id") == build_id
         and context.get("execution_scope_hash") == execution_scope_hash()
     )
+
+
+def _detect_orphan_bootstrap_configs(source: str | None = None) -> list[tuple[str, str, str]]:
+    """Scan bootstrap.py for RULES dicts whose bootstrap function is not wired into
+    bootstrap_local_paper_runtime(). Returns list of (rules_name, fn_name, reason).
+    Pass ``source`` directly in tests to avoid filesystem dependency."""
+    if source is None:
+        bootstrap_path = Path(__file__).resolve().parents[1] / "services" / "execution" / "bootstrap.py"
+        try:
+            source = bootstrap_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            return [("(read error)", "", str(exc))]
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        return [("(parse error)", "", str(exc))]
+
+    # Module-level assignments ending in _RULES (handles both bare and annotated assignments)
+    rules_names: set[str] = set()
+    for stmt in tree.body:
+        if (
+            isinstance(stmt, ast.Assign)
+            and len(stmt.targets) == 1
+            and isinstance(stmt.targets[0], ast.Name)
+            and stmt.targets[0].id.endswith("_RULES")
+        ):
+            rules_names.add(stmt.targets[0].id)
+        elif (
+            isinstance(stmt, ast.AnnAssign)
+            and isinstance(stmt.target, ast.Name)
+            and stmt.target.id.endswith("_RULES")
+        ):
+            rules_names.add(stmt.target.id)
+
+    # Functions that reference each RULES dict
+    rules_to_bootstrap_fns: dict[str, set[str]] = {name: set() for name in rules_names}
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        fn_name = node.name
+        if not fn_name.startswith("bootstrap_") or fn_name == "bootstrap_local_paper_runtime":
+            continue
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name) and child.id in rules_names:
+                rules_to_bootstrap_fns[child.id].add(fn_name)
+
+    # Functions called from bootstrap_local_paper_runtime
+    auto_boot_calls: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "bootstrap_local_paper_runtime":
+            for child in ast.walk(node):
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+                    auto_boot_calls.add(child.func.id)
+
+    # Configs intentionally excluded (docstring contains "deliberately NOT wired")
+    intentionally_excluded: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            docstring = ast.get_docstring(node) or ""
+            if "deliberately NOT wired" in docstring or "deliberately not wired" in docstring.lower():
+                # Find which RULES this function references
+                for rules_name, fns in rules_to_bootstrap_fns.items():
+                    if node.name in fns:
+                        intentionally_excluded.add(rules_name)
+
+    orphans: list[tuple[str, str, str]] = []
+    for rules_name, fns in sorted(rules_to_bootstrap_fns.items()):
+        if rules_name in intentionally_excluded or not fns:
+            continue
+        unwired = {fn for fn in fns if fn not in auto_boot_calls}
+        if unwired and not any(fn in auto_boot_calls for fn in fns):
+            reason = "bootstrap function exists but not called from bootstrap_local_paper_runtime()"
+            for fn in sorted(unwired):
+                orphans.append((rules_name, fn, reason))
+    return orphans
 
 
 def main() -> int:
@@ -258,10 +335,11 @@ def main() -> int:
         record("Binance 模拟账户连接", False, str(exc))
         record("Binance 自动订单回读", False, "账户探针失败")
 
-    return _report(checks)
+    orphans = _detect_orphan_bootstrap_configs()
+    return _report(checks, orphans)
 
 
-def _report(checks: list[tuple[str, bool, str]]) -> int:
+def _report(checks: list[tuple[str, bool, str]], orphan_warnings: list[tuple[str, str, str]] | None = None) -> int:
     print("=" * 72)
     print("AI Quant 本地 Paper 自动开单验收")
     print(f"时间: {datetime.now().astimezone().isoformat(timespec='seconds')}")
@@ -270,6 +348,16 @@ def _report(checks: list[tuple[str, bool, str]]) -> int:
         color = GREEN if passed else RED
         label = "PASS" if passed else "FAIL"
         print(f"{color}[{label}]{RESET} {name}: {detail}")
+    if orphan_warnings:
+        print("-" * 72)
+        print(f"{YELLOW}[WARNING] 发现 {len(orphan_warnings)} 个孤儿配置 — bootstrap 函数已定义但未接入调度链路{RESET}")
+        for rules_name, fn_name, reason in orphan_warnings:
+            print(f"{YELLOW}  • {rules_name} → {fn_name}{RESET}")
+            print(f"    {reason}")
+        print(
+            f"{YELLOW}  建议：确认是需要接线到 bootstrap_local_paper_runtime()"
+            f" 还是应删除，否则下次重启仍不会扫描。{RESET}"
+        )
     passed_count = sum(1 for _, passed, _ in checks if passed)
     print("-" * 72)
     if passed_count == len(checks):

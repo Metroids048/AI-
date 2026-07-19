@@ -14,6 +14,9 @@ describe("desk Binance sync mappers", () => {
           quantity: 0.0023,
           entry_price: 63965,
           mark_price: 63964,
+          notional_usdt: 147.12,
+          margin_usdt: 3.68,
+          leverage: 40,
           unrealized_pnl: 0.01,
         },
       ],
@@ -23,6 +26,9 @@ describe("desk Binance sync mappers", () => {
       symbol: "BTC/USDT",
       side: "long",
       quantity: 0.0023,
+      notional_usdt: 147.12,
+      margin_usdt: 3.68,
+      leverage: 40,
       source: "binance_exchange",
     });
   });
@@ -39,7 +45,7 @@ describe("desk Binance sync mappers", () => {
           order_type: "STOP_MARKET",
           status: "NEW",
           quantity: 0.0023,
-          update_time: 1,
+          updated_at: "2026-07-12T12:01:02Z",
         },
       ],
       recent_orders: [
@@ -50,7 +56,7 @@ describe("desk Binance sync mappers", () => {
           order_type: "MARKET",
           status: "FILLED",
           quantity: 0.0023,
-          update_time: 2,
+          updated_at: "2026-07-12T12:01:01Z",
         },
         {
           order_id: "2",
@@ -59,11 +65,12 @@ describe("desk Binance sync mappers", () => {
           order_type: "MARKET",
           status: "FILLED",
           quantity: 0.05,
-          update_time: 3,
+          updated_at: "2026-07-12T12:01:00Z",
         },
       ],
     });
     expect(rows.map((row) => row.gateway_order_id)).toEqual(["1", "2"]);
     expect(rows[0].entry_context.execution_kind).toBe("binance_open_order");
+    expect(rows[0].created_at).toBe("2026-07-12T12:01:02Z");
   });
 });

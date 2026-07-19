@@ -28,8 +28,8 @@ def default_asset_risk_tiers() -> dict[str, dict[str, Any]]:
         "core": AssetRiskTierSettings(
             tier="core",
             symbols=list(CORE_SYMBOLS),
-            leverage=25,
-            max_position_fraction=0.20,
+            leverage=40,
+            max_position_fraction=0.35,
         ).model_dump(mode="json"),
         "standard": AssetRiskTierSettings(
             tier="standard",

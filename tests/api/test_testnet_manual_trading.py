@@ -192,10 +192,10 @@ def test_trading_status_reports_external_desktop_scheduler(api_client, monkeypat
     assert response.json()["scheduler_running"] is True
 
 
-def test_trading_status_treats_top3_execution_scope_as_complete(api_client, db_session, monkeypatch) -> None:
+def test_trading_status_treats_btc_eth_execution_scope_as_complete(api_client, db_session, monkeypatch) -> None:
     from apps.api.config import settings
     from apps.api.routers import runs as runs_router
-    from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
+    from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
     from services.execution.runtime_state import ExternalSchedulerState
     from services.strategy_library import AgentTaskRepository
     from shared.models import AgentTask
@@ -211,7 +211,7 @@ def test_trading_status_treats_top3_execution_scope_as_complete(api_client, db_s
         "load_external_scheduler_state",
         lambda: ExternalSchedulerState(
             running=True,
-            top20_coverage_count=len(AUTO_PAPER_RESEARCH_SYMBOLS),
+                top20_coverage_count=len(AUTO_SIMULATION_EXECUTION_SYMBOLS),
             exchange_info_ready=True,
             data_fresh=True,
         ),
@@ -223,9 +223,9 @@ def test_trading_status_treats_top3_execution_scope_as_complete(api_client, db_s
             task_status="completed",
             output_payload={
                 "run_status": "completed",
-                "requested_symbols": list(AUTO_PAPER_RESEARCH_SYMBOLS),
-                "completed_symbols": list(AUTO_PAPER_RESEARCH_SYMBOLS),
-                "filled_order_count": 2 * len(AUTO_PAPER_RESEARCH_SYMBOLS),
+                    "requested_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+                    "completed_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+                    "filled_order_count": 2 * len(AUTO_SIMULATION_EXECUTION_SYMBOLS),
                 "final_open_position_count": 0,
                 "final_open_order_count": 0,
             },
@@ -238,10 +238,10 @@ def test_trading_status_treats_top3_execution_scope_as_complete(api_client, db_s
     body = response.json()
     assert body["execution_ready"] is True
     assert "top20_coverage_incomplete" not in body["execution_blockers"]
-    assert body["active_execution_symbols"] == list(AUTO_PAPER_RESEARCH_SYMBOLS)
-    assert body["active_execution_count"] == 3
-    assert body["market_data_coverage_count"] == 3
-    assert body["acceptance_symbols"] == list(AUTO_PAPER_RESEARCH_SYMBOLS)
+    assert body["active_execution_symbols"] == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    assert body["active_execution_count"] == 2
+    assert body["market_data_coverage_count"] == 2
+    assert body["acceptance_symbols"] == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     assert body["acceptance_scope_hash"]
     assert "last_strategy_gateway_order_at" in body
     assert "last_strategy_gateway_order_id" in body

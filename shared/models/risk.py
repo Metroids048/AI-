@@ -16,6 +16,21 @@ from .base import PlatformModel
 from .enums import RiskEventType, RiskResolutionStatus, RiskSeverity
 
 MEDIUM_RISK_PROFILE_KEY = "medium_binance_top20"
+PAPER_RUNTIME_CONFIG_VERSION = "paper-btc-eth-sampling-v1"
+PAPER_RUNTIME_LIMITS: dict[str, int | float] = {
+    "risk_per_trade": 0.05,
+    "max_symbol_exposure": 0.35,
+    "max_total_exposure": 0.90,
+    "max_open_positions": 2,
+    "max_leverage": 40.0,
+    "max_portfolio_initial_risk_fraction": 0.25,
+    "daily_loss_limit": 0.20,
+    "weekly_loss_limit": 0.25,
+    "drawdown_limit": 0.25,
+    "hard_stop_drawdown_limit": 0.40,
+    "consecutive_loss_limit": 10,
+    "min_notional_usdt": 20.0,
+}
 
 
 class RiskProfile(PlatformModel):
@@ -39,27 +54,23 @@ class RiskProfile(PlatformModel):
 
 
 def medium_risk_profile() -> RiskProfile:
-    """Conservative promote sizing (2026-07-18): BTC/ETH verified-edge promote.
-
-    Tightened from ultra-aggressive Paper sampling profile. These values must stay
-    in sync with AUTO_PAPER_TECHNICAL_RULES["position_rules"] in bootstrap.py.
-    """
+    """Current BTC/ETH Binance Simulation limits; never use for mainnet."""
     return RiskProfile(
         risk_profile_id=MEDIUM_RISK_PROFILE_KEY,
-        single_trade_risk_limit=0.01,       # Conservative: was 0.05
-        max_symbol_exposure=0.12,           # Conservative: was 0.35
-        max_total_exposure=0.90,
-        max_open_positions=10,
-        max_leverage=8.0,                   # Conservative: was 40.0
-        daily_loss_limit=0.20,
-        weekly_loss_limit=0.25,
-        drawdown_limit=0.25,
-        hard_stop_drawdown_limit=0.40,
-        consecutive_loss_limit=10,
+        single_trade_risk_limit=PAPER_RUNTIME_LIMITS["risk_per_trade"],
+        max_symbol_exposure=PAPER_RUNTIME_LIMITS["max_symbol_exposure"],
+        max_total_exposure=PAPER_RUNTIME_LIMITS["max_total_exposure"],
+        max_open_positions=int(PAPER_RUNTIME_LIMITS["max_open_positions"]),
+        max_leverage=PAPER_RUNTIME_LIMITS["max_leverage"],
+        daily_loss_limit=PAPER_RUNTIME_LIMITS["daily_loss_limit"],
+        weekly_loss_limit=PAPER_RUNTIME_LIMITS["weekly_loss_limit"],
+        drawdown_limit=PAPER_RUNTIME_LIMITS["drawdown_limit"],
+        hard_stop_drawdown_limit=PAPER_RUNTIME_LIMITS["hard_stop_drawdown_limit"],
+        consecutive_loss_limit=int(PAPER_RUNTIME_LIMITS["consecutive_loss_limit"]),
         api_failure_limit=5,
         api_failure_window_minutes=10,
-        market_scope="Binance USDT-M Top20",
-        config_source="conservative promote sizing (2026-07-18, BTC/ETH only)",
+        market_scope="Binance USDT-M BTC/ETH Simulation only",
+        config_source=PAPER_RUNTIME_CONFIG_VERSION,
     )
 
 

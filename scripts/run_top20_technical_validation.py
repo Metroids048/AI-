@@ -12,6 +12,7 @@ import os
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 from services.data import DataRepository
 from services.data.binance import BinanceCcxtClient
@@ -32,13 +33,15 @@ def _closed_four_hour_boundary(now: datetime) -> datetime:
     return rounded - timedelta(hours=4)
 
 
-def _template(*, strategy_key: str, rules: dict, timeframe: Timeframe) -> StrategyContract:
+def _template(
+    *, strategy_key: str, rules: dict, timeframe: Timeframe, symbols: tuple[str, ...] = AUTO_PAPER_RESEARCH_SYMBOLS
+) -> StrategyContract:
     return StrategyContract(
         strategy_id=strategy_key,
         strategy_key=strategy_key,
         source="platform:technical_validation",
         core_thesis="Offline comparison only; this object cannot arm Paper or Testnet execution.",
-        symbol_scope=list(AUTO_PAPER_RESEARCH_SYMBOLS),
+        symbol_scope=list(symbols),
         timeframe=timeframe,
         rules=StrategyRules(**rules),
     )
@@ -86,22 +89,27 @@ def _load_or_backfill(*, days: int, end_at: datetime) -> MarketData:
                 platform_bars = [bar.model_copy(update={"symbol": symbol}) for bar in bars]
                 repository.store_ohlcv_bars(platform_bars)
                 session.commit()
-                market_data[symbol][timeframe] = platform_bars
+                market_data[symbol][timeframe] = cast(list, platform_bars)
     return market_data
 
 
-def _load_stored(*, days: int, end_at: datetime) -> MarketData:
+def _load_stored(
+    *, days: int, end_at: datetime, symbols: tuple[str, ...] = AUTO_PAPER_RESEARCH_SYMBOLS
+) -> MarketData:
     start_at = end_at - timedelta(days=days)
     market_data: MarketData = {}
     with get_session_factory()() as session:
         repository = DataRepository(session)
-        for symbol in AUTO_PAPER_RESEARCH_SYMBOLS:
+        for symbol in symbols:
             market_data[symbol] = {
-                timeframe: repository.list_ohlcv_bars(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    start_at=start_at,
-                    end_at=end_at,
+                timeframe: cast(
+                    list,
+                    repository.list_ohlcv_bars(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        start_at=start_at,
+                        end_at=end_at,
+                    ),
                 )
                 for timeframe in ("1h", "15m", "4h")
             }

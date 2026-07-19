@@ -11,7 +11,7 @@ from services.execution.gateway import (
     configured_gateways,
 )
 from shared.config import settings
-from shared.models import ExecutionOrderRequest, TradeSide
+from shared.models import BinanceTestnetOrderView, ExecutionOrderRequest, TradeSide
 
 
 class StubCcxtClient:
@@ -111,6 +111,21 @@ def test_binance_effective_leverage_falls_back_to_notional_margin_ratio() -> Non
     assert _effective_position_leverage({"notional": "1600", "initialMargin": "40"}) == 40.0
 
 
+def test_binance_order_view_exposes_utc_timestamp_for_millisecond_update_time() -> None:
+    order = BinanceTestnetOrderView(
+        order_id="1",
+        symbol="BTCUSDT",
+        side="BUY",
+        order_type="MARKET",
+        status="FILLED",
+        quantity=0.01,
+        update_time=1_784_378_462_000,
+    )
+
+    assert order.updated_at is not None
+    assert order.updated_at.isoformat() == "2026-07-18T12:41:02+00:00"
+
+
 def test_configured_gateways_keeps_disabled_gateway_available_without_credentials(monkeypatch) -> None:
     monkeypatch.setattr(settings, "binance_api_key", "")
     monkeypatch.setattr(settings, "binance_api_secret", "")
@@ -147,11 +162,11 @@ def test_binance_gateway_maps_account_order_cancel_and_reconcile() -> None:
     assert client.urls["api"]["fapiPrivate"] == "https://testnet.binancefuture.com/fapi/v1"
     assert submitted["gateway_order_id"] == "binance-order-1"
     assert client.created_orders[0]["side"] == "buy"
-    assert client.created_orders[0]["params"]["stopLoss"]["triggerPrice"] == 59000
-    assert len(submitted["protection_order_refs"]) == 2
-    assert client.algo_orders[0]["algoType"] == "CONDITIONAL"
-    assert client.algo_orders[0]["type"] == "STOP_MARKET"
-    assert client.algo_orders[1]["type"] == "TAKE_PROFIT_MARKET"
+    # The stub reports an unfilled order.  Brackets must wait for a confirmed
+    # fill so an entry limit cannot reserve ReduceOnly exit capacity.
+    assert submitted["gateway_status"] == "acknowledged"
+    assert submitted["protection_order_refs"] == []
+    assert client.algo_orders == []
     assert leverage["gateway_status"] == "acknowledged"
     assert client.leverage_calls == [(2, "BTC/USDT:USDT")]
     assert cancelled["gateway_status"] == "cancelled"
@@ -196,6 +211,33 @@ def test_binance_gateway_closes_filled_entry_when_protection_submit_fails() -> N
 
     assert len(client.created_orders) == 2
     assert client.created_orders[1]["side"] == "sell"
+    assert client.created_orders[1]["params"]["reduceOnly"] is True
+
+
+def test_binance_gateway_arms_protection_only_after_a_confirmed_entry_fill() -> None:
+    class FilledClient(StubCcxtClient):
+        def create_order(self, symbol, order_type, side, amount, price=None, params=None):  # noqa: ANN001
+            self.created_orders.append({"symbol": symbol, "order_type": order_type, "side": side, "params": params})
+            return {"id": "filled-entry", "status": "closed"}
+
+    client = FilledClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+    result = gateway.submit_order(
+        live_run_id="paper-run",
+        order_request=ExecutionOrderRequest(
+            strategy_id="strategy-1",
+            symbol="BTC/USDT",
+            direction=TradeSide.LONG,
+            entry_context={"order_type": "limit", "quantity": 0.01, "limit_price": 60000},
+            stoploss_plan={"price": 59000},
+            takeprofit_plan={"price": 62000},
+        ),
+    )
+
+    assert result["gateway_status"] == "filled"
+    assert len(result["protection_order_refs"]) == 2
+    assert [item["type"] for item in client.algo_orders] == ["STOP_MARKET"]
+    assert client.created_orders[1]["order_type"] == "limit"
     assert client.created_orders[1]["params"]["reduceOnly"] is True
 
 
@@ -249,9 +291,11 @@ def test_binance_gateway_exposes_acceptance_adapter_without_bypassing_submit_ord
     assert opened["gateway_status"] == "filled"
     assert opened["quantity"] == 0.01
     assert opened["reduce_only"] is False
-    assert client.created_orders[0]["params"]["stopLoss"]["triggerPrice"] == 58_500
+    assert client.algo_orders[0]["type"] == "STOP_MARKET"
+    assert client.created_orders[1]["order_type"] == "limit"
+    assert client.created_orders[1]["price"] == 63_000
     assert closed["reduce_only"] is True
-    assert client.created_orders[1]["params"]["reduceOnly"] is True
+    assert client.created_orders[2]["params"]["reduceOnly"] is True
     assert gateway.final_state() == {"open_orders": [], "open_positions": []}
 
 
@@ -361,9 +405,7 @@ def test_binance_gateway_propagates_stable_client_order_id_from_idempotency_key(
         strategy_id="strategy-1",
         symbol="BTC/USDT",
         direction=TradeSide.LONG,
-        stoploss_plan={"price": 59000},
-        takeprofit_plan={"price": 62000},
-        entry_context={"order_type": "market", "quantity": 0.01},
+                entry_context={"order_type": "market", "quantity": 0.01},
         idempotency_key="same-logical-order",
     )
 
@@ -431,8 +473,6 @@ def test_binance_gateway_recovers_timeout_by_querying_client_order_id() -> None:
             strategy_id="strategy-1",
             symbol="BTC/USDT",
             direction=TradeSide.LONG,
-            stoploss_plan={"price": 59000},
-            takeprofit_plan={"price": 62000},
             entry_context={"order_type": "market", "quantity": 0.01},
             idempotency_key="recover-after-timeout",
         ),

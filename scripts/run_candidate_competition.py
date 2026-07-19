@@ -16,8 +16,9 @@ from pathlib import Path
 
 from scripts.compute_signal_edge_stats import evidence_failure_reasons
 from scripts.run_top20_technical_validation import _closed_four_hour_boundary, _load_stored, _template
-from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
-from services.strategy_library.candidates.registry import list_candidates, get_candidate
+from services.data.universe import TECHNICAL_RESEARCH_SYMBOLS
+from services.strategy_library.candidates.registry import get_candidate, list_candidates
+from services.validation.metrics import bootstrap_ci
 from services.validation.technical_replay import TechnicalStrategyValidationService
 from shared.models import Timeframe
 
@@ -29,17 +30,32 @@ def _oos_metrics(service: TechnicalStrategyValidationService, metrics):  # noqa:
     return service._metrics_for_period(metrics, start_at=split_at, end_at=metrics.evaluation_end)
 
 
+def _oos_periods_per_year(oos) -> float:  # noqa: ANN001
+    """Replicate the annualization factor from TechnicalStrategyValidationService._metrics()."""
+    trades = oos.trades
+    if len(trades) >= 2:
+        span_years = (trades[-1].closed_at - trades[0].closed_at).total_seconds() / (365.25 * 86400)
+        return max(1.0, len(trades) / span_years) if span_years > 0 else float(len(trades))
+    return 1.0
+
+
 def _row(*, candidate_id: str, symbol: str, full, oos) -> dict:  # noqa: ANN001
+    pnls = [float(t.net_return) for t in oos.trades]
+    periods_per_year = _oos_periods_per_year(oos)
+    sharpe_ci, expectancy_ci = bootstrap_ci(pnls, periods_per_year=periods_per_year)
     return {
         "candidate_id": candidate_id,
         "symbol": symbol,
         "sample_count": int(full.total_trades),
         "oos_sample_count": int(oos.total_trades),
+        "oos_trade_count": len(pnls),
         "win_rate": float(oos.win_rate),
         "net_expectancy": float(oos.net_expectancy),
         "sharpe": float(oos.sharpe),
         "profit_factor": float(oos.profit_factor),
         "max_drawdown": float(oos.max_drawdown),
+        "sharpe_ci_90": list(sharpe_ci),
+        "expectancy_ci_90": list(expectancy_ci),
         "failed_reasons": evidence_failure_reasons(oos),
         "data_issues": list(oos.data_issues),
         "evaluation_start": oos.evaluation_start.isoformat() if oos.evaluation_start else None,
@@ -72,6 +88,9 @@ def _run_combination(
     return _row(candidate_id=candidate_id, symbol=symbol, full=full, oos=_oos_metrics(service, full))
 
 
+_SMALL_SAMPLE_THRESHOLD = 30
+
+
 def _markdown(rows: list[dict], *, generated_at: datetime, days: int) -> str:
     lines = [
         "# 五候选策略公平竞赛报告",
@@ -79,17 +98,41 @@ def _markdown(rows: list[dict], *, generated_at: datetime, days: int) -> str:
         f"- Generated: {generated_at.isoformat()}",
         f"- Data: stored BTC/USDT, ETH/USDT, SOL/USDT OHLCV; {days}-day 70/30 chronological split",
         "- Scope: offline replay only; this report does not alter active execution configuration.",
+        "- CI: 90% bootstrap confidence intervals (1000 resamples, percentile method).",
         "",
-        "| candidate | symbol | samples | OOS samples | OOS win rate | OOS net expectancy | Sharpe | PF | Max DD | failed reasons |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+        "| candidate | symbol | samples | OOS samples | OOS win rate | OOS net expectancy | "
+        "expectancy CI 90% | Sharpe | Sharpe CI 90% | PF | Max DD | failed reasons |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     for row in rows:
+        s_lo, s_hi = row.get("sharpe_ci_90", [0.0, 0.0])
+        e_lo, e_hi = row.get("expectancy_ci_90", [0.0, 0.0])
         lines.append(
             "| {candidate_id} | {symbol} | {sample_count} | {oos_sample_count} | {win_rate:.4f} | "
-            "{net_expectancy:.6f} | {sharpe:.4f} | {profit_factor:.4f} | {max_drawdown:.4f} | {failed} |".format(
-                **row, failed=", ".join(row["failed_reasons"]) or "none"
+            "{net_expectancy:.6f} | [{e_lo:.6f}, {e_hi:.6f}] | "
+            "{sharpe:.4f} | [{s_lo:.4f}, {s_hi:.4f}] | "
+            "{profit_factor:.4f} | {max_drawdown:.4f} | {failed} |".format(
+                **row,
+                failed=", ".join(row["failed_reasons"]) or "none",
+                s_lo=s_lo,
+                s_hi=s_hi,
+                e_lo=e_lo,
+                e_hi=e_hi,
             )
         )
+
+    small_sample_rows = [
+        row for row in rows if row.get("oos_trade_count", row.get("oos_sample_count", 0)) < _SMALL_SAMPLE_THRESHOLD
+    ]
+    if small_sample_rows:
+        lines.extend(["", "## ⚠️ 小样本警告", ""])
+        for row in small_sample_rows:
+            n = row.get("oos_trade_count", row.get("oos_sample_count", 0))
+            lines.append(
+                f"- ⚠️ 小样本警告：{row['candidate_id']} / {row['symbol']} "
+                f"仅 {n} 笔 OOS 交易，置信区间较宽，建议积累更多样本后复核。"
+            )
+
     return "\n".join(lines) + "\n"
 
 
@@ -98,11 +141,18 @@ def main() -> int:
     parser.add_argument("--database-url", default="sqlite:///./.local_paper_console.db")
     parser.add_argument("--days", type=int, default=365)
     parser.add_argument("--output-dir", type=Path, default=Path("docs/audits"))
+    parser.add_argument("--symbols", nargs="+", default=list(TECHNICAL_RESEARCH_SYMBOLS))
+    parser.add_argument("--candidate-ids", nargs="+", default=list_candidates())
     args = parser.parse_args()
 
     os.environ["POSTGRES_URL"] = args.database_url
     end_at = _closed_four_hour_boundary(datetime.now(UTC))
-    market_data = _load_stored(days=args.days, end_at=end_at)
+    symbols = tuple(str(symbol) for symbol in args.symbols)
+    candidate_ids = tuple(str(candidate_id) for candidate_id in args.candidate_ids)
+    unknown = sorted(set(candidate_ids) - set(list_candidates()))
+    if unknown:
+        raise SystemExit(f"unknown candidate ids: {', '.join(unknown)}")
+    market_data = _load_stored(days=args.days, end_at=end_at, symbols=symbols)
     generated_at = datetime.now(UTC)
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -123,8 +173,8 @@ def main() -> int:
     )
     combinations = [
         (candidate_id, symbol, market_data[symbol])
-        for candidate_id in list_candidates()
-        for symbol in AUTO_PAPER_RESEARCH_SYMBOLS
+        for candidate_id in candidate_ids
+        for symbol in symbols
     ]
     with ProcessPoolExecutor(max_workers=min(3, len(combinations))) as executor:
         futures = {
@@ -150,8 +200,8 @@ def main() -> int:
         "status": "completed",
         "generated_at": generated_at.isoformat(),
         "days": args.days,
-        "symbols": list(AUTO_PAPER_RESEARCH_SYMBOLS),
-        "candidate_ids": list_candidates(),
+        "symbols": list(symbols),
+        "candidate_ids": list(candidate_ids),
         "split": "chronological 70/30",
         "rows": rows,
     }

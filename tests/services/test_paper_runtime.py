@@ -45,6 +45,23 @@ class FailingGateway:
         raise ValueError("testnet balance too low")
 
 
+def test_runtime_exposes_order_lifecycle_that_persists_fills(db_session) -> None:
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+    )
+    order = ExecutionRepository(db_session).list_orders()[0]
+    filled = runtime.order_lifecycle.fill_order(
+        order=order,
+        cycle_time=datetime.now(UTC),
+    )
+
+    assert filled.execution_status == "filled"
+    assert filled.paper_run_id == paper_run.paper_run_id
+
+
 def test_runtime_stoploss_uses_intrabar_low_and_trigger_price(db_session) -> None:
     runtime, paper_run = _runtime_with_position(
         db_session,
@@ -1157,6 +1174,84 @@ def test_runtime_gateway_close_cancels_entry_protection_orders(db_session, monke
 
     assert result.closed_positions == 1
     assert gateway.cancelled == ["stop-1", "take-1"]
+
+
+def test_gateway_close_request_preserves_position_direction_for_gateway_side_mapping() -> None:
+    request = ExecutionOrderRequest(
+        strategy_id="strategy-1",
+        symbol="BTC/USDT",
+        direction=TradeSide.LONG,
+        entry_context={"close_only_mode": True, "quantity": 1.0, "reference_price": 100.0},
+    )
+    long_position = PositionSnapshot(
+        run_type="paper",
+        run_id="run-1",
+        symbol="BTC/USDT",
+        side=TradeSide.LONG,
+        quantity=1.0,
+        entry_price=100.0,
+        mark_price=100.0,
+        snapshot_time=datetime.now(UTC),
+    )
+    short_position = long_position.model_copy(update={"side": TradeSide.SHORT, "quantity": -1.0})
+
+    long_close = PaperRuntimeService._gateway_order_request(order_request=request, position=long_position)
+    short_close = PaperRuntimeService._gateway_order_request(
+        order_request=request.model_copy(update={"direction": TradeSide.SHORT}),
+        position=short_position,
+    )
+
+    assert long_close.direction == TradeSide.LONG
+    assert short_close.direction == TradeSide.SHORT
+
+
+def test_runtime_exchange_execution_preserves_close_position_direction(db_session) -> None:
+    runtime, _ = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+    )
+    position = PositionSnapshot(
+        run_type="paper",
+        run_id="run-1",
+        symbol="BTC/USDT",
+        side=TradeSide.LONG,
+        quantity=1.0,
+        entry_price=100.0,
+        mark_price=100.0,
+        snapshot_time=datetime.now(UTC),
+    )
+    request = ExecutionOrderRequest(
+        strategy_id="strategy-1",
+        symbol="BTC/USDT",
+        direction=TradeSide.LONG,
+        entry_context={"close_only_mode": True, "quantity": 1.0, "reference_price": 100.0},
+    )
+
+    gateway_request = runtime.exchange_execution.gateway_order_request(
+        order_request=request,
+        position=position,
+    )
+
+    assert gateway_request.direction == TradeSide.LONG
+
+
+def test_runtime_exchange_execution_exposes_pending_limit_expiry() -> None:
+    from services.execution.paper_exchange_execution import PaperExchangeExecutionService
+
+    assert callable(PaperExchangeExecutionService.expire_pending_limit_entries)
+
+
+def test_runtime_exposes_cycle_orchestrator(db_session) -> None:
+    runtime, _ = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+    )
+
+    assert callable(runtime.cycle_orchestrator.run_cycle)
 
 
 def _runtime_with_position(

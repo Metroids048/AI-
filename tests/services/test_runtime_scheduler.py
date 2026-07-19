@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.execution.runtime_state import (
     load_external_scheduler_state,
     write_external_scheduler_state,
@@ -85,6 +86,24 @@ def test_external_scheduler_state_requires_fresh_heartbeat(monkeypatch, tmp_path
     assert healthy.running is True
     assert healthy.top20_coverage_count == 20
     assert healthy.exchange_info_ready is True
+
+
+def test_scheduler_publishes_only_active_execution_scope(monkeypatch) -> None:
+    from services.execution import scheduler as scheduler_module
+
+    captured = {}
+    monkeypatch.setattr(scheduler_module, "write_external_scheduler_state", captured.update)
+    scheduler = RuntimeScheduler()
+    scheduler.status.last_results["market_data_heartbeat"] = {
+        "checked_symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+        "stale_symbols": [],
+    }
+
+    scheduler._publish_external_state()
+
+    assert captured["top20_coverage_count"] == 3
+    assert captured["execution_symbols"] == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    assert captured["execution_coverage_count"] == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
 
 
 @pytest.mark.asyncio

@@ -38,6 +38,36 @@ def _paper_run(*, execution_profile: dict | None = None) -> PaperRun:
 
 
 class TestSizingSentinelLogging:
+    def test_execution_profile_overrides_stale_strategy_risk_rules(self, db_session) -> None:
+        strategy = _strategy(position_rules={"risk_per_trade": 0.01, "max_position_fraction": 0.12})
+        paper_run = _paper_run(
+            execution_profile={
+                "account_equity": 10_000,
+                "risk_per_trade": 0.05,
+                "max_leverage": 40,
+                "max_symbol_exposure": 0.35,
+                "asset_risk_tiers": {
+                    "core": {
+                        "tier": "core",
+                        "symbols": ["BTC/USDT", "ETH/USDT"],
+                        "leverage": 40,
+                        "max_position_fraction": 0.35,
+                    }
+                },
+            }
+        )
+        generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
+
+        assert generator._requested_leverage(strategy=strategy, paper_run=paper_run, symbol="BTC/USDT") == 40
+        assert generator._requested_notional(
+            strategy=strategy,
+            paper_run=paper_run,
+            symbol="BTC/USDT",
+            requested_leverage=40,
+            reference_price=Decimal("100"),
+            stoploss_price=Decimal("80"),
+        ) == pytest.approx(2_500.0)
+
     def test_logs_warning_when_notional_falls_below_sane_fraction(self, caplog, db_session) -> None:
         strategy = _strategy(position_rules={"notional_usdt": 10.0})
         paper_run = _paper_run()

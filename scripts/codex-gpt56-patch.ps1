@@ -1,5 +1,6 @@
+# 个人工具脚本：修补 OpenAI Codex Windows 客户端以暴露 GPT-5.6 模型，与本项目业务逻辑无关
 # Codex GPT-5.6 patch workflow for Windows
-# Run: powershell -NoProfile -ExecutionPolicy Bypass -File codex-gpt56-patch.ps1
+# Run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\codex-gpt56-patch.ps1
 $ErrorActionPreference = 'Stop'
 chcp 65001 | Out-Null
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8

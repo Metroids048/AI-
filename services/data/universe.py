@@ -11,7 +11,7 @@ from typing import Any
 from shared.models import MarketUniverseItem, UniverseAsset
 
 AUTO_PAPER_RESEARCH_SYMBOLS: tuple[str, ...] = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
-AUTO_SIMULATION_EXECUTION_SYMBOLS: tuple[str, ...] = AUTO_PAPER_RESEARCH_SYMBOLS
+AUTO_SIMULATION_EXECUTION_SYMBOLS: tuple[str, ...] = ("BTC/USDT", "ETH/USDT")
 
 
 def execution_scope_hash(symbols: Iterable[str] = AUTO_SIMULATION_EXECUTION_SYMBOLS) -> str:
@@ -40,6 +40,9 @@ FIXED_TOP20_ASSETS: tuple[dict[str, str], ...] = (
 )
 
 FIXED_TOP20_SYMBOLS: tuple[str, ...] = tuple(item["platform_symbol"] for item in FIXED_TOP20_ASSETS)
+# Offline competition may inspect the full liquid Top10.  This constant never
+# grants execution permission; the active manifest remains the execution scope.
+TECHNICAL_RESEARCH_SYMBOLS: tuple[str, ...] = FIXED_TOP20_SYMBOLS
 CONTRACT_SYMBOL_ALIASES: dict[str, str] = {
     "PEPE/USDT": "1000PEPEUSDT",
 }

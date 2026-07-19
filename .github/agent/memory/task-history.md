@@ -1,5 +1,18 @@
 # Task History
 
+## 2026-07-19 — Execution runtime compatibility refactor
+
+- **Changes**: Added internal cycle orchestration, exchange-execution request/limit-expiry handling, and local order/position lifecycle services behind the unchanged `PaperRuntimeService` public contract. Corrected the observation-lane architecture document to match the current Binance Simulation acceptance boundary.
+- **Verification**: Backend `478 passed, 2 skipped, 2 deselected`; full mypy passed; frontend `37 passed`; production build passed; active-manifest evidence passed; targeted Ruff/Mypy for touched execution files passed.
+- **External acceptance**: Testnet preflight passed safety/connectivity but found 2 existing Testnet positions. Full BTC/ETH/SOL acceptance was not run because its zero-position/zero-open-order precondition was not met. `verify_config.py` reported `14/19` because current runtime configuration/provenance checks are unsatisfied.
+
+## 2026-07-18 — Correct Simulation close lifecycle and add evidence-backed entry diagnostics
+
+- **Summary**: Fixed the protection-order sequencing that blocked automatic closes, changed signal entries to bounded 15m limit orders with no chase fallback, added MAE/MFE replay diagnostics and export, separated Top10 offline research from execution scope, and made active-manifest evidence CI-enforced.
+- **Evidence**: BTC/ETH MAE/MFE replay wrote `docs/audits/2026-07-18-trend_momentum_v1-mae_mfe.csv` and JSON: 716 trades, winning MFE median 2R, 24.2% of take-profit exits above 2R; neither v2 gate passed, so no candidate or manifest promotion occurred.
+- **Verification**: `pytest -q -m "not integration"` -> 469 passed, 2 skipped, 2 deselected; changed-file Ruff and Mypy clean; `verify_current_state_evidence.py` passed; post-restart `verify_config.py` returned GREEN 19/19.
+- **Safety boundary**: Existing Testnet positions were not force-closed to manufacture an exercise. The restarted scheduler is healthy; the new close order is covered by deterministic tests and will apply to the next legitimate exit.
+
 ## 2026-07-17 — Binance exchange-truth reconciliation and protection completeness
 
 - **Summary**: After the first real sampling cycle, fixed Algo-order blind spots in acceptance/reconciliation, added exchange-only position recovery and two-read transient confirmation, cleaned orphan ReduceOnly protections, re-armed missing Stop/TP pairs, corrected ReduceOnly `-2022` handling, and added leverage readback fallback.
@@ -607,3 +620,16 @@
 - **Evidence**: All BTC/ETH/SOL 15m/1h/4h data sets cover 365 days (35,071 / 8,768 / 2,192 bars). The first 9 of 15 OOS rows are persisted in `docs/audits/2026-07-18-five-candidate-competition.json`; qualifying rows include trend momentum BTC/ETH and trend breakout BTC, while all evaluated SOL rows fail. No candidate was promoted because pandas-ta and relaxed-v2 rows remain incomplete.
 - **Blocker**: pandas-ta replay recomputes indicators for every 15m historical bar and occupies all competition workers for an impractical duration. Precompute/cache its indicator outputs in the replay path, then rerun the complete 15-row report before selecting a single symbol-candidate pair or restarting the scheduler to load new code.
 - **Verification**: `27 passed` across candidate-registry, ensemble, timeframe-split, and research-scope regression tests; changed modules compiled; `git diff --check` passed. Scheduler state at verification: running, fresh BTC/ETH/SOL data, no scheduler error.
+# [TASK-068] 2026-07-18 Binance Simulation reduce-only exit repair and desk clarification
+
+- **Root cause**: `PaperRuntimeService._gateway_order_request` reversed the close direction before the Binance gateway reversed it again. A long exit therefore became `BUY reduceOnly` and a short exit became `SELL reduceOnly`, producing `-2022` while the actual exchange positions remained open.
+- **Fix and proof**: Preserve the exchange position side through the runtime request and let the gateway own the only close-side conversion. The SOL short close was accepted by Binance Simulation as `BUY MARKET reduceOnly`, order `3280641713`, quantity `2.21`, at `74.65`; SOL is now flat.
+- **Operator state**: Automatic Simulation execution is paused with `BINANCE_AUTO_EXECUTE=false`; BTC and ETH remain as the only two open positions with their native stop and limit target protection. Mainnet stays disabled.
+- **Desk clarity**: Exchange-reconciled reduce-only limit/stop orders are now explicitly labeled as take-profit/stop-loss protection rather than manual simulation orders.
+- **Verification**: `pytest -q -m "not integration"` -> 470 passed, 2 skipped, 2 deselected; focused frontend tests 19 passed; frontend production build, Ruff, Mypy, and `git diff --check` passed.
+
+# [TASK-069] 2026-07-18 Paper execution profile and desk truth repair
+
+- **Summary**: Unified the active Paper runtime to BTC/ETH and `paper-btc-eth-sampling-v1` (5% risk, 40x, 35% per symbol, 90% total exposure, 25% initial-risk, 20% daily-loss). Sizing now reads the versioned PaperRun execution profile instead of stale candidate rule values. Binance order timestamps are normalized server-side, desk mappings retain exchange leverage/notional/margin, and automatic trading now displays structured rejection counts and safe error evidence.
+- **Safety**: `BINANCE_AUTO_EXECUTE=false`; existing exchange BTC/ETH positions and native protections are not changed. The current acceptance flow is BTC/ETH-only and still requires a zero-position account before it can re-arm automatic execution.
+- **Verification**: `pytest -q -m "not integration"` -> 474 passed, 2 skipped, 2 deselected; focused backend suite 82 passed; frontend Vitest 37 passed; production build, targeted Ruff, Mypy, and `git diff --check` passed.

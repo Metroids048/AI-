@@ -59,6 +59,10 @@ class ReplayTrade:
     r_multiple: float
     quantity_fraction: float = 1.0
     ladder_r: float | None = None
+    mae_r: float = 0.0
+    mfe_r: float = 0.0
+    bars_to_mfe: int = 0
+    bars_held: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -78,6 +82,10 @@ class ReplayTrade:
             "r_multiple": self.r_multiple,
             "quantity_fraction": self.quantity_fraction,
             "ladder_r": self.ladder_r,
+            "mae_r": self.mae_r,
+            "mfe_r": self.mfe_r,
+            "bars_to_mfe": self.bars_to_mfe,
+            "bars_held": self.bars_held,
         }
 
 
@@ -527,6 +535,10 @@ class _OpenPosition:
     remaining_fraction: float = 1.0
     ladder: Any | None = None
     trail_after_r: float | None = None
+    mae_r: float = 0.0
+    mfe_r: float = 0.0
+    bars_to_mfe: int = 0
+    bars_held: int = 0
 
 
 class TechnicalStrategyValidationService:
@@ -825,6 +837,12 @@ class TechnicalStrategyValidationService:
     ) -> tuple[list[ReplayTrade], _OpenPosition | None]:
         if position.ladder is None or self.exit_mode != EXIT_MODE_EXIT_LADDER:
             exit_price, exit_reason = self._protective_exit(position=position, bar=bar)
+            position = self._record_excursion(
+                position=position,
+                bar=bar,
+                exit_price=exit_price,
+                exit_reason=exit_reason,
+            )
             if exit_price is None:
                 return [], position
             return (
@@ -841,7 +859,8 @@ class TechnicalStrategyValidationService:
             )
 
         closed: list[ReplayTrade] = []
-        ladder = position.ladder
+        position = self._record_excursion(position=position, bar=bar)
+        ladder = cast(ExitLadderState, position.ladder)
         stop_price = float(ladder.current_stop_price)
         # Stop first (including BE / locked stops after partials).
         if position.side == TradeSide.LONG and float(bar.low) <= stop_price:
@@ -906,6 +925,10 @@ class TechnicalStrategyValidationService:
                 remaining_fraction=remaining,
                 ladder=ladder,
                 trail_after_r=trail_after,
+                mae_r=position.mae_r,
+                mfe_r=position.mfe_r,
+                bars_to_mfe=position.bars_to_mfe,
+                bars_held=position.bars_held,
             )
 
         # Remainder trail: once all ladder levels filled, ratchet stop to entry after
@@ -946,9 +969,13 @@ class TechnicalStrategyValidationService:
                     slippage_bps=position.slippage_bps,
                     original_stop=position.original_stop,
                     remaining_fraction=position.remaining_fraction,
-                    ladder=ladder,
-                    trail_after_r=position.trail_after_r,
-                )
+                ladder=ladder,
+                trail_after_r=position.trail_after_r,
+                mae_r=position.mae_r,
+                mfe_r=position.mfe_r,
+                bars_to_mfe=position.bars_to_mfe,
+                bars_held=position.bars_held,
+            )
         return closed, position
 
     @staticmethod
@@ -964,6 +991,54 @@ class TechnicalStrategyValidationService:
             if position.take_price > 0 and float(bar.low) <= position.take_price:
                 return position.take_price, "takeprofit"
         return None, ""
+
+    @staticmethod
+    def _record_excursion(
+        *,
+        position: _OpenPosition,
+        bar: OHLCVBar,
+        exit_price: float | None = None,
+        exit_reason: str | None = None,
+    ) -> _OpenPosition:
+        """Track excursions without inventing an intra-bar path on a stop bar."""
+        risk = abs(position.entry_price - position.original_stop)
+        if risk <= 0:
+            return position
+        bars_held = position.bars_held + 1
+        high, low = float(bar.high), float(bar.low)
+        if exit_reason == "stoploss" and exit_price is not None:
+            # The replay's stop-first rule means the favorable extreme of this
+            # bar may have occurred after the stop; do not count it as MFE.
+            high = low = float(exit_price)
+        elif exit_reason == "takeprofit" and exit_price is not None:
+            # Stop was already ruled out, so the target is the known favorable
+            # execution point; use it instead of a possibly later bar extreme.
+            high = low = float(exit_price)
+        if position.side == TradeSide.LONG:
+            favorable = (high - position.entry_price) / risk
+            adverse = (low - position.entry_price) / risk
+        else:
+            favorable = (position.entry_price - low) / risk
+            adverse = (position.entry_price - high) / risk
+        mfe_r = max(position.mfe_r, favorable)
+        return _OpenPosition(
+            symbol=position.symbol,
+            side=position.side,
+            opened_at=position.opened_at,
+            entry_price=position.entry_price,
+            stop_price=position.stop_price,
+            take_price=position.take_price,
+            fee_bps=position.fee_bps,
+            slippage_bps=position.slippage_bps,
+            original_stop=position.original_stop,
+            remaining_fraction=position.remaining_fraction,
+            ladder=position.ladder,
+            trail_after_r=position.trail_after_r,
+            mae_r=min(position.mae_r, adverse),
+            mfe_r=mfe_r,
+            bars_to_mfe=bars_held if mfe_r > position.mfe_r else position.bars_to_mfe,
+            bars_held=bars_held,
+        )
 
     @staticmethod
     def _close(
@@ -1006,6 +1081,10 @@ class TechnicalStrategyValidationService:
             r_multiple=(gross_return / fraction / initial_risk) if initial_risk > 0 and fraction > 0 else 0.0,
             quantity_fraction=fraction,
             ladder_r=ladder_r,
+            mae_r=position.mae_r,
+            mfe_r=position.mfe_r,
+            bars_to_mfe=position.bars_to_mfe,
+            bars_held=position.bars_held,
         )
 
     def _metrics(

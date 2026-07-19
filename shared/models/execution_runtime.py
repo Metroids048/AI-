@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .base import PlatformModel
 
@@ -86,6 +86,13 @@ class BinanceTestnetOrderView(PlatformModel):
     avg_price: float | None = None
     reduce_only: bool = False
     update_time: int | None = None
+    updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def normalize_exchange_update_time(self) -> BinanceTestnetOrderView:
+        if self.updated_at is None and self.update_time is not None:
+            self.updated_at = datetime.fromtimestamp(self.update_time / 1000, tz=UTC)
+        return self
 
 
 class BinanceTestnetAccountStatus(PlatformModel):

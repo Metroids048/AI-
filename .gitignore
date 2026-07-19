@@ -51,3 +51,8 @@ infra/freqtrade/user_data/*
 !infra/freqtrade/user_data/.gitkeep
 infra/freqtrade/config/*.json
 !infra/freqtrade/config/config.example.json
+
+# AI tool caches (local-only, not project artifacts)
+.codebase-memory/
+.playwright-mcp/
+.workbuddy/

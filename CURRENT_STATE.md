@@ -1,20 +1,22 @@
 # Current State
 
-Last updated: 2026-07-17 20:20 Asia/Shanghai
+Last updated: 2026-07-18 Asia/Shanghai
 
 ## Authority
 
-Current truth is resolved in this order: current code and tests, the active runtime database and scheduler state, this file, architecture/ADR documents, then archived incident material. Files under `docs/archive/` and `scripts/archive/` are historical evidence only.
+Current truth is resolved in this order: current code and tests, the active runtime database and scheduler state, this file, architecture/ADR documents, then archived incident material. Files under `docs/archive/` and `scripts/archive/` are historical evidence only and do not represent the current system state; AI collaborators must not treat their diagnostic conclusions as current facts.
 
 ## Runtime
 
 - Environment: Paper / Binance Simulation only; mainnet remains disabled.
-- Automatic research universe: `BTC/USDT`, `ETH/USDT`, `SOL/USDT`.
+- Automatic execution universe is manifest-scoped: currently `BTC/USDT`, `ETH/USDT`.
+- Offline technical research universe: Top10 liquid contracts (`BTC/USDT`, `ETH/USDT`, `SOL/USDT`, `XRP/USDT`, `BNB/USDT`, `DOGE/USDT`, `ADA/USDT`, `LINK/USDT`, `AVAX/USDT`, `TRX/USDT`). Research coverage never grants execution permission.
 - Scheduled lanes: `auto_paper_mature_templates` and Binance-Simulation sampling lane `signal_observation_technical`.
 - Directional lane: requires fresh symbol-scoped OOS evidence whose candidate and rules hash match runtime rules.
 - Observation lane: uses real technical signals and may submit to Binance Simulation only after exact Top3 acceptance. It remains non-authoritative and excluded from strategy performance.
 - Runtime readiness is based on the active execution scope (`BTC/USDT`, `ETH/USDT`, `SOL/USDT`), not legacy hard-coded Top20 counts.
 - Current Top3 acceptance: run `da7edfd9-c1d4-4b04-8b66-02fe82e4af89`, 6/6 fills at 40x, BTC/ETH/SOL each received STOP_MARKET + TAKE_PROFIT_MARKET ReduceOnly refs, final 0 positions / 0 open orders. `execution_ready=true`.
+- Acceptance script now automatically cleans non-zero Testnet/Simulation state before the acceptance run via `services/execution/testnet_cleanup.py::testnet_account_cleanup` (Testnet-only guard; fail-closed on any error).
 - Real sampling evidence: `signal_observation` produced BTC gateway order `22305428148` and SOL gateway order `3246292050` on the current build/scope. Both were market entries with 40x and native dual protection; the observation lane remains excluded from strategy performance.
 - Reconciliation hardening: Binance Algo orders are included in acceptance/final state; transient missing positions must remain absent across two scheduler cycles before local close; exchange-only positions are recovered locally; missing Stop/TP is re-armed or fail-closed to ReduceOnly close; ReduceOnly `-2022` is only treated as flat after a fresh exchange-flat confirmation.
 - LLM failures are advisory. Deterministic blocking risk events remain authoritative.
@@ -47,25 +49,30 @@ Last updated: 2026-07-18
 
 **新候选结论：** `pandas_ta_broad_screen_v1` 在所有币种上仅产生1-4笔信号，不具可用性。`operator_heuristic_v1/v2_relaxed` 在BTC上OOS笔数27/28笔，仅差2-3笔未过30笔门槛，可作为下一轮候选跟踪。
 
+### trend_momentum_v1 MAE/MFE 诊断（2026-07-18）
+
+报告：`docs/audits/2026-07-18-trend_momentum_v1-mae_mfe.json` 与逐笔明细 CSV。BTC/ETH 完整可用历史共 716 笔：胜单 MFE 中位数/P75/P90 均为 2R；止盈交易 186 笔，其中 45 笔（24.2%）MFE 超过 2R，中位数仍为 2R；亏单 MAE 中位数为 -1R。`trend_momentum_v2_trailing` 与 `trend_momentum_v2_early_entry` 的预设门控均未通过，因此未新增候选、未修改 `trend_momentum_v1` 或 active manifest。
+
 ### 当前活跃 Manifest
 
-- 路径：`artifacts/signal_edge_stats/auto_paper_mature_templates/active-manifest.json`
+- 路径：`docs/evidence/active-manifests/auto_paper_mature_templates.json`
 - 选中候选：`trend_momentum_v1`
+- 规则哈希：`41a4c796502b5d6d2a739714bc945d455882acd0e7ab97c21a8d00c2938124b2`
 - 可交易范围：`BTC/USDT`、`ETH/USDT`（SOL/USDT不在eligible_symbols中）
-- 依据报告：`artifacts/signal_edge_stats/auto_paper_mature_templates/reports/20260718T071508Z.json`
+- 依据报告：`20260718T071508Z.json`（运行时生成报告仍保留在本地 artifacts）
 - OOS验证指标（基于manifest生成报告）：BTC OOS 36笔 Sharpe 3.02 PF 1.752 MaxDD 10.9%；ETH OOS 73笔 Sharpe 2.42 PF 1.375 MaxDD 19.4%
 
-### 仓位参数（2026-07-18 保守档）
+### 仓位参数（2026-07-18 高密度 Paper 档）
 
 `services/execution/bootstrap.py` `AUTO_PAPER_TECHNICAL_RULES` `position_rules`：
-- `risk_per_trade`: 0.01（原0.05）
-- `max_leverage`: 8（原40）
-- `max_position_fraction`: 0.12（原0.35）
+- `risk_per_trade`: 0.05
+- `max_leverage`: 40
+- `max_position_fraction`: 0.35
 
-⚠️ 配置已修改，**必须重启系统才能生效**：运行 `完全重启系统.cmd`，等待启动后运行 `python scripts/verify_config.py` 验证。
+执行范围固定为 `BTC/USDT`、`ETH/USDT`；组合初始风险上限 25%、组合敞口 90%、日损失上限 20%。`paper-btc-eth-sampling-v1` 是唯一运行配置版本。自动执行在完成 BTC/ETH 零仓位验收前保持关闭。
 
 - Missing, stale, ineligible, or rules-mismatched evidence rejects the main lane with `validated_edge_stats_missing_or_stale`.
-- Local artifacts live under `artifacts/signal_edge_stats/` and are intentionally not committed.
+- Local candidate reports live under `artifacts/signal_edge_stats/`; active manifest is the committed, CI-verified exception.
 
 ## Supported Checks
 
@@ -76,4 +83,4 @@ agent-python -m scripts.compute_signal_edge_stats --strategy-key auto_paper_matu
 agent-python -m scripts.verify_config
 ```
 
-Fresh verification on 2026-07-17: backend `464 passed, 4 skipped`; production-code mypy clean across 144 files; Ruff clean; frontend `35 passed`; production build passed. `scripts.verify_config.py` returned `GREEN: 19/19` with two current-build/current-scope real sampling gateway orders. Top3 scheduler coverage is 3/3 and the dynamic acceptance arms only `signal_observation`; `auto_paper_mature_templates` remains Paper-only. Historical verification/reconciliation orders do not count as proof.
+Fresh verification on 2026-07-18: backend `474 passed, 2 skipped, 2 deselected`; targeted Ruff and Mypy clean; frontend `37 passed`; production build passed. Scheduler state now reports BTC/ETH execution coverage 2 while preserving SOL research coverage. Historical verification/reconciliation orders do not count as proof.

@@ -110,6 +110,9 @@ def test_replay_uses_live_pipeline_and_deducts_round_trip_costs() -> None:
     assert result.trades[0].exit_reason == "takeprofit"
     assert result.trades[0].gross_return > result.trades[0].net_return
     assert result.net_expectancy > 0
+    assert result.trades[0].mfe_r == 2.0
+    assert result.trades[0].mae_r == 0.0
+    assert result.trades[0].bars_to_mfe == result.trades[0].bars_held == 1
 
 
 def test_comparison_requires_all_promotion_gates_and_never_mutates_strategy() -> None:

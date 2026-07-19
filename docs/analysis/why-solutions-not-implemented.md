@@ -212,3 +212,28 @@ def test_swing_strategy_gets_scheduled():
 ---
 
 **结论**: 这不是"AI 能力不足"的问题，而是"交付流程不完整"的问题。通过强化交付清单、集成测试、运行时验证，可以彻底避免"写了配置但没连接调度器"这类断层问题。
+
+---
+
+## 已实施的检测机制（2026-07-19 落地）
+
+### 孤儿配置静态检测
+
+`scripts/verify_config.py` 中新增了 `_detect_orphan_bootstrap_configs()` 函数，基于 AST 静态分析自动扫描以下链路断点：
+
+**检测逻辑**：
+1. 解析 `services/execution/bootstrap.py` 的 AST，找出所有 `XXX_RULES` 配置字典（含类型注解赋值 `ast.AnnAssign`）
+2. 找出所有 `bootstrap_xxx()` 函数中引用了这些配置的函数集合
+3. 提取 `bootstrap_local_paper_runtime()` 的实际调用列表
+4. 排除带有 "deliberately NOT wired" docstring 的函数（如 `bootstrap_link_verification_strategy`，这是刻意设计）
+5. 报告"有配置、有引导函数、但引导函数未被调度器调用"的孤儿配置
+
+**运行方式**：`python scripts/verify_config.py` — 孤儿配置以 `[WARNING]` 黄色显示，不阻断现有 CI 通过判断
+
+**当前扫描结果**：检测到 `AUTO_PAPER_SWING_RULES → bootstrap_auto_trading_swing_paper_run()` 为孤儿配置，即本文档记录的历史遗留问题。
+
+**测试覆盖**：`tests/services/test_orphan_bootstrap_configs.py` 覆盖4个场景：
+- 所有配置已接线（无报告）
+- 孤儿配置被正确检测
+- "刻意不接线"的配置不被误报
+- 针对真实仓库的集成测试（`AUTO_PAPER_SWING_RULES` 确认被检出）

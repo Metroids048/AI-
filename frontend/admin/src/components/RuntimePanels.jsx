@@ -88,6 +88,30 @@ export function DecisionDebugPanel({ decisionTrace }) {
   );
 }
 
+export function RejectionFunnelPanel({ summary }) {
+  const counts = summary?.counts ?? {};
+  const recent = asArray(summary?.recent);
+  return (
+    <section className="exchange-panel decision-panel">
+      <div className="panel-title">
+        <h2>拒单漏斗</h2>
+        <span>{recent.length}</span>
+      </div>
+      <div className="rejection-list">
+        {Object.entries(counts).map(([category, count]) => <span key={category}>{category}: {count}</span>)}
+      </div>
+      <div className="decision-list">
+        {recent.length ? recent.map((item) => (
+          <article key={item.order_execution_id ?? `${item.symbol}-${item.category}`} className="decision-item">
+            <strong>{item.symbol} · {item.category} · {item.message ?? item.codes?.join(", ") ?? "无错误详情"}</strong>
+            {item.gateway_order_id ? <span>币安订单 #{item.gateway_order_id}</span> : null}
+          </article>
+        )) : <div className="empty-list">暂无拒单记录</div>}
+      </div>
+    </section>
+  );
+}
+
 export function Top20MonitorPanel({ decisionTrace, tradingStatus }) {
   const scanned = asArray(decisionTrace?.last_scanned_symbols);
   const candidates = asArray(decisionTrace?.candidate_symbols);

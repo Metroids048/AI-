@@ -287,24 +287,6 @@ def test_relaxed_layered_fusion_accepts_two_direction_sources() -> None:
     assert "min_direction_sources': 2" in (ensemble.correlation_matrix_ref or "")
 
 
-def test_relaxed_layered_fusion_accepts_two_direction_sources() -> None:
-    request = SignalEnsembleRequest(
-        fusion_method="layered_regime_entry_relaxed",
-        min_history=200,
-        signals=[
-            _layered_signal("technical_dow_trend:long", direction="long"),
-            _layered_signal("technical_ema_trend:long", direction="long"),
-            _layered_signal("technical_macd:long", direction="long"),
-        ],
-    )
-
-    ensemble = SignalEnsembleService().create_ensemble(request)
-
-    assert ensemble.fused_direction == "long"
-    assert ensemble.ensemble_status.value == "passed_to_meta_label"
-    assert "min_direction_sources': 2" in (ensemble.correlation_matrix_ref or "")
-
-
 def test_layered_fusion_ignores_counter_trend_entry_votes() -> None:
     request = SignalEnsembleRequest(
         fusion_method="layered_regime_entry",
