@@ -67,7 +67,7 @@ def arm_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_directional_order_allowed_when_binance_simulation_armed(arm_env: None) -> None:
     service = _service()
     assert (
-        service._should_execute_on_binance(
+        service.cycle_orchestrator._should_execute_on_binance(
             _armed_run(),
             order=_order(lane="directional"),
         )
@@ -78,14 +78,14 @@ def test_directional_order_allowed_when_binance_simulation_armed(arm_env: None) 
 def test_carry_order_still_requires_net_edge(arm_env: None) -> None:
     service = _service()
     assert (
-        service._should_execute_on_binance(
+        service.cycle_orchestrator._should_execute_on_binance(
             _armed_run(),
             order=_order(lane="carry", edge=5.0),
         )
         is False
     )
     assert (
-        service._should_execute_on_binance(
+        service.cycle_orchestrator._should_execute_on_binance(
             _armed_run(),
             order=_order(lane="carry", edge=12.0),
         )
@@ -97,4 +97,4 @@ def test_directional_rejected_without_pipeline_status(arm_env: None) -> None:
     service = _service()
     order = _order(lane="directional", pipeline_status="")
     order.entry_context["decision_pipeline"]["pipeline_status"] = ""
-    assert service._should_execute_on_binance(_armed_run(), order=order) is False
+    assert service.cycle_orchestrator._should_execute_on_binance(_armed_run(), order=order) is False

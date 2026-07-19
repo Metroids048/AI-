@@ -86,7 +86,9 @@ def _load_or_backfill(*, days: int, end_at: datetime) -> MarketData:
                     start_at=start_at,
                     end_at=end_at,
                 )
-                platform_bars: list[OHLCVBar | dict[str, Any]] = [bar.model_copy(update={"symbol": symbol}) for bar in bars]
+                platform_bars: list[OHLCVBar | dict[str, Any]] = [
+                    bar.model_copy(update={"symbol": symbol}) for bar in bars
+                ]
                 repository.store_ohlcv_bars(platform_bars)
                 session.commit()
                 market_data[symbol][timeframe] = platform_bars

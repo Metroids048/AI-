@@ -35,10 +35,8 @@ from services.execution.paper_order_lifecycle import (
 )
 from services.execution.paper_signal import PaperSignalGenerator
 from services.strategy_library import (
-    AgentTaskRepository,
     DecisionSnapshotRepository,
     ExecutionRepository,
-    NotificationRepository,
     PaperRunRepository,
     ReviewRepository,
     StrategyRepository,
@@ -55,7 +53,6 @@ from shared.models import (
     PaperRuntimeAction,
     PaperRuntimeCycleRequest,
     PaperRuntimeCycleResult,
-    PaperRuntimeStatus,
     PositionSnapshot,
     StrategyContract,
     TradeSide,
@@ -68,17 +65,17 @@ class PaperCycleOrchestrator:
     def __init__(
         self,
         *,
-        data_repo: "DataRepository",
-        execution_repo: "ExecutionRepository",
-        paper_repo: "PaperRunRepository",
-        strategy_repo: "StrategyRepository",
-        gatekeeper: "ExecutionGatekeeperService",
-        gateway: "ExchangeGateway | None" = None,
-        exchange_execution: "PaperExchangeExecutionService",
-        order_lifecycle: "PaperOrderLifecycleService",
-        signal_generator: "PaperSignalGenerator",
-        decision_snapshot_repo: "DecisionSnapshotRepository",
-        review_repo: "ReviewRepository | None" = None,
+        data_repo: DataRepository,
+        execution_repo: ExecutionRepository,
+        paper_repo: PaperRunRepository,
+        strategy_repo: StrategyRepository,
+        gatekeeper: ExecutionGatekeeperService,
+        gateway: ExchangeGateway | None = None,
+        exchange_execution: PaperExchangeExecutionService,
+        order_lifecycle: PaperOrderLifecycleService,
+        signal_generator: PaperSignalGenerator,
+        decision_snapshot_repo: DecisionSnapshotRepository,
+        review_repo: ReviewRepository | None = None,
     ) -> None:
         self.data_repo = data_repo
         self.execution_repo = execution_repo
@@ -96,8 +93,8 @@ class PaperCycleOrchestrator:
         self,
         *,
         paper_run_id: str,
-        request: "PaperRuntimeCycleRequest",
-    ) -> "PaperRuntimeCycleResult":
+        request: PaperRuntimeCycleRequest,
+    ) -> PaperRuntimeCycleResult:
         return self._run_cycle(paper_run_id, request)
 
     def _run_cycle(self, paper_run_id: str, request: PaperRuntimeCycleRequest) -> PaperRuntimeCycleResult:
@@ -1106,10 +1103,16 @@ class PaperCycleOrchestrator:
                     decision_trace=decision_trace,
                 )
             )
-        account_equity = float(metrics.get("account_equity", float(paper_run.execution_profile.get("account_equity") or 10_000.0))) + (
+        initial_equity = float(
+            paper_run.execution_profile.get("account_equity") or 10_000.0
+        )
+        account_equity = float(metrics.get("account_equity", initial_equity)) + (
             realized_total - realized_total_at_cycle_start
         )
-        equity_peak = max(float(metrics.get("equity_peak", float(paper_run.execution_profile.get("account_equity") or 10_000.0))), account_equity)
+        equity_peak = max(
+            float(metrics.get("equity_peak", initial_equity)),
+            account_equity,
+        )
         last_action_counts = {
             "opened": opened_positions,
             "closed": closed_positions,
@@ -1214,7 +1217,8 @@ class PaperCycleOrchestrator:
         return strategy
 
     def _is_hard_drawdown_locked(self, *, paper_run: PaperRun, metrics: dict[str, Any]) -> bool:
-        account_equity = float(metrics.get("account_equity") or float(paper_run.execution_profile.get("account_equity") or 10_000.0))
+        initial_equity = float(paper_run.execution_profile.get("account_equity") or 10_000.0)
+        account_equity = float(metrics.get("account_equity") or initial_equity)
         equity_peak = float(metrics.get("equity_peak") or account_equity)
         if equity_peak <= 0:
             return False

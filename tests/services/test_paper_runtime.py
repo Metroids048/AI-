@@ -4,11 +4,12 @@ from decimal import Decimal
 from services.data import DataRepository
 from services.execution.decision_pipeline import DecisionPipelineResult
 from services.execution.gatekeeper import ExecutionGatekeeperService
-from services.execution.paper_runtime import (
-    PaperRuntimeService,
+from services.execution.paper_cycle_orchestrator import (
+    PaperCycleOrchestrator,
     _estimated_transaction_cost,
     _fixed_universe_skip_reason,
 )
+from services.execution.paper_runtime import PaperRuntimeService
 from services.strategy_library import (
     AgentTaskRepository,
     DecisionSnapshotRepository,
@@ -1195,8 +1196,8 @@ def test_gateway_close_request_preserves_position_direction_for_gateway_side_map
     )
     short_position = long_position.model_copy(update={"side": TradeSide.SHORT, "quantity": -1.0})
 
-    long_close = PaperRuntimeService._gateway_order_request(order_request=request, position=long_position)
-    short_close = PaperRuntimeService._gateway_order_request(
+    long_close = PaperCycleOrchestrator._gateway_order_request(order_request=request, position=long_position)
+    short_close = PaperCycleOrchestrator._gateway_order_request(
         order_request=request.model_copy(update={"direction": TradeSide.SHORT}),
         position=short_position,
     )
