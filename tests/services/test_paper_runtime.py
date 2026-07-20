@@ -12,6 +12,7 @@ from services.execution.paper_cycle_orchestrator import (
 from services.execution.paper_runtime import PaperRuntimeService
 from services.strategy_library import (
     AgentTaskRepository,
+    ConfigSnapshotRepository,
     DecisionSnapshotRepository,
     ExecutionRepository,
     HypothesisRepository,
@@ -24,6 +25,7 @@ from services.strategy_library import (
 )
 from shared.models import (
     BacktestRun,
+    ConfigSnapshot,
     ExchangeAccountSnapshot,
     ExecutionOrderRequest,
     ExecutionRiskState,
@@ -44,6 +46,44 @@ class FailingGateway:
     def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
         self.submitted.append(order_request)
         raise ValueError("testnet balance too low")
+
+
+def test_runtime_activates_pending_config_at_cycle_boundary(db_session) -> None:
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=95.0,
+        take_price=120.0,
+    )
+    repo = ConfigSnapshotRepository(db_session)
+    initial = repo.create_snapshot(
+        ConfigSnapshot.create(
+            paper_run_id=paper_run.paper_run_id or "",
+            config={"execution_profile": paper_run.execution_profile},
+            created_by="bootstrap",
+            effective_cycle_id="seed",
+        ),
+        base_config_hash=None,
+    )
+    pending = repo.create_snapshot(
+        ConfigSnapshot.create(
+            paper_run_id=paper_run.paper_run_id or "",
+            config={"execution_profile": {**paper_run.execution_profile, "llm_veto_enabled": False}},
+            created_by="operator",
+            effective_cycle_id="NEXT_CYCLE",
+            previous_snapshot_id=initial.config_snapshot_id,
+        ),
+        base_config_hash=initial.config_hash,
+    )
+    _store_bar(db_session, low=99, high=101, close=100)
+
+    runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
+    )
+
+    assert repo.get_active(paper_run.paper_run_id or "").config_hash == pending.config_hash
+    assert repo.get_pending(paper_run.paper_run_id or "") is None
 
 
 def test_runtime_exposes_order_lifecycle_that_persists_fills(db_session) -> None:
@@ -178,9 +218,7 @@ def test_runtime_checks_open_position_stoploss_even_when_entry_bar_is_already_pr
     PaperRunRepository(db_session).update_paper_run(
         paper_run.paper_run_id or "",
         paper_metrics_summary={
-            "processed_cycle_keys": [
-                f"{paper_run.paper_run_id}:BTC/USDT:1h:{latest.timestamp.isoformat()}"
-            ]
+            "processed_cycle_keys": [f"{paper_run.paper_run_id}:BTC/USDT:1h:{latest.timestamp.isoformat()}"]
         },
     )
 
@@ -599,9 +637,7 @@ def test_runtime_reconciles_local_close_when_exchange_flat_even_if_entry_cycle_a
     PaperRunRepository(db_session).update_paper_run(
         paper_run.paper_run_id or "",
         paper_metrics_summary={
-            "processed_cycle_keys": [
-                f"{paper_run.paper_run_id}:BTC/USDT:15m:{latest.timestamp.isoformat()}"
-            ]
+            "processed_cycle_keys": [f"{paper_run.paper_run_id}:BTC/USDT:15m:{latest.timestamp.isoformat()}"]
         },
     )
 

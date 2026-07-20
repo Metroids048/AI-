@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from decimal import Decimal
+
 import pytest
 
 from services.data.universe import FIXED_TOP20_SYMBOLS
@@ -11,7 +14,18 @@ from services.execution.gateway import (
     configured_gateways,
 )
 from shared.config import settings
-from shared.models import BinanceTestnetOrderView, ExecutionOrderRequest, TradeSide
+from shared.models import (
+    BinanceTestnetOrderView,
+    ExchangeSide,
+    ExecutionOrderRequest,
+    MarketRulesSnapshot,
+    PositionSide,
+    ProtectionPolicy,
+    RuntimeMode,
+    TradeAction,
+    TradeIntent,
+    TradeSide,
+)
 
 
 class StubCcxtClient:
@@ -171,6 +185,70 @@ def test_binance_gateway_maps_account_order_cancel_and_reconcile() -> None:
     assert client.leverage_calls == [(2, "BTC/USDT:USDT")]
     assert cancelled["gateway_status"] == "cancelled"
     assert reconciled["reconciliation_status"] == "ok"
+
+
+def test_binance_gateway_uses_normalized_hedge_close_matrix() -> None:
+    class HedgeClient(StubCcxtClient):
+        def create_order(self, symbol, order_type, side, amount, price=None, params=None):  # noqa: ANN001
+            self.created_orders.append(
+                {"symbol": symbol, "order_type": order_type, "side": side, "amount": amount, "params": params}
+            )
+            return {"id": "hedge-close-1", "status": "closed"}
+
+    now = datetime(2026, 7, 20, 7, 0, tzinfo=UTC)
+    intent = TradeIntent(
+        intent_id="intent-hedge-close",
+        cycle_id="cycle-1",
+        decision_id="decision-1",
+        strategy_id="strategy-1",
+        strategy_version="v1",
+        config_snapshot_id="config-1",
+        config_hash="sha256:config",
+        runtime_mode=RuntimeMode.PAPER,
+        symbol="BTC/USDT:USDT",
+        action=TradeAction.CLOSE,
+        position_side=PositionSide.SHORT,
+        exchange_side=ExchangeSide.BUY,
+        target_quantity=Decimal("0.0039"),
+        signal_reference_price=Decimal("60000"),
+        protection=ProtectionPolicy(stop_price=Decimal("61000")),
+        signal_candle_close_time=now,
+        created_at=now,
+    )
+    rules = MarketRulesSnapshot(
+        rules_snapshot_id="rules-1",
+        symbol="BTC/USDT:USDT",
+        market_status="TRADING",
+        position_mode="HEDGE",
+        margin_mode="CROSS",
+        leverage=Decimal("3"),
+        tick_size=Decimal("0.1"),
+        step_size=Decimal("0.001"),
+        min_quantity=Decimal("0.001"),
+        min_notional=Decimal("20"),
+        loaded_at=now,
+    )
+    client = HedgeClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+
+    gateway.submit_order(
+        live_run_id="live-run-1",
+        order_request=ExecutionOrderRequest(
+            strategy_id="strategy-1",
+            symbol="BTC/USDT:USDT",
+            direction=TradeSide.SHORT,
+            entry_context={"order_type": "market"},
+            trade_intent=intent,
+            market_rules_snapshot=rules,
+            confirmed_position_quantity=Decimal("0.0024"),
+        ),
+    )
+
+    created = client.created_orders[0]
+    assert created["side"] == "buy"
+    assert created["amount"] == 0.002
+    assert created["params"]["positionSide"] == "SHORT"
+    assert "reduceOnly" not in created["params"]
 
 
 def test_binance_gateway_closes_filled_entry_when_protection_submit_fails() -> None:
@@ -405,7 +483,7 @@ def test_binance_gateway_propagates_stable_client_order_id_from_idempotency_key(
         strategy_id="strategy-1",
         symbol="BTC/USDT",
         direction=TradeSide.LONG,
-                entry_context={"order_type": "market", "quantity": 0.01},
+        entry_context={"order_type": "market", "quantity": 0.01},
         idempotency_key="same-logical-order",
     )
 

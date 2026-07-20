@@ -35,6 +35,7 @@ from services.execution.paper_order_lifecycle import (
 )
 from services.execution.paper_signal import PaperSignalGenerator
 from services.strategy_library import (
+    ConfigSnapshotRepository,
     DecisionSnapshotRepository,
     ExecutionRepository,
     PaperRunRepository,
@@ -55,6 +56,7 @@ from shared.models import (
     PaperRuntimeCycleResult,
     PositionSnapshot,
     StrategyContract,
+    StrategyRules,
     TradeSide,
 )
 
@@ -101,8 +103,19 @@ class PaperCycleOrchestrator:
         paper_run = self.paper_repo.get_paper_run(paper_run_id)
         if paper_run is None:
             raise ValueError("paper run not found")
-        strategy = self._require_strategy(paper_run.strategy_id)
         cycle_time = datetime.now(UTC)
+        config_repo = ConfigSnapshotRepository(self.execution_repo.session)
+        config_repo.activate_pending(paper_run_id, cycle_id=cycle_time.isoformat())
+        paper_run = self.paper_repo.get_paper_run(paper_run_id) or paper_run
+        strategy = self._require_strategy(paper_run.strategy_id)
+        active_config = config_repo.get_active(paper_run_id)
+        if active_config is not None:
+            execution_profile = active_config.config.get("execution_profile")
+            if isinstance(execution_profile, dict):
+                paper_run = paper_run.model_copy(update={"execution_profile": execution_profile})
+            strategy_rules = active_config.config.get("strategy_rules")
+            if isinstance(strategy_rules, dict):
+                strategy = strategy.model_copy(update={"rules": StrategyRules(**strategy_rules)})
         current_positions = self.execution_repo.list_latest_positions_for_run(
             run_type="paper",
             run_id=paper_run_id,
@@ -832,11 +845,11 @@ class PaperCycleOrchestrator:
                         active_positions.pop(symbol, None)
                         if not self._should_execute_on_binance(paper_run):
                             self._maybe_mirror_to_gateway(
-                                    paper_run=paper_run,
-                                    order=order,
-                                    order_request=close_order,
-                                    position=current_position,
-                                )
+                                paper_run=paper_run,
+                                order=order,
+                                order_request=close_order,
+                                position=current_position,
+                            )
                         actions.append(
                             PaperRuntimeAction(
                                 symbol=symbol,
@@ -1103,9 +1116,7 @@ class PaperCycleOrchestrator:
                     decision_trace=decision_trace,
                 )
             )
-        initial_equity = float(
-            paper_run.execution_profile.get("account_equity") or 10_000.0
-        )
+        initial_equity = float(paper_run.execution_profile.get("account_equity") or 10_000.0)
         account_equity = float(metrics.get("account_equity", initial_equity)) + (
             realized_total - realized_total_at_cycle_start
         )
@@ -1383,9 +1394,7 @@ class PaperCycleOrchestrator:
             original_stop = exit_ladder.initial_stop_price
             # Ladder levels replace fixed take; remainder uses trail only.
             take_price = None
-            trail_after_r = (
-                exit_ladder.remainder_trail_after_r if exit_ladder.all_levels_executed else None
-            )
+            trail_after_r = exit_ladder.remainder_trail_after_r if exit_ladder.all_levels_executed else None
         if stop_price is None and take_price is None:
             return None
         trailing = dict(metrics.get("protective_trailing", {})).get(position.symbol, {})
@@ -1573,9 +1582,7 @@ class PaperCycleOrchestrator:
             return None
         partial_r = _float_or_none(strategy.rules.takeprofit_rules.get("partial_take_profit_r"))
         target_r = (
-            partial_r
-            if partial_r is not None
-            else _float_or_none(strategy.rules.takeprofit_rules.get("risk_reward"))
+            partial_r if partial_r is not None else _float_or_none(strategy.rules.takeprofit_rules.get("risk_reward"))
         )
         initial_risk = abs(position.entry_price - levels.original_stop_price)
         if target_r is None or initial_risk <= 0:
@@ -1586,9 +1593,7 @@ class PaperCycleOrchestrator:
             else position.entry_price - target_r * initial_risk
         )
         reached = (
-            trigger.price >= expected_price
-            if position.side == TradeSide.LONG
-            else trigger.price <= expected_price
+            trigger.price >= expected_price if position.side == TradeSide.LONG else trigger.price <= expected_price
         )
         return fraction if reached else None
 
@@ -1861,4 +1866,3 @@ def _parse_datetime(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(normalized)
         return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
     return None
-

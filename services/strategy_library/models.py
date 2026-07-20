@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -189,7 +189,26 @@ class PaperRun(Base):
     gate_decision_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
     paper_metrics_summary: Mapped[dict] = mapped_column(JSON, default=dict)
     paper_status: Mapped[str] = mapped_column(String(30), default="queued")
+    active_config_snapshot_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    active_config_hash: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    pending_config_snapshot_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    pending_config_hash: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class TradingConfigSnapshot(Base):
+    __tablename__ = "trading_config_snapshots"
+
+    config_snapshot_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    paper_run_id: Mapped[str] = mapped_column(ForeignKey("paper_runs.paper_run_id"), index=True)
+    config_payload: Mapped[dict] = mapped_column(JSON)
+    config_hash: Mapped[str] = mapped_column(String(80), index=True)
+    created_by: Mapped[str] = mapped_column(String(120))
+    effective_cycle_id: Mapped[str] = mapped_column(String(120), index=True)
+    previous_snapshot_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("paper_run_id", "config_hash", name="uq_config_snapshot_run_hash"),)
 
 
 class OptimizationRun(Base):
@@ -402,6 +421,12 @@ class OrderExecution(Base):
     symbol: Mapped[str] = mapped_column(String(30), index=True)
     direction: Mapped[str] = mapped_column(String(20))
     execution_status: Mapped[str] = mapped_column(String(30), default="queued")
+    intent_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    cycle_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    decision_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    config_snapshot_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    config_hash: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    normalized_order: Mapped[dict] = mapped_column(JSON, default=dict)
     stoploss_present: Mapped[bool] = mapped_column(default=False)
     close_only_mode: Mapped[bool] = mapped_column(default=False)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -457,6 +482,27 @@ class DecisionSnapshot(Base):
     decision_trace: Mapped[dict] = mapped_column(JSON, default=dict)
     cycle_time: Mapped[datetime] = mapped_column(index=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class DecisionEvent(Base):
+    __tablename__ = "decision_events"
+
+    event_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    paper_run_id: Mapped[str] = mapped_column(ForeignKey("paper_runs.paper_run_id"), index=True)
+    cycle_id: Mapped[str] = mapped_column(String(120), index=True)
+    decision_id: Mapped[str] = mapped_column(String(120), index=True)
+    event_type: Mapped[str] = mapped_column(String(60), index=True)
+    block_code: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    strategy_id: Mapped[str] = mapped_column(String(36), index=True)
+    strategy_version: Mapped[str] = mapped_column(String(120))
+    config_snapshot_id: Mapped[str] = mapped_column(String(36), index=True)
+    config_hash: Mapped[str] = mapped_column(String(80), index=True)
+    symbol: Mapped[str] = mapped_column(String(30), index=True)
+    timeframe: Mapped[str] = mapped_column(String(20))
+    candle_close_time: Mapped[datetime] = mapped_column(index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    decision_key: Mapped[str | None] = mapped_column(String(220), nullable=True, unique=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
 
 
 class StrategyRoadmapState(Base):

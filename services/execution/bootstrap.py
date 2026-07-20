@@ -147,6 +147,7 @@ def resolve_auto_paper_technical_evidence() -> tuple[dict[str, Any], tuple[str, 
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
         return AUTO_PAPER_TECHNICAL_RULES, AUTO_PAPER_RESEARCH_SYMBOLS
 
+
 # Medium-term swing trading preset: 1d direction + 4h entry, designed for lower
 # turnover and less competition with HFT algorithms. This is a NEW hypothesis
 # (not yet validated via historical replay) distinct from the short-term 4h/15m
@@ -159,16 +160,16 @@ AUTO_PAPER_SWING_RULES: dict[str, Any] = {
         "technical_pipeline": True,
         "timeframe_model": "custom",
         "direction_timeframe": "1d",  # Daily for major trend direction
-        "entry_timeframe": "4h",       # 4-hour for refined entry timing
-        "state_timeframe": "1d",       # Use daily for regime/volatility state
+        "entry_timeframe": "4h",  # 4-hour for refined entry timing
+        "state_timeframe": "1d",  # Use daily for regime/volatility state
         # Medium-term favors structure/trend signals; mean-reversion signals like
         # VWAP/Bollinger are disabled until evidence supports them on daily scale.
         "enabled_signals": [
-            "dow_trend",      # Multi-day trend structure
-            "ema_trend",      # Crossover on daily scale
-            "adx",            # Trend strength
-            "macd",           # Momentum divergence
-            "price_action",   # Pinbar/engulfing still valid on 4h entries
+            "dow_trend",  # Multi-day trend structure
+            "ema_trend",  # Crossover on daily scale
+            "adx",  # Trend strength
+            "macd",  # Momentum divergence
+            "price_action",  # Pinbar/engulfing still valid on 4h entries
         ],
         # Lowered from 0.50 to 0.42 (2026-07-15 Paper testing optimization): same as
         # directional - AGGRESSIVE threshold for Paper/Testnet trade sampling. Medium-term
@@ -347,9 +348,7 @@ def refresh_fixed_top20_runtime_universe(exchange_info_symbols: list[dict[str, A
 
     assets = [asset.model_dump(mode="json") for asset in fixed_top20_assets(exchange_info_symbols)]
     if not all(
-        asset["tradable_status"] == "trading"
-        and asset["precision"]
-        and asset["min_notional"] is not None
+        asset["tradable_status"] == "trading" and asset["precision"] and asset["min_notional"] is not None
         for asset in assets
     ):
         return 0
@@ -369,15 +368,12 @@ def refresh_fixed_top20_runtime_universe(exchange_info_symbols: list[dict[str, A
 
 
 def _sync_auto_paper_strategy(strategy_repo, strategy, *, rules: dict[str, Any]) -> None:  # noqa: ANN001
-    from shared.models import StrategyRules, StrategyUpdate
-
-    updated_rules = StrategyRules(**{**strategy.rules.model_dump(), **rules})
-    if strategy.rules.model_dump() != updated_rules.model_dump():
-        strategy_repo.update_strategy(
-            strategy.strategy_id or "",
-            StrategyUpdate(rules=updated_rules),
+    del strategy_repo
+    if any(strategy.rules.model_dump().get(key) != value for key, value in rules.items()):
+        logger.warning(
+            "auto paper template drift detected for %s; preserving persisted strategy rules",
+            strategy.strategy_key,
         )
-        logger.info("upgraded auto paper strategy rules for %s", strategy.strategy_key)
 
 
 def _ensure_auto_paper_run(
@@ -469,9 +465,7 @@ def _ensure_auto_paper_run(
             )
 
         universe_assets = [
-            asset.model_dump(mode="json")
-            for asset in fixed_top20_assets()
-            if asset.platform_symbol in runtime_symbols
+            asset.model_dump(mode="json") for asset in fixed_top20_assets() if asset.platform_symbol in runtime_symbols
         ]
         strategy_lanes = ["carry"] if strategy_lane == "carry" else list(rules["entry_rules"].get("strategy_lanes", []))
         paper_run: PaperRun | None = None

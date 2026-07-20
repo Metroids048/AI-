@@ -307,6 +307,55 @@ OPERATOR_HEURISTIC_V2_RELAXED = StrategyCandidate(
 )
 
 
+def _trend_pullback_v1_config() -> dict[str, Any]:
+    config = _operator_heuristic_v1_config()
+    config["entry_rules"] = {
+        **config["entry_rules"],
+        "candidate_id": "trend_pullback_v1",
+        "research_only": True,
+        "market_regime_timeframe": "1h",
+        "trend_timeframe": "4h",
+        "entry_timeframe": "15m",
+        "minimum_score": 70,
+        "score_weights": {
+            "trend_quality": 35,
+            "pullback_quality": 25,
+            "macd_recovery_quality": 20,
+            "volume_quality": 10,
+            "relative_strength_quality": 10,
+        },
+        "regime_adx_minimum": 22,
+        "high_volatility_atr_percentile": 90,
+        "pullback_ema20_atr_band": 0.5,
+    }
+    config["exit_rules"] = {
+        "close_on_opposite_regime": True,
+        "no_progress_bars": 10,
+        "range_or_high_volatility_blocks_entry_only": True,
+    }
+    config["stoploss_rules"] = {
+        **config["stoploss_rules"],
+        "composition_mode": "tighter_of_atr_and_fixed",
+    }
+    config["takeprofit_rules"] = {"risk_reward": 2.0}
+    return config
+
+
+TREND_PULLBACK_V1 = StrategyCandidate(
+    candidate_id="trend_pullback_v1",
+    source="time_series_momentum_research",
+    hypothesis=(
+        "A confirmed 1h market regime, aligned 4h trend and deterministic 15m EMA pullback "
+        "can improve entry timing without changing the active strategy before OOS validation"
+    ),
+    version="1.0.0-research",
+    created_at=datetime(2026, 7, 20),
+    market="BTC/USDT,ETH/USDT",
+    timeframe="15m",
+    config_factory=_trend_pullback_v1_config,
+)
+
+
 # ============================================================================
 # Registry
 # ============================================================================
@@ -317,6 +366,7 @@ CANDIDATE_REGISTRY: dict[str, StrategyCandidate] = {
     "trend_breakout_v1": TREND_BREAKOUT_V1,
     "pandas_ta_broad_screen_v1": PANDAS_TA_BROAD_SCREEN,
     "operator_heuristic_v2_relaxed": OPERATOR_HEURISTIC_V2_RELAXED,
+    "trend_pullback_v1": TREND_PULLBACK_V1,
 }
 
 

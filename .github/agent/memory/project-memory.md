@@ -604,3 +604,11 @@
 - Binance orders expose a server-normalized UTC timestamp; the desk renders all times in Asia/Shanghai and keeps exchange notional, margin, and leverage fields rather than dropping them during mapping.
 - The decision-trace API returns a sanitized rejection funnel and recent gateway evidence. It separates signal, OOS evidence, risk, gateway, and exchange rejections so exchange open orders cannot hide local failed submissions.
 - Mainnet remains disabled. `BINANCE_AUTO_EXECUTE=false` remains required until a zero-position BTC/ETH acceptance round trip proves entry, protection, close, and reconciliation.
+
+## Trading Correctness Contracts And Versioned Configuration (2026-07-20)
+
+- Automatic execution remains disabled and the existing aggressive Paper sampling values were not changed.
+- The shared model now contains immutable, Decimal-based market, signal, portfolio, risk, intent, normalized-order, execution-report, config-snapshot and market-rules contracts with explicit units and controlled enums.
+- `trading_config_snapshots` is the versioned runtime configuration fact store. Paper runs carry active/pending snapshot IDs and hashes; writes use optimistic `base_config_hash`, and pending values activate only at a declared cycle boundary.
+- `decision_events` is append-only, uses uppercase `BlockCode`, redacts credential-bearing payload fields and derives an idempotent key for one open intent per strategy/version/config/symbol/timeframe/closed candle.
+- `CandleValidator`, `OrderNormalizer` and `ExecutionStateMachine` establish fail-closed seams for exchange-time candle closure, one-way/hedge order mapping, and duplicate/out-of-order exchange events. Legacy runtime paths still need to be migrated through these seams before this program is complete.

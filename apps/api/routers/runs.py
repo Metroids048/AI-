@@ -46,6 +46,9 @@ from services.execution.spot_gateway import spot_demo_credentials_configured
 from services.execution.testnet_acceptance import TestnetAcceptanceService
 from services.strategy_library import (
     AgentTaskRepository,
+    ConfigConflictError,
+    ConfigSnapshotRepository,
+    DecisionEventRepository,
     ExecutionRepository,
     HypothesisRepository,
     NotificationRepository,
@@ -66,6 +69,9 @@ from shared.models import (
     CarryExecutionStatus,
     ClosePositionRequest,
     CollectionResponse,
+    ConfigSnapshot,
+    ConfigSnapshotCreateRequest,
+    DecisionEvent,
     ExchangeAccountSnapshot,
     ExchangeGatewayCapability,
     ExecutionOrderRequest,
@@ -785,6 +791,79 @@ def get_paper_run(paper_run_id: str, db: Session = Depends(get_db_session)) -> P
     return run
 
 
+@router.get(
+    "/paper-runs/{paper_run_id}/config-snapshots",
+    response_model=CollectionResponse[ConfigSnapshot],
+)
+def list_paper_config_snapshots(
+    paper_run_id: str,
+    db: Session = Depends(get_db_session),
+) -> CollectionResponse[ConfigSnapshot]:
+    if _paper_repo(db).get_paper_run(paper_run_id) is None:
+        raise not_found("paper_run", paper_run_id)
+    return collection_response(ConfigSnapshotRepository(db).list_snapshots(paper_run_id))
+
+
+@router.post(
+    "/paper-runs/{paper_run_id}/config-snapshots",
+    response_model=ConfigSnapshot,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_paper_config_snapshot(
+    paper_run_id: str,
+    body: ConfigSnapshotCreateRequest,
+    db: Session = Depends(get_db_session),
+) -> ConfigSnapshot:
+    run = _paper_repo(db).get_paper_run(paper_run_id)
+    if run is None:
+        raise not_found("paper_run", paper_run_id)
+    try:
+        snapshot = ConfigSnapshot.create(
+            paper_run_id=paper_run_id,
+            config=body.config,
+            created_by=body.created_by,
+            effective_cycle_id=body.effective_cycle_id,
+            previous_snapshot_id=run.active_config_snapshot_id,
+        )
+        return ConfigSnapshotRepository(db).create_snapshot(
+            snapshot,
+            base_config_hash=body.base_config_hash,
+        )
+    except ConfigConflictError as exc:
+        raise api_error(
+            status_code=status.HTTP_409_CONFLICT,
+            error_code="config_snapshot_conflict",
+            message=str(exc),
+            detail={"active_config_hash": run.active_config_hash},
+        ) from exc
+    except ValueError as exc:
+        raise api_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            error_code="invalid_config_snapshot",
+            message=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/paper-runs/{paper_run_id}/decision-events",
+    response_model=CollectionResponse[DecisionEvent],
+)
+def list_paper_decision_events(
+    paper_run_id: str,
+    cycle_id: str | None = None,
+    decision_id: str | None = None,
+    db: Session = Depends(get_db_session),
+) -> CollectionResponse[DecisionEvent]:
+    if _paper_repo(db).get_paper_run(paper_run_id) is None:
+        raise not_found("paper_run", paper_run_id)
+    events = DecisionEventRepository(db).list_events(
+        paper_run_id=paper_run_id,
+        cycle_id=cycle_id,
+        decision_id=decision_id,
+    )
+    return collection_response(events)
+
+
 @router.patch("/paper-runs/{paper_run_id}/status", response_model=PaperRun)
 def update_paper_run_status(
     paper_run_id: str,
@@ -822,7 +901,23 @@ def update_paper_run_execution_profile(
     )
     if updated is None:
         raise not_found("paper_run", paper_run_id)
-    return updated
+    strategy_after = StrategyRepository(db).get_strategy(updated.strategy_id)
+    snapshot = ConfigSnapshot.create(
+        paper_run_id=paper_run_id,
+        config={
+            "execution_profile": updated.execution_profile,
+            "strategy_rules": strategy_after.rules.model_dump(mode="json") if strategy_after else {},
+            "risk_profile_id": updated.execution_profile.get("risk_profile_id"),
+        },
+        created_by="execution-profile-compat",
+        effective_cycle_id="NEXT_CYCLE",
+        previous_snapshot_id=updated.active_config_snapshot_id,
+    )
+    ConfigSnapshotRepository(db).create_snapshot(
+        snapshot,
+        base_config_hash=updated.active_config_hash,
+    )
+    return _paper_repo(db).get_paper_run(paper_run_id) or updated
 
 
 @router.patch("/paper-runs/{paper_run_id}/auto-settings", response_model=PaperRun)
@@ -908,7 +1003,23 @@ def update_paper_run_auto_settings(
     )
     if updated is None:
         raise not_found("paper_run", paper_run_id)
-    return updated
+    strategy_after = StrategyRepository(db).get_strategy(updated.strategy_id)
+    snapshot = ConfigSnapshot.create(
+        paper_run_id=paper_run_id,
+        config={
+            "execution_profile": updated.execution_profile,
+            "strategy_rules": strategy_after.rules.model_dump(mode="json") if strategy_after else {},
+            "risk_profile_id": risk_profile_id or None,
+        },
+        created_by="auto-settings-compat",
+        effective_cycle_id="NEXT_CYCLE",
+        previous_snapshot_id=updated.active_config_snapshot_id,
+    )
+    ConfigSnapshotRepository(db).create_snapshot(
+        snapshot,
+        base_config_hash=updated.active_config_hash,
+    )
+    return _paper_repo(db).get_paper_run(paper_run_id) or updated
 
 
 @router.get("/paper-runs/{paper_run_id}/order-sync", response_model=dict)
@@ -1254,6 +1365,54 @@ def reconcile_live_run(live_run_id: str, db: Session = Depends(get_db_session)) 
 @router.get("/orders", response_model=CollectionResponse[OrderExecution])
 def list_orders(db: Session = Depends(get_db_session)) -> CollectionResponse[OrderExecution]:
     return collection_response(_execution_repo(db).list_orders())
+
+
+@router.get("/orders/{order_execution_id}/timeline", response_model=dict)
+def get_order_timeline(order_execution_id: str, db: Session = Depends(get_db_session)) -> dict:
+    order = _execution_repo(db).get_order(order_execution_id)
+    if order is None:
+        raise not_found("order", order_execution_id)
+    return {
+        "order_execution_id": order.order_execution_id,
+        "intent_id": order.intent_id,
+        "cycle_id": order.cycle_id,
+        "decision_id": order.decision_id,
+        "config_snapshot_id": order.config_snapshot_id,
+        "config_hash": order.config_hash,
+        "normalized_order": order.normalized_order,
+        "execution_status": order.execution_status,
+        "gateway_order_id": order.gateway_order_id,
+        "reconciliation_status": order.reconciliation_status,
+        "timeline": order.lifecycle_history,
+    }
+
+
+@router.post("/recovery-check", response_model=dict)
+def run_execution_recovery_check(db: Session = Depends(get_db_session)) -> dict:
+    blockers: list[dict[str, object]] = []
+    for order in _execution_repo(db).list_orders():
+        codes: list[str] = []
+        state = order.execution_status.upper()
+        if state in {"UNKNOWN", "RECOVERY_REQUIRED"}:
+            codes.append("RECOVERY_REQUIRED")
+        if state in {"FILLED", "PARTIALLY_FILLED", "PROTECTION_PENDING"} and not order.stoploss_present:
+            codes.append("UNPROTECTED_POSITION")
+        if order.reconciliation_status in {"failed", "mismatch", "unknown"}:
+            codes.append("RECOVERY_REQUIRED")
+        if codes:
+            blockers.append(
+                {
+                    "order_execution_id": order.order_execution_id,
+                    "symbol": order.symbol,
+                    "execution_status": order.execution_status,
+                    "block_codes": sorted(set(codes)),
+                }
+            )
+    return {
+        "can_open_new_positions": not blockers,
+        "checked_order_count": len(_execution_repo(db).list_orders()),
+        "blockers": blockers,
+    }
 
 
 @router.post("/orders", response_model=OrderExecution, status_code=status.HTTP_201_CREATED)

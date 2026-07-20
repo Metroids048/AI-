@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from pydantic import Field, model_validator
@@ -11,6 +12,7 @@ from .backtest import BacktestReport, GateDecision
 from .base import PlatformModel
 from .enums import Exchange, OrderType, TradeSide
 from .signal import DecisionVetoResult
+from .trading import MarketRulesSnapshot, TradeIntent
 
 
 class BacktestRun(PlatformModel):
@@ -87,6 +89,10 @@ class PaperRun(PlatformModel):
     gate_decision_ref: str | None = None
     paper_metrics_summary: dict[str, Any] = Field(default_factory=dict)
     paper_status: str = "queued"
+    active_config_snapshot_id: str | None = None
+    active_config_hash: str | None = None
+    pending_config_snapshot_id: str | None = None
+    pending_config_hash: str | None = None
     created_at: datetime | None = None
 
 
@@ -378,6 +384,9 @@ class ExecutionOrderRequest(PlatformModel):
     veto_result: DecisionVetoResult | None = None
     risk_state: ExecutionRiskState | None = None
     idempotency_key: str | None = None
+    trade_intent: TradeIntent | None = None
+    market_rules_snapshot: MarketRulesSnapshot | None = None
+    confirmed_position_quantity: Decimal | None = Field(default=None, gt=0)
 
 
 class ManualOrderRequest(PlatformModel):
@@ -459,6 +468,12 @@ class OrderExecution(PlatformModel):
     symbol: str
     direction: TradeSide
     execution_status: str = "queued"
+    intent_id: str | None = None
+    cycle_id: str | None = None
+    decision_id: str | None = None
+    config_snapshot_id: str | None = None
+    config_hash: str | None = None
+    normalized_order: dict[str, Any] = Field(default_factory=dict)
     stoploss_present: bool = False
     close_only_mode: bool = False
     rejection_reason: str | None = None

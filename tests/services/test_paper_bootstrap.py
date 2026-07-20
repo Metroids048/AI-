@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from services.data.service import DEFAULT_BINANCE_TOP20
 from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
@@ -11,6 +12,7 @@ from services.execution.bootstrap import (
     LINK_VERIFICATION_RUNTIME_KEY,
     LINK_VERIFICATION_STRATEGY_KEY,
     OPERATOR_EXPERIENCE_STRATEGY_KEY,
+    _sync_auto_paper_strategy,
     bootstrap_auto_trading_paper_run,
     bootstrap_auto_trading_technical_paper_run,
     bootstrap_link_verification_strategy,
@@ -23,8 +25,32 @@ from services.execution.bootstrap import (
 )
 from services.execution.paper import PaperOrchestrationService
 from shared.config import settings
-from shared.models import PaperRun, RunStatus
+from shared.models import PaperRun, RunStatus, StrategyRules
 from shared.models.risk import medium_risk_profile
+
+
+def test_bootstrap_never_overwrites_existing_strategy_rules() -> None:
+    existing = SimpleNamespace(
+        strategy_id="strategy-1",
+        strategy_key="existing",
+        rules=StrategyRules(
+            entry_rules={"operator_value": True},
+            exit_rules={},
+            stoploss_rules={"fixed_bps": 100},
+            takeprofit_rules={"risk_reward": 2},
+            position_rules={"risk_per_trade": 0.05},
+        ),
+    )
+
+    class RepositoryThatMustNotWrite:
+        def update_strategy(self, *args, **kwargs) -> None:
+            raise AssertionError("bootstrap must not overwrite an existing strategy")
+
+    _sync_auto_paper_strategy(
+        RepositoryThatMustNotWrite(),
+        existing,
+        rules={"entry_rules": {"template_value": True}},
+    )
 
 
 def test_default_mirror_to_gateway_stays_disabled_until_cost_gate_is_explicitly_armed(monkeypatch) -> None:
@@ -379,9 +405,9 @@ def test_console_launcher_migrates_database_without_relaying_api_streams() -> No
 
     assert "scripts/prepare_database.py --database-url $SqliteUrl" in script
     assert script.index("scripts/prepare_database.py --database-url $SqliteUrl") < script.index(
-        'Start-Process -FilePath $env:AGENT_PYTHON'
+        "Start-Process -FilePath $env:AGENT_PYTHON"
     )
-    assert 'Start-Process -FilePath $env:AGENT_PYTHON' in script
+    assert "Start-Process -FilePath $env:AGENT_PYTHON" in script
     assert '"--log-level", "warning"' in script
     assert '"--log-level", "warning", "--local-console")' in script
     assert "run-api-local.ps1" not in script
@@ -439,8 +465,8 @@ def test_console_startup_preserves_operator_auto_execute_setting_and_rotates_log
     assert '$env:LOG_LEVEL = "INFO"' in api_script
     assert "create_relational_schema" not in console_script
     assert "scripts/prepare_database.py" in launcher_script
-    assert 'Start-Process -FilePath $env:AGENT_PYTHON' in launcher_script
+    assert "Start-Process -FilePath $env:AGENT_PYTHON" in launcher_script
     assert "apps.api.local_server" in api_script
     assert '"--log-level", "warning"' in api_script
-    assert '$env:BINANCE_HTTPS_PROXY = $env:HTTPS_PROXY' in launcher_script
+    assert "$env:BINANCE_HTTPS_PROXY = $env:HTTPS_PROXY" in launcher_script
     assert "py -3" not in console_script

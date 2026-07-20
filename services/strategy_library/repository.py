@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
 from datetime import UTC, datetime
@@ -15,6 +16,10 @@ from shared.models import (
     BacktestReport,
     BacktestRun,
     BetDecision,
+    BlockCode,
+    ConfigSnapshot,
+    DecisionEvent,
+    DecisionEventType,
     DecisionMemoryEntry,
     DecisionSnapshot,
     EnsembleStatus,
@@ -276,6 +281,10 @@ def _paper_run_from_orm(row: models.PaperRun) -> PaperRun:
         gate_decision_ref=row.gate_decision_ref,
         paper_metrics_summary=row.paper_metrics_summary,
         paper_status=row.paper_status,
+        active_config_snapshot_id=row.active_config_snapshot_id,
+        active_config_hash=row.active_config_hash,
+        pending_config_snapshot_id=row.pending_config_snapshot_id,
+        pending_config_hash=row.pending_config_hash,
         created_at=row.created_at,
     )
 
@@ -381,6 +390,39 @@ def _decision_snapshot_from_orm(row: models.DecisionSnapshot) -> DecisionSnapsho
     )
 
 
+def _config_snapshot_from_orm(row: models.TradingConfigSnapshot) -> ConfigSnapshot:
+    return ConfigSnapshot(
+        config_snapshot_id=row.config_snapshot_id,
+        paper_run_id=row.paper_run_id,
+        config=row.config_payload or {},
+        config_hash=row.config_hash,
+        created_by=row.created_by,
+        effective_cycle_id=row.effective_cycle_id,
+        previous_snapshot_id=row.previous_snapshot_id,
+        created_at=_ensure_utc(row.created_at),
+    )
+
+
+def _decision_event_from_orm(row: models.DecisionEvent) -> DecisionEvent:
+    return DecisionEvent(
+        event_id=row.event_id,
+        paper_run_id=row.paper_run_id,
+        cycle_id=row.cycle_id,
+        decision_id=row.decision_id,
+        event_type=DecisionEventType(row.event_type),
+        block_code=BlockCode(row.block_code) if row.block_code else None,
+        strategy_id=row.strategy_id,
+        strategy_version=row.strategy_version,
+        config_snapshot_id=row.config_snapshot_id,
+        config_hash=row.config_hash,
+        symbol=row.symbol,
+        timeframe=row.timeframe,
+        candle_close_time=_ensure_utc(row.candle_close_time) or _utcnow(),
+        payload=row.payload or {},
+        created_at=_ensure_utc(row.created_at),
+    )
+
+
 def _failure_record_from_orm(row: models.FailureRecord) -> FailureRecord:
     return FailureRecord(
         failure_record_id=row.failure_record_id,
@@ -454,6 +496,12 @@ def _order_execution_from_orm(row: models.OrderExecution) -> OrderExecution:
         symbol=row.symbol,
         direction=TradeSide(row.direction),
         execution_status=row.execution_status,
+        intent_id=row.intent_id,
+        cycle_id=row.cycle_id,
+        decision_id=row.decision_id,
+        config_snapshot_id=row.config_snapshot_id,
+        config_hash=row.config_hash,
+        normalized_order=row.normalized_order or {},
         stoploss_present=row.stoploss_present,
         close_only_mode=row.close_only_mode,
         rejection_reason=row.rejection_reason,
@@ -990,6 +1038,97 @@ class PaperRunRepository:
         return _paper_run_from_orm(row)
 
 
+class ConfigConflictError(ValueError):
+    pass
+
+
+class ConfigSnapshotRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def list_snapshots(self, paper_run_id: str) -> list[ConfigSnapshot]:
+        rows = (
+            self.session.query(models.TradingConfigSnapshot)
+            .filter(models.TradingConfigSnapshot.paper_run_id == paper_run_id)
+            .order_by(models.TradingConfigSnapshot.created_at)
+            .all()
+        )
+        return [_config_snapshot_from_orm(row) for row in rows]
+
+    def get_active(self, paper_run_id: str) -> ConfigSnapshot | None:
+        run = self.session.get(models.PaperRun, paper_run_id)
+        if run is None or run.active_config_snapshot_id is None:
+            return None
+        row = self.session.get(models.TradingConfigSnapshot, run.active_config_snapshot_id)
+        return _config_snapshot_from_orm(row) if row else None
+
+    def get_pending(self, paper_run_id: str) -> ConfigSnapshot | None:
+        run = self.session.get(models.PaperRun, paper_run_id)
+        if run is None or run.pending_config_snapshot_id is None:
+            return None
+        row = self.session.get(models.TradingConfigSnapshot, run.pending_config_snapshot_id)
+        return _config_snapshot_from_orm(row) if row else None
+
+    def create_snapshot(
+        self,
+        snapshot: ConfigSnapshot,
+        *,
+        base_config_hash: str | None,
+    ) -> ConfigSnapshot:
+        run = self.session.get(models.PaperRun, snapshot.paper_run_id)
+        if run is None:
+            raise ValueError("paper run does not exist")
+        if run.active_config_hash != base_config_hash:
+            raise ConfigConflictError("base_config_hash does not match active configuration")
+
+        existing = (
+            self.session.query(models.TradingConfigSnapshot)
+            .filter(
+                models.TradingConfigSnapshot.paper_run_id == snapshot.paper_run_id,
+                models.TradingConfigSnapshot.config_hash == snapshot.config_hash,
+            )
+            .one_or_none()
+        )
+        if existing is not None:
+            return _config_snapshot_from_orm(existing)
+
+        row = models.TradingConfigSnapshot(
+            config_snapshot_id=snapshot.config_snapshot_id or str(uuid.uuid4()),
+            paper_run_id=snapshot.paper_run_id,
+            config_payload=_jsonable(snapshot.config),
+            config_hash=snapshot.config_hash,
+            created_by=snapshot.created_by,
+            effective_cycle_id=snapshot.effective_cycle_id,
+            previous_snapshot_id=snapshot.previous_snapshot_id,
+        )
+        self.session.add(row)
+        self.session.flush()
+        if run.active_config_snapshot_id is None:
+            run.active_config_snapshot_id = row.config_snapshot_id
+            run.active_config_hash = row.config_hash
+        else:
+            run.pending_config_snapshot_id = row.config_snapshot_id
+            run.pending_config_hash = row.config_hash
+        self.session.commit()
+        self.session.refresh(row)
+        return _config_snapshot_from_orm(row)
+
+    def activate_pending(self, paper_run_id: str, *, cycle_id: str) -> ConfigSnapshot | None:
+        run = self.session.get(models.PaperRun, paper_run_id)
+        if run is None or run.pending_config_snapshot_id is None:
+            return None
+        pending = self.session.get(models.TradingConfigSnapshot, run.pending_config_snapshot_id)
+        if pending is None or pending.effective_cycle_id not in {cycle_id, "NEXT_CYCLE"}:
+            return None
+        run.active_config_snapshot_id = pending.config_snapshot_id
+        run.active_config_hash = pending.config_hash
+        run.pending_config_snapshot_id = None
+        run.pending_config_hash = None
+        self.session.commit()
+        self.session.refresh(pending)
+        return _config_snapshot_from_orm(pending)
+
+
 class RiskProfileRepository:
     def __init__(self, session: Session):
         self.session = session
@@ -1235,6 +1374,97 @@ class DecisionSnapshotRepository:
         return _decision_snapshot_from_orm(row)
 
 
+class DecisionEventRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    @staticmethod
+    def _decision_key(event: DecisionEvent) -> str | None:
+        if event.event_type is not DecisionEventType.TRADE_INTENT_CREATED:
+            return None
+        raw = "|".join(
+            (
+                event.strategy_id,
+                event.strategy_version,
+                event.config_hash,
+                event.symbol,
+                event.timeframe,
+                event.candle_close_time.isoformat(),
+            )
+        )
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _redact_payload(payload: Any) -> Any:
+        if isinstance(payload, dict):
+            redacted: dict[str, Any] = {}
+            for key, value in payload.items():
+                normalized = str(key).lower()
+                if normalized in {"api_key", "apikey", "secret", "signature", "password", "token"}:
+                    redacted[key] = "[redacted]"
+                else:
+                    redacted[key] = DecisionEventRepository._redact_payload(value)
+            return redacted
+        if isinstance(payload, list):
+            return [DecisionEventRepository._redact_payload(item) for item in payload]
+        return _jsonable(payload)
+
+    def append(self, event: DecisionEvent) -> DecisionEvent:
+        decision_key = self._decision_key(event)
+        if decision_key is not None:
+            existing = (
+                self.session.query(models.DecisionEvent)
+                .filter(models.DecisionEvent.decision_key == decision_key)
+                .one_or_none()
+            )
+            if existing is not None:
+                return _decision_event_from_orm(existing)
+        if event.event_id is not None:
+            existing_by_id = self.session.get(models.DecisionEvent, event.event_id)
+            if existing_by_id is not None:
+                return _decision_event_from_orm(existing_by_id)
+        row = models.DecisionEvent(
+            event_id=event.event_id or str(uuid.uuid4()),
+            paper_run_id=event.paper_run_id,
+            cycle_id=event.cycle_id,
+            decision_id=event.decision_id,
+            event_type=event.event_type.value,
+            block_code=event.block_code.value if event.block_code else None,
+            strategy_id=event.strategy_id,
+            strategy_version=event.strategy_version,
+            config_snapshot_id=event.config_snapshot_id,
+            config_hash=event.config_hash,
+            symbol=event.symbol,
+            timeframe=event.timeframe,
+            candle_close_time=event.candle_close_time,
+            payload=self._redact_payload(event.payload),
+            decision_key=decision_key,
+            created_at=event.created_at or _utcnow(),
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _decision_event_from_orm(row)
+
+    def list_events(
+        self,
+        *,
+        paper_run_id: str,
+        cycle_id: str | None = None,
+        decision_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[DecisionEvent]:
+        query = self.session.query(models.DecisionEvent).filter(models.DecisionEvent.paper_run_id == paper_run_id)
+        if cycle_id is not None:
+            query = query.filter(models.DecisionEvent.cycle_id == cycle_id)
+        if decision_id is not None:
+            query = query.filter(models.DecisionEvent.decision_id == decision_id)
+        query = query.order_by(models.DecisionEvent.created_at, models.DecisionEvent.event_id)
+        if limit is not None:
+            query = query.limit(limit)
+        return [_decision_event_from_orm(row) for row in query.all()]
+
+
 class ReviewRepository:
     def __init__(self, session: Session):
         self.session = session
@@ -1434,6 +1664,12 @@ class ExecutionRepository:
             symbol=order.symbol,
             direction=str(order.direction),
             execution_status=order.execution_status,
+            intent_id=order.intent_id,
+            cycle_id=order.cycle_id,
+            decision_id=order.decision_id,
+            config_snapshot_id=order.config_snapshot_id,
+            config_hash=order.config_hash,
+            normalized_order=_jsonable(order.normalized_order),
             stoploss_present=order.stoploss_present,
             close_only_mode=order.close_only_mode,
             rejection_reason=order.rejection_reason,

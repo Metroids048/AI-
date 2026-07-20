@@ -29,6 +29,16 @@ def test_evidence_candidates_have_explicit_role_specific_signal_sets() -> None:
     assert breakout["fusion_method"] == "weighted_vote"
 
 
+def test_trend_pullback_candidate_is_registered_as_research_only() -> None:
+    candidate = get_candidate("trend_pullback_v1")
+    config = candidate.get_config()
+
+    assert config["entry_rules"]["research_only"] is True
+    assert config["entry_rules"]["minimum_score"] == 70
+    assert config["takeprofit_rules"]["risk_reward"] == 2.0
+    assert config["exit_rules"]["no_progress_bars"] == 10
+
+
 def test_all_evidence_candidates_share_cost_exit_and_timeframe_contracts() -> None:
     configs = [get_candidate(candidate_id).get_config() for candidate_id in list_candidates()]
     contracts = {

@@ -6,6 +6,7 @@ from decimal import Decimal
 from services.data import DataRepository
 from services.data.service import DEFAULT_BINANCE_TOP20
 from services.strategy_library import (
+    DecisionEventRepository,
     ExecutionRepository,
     HypothesisRepository,
     RiskProfileRepository,
@@ -18,6 +19,8 @@ from shared.models import (
     BacktestRun,
     BinanceTestnetAccountStatus,
     BinanceTestnetOrderView,
+    DecisionEvent,
+    DecisionEventType,
     GateDecision,
     HypothesisRecord,
     OrderExecution,
@@ -320,6 +323,12 @@ def test_paper_run_auto_settings_updates_profile_and_strategy_rules(api_client, 
     tiers = profile["asset_risk_tiers"]
     assert tiers["core"]["leverage"] == 5
     assert tiers["standard"]["leverage"] == 2.5
+    refreshed = api_client.get(f"/api/v1/execution/paper-runs/{paper_run_id}").json()
+    assert refreshed["active_config_hash"] is not None
+    assert refreshed["pending_config_hash"] is not None
+    snapshots = api_client.get(f"/api/v1/execution/paper-runs/{paper_run_id}/config-snapshots").json()
+    assert snapshots["total"] == 2
+    assert snapshots["items"][-1]["config"]["execution_profile"]["max_leverage"] == 5
 
 
 def test_order_sync_reconciles_non_btc_orders_across_fixed_top20(api_client, db_session, monkeypatch) -> None:
@@ -483,3 +492,105 @@ def test_paper_runtime_auto_cycle_partial_closes_via_exit_ladder(api_client, db_
     status_resp = api_client.get(f"/api/v1/execution/paper-runs/{paper_run_id}/runtime-status")
     assert status_resp.status_code == 200
     assert status_resp.json()["open_position_symbols"] == ["BTC/USDT"]
+
+
+def test_config_snapshot_api_enforces_base_hash_and_lists_versions(api_client, db_session) -> None:
+    _, paper_run_id = _create_validated_paper_run(api_client, db_session)
+    first = api_client.post(
+        f"/api/v1/execution/paper-runs/{paper_run_id}/config-snapshots",
+        json={
+            "config": {"risk": {"risk_fraction": "0.05"}},
+            "base_config_hash": None,
+            "created_by": "operator",
+            "effective_cycle_id": "cycle-1",
+        },
+    )
+    assert first.status_code == 201
+
+    stale = api_client.post(
+        f"/api/v1/execution/paper-runs/{paper_run_id}/config-snapshots",
+        json={
+            "config": {"risk": {"risk_fraction": "0.04"}},
+            "base_config_hash": "sha256:stale",
+            "created_by": "operator",
+            "effective_cycle_id": "cycle-2",
+        },
+    )
+    assert stale.status_code == 409
+    versions = api_client.get(f"/api/v1/execution/paper-runs/{paper_run_id}/config-snapshots")
+    assert versions.status_code == 200
+    assert versions.json()["total"] == 1
+
+
+def test_decision_event_api_returns_append_only_timeline(api_client, db_session) -> None:
+    strategy_id, paper_run_id = _create_validated_paper_run(api_client, db_session)
+    DecisionEventRepository(db_session).append(
+        DecisionEvent(
+            paper_run_id=paper_run_id,
+            cycle_id="cycle-1",
+            decision_id="decision-1",
+            event_type=DecisionEventType.BLOCKED,
+            block_code="DATA_STALE",
+            strategy_id=strategy_id,
+            strategy_version="v1",
+            config_snapshot_id="config-1",
+            config_hash="sha256:config",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            candle_close_time=datetime(2026, 7, 20, 7, 0, tzinfo=UTC),
+            payload={"data_age_ms": 120_000},
+        )
+    )
+
+    response = api_client.get(f"/api/v1/execution/paper-runs/{paper_run_id}/decision-events")
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["block_code"] == "DATA_STALE"
+
+
+def test_order_timeline_exposes_config_and_lifecycle_evidence(api_client, db_session) -> None:
+    strategy_id, paper_run_id = _create_validated_paper_run(api_client, db_session)
+    order = ExecutionRepository(db_session).create_order(
+        OrderExecution(
+            strategy_id=strategy_id,
+            paper_run_id=paper_run_id,
+            symbol="BTC/USDT",
+            direction="long",
+            execution_status="UNKNOWN",
+            stoploss_present=False,
+            intent_id="intent-1",
+            cycle_id="cycle-1",
+            decision_id="decision-1",
+            config_snapshot_id="config-1",
+            config_hash="sha256:config",
+            normalized_order={"side": "BUY", "position_side": "BOTH"},
+            lifecycle_history=[{"state": "SUBMITTING"}, {"state": "UNKNOWN"}],
+        )
+    )
+
+    response = api_client.get(f"/api/v1/execution/orders/{order.order_execution_id}/timeline")
+
+    assert response.status_code == 200
+    assert response.json()["config_hash"] == "sha256:config"
+    assert response.json()["timeline"][-1]["state"] == "UNKNOWN"
+
+
+def test_recovery_check_blocks_unknown_and_unprotected_orders(api_client, db_session) -> None:
+    strategy_id, paper_run_id = _create_validated_paper_run(api_client, db_session)
+    ExecutionRepository(db_session).create_order(
+        OrderExecution(
+            strategy_id=strategy_id,
+            paper_run_id=paper_run_id,
+            symbol="ETH/USDT",
+            direction="long",
+            execution_status="UNKNOWN",
+            stoploss_present=False,
+            reconciliation_status="failed",
+        )
+    )
+
+    response = api_client.post("/api/v1/execution/recovery-check")
+
+    assert response.status_code == 200
+    assert response.json()["can_open_new_positions"] is False
+    assert response.json()["blockers"][0]["symbol"] == "ETH/USDT"

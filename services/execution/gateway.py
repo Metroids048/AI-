@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from services.data.universe import FIXED_TOP20_SYMBOLS, platform_to_exchange_symbol
+from services.execution.order_normalizer import OrderNormalizer
 from shared.binance_network import binance_ccxt_config
 from shared.config import settings
 from shared.models import ExchangeAccountSnapshot, ExchangeGatewayCapability, ExecutionOrderRequest, TradeSide
@@ -334,27 +335,51 @@ class BinanceUsdtPerpetualGateway:
         self.client.cancel_order(gateway_order_id, _normalize_binance_symbol(symbol))
 
     def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict[str, Any]:
-        symbol = _normalize_binance_symbol(order_request.symbol)
+        normalized_order = None
+        if order_request.trade_intent is not None:
+            if order_request.market_rules_snapshot is None:
+                raise ValueError("market_rules_snapshot is required for TradeIntent execution")
+            normalized_order = OrderNormalizer().normalize(
+                order_request.trade_intent,
+                order_request.market_rules_snapshot,
+                confirmed_position_quantity=order_request.confirmed_position_quantity,
+            )
+        symbol = _normalize_binance_symbol(
+            normalized_order.symbol if normalized_order is not None else order_request.symbol
+        )
         if not gateway_symbol_available(gateway=self, symbol=order_request.symbol):
             raise ValueError(f"symbol_not_found: {order_request.symbol}")
         requested_leverage = float(order_request.entry_context.get("requested_leverage") or 0)
         if requested_leverage >= 1:
             with contextlib.suppress(Exception):
                 self.set_leverage(symbol=order_request.symbol, leverage=requested_leverage)
-        quantity = _resolve_gateway_quantity(client=self.client, symbol=symbol, order_request=order_request)
-        close_only = bool(
-            order_request.entry_context.get("close_only_mode") or order_request.entry_context.get("reduce_only")
+        quantity = (
+            float(normalized_order.quantity)
+            if normalized_order is not None
+            else _resolve_gateway_quantity(client=self.client, symbol=symbol, order_request=order_request)
         )
-        direction = str(order_request.direction).lower()
-        side = _gateway_order_side(direction=direction, close_only=close_only)
+        close_only = bool(
+            order_request.trade_intent is not None and order_request.trade_intent.action.value in {"CLOSE", "REDUCE"}
+        ) or bool(order_request.entry_context.get("close_only_mode") or order_request.entry_context.get("reduce_only"))
+        if normalized_order is not None:
+            side = normalized_order.side.value.lower()
+        else:
+            direction = str(order_request.direction).lower()
+            side = _gateway_order_side(direction=direction, close_only=close_only)
         order_type = str(order_request.entry_context.get("order_type") or settings.execution_default_order_type)
-        params: dict[str, Any] = {"positionSide": "BOTH"}
-        if order_request.idempotency_key:
+        params: dict[str, Any] = {
+            "positionSide": normalized_order.position_side if normalized_order is not None else "BOTH"
+        }
+        if normalized_order is not None:
+            params["newClientOrderId"] = normalized_order.client_order_id
+        elif order_request.idempotency_key:
             params["newClientOrderId"] = _binance_client_order_id(
                 live_run_id=live_run_id,
                 idempotency_key=order_request.idempotency_key,
             )
-        if close_only:
+        if (normalized_order is not None and normalized_order.reduce_only is True) or (
+            normalized_order is None and close_only
+        ):
             params["reduceOnly"] = True
         _validate_protection_prices(order_request)
         try:
@@ -396,9 +421,7 @@ class BinanceUsdtPerpetualGateway:
                     entry_side=side,
                     quantity=quantity,
                 )
-                raise ValueError(
-                    f"protection_order_submit_failed: {exc}; compensation={compensation}"
-                ) from exc
+                raise ValueError(f"protection_order_submit_failed: {exc}; compensation={compensation}") from exc
         return {
             "live_run_id": live_run_id,
             "gateway_order_id": _order_id(created),
@@ -445,9 +468,7 @@ class BinanceUsdtPerpetualGateway:
             notes.append(f"open_algo_orders_scan_failed:{open_algo_orders_error}")
         return {
             "live_run_id": live_run_id,
-            "reconciliation_status": (
-                "warning" if mismatches or open_orders_error or open_algo_orders_error else "ok"
-            ),
+            "reconciliation_status": ("warning" if mismatches or open_orders_error or open_algo_orders_error else "ok"),
             "open_order_count": len(open_orders),
             "open_orders": open_orders,
             "position_mismatches": mismatches,
@@ -568,16 +589,16 @@ class BinanceUsdtPerpetualGateway:
             refs.append(
                 {
                     **self._submit_algo_order(
-                    method,
-                    {
-                        "algoType": "CONDITIONAL",
-                        "symbol": symbol,
-                        "side": close_side,
-                        "type": "STOP_MARKET",
-                        "quantity": quantity,
-                        "triggerPrice": trigger_price,
-                        "reduceOnly": "true",
-                    },
+                        method,
+                        {
+                            "algoType": "CONDITIONAL",
+                            "symbol": symbol,
+                            "side": close_side,
+                            "type": "STOP_MARKET",
+                            "quantity": quantity,
+                            "triggerPrice": trigger_price,
+                            "reduceOnly": "true",
+                        },
                     ),
                     "protection_order_kind": "algo",
                 }
@@ -888,10 +909,7 @@ def _binance_account_warning(*, api_backend: str) -> str:
             "对账入口：testnet.binancefuture.com（须同一套 Testnet API Key 账号）。"
             "不要打开 futures.binance.com 主网对比。"
         )
-    return (
-        f"{base} 对账入口：demo.binance.com。"
-        "不要打开 futures.binance.com 主网对比。"
-    )
+    return f"{base} 对账入口：demo.binance.com。" "不要打开 futures.binance.com 主网对比。"
 
 
 def probe_testnet_account(

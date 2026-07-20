@@ -545,3 +545,19 @@
 - Context: After TASK-010, the repository still mixed old unversioned skeleton routes, direct final-object submission patterns, and in-memory `risk/review/runs` seams. This made it too easy to bypass validation and impossible to reason about a single public API style.
 - Decision: Move the public surface to `/api/v1`, standardize list responses to `items + total`, standardize error payloads to `error_code/message/detail`, and convert asynchronous-style creation paths (`backtests`, `optimizations`, `ingestion jobs`, `agent tasks`, `paper runs`) to `TaskSubmission` acknowledgements. Persist `RiskProfile`, `RiskEvent`, `ReviewReport`, `FailureRecord`, `AgentTask`, `LiveRun`, `OrderExecution`, and `PositionSnapshot`; add an `ExecutionGatekeeperService` that blocks orders or paper admission when stoploss, validation, freshness, veto, or active high-severity risk-event checks fail.
 - Consequences: The research loop is now auditable across Strategy -> Validation -> Risk/Execution -> Review without relying on in-memory dictionaries. Future Celery/Llive wiring can extend the same contracts instead of replacing them, and frontend/admin can target a stable versioned API surface.
+
+## ADR-059: Runtime trading configuration is an immutable database snapshot, not a bootstrap template
+
+- Date: 2026-07-20
+- Status: accepted, migration in progress
+- Context: Runtime inspection reproduced five manifest/database configuration drifts. Bootstrap templates, strategy rows, PaperRun JSON, frontend writes and environment values could all appear authoritative.
+- Decision: Persist complete, secret-free configuration snapshots with canonical SHA-256 hashes, optimistic `base_config_hash`, active/pending PaperRun pointers and cycle-boundary activation. Bootstrap may seed missing strategy/config facts but must not overwrite existing persisted rules. Manifests remain admission evidence rather than runtime configuration writers.
+- Consequences: Every decision, intent and order must eventually retain snapshot ID/hash. Compatibility endpoints may temporarily maintain legacy projections, but those projections are not authoritative and must be removed after all consumers read snapshots.
+
+## ADR-060: Exchange execution uses explicit intent normalization and a controlled lifecycle
+
+- Date: 2026-07-20
+- Status: accepted, integration in progress
+- Context: `entry_context` dictionaries and free status strings obscured action, direction, quantity, position mode and recovery semantics.
+- Decision: Use immutable `TradeIntent -> NormalizedOrder -> ExecutionReport`, Decimal amounts, dynamic exchange rule snapshots, a one-way/hedge mapping matrix and a controlled execution state machine. Hedge closes omit `reduceOnly` and require a confirmed position quantity cap; unknown market rules and recovery states fail closed.
+- Consequences: Legacy gateways remain compatible during migration but cannot be considered fully correct until all entry paths use the normalizer and state events are persisted.

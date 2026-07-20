@@ -71,7 +71,7 @@ Last updated: 2026-07-19
 - `max_leverage`: 40
 - `max_position_fraction`: 0.35
 
-执行范围固定为 `BTC/USDT`、`ETH/USDT`；组合初始风险上限 25%、组合敞口 90%、日损失上限 20%。`paper-btc-eth-sampling-v1` 是唯一运行配置版本。`BINANCE_AUTO_EXECUTE` 已于 2026-07-20 改为 `true`；当前剩余 blocker：`testnet_acceptance_not_verified`——旧验收记录 da7edfd9 覆盖 BTC/ETH/SOL 三个币（3 symbols），与当前执行范围 BTC/ETH 两个币（2 symbols）精确匹配失败；**必须重新触发一次 `POST /api/runs/testnet-acceptance` body=`{"symbols":["BTC/USDT","ETH/USDT"]}` 完成验收后方能开单**。
+执行范围固定为 `BTC/USDT`、`ETH/USDT`；组合初始风险上限 25%、组合敞口 90%、日损失上限 20%。`paper-btc-eth-sampling-v1` 是当前 Paper 采样配置。`BINANCE_AUTO_EXECUTE` 的代码与示例环境默认值均为 `false`；本次重构没有重新武装调度器。当前 blocker 至少包括配置漂移迁移尚未完成、调度心跳需重新验证，以及 BTC/ETH 精确范围验收未完成。旧验收记录 da7edfd9 覆盖 BTC/ETH/SOL，与当前 BTC/ETH 范围不匹配；重新验收属于外部状态变更，必须另行明确授权。
 
 - Missing, stale, ineligible, or rules-mismatched evidence rejects the main lane with `validated_edge_stats_missing_or_stale`.
 - Local candidate reports live under `artifacts/signal_edge_stats/`; active manifest is the committed, CI-verified exception.

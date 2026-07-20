@@ -16,14 +16,17 @@ from typing import Any
 
 import pandas as pd
 
+from shared.models import TradeSide, TradeSignal
+
 # pandas_ta will be imported at runtime after pip install completes
 # For now, we'll use conditional import to allow the module to load
+ta: Any | None = None
 try:
-    import pandas_ta as ta
-except ImportError:
-    ta = None
+    import pandas_ta as _pandas_ta
 
-from shared.models import TradeSide, TradeSignal
+    ta = _pandas_ta
+except (ImportError, OSError):
+    ta = None
 
 
 def _signal_time(frame: pd.DataFrame):  # noqa: ANN202
@@ -620,14 +623,12 @@ def generate_pandas_ta_signal(
     """
     if ta is None:
         raise ImportError(
-            "pandas-ta is not installed. Run: pip install -e '.[quant]' "
-            "or pip install pandas-ta>=0.3.14b"
+            "pandas-ta is not installed. Run: pip install -e '.[quant]' " "or pip install pandas-ta>=0.3.14b"
         )
 
     if name not in PANDAS_TA_SIGNAL_REGISTRY:
         raise ValueError(
-            f"Unknown pandas-ta indicator: {name}. "
-            f"Available: {', '.join(PANDAS_TA_SIGNAL_REGISTRY.keys())}"
+            f"Unknown pandas-ta indicator: {name}. " f"Available: {', '.join(PANDAS_TA_SIGNAL_REGISTRY.keys())}"
         )
 
     config = PANDAS_TA_SIGNAL_REGISTRY[name]
