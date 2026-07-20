@@ -102,16 +102,14 @@ def _detect_orphan_bootstrap_configs(source: str | None = None) -> list[tuple[st
         ):
             rules_names.add(stmt.targets[0].id)
         elif (
-            isinstance(stmt, ast.AnnAssign)
-            and isinstance(stmt.target, ast.Name)
-            and stmt.target.id.endswith("_RULES")
+            isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name) and stmt.target.id.endswith("_RULES")
         ):
             rules_names.add(stmt.target.id)
 
     # Functions that reference each RULES dict
     rules_to_bootstrap_fns: dict[str, set[str]] = {name: set() for name in rules_names}
     for node in tree.body:
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         fn_name = node.name
         if not fn_name.startswith("bootstrap_") or fn_name == "bootstrap_local_paper_runtime":
@@ -123,7 +121,7 @@ def _detect_orphan_bootstrap_configs(source: str | None = None) -> list[tuple[st
     # Functions called from bootstrap_local_paper_runtime
     auto_boot_calls: set[str] = set()
     for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "bootstrap_local_paper_runtime":
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == "bootstrap_local_paper_runtime":
             for child in ast.walk(node):
                 if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
                     auto_boot_calls.add(child.func.id)
@@ -131,7 +129,7 @@ def _detect_orphan_bootstrap_configs(source: str | None = None) -> list[tuple[st
     # Configs intentionally excluded (docstring contains "deliberately NOT wired")
     intentionally_excluded: set[str] = set()
     for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             docstring = ast.get_docstring(node) or ""
             if "deliberately NOT wired" in docstring or "deliberately not wired" in docstring.lower():
                 # Find which RULES this function references
@@ -165,6 +163,42 @@ def main() -> int:
         return _report(checks)
 
     state = _json_object(STATE_PATH.read_text(encoding="utf-8"))
+
+    # Celery / Redis infrastructure check (Section 3.1)
+    redis_ok = False
+    redis_detail = "not checked"
+    try:
+        import redis as _redis  # type: ignore[import-untyped]
+
+        _r = _redis.from_url(
+            str(settings.redis_url or "redis://localhost:6379/0"),
+            socket_connect_timeout=2,
+        )
+        _r.ping()
+        redis_ok = True
+        redis_detail = f"connected to {settings.redis_url}"
+    except ImportError:
+        redis_detail = "redis package not installed (pip install redis)"
+    except Exception as exc:
+        redis_detail = f"unreachable: {type(exc).__name__}({exc})"
+    record("Redis 连接", redis_ok, redis_detail)
+
+    celery_ok = False
+    celery_detail = "not checked"
+    try:
+        from apps.api.celery_app import celery_app  # noqa: PLC0415
+
+        inspect = celery_app.control.inspect(timeout=2)
+        active = inspect.ping()
+        if active:
+            celery_ok = True
+            celery_detail = f"{len(active)} worker(s) responding"
+        else:
+            celery_detail = "no workers responded (inprocess scheduler may be used — check RUNTIME_SCHEDULER_MODE)"
+    except Exception as exc:
+        celery_detail = f"probe failed: {type(exc).__name__}"
+    record("Celery Workers", celery_ok, celery_detail)
+
     heartbeat_at = _parse_datetime(state.get("heartbeat_at"))
     last_cycle_at = _parse_datetime(state.get("last_auto_cycle_at"))
     now = datetime.now(UTC)
@@ -192,12 +226,8 @@ def main() -> int:
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     try:
-        paper_columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(paper_runs)").fetchall()
-        }
-        position_columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(position_snapshots)").fetchall()
-        }
+        paper_columns = {row[1] for row in connection.execute("PRAGMA table_info(paper_runs)").fetchall()}
+        position_columns = {row[1] for row in connection.execute("PRAGMA table_info(position_snapshots)").fetchall()}
         record(
             "数据库 Schema",
             {"paper_status", "execution_profile", "paper_metrics_summary"}.issubset(paper_columns)
@@ -233,8 +263,7 @@ def main() -> int:
             profile = _json_object(row["execution_profile"])
             if row["strategy_key"] == "auto_paper_mature_templates":
                 simulation_profiles_ok = simulation_profiles_ok and (
-                    profile.get("execution_mode") == "paper_only"
-                    and not bool(profile.get("mirror_to_gateway"))
+                    profile.get("execution_mode") == "paper_only" and not bool(profile.get("mirror_to_gateway"))
                 )
             else:
                 mode = profile.get("execution_mode")
@@ -304,7 +333,7 @@ def main() -> int:
                 context.get("round_trip_fee_rate"),
                 context.get("round_trip_slippage_rate"),
             )
-            numeric_values = [value for value in values if isinstance(value, (int, float))]
+            numeric_values = [value for value in values if isinstance(value, int | float)]
             edge_units_ok = len(numeric_values) == len(values) and all(
                 0 <= float(value) <= 1 for value in numeric_values
             )

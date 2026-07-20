@@ -1,6 +1,6 @@
 # Current State
 
-Last updated: 2026-07-18 Asia/Shanghai
+Last updated: 2026-07-20 Asia/Shanghai
 
 ## Authority
 
@@ -15,7 +15,7 @@ Current truth is resolved in this order: current code and tests, the active runt
 - Directional lane: requires fresh symbol-scoped OOS evidence whose candidate and rules hash match runtime rules.
 - Observation lane: uses real technical signals and may submit to Binance Simulation only after exact Top3 acceptance. It remains non-authoritative and excluded from strategy performance.
 - Runtime readiness is based on the active execution scope (`BTC/USDT`, `ETH/USDT`, `SOL/USDT`), not legacy hard-coded Top20 counts.
-- Current Top3 acceptance: run `da7edfd9-c1d4-4b04-8b66-02fe82e4af89`, 6/6 fills at 40x, BTC/ETH/SOL each received STOP_MARKET + TAKE_PROFIT_MARKET ReduceOnly refs, final 0 positions / 0 open orders. `execution_ready=true`.
+- Current Top3 acceptance: run `da7edfd9-c1d4-4b04-8b66-02fe82e4af89`, 6/6 fills at 40x, BTC/ETH/SOL each received STOP_MARKET + TAKE_PROFIT_MARKET ReduceOnly refs, final 0 positions / 0 open orders. **Note: this run covered BTC/ETH/SOL (3 symbols); the current execution scope is BTC/ETH (2 symbols). `find_verified_testnet_acceptance` uses exact-match on `completed_symbols`, so this run does NOT satisfy the 2-symbol check. A new acceptance run must be triggered for exactly `["BTC/USDT","ETH/USDT"]` before execution_ready can be true.**
 - Acceptance script now automatically cleans non-zero Testnet/Simulation state before the acceptance run via `services/execution/testnet_cleanup.py::testnet_account_cleanup` (Testnet-only guard; fail-closed on any error).
 - Real sampling evidence: `signal_observation` produced BTC gateway order `22305428148` and SOL gateway order `3246292050` on the current build/scope. Both were market entries with 40x and native dual protection; the observation lane remains excluded from strategy performance.
 - Reconciliation hardening: Binance Algo orders are included in acceptance/final state; transient missing positions must remain absent across two scheduler cycles before local close; exchange-only positions are recovered locally; missing Stop/TP is re-armed or fail-closed to ReduceOnly close; ReduceOnly `-2022` is only treated as flat after a fresh exchange-flat confirmation.
@@ -71,7 +71,7 @@ Last updated: 2026-07-19
 - `max_leverage`: 40
 - `max_position_fraction`: 0.35
 
-执行范围固定为 `BTC/USDT`、`ETH/USDT`；组合初始风险上限 25%、组合敞口 90%、日损失上限 20%。`paper-btc-eth-sampling-v1` 是唯一运行配置版本。自动执行在完成 BTC/ETH 零仓位验收前保持关闭。
+执行范围固定为 `BTC/USDT`、`ETH/USDT`；组合初始风险上限 25%、组合敞口 90%、日损失上限 20%。`paper-btc-eth-sampling-v1` 是唯一运行配置版本。`BINANCE_AUTO_EXECUTE` 已于 2026-07-20 改为 `true`；当前剩余 blocker：`testnet_acceptance_not_verified`——旧验收记录 da7edfd9 覆盖 BTC/ETH/SOL 三个币（3 symbols），与当前执行范围 BTC/ETH 两个币（2 symbols）精确匹配失败；**必须重新触发一次 `POST /api/runs/testnet-acceptance` body=`{"symbols":["BTC/USDT","ETH/USDT"]}` 完成验收后方能开单**。
 
 - Missing, stale, ineligible, or rules-mismatched evidence rejects the main lane with `validated_edge_stats_missing_or_stale`.
 - Local candidate reports live under `artifacts/signal_edge_stats/`; active manifest is the committed, CI-verified exception.

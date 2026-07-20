@@ -151,7 +151,10 @@ class CarryBacktestApplicationService:
             elig = persisted.eligibility_result
             # eligibility_result may be a dict (JSON column) or a GateDecision
             # pydantic model depending on the persistence path.
-            passed = elig.get("passed") if isinstance(elig, dict) else getattr(elig, "passed", None)
+            if isinstance(elig, dict):  # noqa: SIM108 — mypy needs if/else to narrow GateDecision vs dict
+                passed = elig.get("passed")
+            else:
+                passed = getattr(elig, "passed", None)
             backtest_status = "passed" if passed else "failed"
         else:
             backtest_status = "completed" if persisted.run_status == "completed" else "failed"

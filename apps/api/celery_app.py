@@ -70,7 +70,7 @@ celery_app.conf.beat_schedule = {
     "market-data-heartbeat-every-minute": {
         "task": "services.data.tasks.market_data_heartbeat",
         "schedule": float(settings.market_data_heartbeat_seconds),
-        "kwargs": {"symbols": ["BTC/USDT"], "timeframe": "1m"},
+        "kwargs": {"symbols": ["BTC/USDT", "ETH/USDT"], "timeframe": "1m"},
     },
     "risk-profile-sweep-every-minute": {
         "task": "services.execution.tasks.risk_profile_sweep",
