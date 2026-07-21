@@ -109,7 +109,7 @@ def _detect_orphan_bootstrap_configs(source: str | None = None) -> list[tuple[st
     # Functions that reference each RULES dict
     rules_to_bootstrap_fns: dict[str, set[str]] = {name: set() for name in rules_names}
     for node in tree.body:
-        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         fn_name = node.name
         if not fn_name.startswith("bootstrap_") or fn_name == "bootstrap_local_paper_runtime":
@@ -121,7 +121,7 @@ def _detect_orphan_bootstrap_configs(source: str | None = None) -> list[tuple[st
     # Functions called from bootstrap_local_paper_runtime
     auto_boot_calls: set[str] = set()
     for node in tree.body:
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == "bootstrap_local_paper_runtime":
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "bootstrap_local_paper_runtime":
             for child in ast.walk(node):
                 if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
                     auto_boot_calls.add(child.func.id)
@@ -129,7 +129,7 @@ def _detect_orphan_bootstrap_configs(source: str | None = None) -> list[tuple[st
     # Configs intentionally excluded (docstring contains "deliberately NOT wired")
     intentionally_excluded: set[str] = set()
     for node in tree.body:
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             docstring = ast.get_docstring(node) or ""
             if "deliberately NOT wired" in docstring or "deliberately not wired" in docstring.lower():
                 # Find which RULES this function references
@@ -333,7 +333,7 @@ def main() -> int:
                 context.get("round_trip_fee_rate"),
                 context.get("round_trip_slippage_rate"),
             )
-            numeric_values = [value for value in values if isinstance(value, int | float)]
+            numeric_values = [value for value in values if isinstance(value, (int, float))]
             edge_units_ok = len(numeric_values) == len(values) and all(
                 0 <= float(value) <= 1 for value in numeric_values
             )

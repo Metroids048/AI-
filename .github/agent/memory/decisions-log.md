@@ -1,5 +1,13 @@
 # Decisions Log
 
+## ADR-072: Align pre-commit ruff/mypy with local toolchain (kill UP038 ping-pong)
+
+- Date: 2026-07-21
+- Status: accepted
+- Context: Commits repeatedly failed pre-commit because `.pre-commit-config.yaml` pinned ruff `v0.6.9` (still enforced removed rule UP038: rewrite `isinstance(x, (A, B))` to `A | B`) while local ruff `0.15.x` had deleted UP038 and preferred the tuple form. The same files were "fixed" both ways across sessions. Separately, mypy `v1.11.2` rejected a ternary that accessed `.get` on a value typed as `GateDecision`, while newer mypy accepted clearer narrowing.
+- Decision: Bump pre-commit ruff to `v0.15.20` and mypy to `v1.19.1`; raise `pyproject.toml` ruff lower bound to `>=0.13`. Keep `isinstance(..., (A, B))` as the house style. Narrow `eligibility_result` with `if isinstance(elig, dict)` / `else` (and `# noqa: SIM108`) so mypy and ruff stop fighting. Exclude `docs/archive/` and `scripts/archive/` from eof/trailing-whitespace hooks to avoid archive churn.
+- Consequences: Local `ruff check` and commit hooks agree on UP rules. Recurring UP038 / GateDecision.get commit blocks should stop. Archive whitespace mass-rewrites are no longer suggested by those hooks.
+
 ## ADR-071: Add AI Collaborator Workflow Rules to AGENTS.md
 
 - Date: 2026-07-19

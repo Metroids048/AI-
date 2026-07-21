@@ -25,6 +25,7 @@ from shared.models import (
     SignalEnsemble,
     TradeSide,
 )
+from shared.models.trading import ConfigSnapshot, canonical_config_hash
 
 
 def test_ohlcv_bar_roundtrip(sample_ohlcv_bar: dict) -> None:
@@ -160,3 +161,65 @@ def test_market_intelligence_contracts_cap_vote_weight() -> None:
             confidence=0.8,
             vote_weight=0.31,
         )
+
+
+# ---------------------------------------------------------------------------
+# ConfigSnapshot — hash stability, secret rejection, unit disambiguation
+# ---------------------------------------------------------------------------
+
+
+def test_config_snapshot_hash_is_deterministic() -> None:
+    """Same config dict must always produce the same hash, regardless of key order."""
+    cfg_a = {"risk_fraction": 0.0025, "max_leverage": 3, "timeframe": "15m"}
+    cfg_b = {"timeframe": "15m", "max_leverage": 3, "risk_fraction": 0.0025}
+    assert canonical_config_hash(cfg_a) == canonical_config_hash(cfg_b)
+
+
+def test_config_snapshot_hash_changes_on_value_change() -> None:
+    cfg1 = {"risk_fraction": 0.0025}
+    cfg2 = {"risk_fraction": 0.005}
+    assert canonical_config_hash(cfg1) != canonical_config_hash(cfg2)
+
+
+def test_config_snapshot_create_sets_hash_automatically() -> None:
+    cfg = {"risk_fraction": 0.0025, "max_leverage": 3}
+    snapshot = ConfigSnapshot.create(
+        paper_run_id="run-1",
+        config=cfg,
+        created_by="test",
+        effective_cycle_id="cycle-1",
+    )
+    assert snapshot.config_hash == canonical_config_hash(cfg)
+    assert snapshot.config_hash.startswith("sha256:")
+
+
+def test_config_snapshot_rejects_mismatched_hash() -> None:
+    cfg = {"risk_fraction": 0.0025}
+    with pytest.raises(ValidationError, match="config_hash does not match"):
+        ConfigSnapshot(
+            paper_run_id="run-1",
+            config=cfg,
+            config_hash="sha256:wrong",
+            created_by="test",
+            effective_cycle_id="cycle-1",
+        )
+
+
+def test_config_snapshot_rejects_secrets() -> None:
+    """A config dict containing API credentials must never be persisted."""
+    for secret_key in ("api_key", "secret", "password", "token"):
+        with pytest.raises(ValidationError, match="secret"):
+            ConfigSnapshot.create(
+                paper_run_id="run-1",
+                config={secret_key: "s3cr3t", "risk_fraction": 0.0025},
+                created_by="test",
+                effective_cycle_id="cycle-1",
+            )
+
+
+def test_config_snapshot_unit_disambiguation() -> None:
+    """0.5%, 0.005 and 0.5 stored as separate configs must produce distinct hashes."""
+    half_percent_fraction = canonical_config_hash({"risk_fraction": 0.005})
+    point_five = canonical_config_hash({"risk_fraction": 0.5})
+    half_pct_string = canonical_config_hash({"risk_fraction": "0.5%"})
+    assert len({half_percent_fraction, point_five, half_pct_string}) == 3

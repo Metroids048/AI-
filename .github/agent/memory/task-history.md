@@ -1,5 +1,11 @@
 # Task History
 
+## 2026-07-21 — Fix recurring pre-commit failures and push pending docs/tests
+
+- **Root cause**: Pre-commit ruff `0.6.9` still enforced UP038 while local ruff `0.15` removed it; mypy hook on `GateDecision.get` blocked every commit that touched validation. Staged-but-uncommitted runbooks/tests were never in a commit, so push could not upload them.
+- **Changes**: Upgraded `.pre-commit-config.yaml` (ruff `v0.15.20`, mypy `v1.19.1`, archive excludes); fixed `services/validation/application.py` eligibility narrowing; normalized `scripts/verify_config.py` isinstance style; added runbooks/strategy docs and related tests; ADR-072.
+- **Verification**: `pre-commit run --files <touched>` → all hooks Passed (ruff, ruff-format, mypy, eof, trailing-whitespace).
+
 ## 2026-07-19 — Execution runtime compatibility refactor
 
 - **Changes**: Added internal cycle orchestration, exchange-execution request/limit-expiry handling, and local order/position lifecycle services behind the unchanged `PaperRuntimeService` public contract. Corrected the observation-lane architecture document to match the current Binance Simulation acceptance boundary.

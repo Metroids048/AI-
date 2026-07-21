@@ -1,6 +1,8 @@
 repos:
+  # Keep ruff >=0.13 so UP038 (isinstance tuple→union) stays gone — old 0.6.x
+  # fought local ruff 0.15+ and repeatedly blocked commits on the same files.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.15.20
     hooks:
       - id: ruff
         args: [--fix]
@@ -12,12 +14,14 @@ repos:
       - id: check-yaml
       - id: check-json
       - id: end-of-file-fixer
+        exclude: ^(docs/archive/|scripts/archive/)
       - id: trailing-whitespace
+        exclude: ^(docs/archive/|scripts/archive/)
       - id: check-added-large-files
         args: [--maxkb=2048]   # guard against committing alpha CSVs / docx blobs
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
+    rev: v1.19.1
     hooks:
       - id: mypy
         additional_dependencies: [pydantic>=2.8]
