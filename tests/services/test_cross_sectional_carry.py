@@ -51,13 +51,14 @@ def _store_funding(db_session, *, symbol: str, funding_rate: Decimal) -> None:
 
 
 def _store_bar(db_session, *, symbol: str, close: float, timeframe: str = "1h") -> None:
+    duration = timedelta(minutes=1) if timeframe == "1m" else timedelta(hours=1)
     DataRepository(db_session).store_ohlcv_bars(
         [
             {
                 "symbol": symbol,
                 "exchange": "binance",
                 "timeframe": timeframe,
-                "time": datetime.now(UTC).replace(microsecond=0),
+                "time": datetime.now(UTC).replace(microsecond=0) - duration,
                 "open": Decimal(str(close)),
                 "high": Decimal(str(close)),
                 "low": Decimal(str(close)),

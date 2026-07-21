@@ -71,18 +71,14 @@ class ExecutionGatekeeperService:
             raise ValueError("validation gate rejected paper admission")
         hypothesis_id = backtest.validation_methodology.get("hypothesis_id")
         hypothesis = (
-            self.hypothesis_repo.get_hypothesis(hypothesis_id)
-            if self.hypothesis_repo and hypothesis_id
-            else None
+            self.hypothesis_repo.get_hypothesis(hypothesis_id) if self.hypothesis_repo and hypothesis_id else None
         )
         promotion_gate = self.validation_admission.assess_backtest_run(
             run=backtest,
             hypothesis=hypothesis,
         )
         if not promotion_gate.passed:
-            raise ValueError(
-                f"promotion evidence incomplete: {promotion_gate.reason}"
-            )
+            raise ValueError(f"promotion evidence incomplete: {promotion_gate.reason}")
         prepared = self.paper_service.prepare_run(
             PaperRun(
                 paper_run_id=str(uuid.uuid4()),
@@ -160,6 +156,11 @@ class ExecutionGatekeeperService:
             symbol=request.symbol,
             direction=request.direction,
             execution_status="rejected" if rejection_reasons else "accepted",
+            intent_id=request.trade_intent.intent_id if request.trade_intent is not None else None,
+            cycle_id=request.trade_intent.cycle_id if request.trade_intent is not None else None,
+            decision_id=request.trade_intent.decision_id if request.trade_intent is not None else None,
+            config_snapshot_id=request.trade_intent.config_snapshot_id if request.trade_intent is not None else None,
+            config_hash=request.trade_intent.config_hash if request.trade_intent is not None else None,
             stoploss_present=stoploss_present,
             close_only_mode=close_only_mode,
             rejection_reason=";".join(rejection_reasons) if rejection_reasons else None,
@@ -215,9 +216,7 @@ class ExecutionGatekeeperService:
         if projected_total_exposure > profile.max_total_exposure:
             rejection_reasons.append("max_total_exposure_exceeded")
         correlated_peer_count_limit = int(request.entry_context.get("correlated_peer_count_limit", 2))
-        correlated_cluster_exposure_limit = float(
-            request.entry_context.get("correlated_cluster_exposure_limit", 0.35)
-        )
+        correlated_cluster_exposure_limit = float(request.entry_context.get("correlated_cluster_exposure_limit", 0.35))
         net_directional_exposure_limit = float(request.entry_context.get("net_directional_exposure_limit", 0.40))
         if not risk_state.portfolio_correlation_available:
             rejection_reasons.append("portfolio_correlation_unavailable")

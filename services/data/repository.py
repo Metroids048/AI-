@@ -362,18 +362,27 @@ class DataRepository:
         reference_time: datetime,
         max_delay: timedelta,
     ) -> dict[str, Any]:
+        duration = _timeframe_to_delta(timeframe)
+        latest_closed_open = reference_time - duration
         stmt = (
             select(ohlcv_bars.c.time)
-            .where(ohlcv_bars.c.symbol == symbol, ohlcv_bars.c.timeframe == timeframe)
+            .where(
+                ohlcv_bars.c.symbol == symbol,
+                ohlcv_bars.c.timeframe == timeframe,
+                ohlcv_bars.c.time <= latest_closed_open,
+            )
             .order_by(ohlcv_bars.c.time.desc())
             .limit(1)
         )
-        latest = self.session.execute(stmt).scalar_one_or_none()
-        latest = _as_aware(latest)
-        delay = (reference_time - latest) if latest is not None else None
+        latest_open = _as_aware(self.session.execute(stmt).scalar_one_or_none())
+        latest_close = latest_open + duration if latest_open is not None else None
+        delay = (reference_time - latest_close) if latest_close is not None else None
         return {
-            "is_fresh": latest is not None and delay is not None and delay <= max_delay,
-            "latest_timestamp": latest,
+            "is_fresh": latest_close is not None and delay is not None and timedelta(0) <= delay <= max_delay,
+            # Preserve the legacy field as the stored candle-open timestamp.
+            "latest_timestamp": latest_open,
+            "latest_open_time": latest_open,
+            "latest_close_time": latest_close,
             "max_delay_seconds": max_delay.total_seconds(),
             "delay_seconds": delay.total_seconds() if delay is not None else None,
         }

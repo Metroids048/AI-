@@ -167,7 +167,7 @@ def test_bootstrap_link_verification_endpoint_creates_isolated_paper_run(api_cli
 
 def test_paper_runtime_auto_cycle_opens_positions_and_updates_status(api_client, db_session) -> None:
     _, paper_run_id = _create_validated_paper_run(api_client, db_session)
-    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=79)
+    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=80)
     _store_trend_bars(
         db_session,
         symbol="BTC/USDT",
@@ -208,7 +208,7 @@ def test_paper_runtime_auto_cycle_opens_positions_and_updates_status(api_client,
 
 def test_paper_runtime_auto_cycle_all_runs_running_paper_runs(api_client, db_session) -> None:
     strategy_id, paper_run_id = _create_validated_paper_run(api_client, db_session)
-    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=79)
+    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=80)
     _store_trend_bars(
         db_session,
         symbol="BTC/USDT",
@@ -388,7 +388,7 @@ def test_order_sync_reconciles_non_btc_orders_across_fixed_top20(api_client, db_
 
 def test_paper_runtime_auto_cycle_closes_position_on_opposite_signal(api_client, db_session) -> None:
     _, paper_run_id = _create_validated_paper_run(api_client, db_session)
-    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=79)
+    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=80)
     _store_trend_bars(
         db_session,
         symbol="BTC/USDT",
@@ -437,7 +437,7 @@ def test_paper_runtime_auto_cycle_partial_closes_via_exit_ladder(api_client, db_
             "remainder_trail_after_r": 2.5,
         },
     )
-    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=79)
+    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=80)
     closes = _trend_closes(start=Decimal("60000"), step=Decimal("100"))
     _store_trend_bars(db_session, symbol="BTC/USDT", closes=closes, start_at=start_at)
 
@@ -464,7 +464,7 @@ def test_paper_runtime_auto_cycle_partial_closes_via_exit_ladder(api_client, db_
                 "symbol": "BTC/USDT",
                 "exchange": "binance",
                 "timeframe": "1m",
-                "time": datetime.now(UTC).replace(microsecond=0),
+                "time": datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=1),
                 "open": entry_price,
                 "high": trigger_price + Decimal("50"),
                 "low": entry_price,

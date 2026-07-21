@@ -56,7 +56,7 @@ def test_stale_event_resolves_once_data_is_fresh_again(db_session) -> None:
     ]
     assert len(active_before) == 1
 
-    repo.store_ohlcv_bars([_bar("ETH/USDT", datetime.now(UTC) - timedelta(seconds=5))])
+    repo.store_ohlcv_bars([_bar("ETH/USDT", datetime.now(UTC) - timedelta(minutes=1, seconds=5))])
     result = heartbeat.check_symbol(symbol="ETH/USDT", timeframe="1m", max_delay_seconds=60)
     assert result["is_fresh"] is True
     assert result["resolved_stale_event_count"] == 1

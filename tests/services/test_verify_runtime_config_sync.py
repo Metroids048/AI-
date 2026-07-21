@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from scripts.verify_runtime_config_sync import _diff_strategy_rules, _load_live_strategy_rules
+from scripts.verify_runtime_config_sync import (
+    _diff_strategy_rules,
+    _load_database_revision,
+    _load_effective_strategy_rules,
+    _load_live_strategy_rules,
+)
 from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY, AUTO_PAPER_TECHNICAL_RULES
 from shared.config import settings
 from shared.models import StrategyUpdate
@@ -8,6 +13,15 @@ from shared.models import StrategyUpdate
 
 def test_diff_reports_no_mismatch_when_code_and_db_rules_are_identical() -> None:
     assert _diff_strategy_rules(AUTO_PAPER_TECHNICAL_RULES, AUTO_PAPER_TECHNICAL_RULES) == []
+
+
+def test_load_database_revision_reports_head_schema(tmp_path) -> None:
+    from scripts.prepare_database import prepare_database
+
+    database_url = f"sqlite:///{(tmp_path / 'revision.db').as_posix()}"
+    prepare_database(database_url)
+
+    assert _load_database_revision(database_url) == "0010"
 
 
 def test_diff_reports_mismatched_field_with_both_values() -> None:
@@ -74,9 +88,7 @@ def test_load_live_strategy_rules_detects_drift_without_a_restart(db_session, mo
     assert real_mismatches[0].field == "risk_per_trade"
 
 
-def test_load_live_strategy_rules_goes_green_after_proper_restart(db_session, monkeypatch) -> None:
-    """Scenario 2: re-running bootstrap (what a proper restart does) re-syncs the
-    Strategy row, so the diff goes back to empty."""
+def test_explicit_snapshot_not_restart_changes_effective_rules(db_session, monkeypatch) -> None:
     import services.execution.bootstrap as bootstrap_module
     from services.execution.bootstrap import bootstrap_auto_trading_technical_paper_run
 
@@ -103,8 +115,23 @@ def test_load_live_strategy_rules_goes_green_after_proper_restart(db_session, mo
     assert live_rules_before_restart is not None
     assert len(_diff_strategy_rules(AUTO_PAPER_TECHNICAL_RULES, live_rules_before_restart)) == 1
 
-    assert bootstrap_auto_trading_technical_paper_run() is not None  # the "restart"
+    assert bootstrap_auto_trading_technical_paper_run() is not None  # restart preserves operator state
 
     live_rules_after_restart = _load_live_strategy_rules(database_url, AUTO_PAPER_TECHNICAL_KEY)
     assert live_rules_after_restart is not None
-    assert _diff_strategy_rules(AUTO_PAPER_TECHNICAL_RULES, live_rules_after_restart) == []
+    assert len(_diff_strategy_rules(AUTO_PAPER_TECHNICAL_RULES, live_rules_after_restart)) == 1
+
+    from services.execution.runtime_config_migration import stage_promoted_runtime_config
+
+    stage_promoted_runtime_config(
+        db_session,
+        strategy_key=AUTO_PAPER_TECHNICAL_KEY,
+        promoted_rules=AUTO_PAPER_TECHNICAL_RULES,
+    )
+    effective_rules, source, _config_hash = _load_effective_strategy_rules(
+        database_url,
+        AUTO_PAPER_TECHNICAL_KEY,
+    )
+    assert source == "active_config_snapshot"
+    assert effective_rules is not None
+    assert _diff_strategy_rules(AUTO_PAPER_TECHNICAL_RULES, effective_rules) == []

@@ -1,0 +1,33 @@
+{
+  "schema_version": 2,
+  "strategy_key": "auto_paper_mature_templates",
+  "candidate_id": "trend_momentum_v1",
+  "rules_hash": "41a4c796502b5d6d2a739714bc945d455882acd0e7ab97c21a8d00c2938124b2",
+  "symbol": "ETH/USDT",
+  "timeframes": {
+    "direction": "4h",
+    "state": "1h",
+    "entry": "15m"
+  },
+  "computed_at": "2026-07-21T02:52:26.360249+00:00",
+  "sample_count": 651,
+  "oos_sample_count": 74,
+  "win_rate": 0.43243243243243246,
+  "average_net_win": 0.04731014094351549,
+  "average_net_loss_magnitude": 0.026200000000000005,
+  "net_expectancy": 0.005588169056655343,
+  "sharpe": 2.3968750798160117,
+  "profit_factor": 1.3757947202767133,
+  "max_drawdown": 0.19350073855243705,
+  "evaluation_start": "2026-04-01T14:43:30+00:00",
+  "evaluation_end": "2026-07-19T10:45:00+00:00",
+  "cost_model": {
+    "returns_are_net_of_costs": true,
+    "total_fee_bps": 740.0,
+    "total_slippage_bps": 148.0
+  },
+  "eligible": true,
+  "failed_reasons": [],
+  "max_age_days": 30,
+  "signal_count": 3
+}

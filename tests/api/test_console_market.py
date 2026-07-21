@@ -308,11 +308,12 @@ def test_market_news_and_macro_refresh_pull_third_party_sources(api_client, db_s
 
 def test_console_overview_aggregates_execution_and_risk_state(api_client, db_session) -> None:
     now = datetime.now(UTC).replace(microsecond=0)
+    closed_hour_open = now - timedelta(hours=1)
     data_repo = DataRepository(db_session)
     data_repo.store_ohlcv_bars(
         [
-            _bar("BTC/USDT", now, "42000"),
-            _bar("BTC/USDT:USDT", now, "42084"),
+            _bar("BTC/USDT", closed_hour_open, "42000"),
+            _bar("BTC/USDT:USDT", closed_hour_open, "42084"),
         ]
     )
     data_repo.store_market_extras([MarketExtras(symbol="BTC/USDT:USDT", time=now, funding_rate=Decimal("0.0007"))])

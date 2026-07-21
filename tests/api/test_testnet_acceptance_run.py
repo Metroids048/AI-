@@ -88,7 +88,7 @@ def test_testnet_acceptance_api_accepts_direct_demo_network(api_client, monkeypa
     assert response.json()["run_status"] == "completed"
 
 
-def test_execution_scope_acceptance_arms_only_signal_observation(api_client, db_session, monkeypatch) -> None:
+def test_execution_scope_acceptance_arms_only_validated_directional_run(api_client, db_session, monkeypatch) -> None:
     from apps.api.routers import runs as runs_router
     from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
     from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY, SIGNAL_OBSERVATION_RUNTIME_KEY
@@ -141,17 +141,24 @@ def test_execution_scope_acceptance_arms_only_signal_observation(api_client, db_
     response = api_client.post("/api/v1/execution/testnet-acceptance-runs", json={"symbols": symbols})
 
     assert response.status_code == 201
-    technical = PaperRunRepository(db_session).get_paper_run(technical_run.paper_run_id)
-    observation = PaperRunRepository(db_session).get_paper_run(observation_run.paper_run_id)
+    technical = PaperRunRepository(db_session).get_paper_run(technical_run.paper_run_id or "")
+    observation = PaperRunRepository(db_session).get_paper_run(observation_run.paper_run_id or "")
     assert technical is not None
     assert observation is not None
-    assert technical.execution_profile["cost_gate_verified"] is False
-    assert technical.execution_profile["execution_mode"] == "paper_only"
-    assert observation.execution_profile["cost_gate_verified"] is True
-    assert observation.execution_profile["execution_mode"] == "binance_simulation_first"
-    assert observation.execution_profile["mirror_to_gateway"] is True
-    assert observation.execution_profile["acceptance_symbols"] == symbols
-    assert observation.execution_profile["acceptance_scope_hash"]
+    assert technical.execution_profile["cost_gate_verified"] is True
+    assert technical.execution_profile["execution_mode"] == "binance_simulation_first"
+    assert technical.execution_profile["mirror_to_gateway"] is True
+    assert technical.execution_profile["acceptance_symbols"] == symbols
+    assert technical.execution_profile["acceptance_scope_hash"]
+    assert observation.execution_profile["cost_gate_verified"] is False
+    assert observation.execution_profile["execution_mode"] == "paper_only"
+    assert observation.execution_profile["mirror_to_gateway"] is False
+
+    from services.strategy_library import ConfigSnapshotRepository
+
+    active = ConfigSnapshotRepository(db_session).get_active(technical.paper_run_id or "")
+    assert active is not None
+    assert active.config["execution_profile"]["execution_mode"] == "binance_simulation_first"
 
 
 def test_binance_testnet_account_probe_persists_a_local_balance_snapshot(api_client, db_session, monkeypatch) -> None:

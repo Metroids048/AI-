@@ -155,9 +155,7 @@ def compute_and_write_edge_stats(
 
     resolved_end = _closed_four_hour_boundary(end_at or datetime.now(UTC))
     resolved_symbols = list(symbols or AUTO_PAPER_RESEARCH_SYMBOLS)
-    resolved_candidates = list(
-        candidate_ids or ("operator_heuristic_v1", "trend_momentum_v1", "trend_breakout_v1")
-    )
+    resolved_candidates = list(candidate_ids or ("operator_heuristic_v1", "trend_momentum_v1", "trend_breakout_v1"))
     stored = _load_stored(days=days, end_at=resolved_end)
     computed_at = datetime.now(UTC)
     service = TechnicalStrategyValidationService(oos_fraction=0.30, walk_forward_windows=3, max_workers=1)
@@ -261,7 +259,7 @@ def compute_and_write_edge_stats(
                     "rules_hash": strategy_rules_hash(selected_strategy.rules),
                     "eligible_symbols": [row["symbol"] for row in selected_rows],
                     "computed_at": computed_at.isoformat(),
-                    "report_path": str(report_path),
+                    "report_path": report_path.as_posix(),
                 },
                 indent=2,
             ),

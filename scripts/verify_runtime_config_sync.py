@@ -3,11 +3,9 @@
 Module 0 of the auto-trading diagnosis remediation plan. Two failure modes this
 tool exists to catch:
 
-1. A code change to `AUTO_PAPER_TECHNICAL_RULES` (or another bootstrap rules
-   dict) that never reached the running process, because nothing restarted it.
-   `_ensure_auto_paper_run` in bootstrap.py only re-syncs a Strategy row's rules
-   the next time bootstrap runs (API startup / scheduler startup) -- editing the
-   source file alone does nothing until that happens.
+1. A promoted rules change that never reached the immutable runtime config
+   snapshot. Restarts preserve operator state; promotion requires the explicit
+   runtime-config migration command.
 2. The running API process being connected to a different database than the one
    this script (or the operator) expects, so a green rules diff against DB A
    says nothing about what DB B-connected process is actually deciding on.
@@ -79,6 +77,23 @@ def _resolve_database_url(cli_value: str | None) -> str:
     return f"sqlite:///{default_path.as_posix()}"
 
 
+def _load_database_revision(database_url: str) -> str | None:
+    """Return the applied Alembic revision without importing ORM models."""
+
+    from sqlalchemy import inspect, text
+
+    from services.database import get_engine, reset_database_caches
+
+    os.environ["POSTGRES_URL"] = database_url
+    reset_database_caches()
+    engine = get_engine(database_url)
+    if "alembic_version" not in inspect(engine).get_table_names():
+        return None
+    with engine.connect() as connection:
+        revision = connection.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).scalar()
+    return str(revision) if revision is not None else None
+
+
 def _load_live_strategy_rules(database_url: str, strategy_key: str) -> dict[str, Any] | None:
     os.environ["POSTGRES_URL"] = database_url
 
@@ -92,6 +107,37 @@ def _load_live_strategy_rules(database_url: str, strategy_key: str) -> dict[str,
             if item.strategy_key == strategy_key:
                 return item.rules.model_dump()
     return None
+
+
+def _load_effective_strategy_rules(
+    database_url: str,
+    strategy_key: str,
+) -> tuple[dict[str, Any] | None, str, str | None]:
+    """Read the rules actually consumed by the next Paper cycle.
+
+    ConfigSnapshot is authoritative after migration.  The legacy Strategy row
+    remains a compatibility fallback for databases that have no active snapshot.
+    """
+
+    os.environ["POSTGRES_URL"] = database_url
+    from services.database import get_session_factory, reset_database_caches
+    from services.strategy_library import ConfigSnapshotRepository, PaperRunRepository
+
+    reset_database_caches()
+    with get_session_factory()() as session:
+        run = next(
+            (
+                item
+                for item in PaperRunRepository(session).list_paper_runs()
+                if item.execution_profile.get("auto_paper_runtime_key") == strategy_key
+            ),
+            None,
+        )
+        if run is not None and run.paper_run_id is not None:
+            active = ConfigSnapshotRepository(session).get_active(run.paper_run_id)
+            if active is not None and isinstance(active.config.get("strategy_rules"), dict):
+                return dict(active.config["strategy_rules"]), "active_config_snapshot", active.config_hash
+    return _load_live_strategy_rules(database_url, strategy_key), "legacy_strategy_row", None
 
 
 def _find_paper_run_id(database_url: str, strategy_key: str) -> str | None:
@@ -192,36 +238,46 @@ def main() -> int:
     database_url = _resolve_database_url(args.database_url)
     print(f"database_url = {database_url}")
 
-    db_rules = _load_live_strategy_rules(database_url, args.strategy_key)
-    if db_rules is None:
+    revision = _load_database_revision(database_url)
+    if revision != "0010":
+        print(
+            f"FAIL: database revision is {revision or '<unversioned>'}; expected 0010. "
+            "Run scripts/prepare_database.py before reading runtime config."
+        )
+        return 1
+    print("OK: database revision is 0010.")
+
+    effective_rules, config_source, active_config_hash = _load_effective_strategy_rules(database_url, args.strategy_key)
+    if effective_rules is None:
         print(
             f"FAIL: no Strategy row with strategy_key={args.strategy_key!r} found in {database_url}. "
             "Has bootstrap_local_paper_runtime() ever run against this database?"
         )
         return 1
 
-    mismatches = _diff_strategy_rules(code_rules, db_rules)
+    mismatches = _diff_strategy_rules(code_rules, effective_rules)
     exit_code = 0
     if mismatches:
-        print(f"FAIL: {len(mismatches)} field mismatch(es) between bootstrap.py and live Strategy row:")
+        print(f"FAIL: {len(mismatches)} field mismatch(es) between promoted rules and effective runtime config:")
         for mismatch in mismatches:
             print(mismatch.render())
         print(
-            "\nThe running process's Strategy rules do not match services/execution/bootstrap.py. "
-            "Restart via the standard launcher (scripts/launch-paper-console.ps1) so bootstrap "
-            "re-syncs the Strategy row, then re-run this script."
+            "\nA restart deliberately preserves persisted rules. Run "
+            "scripts/migrate_runtime_config_snapshot.py after applying database migration 0010, "
+            "then activate the snapshot at the next cycle boundary."
         )
         exit_code = 1
     else:
-        print(f"OK: live Strategy row for {args.strategy_key!r} matches bootstrap.py exactly.")
+        print(
+            f"OK: effective rules for {args.strategy_key!r} match promoted rules "
+            f"(source={config_source}, config_hash={active_config_hash or '<legacy>'})."
+        )
 
     paper_run_id = _find_paper_run_id(database_url, args.strategy_key)
     print(f"paper_run_id = {paper_run_id or '<none found>'}")
 
     if not args.skip_heartbeat_check:
-        healthy, message = _check_scheduler_heartbeat(
-            Path(args.scheduler_state_path), args.heartbeat_max_age_seconds
-        )
+        healthy, message = _check_scheduler_heartbeat(Path(args.scheduler_state_path), args.heartbeat_max_age_seconds)
         print(f"[{'OK' if healthy else 'WARN'}] scheduler heartbeat: {message}")
 
     if not args.skip_api_check:

@@ -184,7 +184,7 @@ def test_signal_observation_run_is_automatically_scheduled_but_cannot_mirror_to_
     assert paper_run.execution_profile["asset_risk_tiers"]["core"]["max_position_fraction"] == 0.35
 
 
-def test_signal_observation_bootstrap_preserves_verified_simulation_authorization(db_session) -> None:
+def test_signal_observation_bootstrap_clears_mistaken_simulation_authorization(db_session) -> None:
     from services.strategy_library import PaperRunRepository
 
     paper_run_id = bootstrap_signal_observation_strategy()
@@ -208,10 +208,11 @@ def test_signal_observation_bootstrap_preserves_verified_simulation_authorizatio
     assert bootstrap_signal_observation_strategy() == paper_run_id
     refreshed = repo.get_paper_run(paper_run_id)
     assert refreshed is not None
-    assert refreshed.execution_profile["execution_mode"] == "binance_simulation_first"
-    assert refreshed.execution_profile["mirror_to_gateway"] is True
-    assert refreshed.execution_profile["cost_gate_verified"] is True
-    assert refreshed.execution_profile["acceptance_scope_hash"] == "scope-hash"
+    assert refreshed.execution_profile["execution_mode"] == "paper_only"
+    assert refreshed.execution_profile["mirror_to_gateway"] is False
+    assert refreshed.execution_profile["cost_gate_verified"] is False
+    assert "testnet_acceptance_verified_at" not in refreshed.execution_profile
+    assert "acceptance_scope_hash" not in refreshed.execution_profile
 
 
 def test_directional_auto_run_uses_btc_eth_execution_scope(db_session, monkeypatch) -> None:
@@ -255,7 +256,7 @@ def test_high_density_paper_limits_are_kept_in_sync() -> None:
     assert profile.consecutive_loss_limit == 10
 
 
-def test_bootstrap_preserves_cost_gate_but_forces_evidence_lane_paper_only(db_session, monkeypatch) -> None:
+def test_bootstrap_preserves_verified_directional_simulation_authorization(db_session, monkeypatch) -> None:
     import services.execution.bootstrap as bootstrap_module
     from services.strategy_library import PaperRunRepository
 
@@ -290,8 +291,8 @@ def test_bootstrap_preserves_cost_gate_but_forces_evidence_lane_paper_only(db_se
     refreshed = repo.get_paper_run(run_id)
     assert refreshed is not None
     assert refreshed.execution_profile.get("cost_gate_verified") is True
-    assert refreshed.execution_profile.get("mirror_to_gateway") is False
-    assert refreshed.execution_profile.get("execution_mode") == "paper_only"
+    assert refreshed.execution_profile.get("mirror_to_gateway") is True
+    assert refreshed.execution_profile.get("execution_mode") == "binance_simulation_first"
     assert refreshed.execution_profile.get("testnet_acceptance_verified_at") == "2026-07-12T00:00:00+00:00"
     assert refreshed.execution_profile.get("max_symbols") == 2
 

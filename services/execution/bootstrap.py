@@ -527,18 +527,21 @@ def _ensure_auto_paper_run(
             # cost_gate_verified/mirror flags back to paper_only on every restart.
             previous = dict(paper_run.execution_profile)
             preserved_keys = [
-                "cost_gate_verified",
-                "testnet_acceptance_verified_at",
                 # Otherwise a manually-disabled LLM veto silently flips back to
                 # enabled on every bootstrap restart (hardcoded True above).
                 "llm_veto_enabled",
             ]
             if not force_paper_only or preserve_testnet_authorization:
-                preserved_keys.extend(("mirror_to_gateway", "execution_mode"))
+                preserved_keys.extend(
+                    ("cost_gate_verified", "testnet_acceptance_verified_at", "mirror_to_gateway", "execution_mode")
+                )
             if preserve_testnet_authorization:
                 preserved_keys.extend(("acceptance_symbols", "acceptance_scope_hash"))
             preserved = {key: previous[key] for key in preserved_keys if key in previous}
             profile = {**previous, **execution_profile, **preserved}
+            if force_paper_only and not preserve_testnet_authorization:
+                for key in ("testnet_acceptance_verified_at", "acceptance_symbols", "acceptance_scope_hash"):
+                    profile.pop(key, None)
             paper_run = (
                 paper_repo.update_paper_run(
                     paper_run.paper_run_id or "",
@@ -607,7 +610,7 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
         rules=resolved_rules,
         risk_profile_id=risk_profile_id,
         auto_schedule_enabled=True,
-        force_paper_only=True,
+        preserve_testnet_authorization=True,
         symbols=AUTO_PAPER_EXECUTION_SYMBOLS,
     )
 
@@ -668,7 +671,6 @@ def bootstrap_signal_observation_strategy() -> str | None:
         risk_profile_id=risk_profile_id,
         auto_schedule_enabled=True,
         force_paper_only=True,
-        preserve_testnet_authorization=True,
         symbols=AUTO_PAPER_RESEARCH_SYMBOLS,
     )
 

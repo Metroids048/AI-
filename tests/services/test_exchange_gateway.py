@@ -142,7 +142,7 @@ def _seed_context(db_session) -> tuple[str, str, str]:
                 "symbol": "BTC/USDT",
                 "exchange": "binance",
                 "timeframe": "1h",
-                "time": now - timedelta(minutes=5),
+                "time": now - timedelta(hours=1, minutes=5),
                 "open": Decimal("60000"),
                 "high": Decimal("60100"),
                 "low": Decimal("59900"),

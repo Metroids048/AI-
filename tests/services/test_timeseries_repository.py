@@ -4,14 +4,14 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from services.data.repository import DataRepository
-from shared.models import MarketExtras, OHLCVBar
+from shared.models import Exchange, MarketExtras, OHLCVBar, Timeframe
 
 
-def _bar(symbol: str, at: datetime, close: str) -> OHLCVBar:
+def _bar(symbol: str, at: datetime, close: str, *, timeframe: str = "1h") -> OHLCVBar:
     return OHLCVBar(
         symbol=symbol,
-        exchange="binance",
-        timeframe="1h",
+        exchange=Exchange.BINANCE,
+        timeframe=Timeframe(timeframe),
         time=at,
         open=Decimal(close),
         high=Decimal(close),
@@ -86,3 +86,21 @@ def test_gap_and_freshness_checks(db_session) -> None:
     assert gap["has_gaps"] is True
     assert gap["missing_timestamps"] == [start + timedelta(hours=1)]
     assert freshness["is_fresh"] is True
+
+
+def test_freshness_uses_closed_candle_time_not_open_time(db_session) -> None:
+    repo = DataRepository(db_session)
+    opened_at = datetime(2026, 7, 21, 1, 0, tzinfo=UTC)
+    repo.store_ohlcv_bars([_bar("BTC/USDT", opened_at, "118000", timeframe="15m")])
+
+    freshness = repo.check_freshness(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        reference_time=opened_at + timedelta(minutes=15, seconds=5),
+        max_delay=timedelta(seconds=10),
+    )
+
+    assert freshness["is_fresh"] is True
+    assert freshness["latest_open_time"] == opened_at
+    assert freshness["latest_close_time"] == opened_at + timedelta(minutes=15)
+    assert freshness["delay_seconds"] == 5.0

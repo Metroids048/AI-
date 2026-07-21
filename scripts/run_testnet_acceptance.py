@@ -8,17 +8,18 @@ can clear the testnet_acceptance_not_verified blocker.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_scope_hash
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.execution.gateway import BinanceUsdtPerpetualGateway
 from services.execution.testnet_acceptance import TestnetAcceptanceService
 from services.execution.testnet_cleanup import testnet_account_cleanup
 from shared.config import settings
-from shared.models import TestnetAcceptanceRunRequest
+from shared.models import TestnetAcceptanceRunRequest, TestnetAcceptanceRunResult
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / ".local_paper_console.db"
@@ -29,7 +30,7 @@ YELLOW = "\033[93m"
 RESET = "\033[0m"
 
 
-def _persist_result(result: object, task_id: str, now_iso: str) -> None:
+def _persist_result(result: TestnetAcceptanceRunResult, task_id: str, now_iso: str) -> None:
     """Save acceptance result to agent_tasks so blockers check can find it."""
     if not DB_PATH.exists():
         print(f"{YELLOW}WARN: DB not found at {DB_PATH}, skipping persistence{RESET}")
@@ -57,46 +58,29 @@ def _persist_result(result: object, task_id: str, now_iso: str) -> None:
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (task_id, "system", "testnet_acceptance", "completed", "{}", payload, 5, "[]", "{}", now_iso),
         )
-        # Arm signal_observation runs if acceptance passed
-        if (
-            result.run_status == "completed"
-            and result.final_open_position_count == 0
-            and result.final_open_order_count == 0
-            and sorted(result.completed_symbols) == sorted(AUTO_SIMULATION_EXECUTION_SYMBOLS)
-        ):
-            scope_hash = execution_scope_hash()
-            rows = conn.execute(
-                """
-                SELECT p.paper_run_id, p.execution_profile
-                FROM paper_runs p
-                JOIN strategies s ON s.id = p.strategy_id
-                WHERE s.strategy_key = 'signal_observation_technical'
-                """
-            ).fetchall()
-            for row in rows:
-                try:
-                    profile = json.loads(row["execution_profile"] or "{}")
-                    profile.update(
-                        {
-                            "execution_mode": "binance_simulation_first",
-                            "mirror_to_gateway": True,
-                            "cost_gate_verified": True,
-                            "testnet_acceptance_verified_at": now_iso,
-                            "acceptance_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
-                            "acceptance_scope_hash": scope_hash,
-                        }
-                    )
-                    conn.execute(
-                        "UPDATE paper_runs SET execution_profile = ? WHERE paper_run_id = ?",
-                        (json.dumps(profile), row["paper_run_id"]),
-                    )
-                except Exception as exc:
-                    print(f"{YELLOW}WARN: could not arm run {row['paper_run_id']}: {exc}{RESET}")
-            print(f"{GREEN}Armed signal_observation paper runs ({len(rows)} run(s)){RESET}")
         conn.commit()
         print(f"{GREEN}Persisted agent_task {task_id} → agent_tasks table{RESET}")
     finally:
         conn.close()
+
+    if (
+        result.run_status == "completed"
+        and result.final_open_position_count == 0
+        and result.final_open_order_count == 0
+        and sorted(result.completed_symbols) == sorted(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    ):
+        os.environ["POSTGRES_URL"] = f"sqlite:///{DB_PATH.as_posix()}"
+        from services.database import get_session_factory, reset_database_caches
+        from services.execution.testnet_authorization import arm_validated_directional_run
+
+        reset_database_caches()
+        with get_session_factory()() as session:
+            armed = arm_validated_directional_run(
+                session,
+                symbols=list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+                verified_at=now_iso,
+            )
+        print(f"{GREEN}Armed validated directional paper runs ({armed} run(s)){RESET}")
 
 
 def main() -> int:

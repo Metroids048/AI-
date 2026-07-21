@@ -44,6 +44,7 @@ from services.execution.runtime_state import load_external_scheduler_state
 from services.execution.scheduler import runtime_scheduler_status
 from services.execution.spot_gateway import spot_demo_credentials_configured
 from services.execution.testnet_acceptance import TestnetAcceptanceService
+from services.execution.testnet_authorization import arm_validated_directional_run
 from services.strategy_library import (
     AgentTaskRepository,
     ConfigConflictError,
@@ -294,22 +295,11 @@ def _is_complete_execution_acceptance(result: TestnetAcceptanceRunResult) -> boo
 def _arm_auto_testnet_runs_after_acceptance(db: Session, result: TestnetAcceptanceRunResult) -> None:
     if not _is_complete_execution_acceptance(result):
         return
-    repo = PaperRunRepository(db)
-    for run in repo.list_paper_runs():
-        if run.execution_profile.get("auto_paper_runtime_key") != "signal_observation":
-            continue
-        repo.update_paper_run(
-            run.paper_run_id or "",
-            execution_profile={
-                **run.execution_profile,
-                "execution_mode": "binance_simulation_first",
-                "mirror_to_gateway": True,
-                "cost_gate_verified": True,
-                "testnet_acceptance_verified_at": datetime.now(UTC).isoformat(),
-                "acceptance_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
-                "acceptance_scope_hash": execution_scope_hash(),
-            },
-        )
+    arm_validated_directional_run(
+        db,
+        symbols=list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        verified_at=datetime.now(UTC).isoformat(),
+    )
 
 
 def _local_scheduler_process_running() -> bool:
@@ -388,7 +378,7 @@ def get_trading_status(db: Session = Depends(get_db_session)) -> TradingRuntimeS
         for order in _execution_repo(db).list_orders()
         if order.gateway_order_id
         and order.entry_context.get("execution_kind") == "strategy_trade"
-        and order.entry_context.get("strategy_lane") == "signal_observation"
+        and order.entry_context.get("strategy_lane") == "directional"
     ]
     latest_strategy_gateway_order = strategy_gateway_orders[-1] if strategy_gateway_orders else None
     return TradingRuntimeStatus(

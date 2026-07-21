@@ -1411,7 +1411,13 @@ def _store_bar(
     offset_hours: int = 0,
     timeframe: str = "1h",
 ) -> None:
-    now = datetime.now(UTC).replace(microsecond=0) + timedelta(hours=offset_hours)
+    duration = {
+        "1m": timedelta(minutes=1),
+        "15m": timedelta(minutes=15),
+        "1h": timedelta(hours=1),
+        "4h": timedelta(hours=4),
+    }[timeframe]
+    now = datetime.now(UTC).replace(microsecond=0) - duration + timedelta(hours=offset_hours)
     DataRepository(db_session).store_ohlcv_bars(
         [
             {

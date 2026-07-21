@@ -5,12 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 EDGE_STATS_ARTIFACT_DIR = Path("artifacts/signal_edge_stats")
+COMMITTED_EDGE_STATS_DIR = Path("docs/evidence/active-edge-stats")
 EDGE_STATS_SCHEMA_VERSION = 2
 
 
@@ -66,6 +68,10 @@ def _active_pointer_path(strategy_key: str, candidate_id: str, symbol: str) -> P
     return EDGE_STATS_ARTIFACT_DIR / strategy_key / candidate_id / symbol_artifact_key(symbol) / "active.json"
 
 
+def _committed_pointer_path(strategy_key: str, candidate_id: str, symbol: str) -> Path:
+    return COMMITTED_EDGE_STATS_DIR / strategy_key / candidate_id / symbol_artifact_key(symbol) / "active.json"
+
+
 def load_active_edge_stats(
     strategy_key: str,
     candidate_id: str,
@@ -74,9 +80,34 @@ def load_active_edge_stats(
     *,
     now: datetime | None = None,
 ) -> SignalEdgeStatsArtifact | None:
-    pointer_path = _active_pointer_path(strategy_key, candidate_id, symbol)
-    if not pointer_path.exists():
-        return None
+    for pointer_path in (
+        _active_pointer_path(strategy_key, candidate_id, symbol),
+        _committed_pointer_path(strategy_key, candidate_id, symbol),
+    ):
+        if not pointer_path.exists():
+            continue
+        artifact = _load_edge_stats_pointer(
+            pointer_path,
+            strategy_key=strategy_key,
+            candidate_id=candidate_id,
+            symbol=symbol,
+            rules=rules,
+            now=now,
+        )
+        if artifact is not None:
+            return artifact
+    return None
+
+
+def _load_edge_stats_pointer(
+    pointer_path: Path,
+    *,
+    strategy_key: str,
+    candidate_id: str,
+    symbol: str,
+    rules: Any,
+    now: datetime | None,
+) -> SignalEdgeStatsArtifact | None:
     try:
         meta = json.loads(pointer_path.read_text(encoding="utf-8"))
         computed_at = datetime.fromisoformat(meta["computed_at"])
@@ -117,3 +148,43 @@ def load_active_edge_stats(
         )
     except (OSError, ValueError, KeyError, TypeError):
         return None
+
+
+def publish_committed_edge_evidence(
+    *,
+    manifest_path: Path,
+    rules: Any,
+    source_root: Path = EDGE_STATS_ARTIFACT_DIR,
+    destination_root: Path = COMMITTED_EDGE_STATS_DIR,
+) -> list[Path]:
+    """Publish validated local active pointers into the deployable evidence tree."""
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    strategy_key = str(manifest["strategy_key"])
+    candidate_id = str(manifest["candidate_id"])
+    expected_hash = strategy_rules_hash(rules)
+    if int(manifest["schema_version"]) != EDGE_STATS_SCHEMA_VERSION:
+        raise ValueError("unsupported active manifest schema")
+    if manifest["rules_hash"] != expected_hash:
+        raise ValueError("active manifest rules hash mismatch")
+
+    published: list[Path] = []
+    for symbol in [str(item) for item in manifest.get("eligible_symbols", [])]:
+        source = source_root / strategy_key / candidate_id / symbol_artifact_key(symbol) / "active.json"
+        artifact = _load_edge_stats_pointer(
+            source,
+            strategy_key=strategy_key,
+            candidate_id=candidate_id,
+            symbol=symbol,
+            rules=rules,
+            now=None,
+        )
+        if artifact is None:
+            raise ValueError(f"eligible evidence missing or invalid for {symbol}")
+        destination = destination_root / strategy_key / candidate_id / symbol_artifact_key(symbol) / "active.json"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        published.append(destination)
+    if not published:
+        raise ValueError("active manifest has no publishable eligible symbols")
+    return published

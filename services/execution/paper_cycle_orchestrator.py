@@ -12,6 +12,7 @@ from services.data import DataRepository
 from services.data.service import DEFAULT_BINANCE_TOP20
 from services.execution.account_equity import sync_paper_account_equity
 from services.execution.cross_sectional import CrossSectionalRankEntry, compute_funding_rank_snapshot
+from services.execution.decision_engine import DecisionEngine
 from services.execution.exit_ladder import (
     ExitLadderState,
     apply_level_fill,
@@ -44,9 +45,12 @@ from services.strategy_library import (
 )
 from shared.config import settings
 from shared.models import (
+    ConfigSnapshot,
     DecisionSnapshot,
+    ExchangeSide,
     ExecutionOrderRequest,
     FailureRecord,
+    MarketRegime,
     OHLCVBar,
     OrderExecution,
     PaperRun,
@@ -54,9 +58,15 @@ from shared.models import (
     PaperRuntimeAction,
     PaperRuntimeCycleRequest,
     PaperRuntimeCycleResult,
+    PortfolioDecision,
+    PositionSide,
     PositionSnapshot,
+    ProtectionPolicy,
+    RuntimeMode,
     StrategyContract,
     StrategyRules,
+    StrategySignal,
+    TradeAction,
     TradeSide,
 )
 
@@ -916,6 +926,13 @@ class PaperCycleOrchestrator:
                 )
                 continue
 
+            base_order = self._with_open_trade_intent(
+                base_order=base_order,
+                cycle_id=cycle_key,
+                active_config=active_config,
+                reference_price=Decimal(str(reference_price)),
+                decision_candle_close_time=latest_bar.timestamp,
+            )
             order = self.gatekeeper.submit_order(base_order)
             if order.execution_status != "accepted":
                 retryable_rejections = {"data_not_fresh", "blocking_risk_event"}
@@ -1261,6 +1278,58 @@ class PaperCycleOrchestrator:
     def _runtime_timeframe(*, strategy: StrategyContract, request: PaperRuntimeCycleRequest) -> str:
         entry_timeframe = strategy.rules.entry_rules.get("entry_timeframe")
         return str(entry_timeframe or request.timeframe)
+
+    @staticmethod
+    def _with_open_trade_intent(
+        *,
+        base_order: ExecutionOrderRequest,
+        cycle_id: str,
+        active_config: ConfigSnapshot | None,
+        reference_price: Decimal,
+        decision_candle_close_time: datetime,
+    ) -> ExecutionOrderRequest:
+        """Attach the immutable OPEN contract when the cycle has a real config identity."""
+        if active_config is None or active_config.config_snapshot_id is None:
+            return base_order
+
+        position_side, exchange_side = (
+            (PositionSide.LONG, ExchangeSide.BUY)
+            if base_order.direction == TradeSide.LONG
+            else (PositionSide.SHORT, ExchangeSide.SELL)
+        )
+        signal = StrategySignal(
+            decision_id=cycle_id,
+            symbol=base_order.symbol,
+            side=position_side,
+            score=Decimal("100"),
+            regime=MarketRegime.RANGE,
+            signal_candle_close_time=decision_candle_close_time,
+            strategy_id=base_order.strategy_id,
+            strategy_version=base_order.version_id or "",
+        )
+        intent = DecisionEngine().build_intent(
+            adapter_mode=RuntimeMode.PAPER,
+            cycle_id=cycle_id,
+            signal=signal,
+            portfolio=PortfolioDecision(
+                decision_id=cycle_id,
+                symbol=base_order.symbol,
+                raw_side=position_side,
+                final_side=position_side,
+                accepted=True,
+            ),
+            config_snapshot_id=active_config.config_snapshot_id,
+            config_hash=active_config.config_hash,
+            quantity=Decimal(str(base_order.entry_context["requested_notional"])) / reference_price,
+            reference_price=reference_price,
+            protection=ProtectionPolicy(
+                stop_price=Decimal(str(base_order.stoploss_plan["price"])),
+                take_profit_price=Decimal(str(base_order.takeprofit_plan["price"])),
+            ),
+            action=TradeAction.OPEN,
+            exchange_side=exchange_side,
+        )
+        return base_order.model_copy(update={"trade_intent": intent})
 
     @staticmethod
     def _close_order_request(

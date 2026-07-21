@@ -31,6 +31,12 @@ def _as_aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
 
 
+def _order_created_at(order: OrderExecution) -> datetime:
+    if order.created_at is None:
+        raise ValueError("persisted order is missing created_at")
+    return _as_aware(order.created_at)
+
+
 def audit_lifecycle_completion(
     *,
     days: int = 90,
@@ -41,8 +47,8 @@ def audit_lifecycle_completion(
     Returns:
         Dict with keys: 'completed', 'in_progress', 'stuck', 'ledger_fork'
     """
-    database_url = database_url or os.getenv("POSTGRES_URL", "sqlite:///.local/paper-runtime.db")
-    engine = create_engine(database_url)
+    resolved_database_url: str = database_url or os.getenv("POSTGRES_URL") or "sqlite:///.local/paper-runtime.db"
+    engine = create_engine(resolved_database_url)
     session_factory = sessionmaker(bind=engine)
     session = session_factory()
 
@@ -52,12 +58,17 @@ def audit_lifecycle_completion(
     # Fetch all orders from the audit window
     since = datetime.now(UTC) - timedelta(days=days)
     all_orders = exec_repo.list_orders()  # No date filter at repo level (risk noted in handoff)
+    position_snapshots = exec_repo.list_positions()
 
     # Filter client-side for the audit window and exclude link_verification/demo-only
     audit_orders = [
-        o for o in all_orders
-        if _as_aware(o.created_at) >= since
-        and o.strategy_lane not in {"link_verification", "binance_demo_audit_only"}
+        order
+        for order in all_orders
+        if order.created_at is not None
+        and _order_created_at(order) >= since
+        and order.entry_context.get("strategy_lane")
+        not in {"link_verification", "binance_demo_audit_only", "signal_observation"}
+        and order.execution_status.lower() in {"filled", "partially_filled"}
     ]
 
     # Group by (symbol, side) to pair opens with closes
@@ -65,8 +76,8 @@ def audit_lifecycle_completion(
     closes: dict[tuple[str, str], list[OrderExecution]] = defaultdict(list)
 
     for order in audit_orders:
-        key = (order.symbol, order.side.value)
-        if order.reduce_only:
+        key = (order.symbol, order.direction.value)
+        if order.close_only_mode:
             closes[key].append(order)
         else:
             opens[key].append(order)
@@ -81,25 +92,35 @@ def audit_lifecycle_completion(
         close_list = closes.get((symbol, side), [])
 
         for open_order in open_list:
-            # Find matching close (same symbol, opposite reduce_only, created after open)
+            # Find matching close for the same position side at or after the open.
             matching_close = next(
-                (c for c in close_list if _as_aware(c.created_at) > _as_aware(open_order.created_at)),
+                (c for c in close_list if _order_created_at(c) >= _order_created_at(open_order)),
+                None,
+            )
+            reconciled_flat = next(
+                (
+                    snapshot
+                    for snapshot in position_snapshots
+                    if snapshot.run_id == (open_order.paper_run_id or open_order.live_run_id)
+                    and snapshot.symbol == open_order.symbol
+                    and snapshot.quantity == 0
+                    and _as_aware(snapshot.snapshot_time) >= _order_created_at(open_order)
+                ),
                 None,
             )
 
-            if matching_close:
+            if matching_close or reconciled_flat:
                 # A: Opened and properly closed
                 completed.append(open_order)
                 continue
 
             # Check if this is a zombie position (stuck for >2x time_exit_hours)
-            strategy_key = open_order.strategy_key
-            strategy = strat_repo.get_by_key(strategy_key)
+            strategy = strat_repo.get_strategy(open_order.strategy_id)
 
             if strategy:
                 time_exit_hours = strategy.rules.exit_rules.get("time_exit_hours", 24)
                 max_hold_time = timedelta(hours=time_exit_hours * 2)
-                age = datetime.now(UTC) - _as_aware(open_order.created_at)
+                age = datetime.now(UTC) - _order_created_at(open_order)
 
                 if age > max_hold_time:
                     # C: Stuck (zombie position)
@@ -113,7 +134,7 @@ def audit_lifecycle_completion(
 
             # D: Ledger fork check (if order_id never appeared on exchange)
             # This would require querying the exchange API; for now we only detect via absence of fill
-            if not open_order.filled_quantity or open_order.filled_quantity == 0:
+            if open_order.gateway_name and not open_order.gateway_order_id:
                 ledger_fork.append(open_order)
 
     session.close()
@@ -154,21 +175,25 @@ def main() -> int:
         print("⚠️  STUCK POSITIONS (Category C):")
         print("-" * 80)
         for order in results["stuck"]:
-            age_hours = (datetime.now(UTC) - _as_aware(order.created_at)).total_seconds() / 3600
-            print(f"  {order.symbol:12} {order.side.value:4} | "
-                  f"Opened: {order.created_at.isoformat()[:19]} | "
-                  f"Age: {age_hours:.1f}h | "
-                  f"Strategy: {order.strategy_key}")
+            age_hours = (datetime.now(UTC) - _order_created_at(order)).total_seconds() / 3600
+            print(
+                f"  {order.symbol:12} {order.direction.value:4} | "
+                f"Opened: {_order_created_at(order).isoformat()[:19]} | "
+                f"Age: {age_hours:.1f}h | "
+                f"Strategy ID: {order.strategy_id}"
+            )
         print()
 
     if results["ledger_fork"]:
         print("⚠️  LEDGER FORK (Category D):")
         print("-" * 80)
         for order in results["ledger_fork"]:
-            print(f"  {order.symbol:12} {order.side.value:4} | "
-                  f"Opened: {order.created_at.isoformat()[:19]} | "
-                  f"Order ID: {order.order_id} | "
-                  f"Filled: {order.filled_quantity or 0}")
+            print(
+                f"  {order.symbol:12} {order.direction.value:4} | "
+                f"Opened: {_order_created_at(order).isoformat()[:19]} | "
+                f"Order ID: {order.order_execution_id} | "
+                f"Gateway: {order.gateway_name or 'none'}"
+            )
         print()
 
     # Interpretation guide

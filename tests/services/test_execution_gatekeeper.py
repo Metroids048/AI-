@@ -74,7 +74,7 @@ def _seed_gatekeeper_context(db_session) -> tuple[ExecutionGatekeeperService, st
                 "symbol": "BTC/USDT",
                 "exchange": "binance",
                 "timeframe": "1h",
-                "time": now - timedelta(minutes=5),
+                "time": now - timedelta(hours=1, minutes=5),
                 "open": Decimal("60000"),
                 "high": Decimal("60100"),
                 "low": Decimal("59900"),
@@ -383,21 +383,17 @@ def test_validated_edge_gate_uses_post_cost_expectancy_without_deducting_costs_t
         "round_trip_slippage_rate": 0.50,
     }
     assert net_edge_rejection_codes(accepted) == []
-    assert net_edge_rejection_codes({"validated_edge_required": True}) == [
-        "validated_edge_stats_missing_or_stale"
+    assert net_edge_rejection_codes({"validated_edge_required": True}) == ["validated_edge_stats_missing_or_stale"]
+    assert net_edge_rejection_codes({"validated_edge_required": True, "validated_edge_net_expectancy": -0.0001}) == [
+        "net_edge_after_cost_negative"
     ]
-    assert net_edge_rejection_codes(
-        {"validated_edge_required": True, "validated_edge_net_expectancy": -0.0001}
-    ) == ["net_edge_after_cost_negative"]
 
 
 def test_gatekeeper_rejects_missing_portfolio_correlation_for_new_order_but_not_close(db_session) -> None:
     gatekeeper, strategy_id, backtest_run_id = _seed_gatekeeper_context(db_session)
     unavailable = _risk_state(portfolio_correlation_available=False)
 
-    opening = gatekeeper.submit_order(
-        _order_request(strategy_id, backtest_run_id, risk_state=unavailable)
-    )
+    opening = gatekeeper.submit_order(_order_request(strategy_id, backtest_run_id, risk_state=unavailable))
     closing = gatekeeper.submit_order(
         _order_request(
             strategy_id,

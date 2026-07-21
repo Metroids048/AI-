@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 
-from services.execution.signal_edge_stats import load_active_edge_stats, strategy_rules_hash
+from services.execution.signal_edge_stats import (
+    load_active_edge_stats,
+    publish_committed_edge_evidence,
+    strategy_rules_hash,
+)
 
 RULES = {
     "entry_rules": {"entry_signals": ["macd"], "core_fee_bps": 5.0},
@@ -56,9 +60,7 @@ class TestLoadActiveEdgeStats:
 
         monkeypatch.setattr(module, "EDGE_STATS_ARTIFACT_DIR", tmp_path)
         _write(tmp_path, _artifact(computed_at=(datetime.now(UTC) - timedelta(days=45)).isoformat()))
-        assert load_active_edge_stats(
-            "s1", "candidate", "BTC/USDT", RULES, now=datetime.now(UTC)
-        ) is None
+        assert load_active_edge_stats("s1", "candidate", "BTC/USDT", RULES, now=datetime.now(UTC)) is None
 
     def test_returns_artifact_when_pointer_valid_fresh_and_eligible(self, tmp_path, monkeypatch) -> None:
         import services.execution.signal_edge_stats as module
@@ -73,6 +75,20 @@ class TestLoadActiveEdgeStats:
         assert artifact.oos_sample_count == 40
         assert artifact.average_net_loss_magnitude == 0.011
         assert artifact.net_expectancy == 0.0012
+
+    def test_falls_back_to_committed_evidence_when_local_pointer_is_absent(self, tmp_path, monkeypatch) -> None:
+        import services.execution.signal_edge_stats as module
+
+        local = tmp_path / "local"
+        committed = tmp_path / "committed"
+        monkeypatch.setattr(module, "EDGE_STATS_ARTIFACT_DIR", local)
+        monkeypatch.setattr(module, "COMMITTED_EDGE_STATS_DIR", committed)
+        _write(committed, _artifact())
+
+        artifact = load_active_edge_stats("s1", "candidate", "BTC/USDT", RULES)
+
+        assert artifact is not None
+        assert artifact.artifact_path == str(committed / "s1" / "candidate" / "BTCUSDT" / "active.json")
 
     def test_returns_none_for_malformed_ineligible_or_incomplete_artifact(self, tmp_path, monkeypatch) -> None:
         import services.execution.signal_edge_stats as module
@@ -98,3 +114,32 @@ class TestLoadActiveEdgeStats:
 
         assert load_active_edge_stats("s1", "candidate", "ETH/USDT", RULES) is None
         assert load_active_edge_stats("s1", "candidate", "BTC/USDT", {"entry_rules": {}}) is None
+
+
+def test_publish_committed_edge_evidence_copies_only_valid_manifest_symbols(tmp_path) -> None:
+    local = tmp_path / "local"
+    committed = tmp_path / "committed"
+    _write(local, _artifact())
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "strategy_key": "s1",
+                "candidate_id": "candidate",
+                "rules_hash": strategy_rules_hash(RULES),
+                "eligible_symbols": ["BTC/USDT"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    published = publish_committed_edge_evidence(
+        manifest_path=manifest,
+        rules=RULES,
+        source_root=local,
+        destination_root=committed,
+    )
+
+    assert published == [committed / "s1" / "candidate" / "BTCUSDT" / "active.json"]
+    assert json.loads(published[0].read_text(encoding="utf-8"))["eligible"] is True
