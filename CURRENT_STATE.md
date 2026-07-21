@@ -1,6 +1,6 @@
 # Current State
 
-Last updated: 2026-07-20 Asia/Shanghai
+Last updated: 2026-07-21 Asia/Shanghai
 
 ## Authority
 
@@ -20,6 +20,18 @@ Current truth is resolved in this order: current code and tests, the active runt
 - Real sampling evidence: `signal_observation` produced BTC gateway order `22305428148` and SOL gateway order `3246292050` on the current build/scope. Both were market entries with 40x and native dual protection; the observation lane remains excluded from strategy performance.
 - Reconciliation hardening: Binance Algo orders are included in acceptance/final state; transient missing positions must remain absent across two scheduler cycles before local close; exchange-only positions are recovered locally; missing Stop/TP is re-armed or fail-closed to ReduceOnly close; ReduceOnly `-2022` is only treated as flat after a fresh exchange-flat confirmation.
 - LLM failures are advisory. Deterministic blocking risk events remain authoritative.
+
+## Config Snapshot System (2026-07-21)
+
+- Runtime configuration is now persisted as immutable `ConfigSnapshot` records keyed by `paper_run_id`.
+- Bootstrap for the directional lane (`auto_paper_mature_templates`) preserves Testnet authorization across restarts (`preserve_testnet_authorization=True`).
+- Observation lane (`signal_observation_technical`) is forced `paper_only=True`; any previously-set simulation authorization is cleared on bootstrap.
+- `scripts/migrate_runtime_config_snapshot.py` — stage current evidenced rules as an immutable snapshot without mutating the Strategy row.
+- `scripts/arm_validated_testnet_execution.py` — arm the OOS-validated directional run from an existing exact-scope Testnet acceptance proof.
+- `scripts/publish_active_edge_evidence.py` — copy local OOS edge-stats pointers to `docs/evidence/active-edge-stats/` for CI-checkable committed evidence.
+- Active edge-stats evidence committed at `docs/evidence/active-edge-stats/auto_paper_mature_templates/trend_momentum_v1/`.
+
+**Remaining blocker**: BTC/ETH exact-scope Testnet acceptance is required for the directional lane to execute on Binance Simulation. The existing acceptance run `da7edfd9` covered BTC/ETH/SOL (3 symbols); current execution scope is BTC/ETH (2 symbols). Run `scripts/run_testnet_acceptance.py` to complete a new BTC/ETH-only acceptance before `BINANCE_AUTO_EXECUTE=true`.
 
 ## Paper Risk
 
