@@ -1,5 +1,13 @@
 # Task History
 
+## 2026-07-21 — Config snapshot system integration and Testnet authorization flow
+
+- **Summary**: Completed the pending Codex task gaps. Committed 37 files (26 modified + 11 new) implementing the immutable ConfigSnapshot runtime contract, DecisionEngine trade intent integration in Paper cycles, testnet_authorization.py for validated Simulation arming, and bootstrap behavior corrections (directional lane preserves Testnet authorization; observation lane forced paper_only).
+- **Key new files**: `services/execution/runtime_config_migration.py`, `services/execution/testnet_authorization.py`, `scripts/arm_validated_testnet_execution.py`, `scripts/migrate_runtime_config_snapshot.py`, `scripts/publish_active_edge_evidence.py`, `docs/evidence/active-edge-stats/` committed edge evidence.
+- **Fixed**: candidate registry test updated for 6 candidates (trend_pullback_v1 added 2026-07-20).
+- **Verification**: `pytest -q -m "not integration"` → 569 passed, 1 skipped; ruff + mypy clean; pre-commit hooks all passed; pushed to `origin/main` (bad4dd1, 59d038f).
+- **Remaining blocker**: BTC/ETH exact-scope Testnet acceptance still needed — existing `da7edfd9` covered BTC/ETH/SOL but current scope is BTC/ETH only. Run `scripts/run_testnet_acceptance.py` then `scripts/arm_validated_testnet_execution.py` to unblock Simulation execution.
+
 ## 2026-07-21 — Fix recurring pre-commit failures and push pending docs/tests
 
 - **Root cause**: Pre-commit ruff `0.6.9` still enforced UP038 while local ruff `0.15` removed it; mypy hook on `GateDecision.get` blocked every commit that touched validation. Staged-but-uncommitted runbooks/tests were never in a commit, so push could not upload them.
