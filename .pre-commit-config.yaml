@@ -19,6 +19,7 @@ repos:
         exclude: ^(docs/archive/|scripts/archive/)
       - id: check-added-large-files
         args: [--maxkb=2048]   # guard against committing alpha CSVs / docx blobs
+        exclude: ^docs/evidence/runtime-ledger/
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.19.1

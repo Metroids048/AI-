@@ -1,5 +1,13 @@
 # Decisions Log
 
+## ADR-073: Portable 30-day runtime ledger under docs/evidence
+
+- Date: 2026-07-22
+- Status: accepted
+- Context: Paper/Simulation trading records live only in the local gitignored SQLite (`.local_paper_console.db`). `git push` syncs code but not orders/positions/decisions, so another device cannot review the latest trading evidence after a code pull. Committing the full hot DB is unsafe (secrets, size, merge conflicts).
+- Decision: Add a Review/Data side-path that **exports** the last 30 days of analysis tables into `docs/evidence/runtime-ledger/current/` as a redacted portable `ledger.sqlite.gz` plus `manifest.json` / `SUMMARY.md`. Operators run `scripts/export_runtime_ledger.py` manually, then commit. `scripts/import_runtime_ledger.py` materializes `.local_runtime_ledger.db` (gitignored) for local analysis. Existing auditors accept `--database-url` pointing at that file. Do **not** auto-export on every fill; do **not** commit `.env` or the hot console DB.
+- Consequences: Cross-device review of recent trading evidence becomes a normal git workflow. Snapshot size is bounded by the 30-day window. The pre-commit large-file hook excludes this evidence directory so the compressed ledger can be committed. Shared Postgres remains a future option, out of scope for this ADR.
+
 ## ADR-072: Align pre-commit ruff/mypy with local toolchain (kill UP038 ping-pong)
 
 - Date: 2026-07-21

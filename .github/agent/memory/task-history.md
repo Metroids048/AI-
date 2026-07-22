@@ -1,5 +1,11 @@
 # Task History
 
+## 2026-07-22 — Portable 30-day runtime ledger (ADR-073)
+
+- **Goal**: Let another device analyze latest Paper/Simulation trading records after `git pull`, without committing the hot DB or `.env`.
+- **Changes**: `scripts/export_runtime_ledger.py` / `import_runtime_ledger.py`; `docs/evidence/runtime-ledger/` with redacted `ledger.sqlite.gz` + manifest/SUMMARY; gitignore `.local_runtime_ledger.db`; exclude ledger path from large-file pre-commit hook; ADR-073.
+- **Verification**: `pytest tests/services/test_runtime_ledger_export.py` passed; live export 253 orders / 9702 decisions; import + `audit_decision_funnel` on `.local_runtime_ledger.db` succeeded; gzip ~5.3MB.
+
 ## 2026-07-21 — Config snapshot system integration and Testnet authorization flow
 
 - **Summary**: Completed the pending Codex task gaps. Committed 37 files (26 modified + 11 new) implementing the immutable ConfigSnapshot runtime contract, DecisionEngine trade intent integration in Paper cycles, testnet_authorization.py for validated Simulation arming, and bootstrap behavior corrections (directional lane preserves Testnet authorization; observation lane forced paper_only).

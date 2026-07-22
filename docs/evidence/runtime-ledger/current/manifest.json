@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "exported_at": "2026-07-22T00:43:44.256501+00:00",
+  "lookback_days": 30,
+  "since": "2026-06-22T00:43:44.256501+00:00",
+  "until": "2026-07-22T00:43:44.256501+00:00",
+  "source_db": "C:/Users/Windows11/Desktop/量化项目/.local_paper_console.db",
+  "source_sha256": "b1e861ae594295be71f31dfe24a1e415b67623f720976fe61567ce4ab0ac678f",
+  "ledger_gz_sha256": "0c41e8b2bb819e02d1ed308c8ae9db98badbe9f748888a8a9380ee3774e52525",
+  "table_counts": {
+    "order_executions": 253,
+    "paper_runs": 7,
+    "decision_snapshots": 9702,
+    "risk_events": 3575,
+    "live_runs": 1,
+    "position_snapshots": 27845,
+    "exchange_account_snapshots": 15730,
+    "reconciliation_records": 0,
+    "strategies": 7
+  },
+  "adr": "ADR-073"
+}

@@ -1,5 +1,11 @@
 # Project Memory
 
+## Portable runtime ledger for cross-device review (2026-07-22)
+
+- ADR-073: export last 30 days of orders/positions/decisions/risk/account snapshots from `.local_paper_console.db` into `docs/evidence/runtime-ledger/current/` (`ledger.sqlite.gz` + `manifest.json` + `SUMMARY.md`), redacting secret-like JSON keys.
+- Operator cadence is manual: `agent-python -m scripts.export_runtime_ledger` then commit. Other devices `git pull` → `agent-python -m scripts.import_runtime_ledger` → analyze with `--database-url sqlite:///.local_runtime_ledger.db`.
+- Hot console DB and `.env` remain gitignored; shared Postgres is explicitly out of scope for this slice.
+
 ## Execution runtime compatibility refactor (2026-07-19)
 
 - `PaperRuntimeService` keeps its constructor, `run_cycle()`, and `get_runtime_status()` contract while composing `PaperCycleOrchestrator`, `PaperExchangeExecutionService`, and `PaperOrderLifecycleService`.

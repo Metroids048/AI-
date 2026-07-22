@@ -41,6 +41,8 @@ Thumbs.db
 /.browser_paper_smoke.db
 /.local_paper_console.db
 /.local_paper_console.db.*
+/.local_runtime_ledger.db
+/.local_runtime_ledger.db.*
 *.db.backup*
 *.sqlite
 *.sqlite3
