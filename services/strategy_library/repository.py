@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from shared.models import (
@@ -501,6 +502,19 @@ def _order_execution_from_orm(row: models.OrderExecution) -> OrderExecution:
         decision_id=row.decision_id,
         config_snapshot_id=row.config_snapshot_id,
         config_hash=row.config_hash,
+        intent_type=row.intent_type,
+        timeframe=row.timeframe,
+        signal_candle_close_time=_ensure_utc(row.signal_candle_close_time),
+        order_origin=row.order_origin,
+        run_mode=row.run_mode,
+        test_run_id=row.test_run_id,
+        deployment_sha=row.deployment_sha,
+        scheduler_instance_id=row.scheduler_instance_id,
+        process_id=row.process_id,
+        worker_id=row.worker_id,
+        container_id=row.container_id,
+        cycle_source=row.cycle_source,
+        scheduled_for=_ensure_utc(row.scheduled_for),
         normalized_order=row.normalized_order or {},
         stoploss_present=row.stoploss_present,
         close_only_mode=row.close_only_mode,
@@ -1657,6 +1671,13 @@ class ExecutionRepository:
         return [_order_execution_from_orm(row) for row in rows]
 
     def create_order(self, order: OrderExecution) -> OrderExecution:
+        return self.create_order_once(order)[0]
+
+    def create_order_once(self, order: OrderExecution) -> tuple[OrderExecution, bool]:
+        """Persist an order and report whether this call won the intent identity race."""
+        existing = self.find_order_by_intent_identity(order)
+        if existing is not None:
+            return existing, False
         row = models.OrderExecution(
             order_execution_id=order.order_execution_id or str(uuid.uuid4()),
             strategy_id=order.strategy_id,
@@ -1669,6 +1690,19 @@ class ExecutionRepository:
             decision_id=order.decision_id,
             config_snapshot_id=order.config_snapshot_id,
             config_hash=order.config_hash,
+            intent_type=order.intent_type,
+            timeframe=order.timeframe,
+            signal_candle_close_time=order.signal_candle_close_time,
+            order_origin=order.order_origin,
+            run_mode=order.run_mode,
+            test_run_id=order.test_run_id,
+            deployment_sha=order.deployment_sha,
+            scheduler_instance_id=order.scheduler_instance_id,
+            process_id=order.process_id,
+            worker_id=order.worker_id,
+            container_id=order.container_id,
+            cycle_source=order.cycle_source,
+            scheduled_for=order.scheduled_for,
             normalized_order=_jsonable(order.normalized_order),
             stoploss_present=order.stoploss_present,
             close_only_mode=order.close_only_mode,
@@ -1695,9 +1729,40 @@ class ExecutionRepository:
             last_gateway_update_at=order.last_gateway_update_at,
         )
         self.session.add(row)
-        self.session.commit()
+        try:
+            self.session.commit()
+        except IntegrityError:
+            self.session.rollback()
+            existing = self.find_order_by_intent_identity(order)
+            if existing is not None:
+                return existing, False
+            raise
         self.session.refresh(row)
-        return _order_execution_from_orm(row)
+        return _order_execution_from_orm(row), True
+
+    def find_order_by_intent_identity(self, order: OrderExecution) -> OrderExecution | None:
+        if not all(
+            (
+                order.strategy_id,
+                order.symbol,
+                order.timeframe,
+                order.signal_candle_close_time,
+                order.intent_type,
+            )
+        ):
+            return None
+        row = (
+            self.session.query(models.OrderExecution)
+            .filter(
+                models.OrderExecution.strategy_id == order.strategy_id,
+                models.OrderExecution.symbol == order.symbol,
+                models.OrderExecution.timeframe == order.timeframe,
+                models.OrderExecution.signal_candle_close_time == order.signal_candle_close_time,
+                models.OrderExecution.intent_type == order.intent_type,
+            )
+            .one_or_none()
+        )
+        return _order_execution_from_orm(row) if row else None
 
     def get_live_run(self, live_run_id: str) -> LiveRun | None:
         row = self.session.get(models.LiveRun, live_run_id)

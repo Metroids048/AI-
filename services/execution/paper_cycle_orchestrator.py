@@ -641,6 +641,19 @@ class PaperCycleOrchestrator:
                 ),
                 positions=list(active_positions.values()),
             )
+            base_order = base_order.model_copy(
+                update={
+                    "order_origin": "live_scheduler",
+                    "run_mode": request.run_mode,
+                    "deployment_sha": request.deployment_sha,
+                    "scheduler_instance_id": request.scheduler_instance_id,
+                    "process_id": request.process_id,
+                    "worker_id": request.worker_id,
+                    "container_id": request.container_id,
+                    "cycle_source": request.cycle_source,
+                    "scheduled_for": request.scheduled_for,
+                }
+            )
             decision_trace = dict(base_order.entry_context.get("decision_pipeline", {}))
             if current_position is None and not bool(base_order.entry_context.get("paper_order_should_trade", True)):
                 skipped_symbols += 1

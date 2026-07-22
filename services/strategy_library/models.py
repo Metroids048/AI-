@@ -412,6 +412,16 @@ class MetaLabel(Base):
 
 class OrderExecution(Base):
     __tablename__ = "order_executions"
+    __table_args__ = (
+        UniqueConstraint(
+            "strategy_id",
+            "symbol",
+            "timeframe",
+            "signal_candle_close_time",
+            "intent_type",
+            name="uq_order_strategy_symbol_candle_intent",
+        ),
+    )
 
     order_execution_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
     strategy_id: Mapped[str] = mapped_column(ForeignKey("strategies.id"), index=True)
@@ -426,6 +436,19 @@ class OrderExecution(Base):
     decision_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     config_snapshot_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     config_hash: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    intent_type: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    timeframe: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    signal_candle_close_time: Mapped[datetime | None] = mapped_column(nullable=True, index=True)
+    order_origin: Mapped[str] = mapped_column(String(50), default="unspecified", index=True)
+    run_mode: Mapped[str] = mapped_column(String(50), default="unspecified", index=True)
+    test_run_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    deployment_sha: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    scheduler_instance_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    process_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    worker_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    container_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    cycle_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    scheduled_for: Mapped[datetime | None] = mapped_column(nullable=True, index=True)
     normalized_order: Mapped[dict] = mapped_column(JSON, default=dict)
     stoploss_present: Mapped[bool] = mapped_column(default=False)
     close_only_mode: Mapped[bool] = mapped_column(default=False)
@@ -451,6 +474,37 @@ class OrderExecution(Base):
     reconciliation_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     last_gateway_update_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class SchedulerLease(Base):
+    __tablename__ = "scheduler_leases"
+
+    lease_name: Mapped[str] = mapped_column(String(120), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(120), index=True)
+    hostname: Mapped[str] = mapped_column(String(255))
+    process_id: Mapped[int] = mapped_column(Integer)
+    acquired_at: Mapped[datetime] = mapped_column()
+    heartbeat_at: Mapped[datetime] = mapped_column()
+    expires_at: Mapped[datetime] = mapped_column(index=True)
+
+
+class SchedulerCycle(Base):
+    __tablename__ = "scheduler_cycles"
+    __table_args__ = (UniqueConstraint("job_name", "scheduled_for", name="uq_scheduler_job_slot"),)
+
+    scheduler_cycle_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    job_name: Mapped[str] = mapped_column(String(120), index=True)
+    scheduled_for: Mapped[datetime] = mapped_column(index=True)
+    scheduler_instance_id: Mapped[str] = mapped_column(String(120), index=True)
+    cycle_source: Mapped[str] = mapped_column(String(50), default="runtime_scheduler")
+    run_mode: Mapped[str] = mapped_column(String(50), default="paper")
+    deployment_sha: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    hostname: Mapped[str] = mapped_column(String(255))
+    process_id: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(30), default="claimed", index=True)
+    started_at: Mapped[datetime] = mapped_column()
+    completed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class PositionSnapshot(Base):

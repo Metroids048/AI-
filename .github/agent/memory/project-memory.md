@@ -1,5 +1,16 @@
 # Project Memory
 
+## One-click launcher path matcher (2026-07-22)
+
+- `scripts/launch-paper-console.ps1` `Test-ProjectListener` must recognize vite under the current repo path (`AI--main` / `frontend/.../admin`), not only the legacy folder name `量化项目`. Wrong match skips the "already running" fast path and forces ~50s DB re-prep on every click.
+- `一键启动.cmd` keeps `chcp 65001` + UTF-8 BOM for Chinese; do not restore `taskkill /IM python.exe`.
+
+## One-click launcher encoding and hang fix (2026-07-22)
+
+- `一键启动.cmd` must use `chcp 65001` (and UTF-8 BOM) before any Chinese `echo`; sibling pattern already existed in `scripts/上传.cmd`.
+- Do **not** `taskkill /IM python.exe` from the launcher — it mis-kills Cursor/Agent Python and can stall at `[1/3]` with no console output. Process cleanup belongs in `scripts/launch-paper-console.ps1` (pid file + port).
+- Success banner API URL is `http://127.0.0.1:8016` (matches `launch-paper-console.ps1` default), not 8000.
+
 ## Portable runtime ledger for cross-device review (2026-07-22)
 
 - ADR-073: export last 30 days of orders/positions/decisions/risk/account snapshots from `.local_paper_console.db` into `docs/evidence/runtime-ledger/current/` (`ledger.sqlite.gz` + `manifest.json` + `SUMMARY.md`), redacting secret-like JSON keys.
@@ -618,3 +629,20 @@
 - `trading_config_snapshots` is the versioned runtime configuration fact store. Paper runs carry active/pending snapshot IDs and hashes; writes use optimistic `base_config_hash`, and pending values activate only at a declared cycle boundary.
 - `decision_events` is append-only, uses uppercase `BlockCode`, redacts credential-bearing payload fields and derives an idempotent key for one open intent per strategy/version/config/symbol/timeframe/closed candle.
 - `CandleValidator`, `OrderNormalizer` and `ExecutionStateMachine` establish fail-closed seams for exchange-time candle closure, one-way/hedge order mapping, and duplicate/out-of-order exchange events. Legacy runtime paths still need to be migrated through these seams before this program is complete.
+
+## Deployment-Coupled Trading Incident Repair (2026-07-22)
+
+- The July 21 11:03 and 18:38 dense BTC/ETH round trips were infrastructure acceptance traffic, not a high-frequency strategy. The old acceptance CLI could submit external Simulation orders without an explicit authorization gate and generated a new idempotency key every invocation.
+- Historical order silence must not be equated with scheduler silence: the ledger contains continuous decisions dominated by ensemble discard, insufficient technical signals, LLM veto, and multi-timeframe disagreement. Older July 18/19 data does contain genuine 7–8 hour decision gaps.
+- Migration `0011` makes `scheduler_leases` the cross-process leadership fact and `scheduler_cycles(job_name, scheduled_for)` the unique execution-slot fact. Orders also have a unique strategy/symbol/timeframe/candle/intent identity plus explicit deployment/process/origin provenance.
+- Paper runtime no longer runs immediately on process startup. Testnet acceptance CLI/API require explicit external-order authorization and a non-empty operator reason before constructing the gateway.
+- The accelerated two-instance 24-hour test passed 96/96 slots with zero duplicate winners. A real hourly, read-only 24-hour observation is active in Codex automation 24 and writes `artifacts/live-24h/` snapshots; it must not call any exchange-mutating endpoint.
+- Final local runtime state at handoff: API `/health` is OK, scheduler heartbeat is fresh, mainnet remains disabled, and the final process start produced no immediate Paper cycle. No risk, leverage, position, stop, take-profit, or net-edge threshold changed.
+
+## Strategy Liveness And Shadow Ablation Baseline (2026-07-22)
+
+- The Review layer now emits a sequential funnel using the actual runtime order: base signal -> multi-timeframe -> ensemble -> meta-label -> LLM -> Gatekeeper -> TradeIntent. The seven-day baseline contains 765 entry evaluations; ensemble discarded 241/402 arrivals (59.95%), while LLM vetoed only 4/102 (3.92%).
+- The most recent 24-hour slice at implementation time contained 77 entry evaluations: base signal removed 20, MTF removed 10, ensemble removed 29/47 (61.70%), LLM veto removed 0, and only 3 of 18 post-LLM candidates became new intents. Nine were risk/exposure rejects and six reached no new intent because of position/execution state.
+- The two operator trades at 2026-07-21 20:14/20:20 Asia/Shanghai both had same-direction signals followed by `ensemble_discarded`. BTC was a confirmed fill but its later MFE (0.63%) was smaller than MAE (0.83%) and no theoretical stop/target was persisted; ETH remained `gateway_status=new` with no fill price. Both are therefore `INSUFFICIENT_EVIDENCE`, not proven false negatives.
+- After excluding 829 non-directional funding/carry decisions from the denominator, the seven-day A-E shadow recall audit covered 729 directional evaluations and found candidates A=91, B(no LLM hard veto)=95, C(confidence-weighted ensemble)=328, D=91 with 217 unknown, E=332 with 220 unknown. These are candidate-recall counts only; no profitability, 1R/2R, expectancy, or drawdown conclusion is authorized yet.
+- Codex automation `24` is retargeted to the active task and performs hourly read-only scheduler, funnel, and A-E audits. Production strategy logic and all risk/leverage/position/stop/take-profit/cost/net-edge settings remain unchanged.

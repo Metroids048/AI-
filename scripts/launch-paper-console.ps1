@@ -114,7 +114,14 @@ function Test-ProjectListener([int]$Port) {
     if ($commandLine -match "apps\.api\.(main|local_server)") {
         return $commandLine -match "--local-console"
     }
-    return $commandLine -match "量化项目.*vite\.js"
+    # Frontend vite: accept this repo path (AI--main). Old hardcode "量化项目" never matched and
+    # forced a full DB re-prep (~50s) on every re-launch even when the console was already up.
+    $rootEscaped = [regex]::Escape($Root)
+    return ($commandLine -match "vite\.js") -and (
+        $commandLine -match $rootEscaped -or
+        $commandLine -match 'frontend[/\\]+admin' -or
+        $commandLine -match "量化项目"
+    )
 }
 
 function Stop-RecordedScheduler {
@@ -310,10 +317,17 @@ if (-not $frontendReady) {
 
 Write-Step "waiting for services (up to 90s)"
 $deadline = (Get-Date).AddSeconds(90)
+$lastProgressAt = Get-Date
 while ((Get-Date) -lt $deadline) {
     if (-not $apiReady) { $apiReady = Test-EndpointReady $ApiHealthUrl }
     if (-not $frontendReady) { $frontendReady = Test-EndpointReady "http://127.0.0.1:$FrontendPort/" }
     if ($apiReady -and $frontendReady) { break }
+    if (((Get-Date) - $lastProgressAt).TotalSeconds -ge 10) {
+        $apiState = if ($apiReady) { "up" } else { "waiting" }
+        $feState = if ($frontendReady) { "up" } else { "waiting" }
+        Write-Step "still waiting (api=$apiState frontend=$feState)"
+        $lastProgressAt = Get-Date
+    }
     Start-Sleep -Seconds 1
 }
 

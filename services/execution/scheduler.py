@@ -7,6 +7,9 @@ one-click local console the same recurring calls without requiring Redis.
 from __future__ import annotations
 
 import asyncio
+import os
+import socket
+import uuid
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -17,6 +20,7 @@ from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from shared.config import settings
 
 from .runtime_state import write_external_scheduler_state
+from .scheduler_coordination import SchedulerCoordinator
 
 Runner = Callable[[], Any]
 
@@ -42,6 +46,9 @@ class RuntimeSchedulerStatus:
     last_results: dict[str, Any] = field(default_factory=dict)
     last_success_at: dict[str, datetime] = field(default_factory=dict)
     last_failure_at: dict[str, datetime] = field(default_factory=dict)
+    scheduler_instance_id: str | None = None
+    current_lock_owner: str | None = None
+    last_scheduled_for: datetime | None = None
 
     def model_dump(self) -> dict[str, Any]:
         return {
@@ -56,6 +63,9 @@ class RuntimeSchedulerStatus:
             "last_results": dict(self.last_results),
             "last_success_at": dict(self.last_success_at),
             "last_failure_at": dict(self.last_failure_at),
+            "scheduler_instance_id": self.scheduler_instance_id,
+            "current_lock_owner": self.current_lock_owner,
+            "last_scheduled_for": self.last_scheduled_for,
         }
 
 
@@ -83,6 +93,8 @@ class RuntimeScheduler:
         edge_stats_refresh_runner: Runner | None = None,
         notification_runner: Runner | None = None,
         daily_review_runner: Callable[[str | None], Any] | None = None,
+        coordinator: SchedulerCoordinator | None = None,
+        scheduler_instance_id: str | None = None,
     ) -> None:
         self.paper_cycle_seconds = float(paper_cycle_seconds or settings.paper_runtime_cycle_seconds)
         self.heartbeat_seconds = float(heartbeat_seconds or settings.market_data_heartbeat_seconds)
@@ -102,7 +114,13 @@ class RuntimeScheduler:
         self.edge_stats_refresh_runner = edge_stats_refresh_runner or _default_edge_stats_refresh_runner
         self.notification_runner = notification_runner or _default_notification_runner
         self.daily_review_runner = daily_review_runner or _default_daily_review_runner
-        self.status = RuntimeSchedulerStatus(mode="inprocess")
+        generated_instance_id = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
+        self.scheduler_instance_id = scheduler_instance_id or generated_instance_id
+        self.status = RuntimeSchedulerStatus(
+            mode="inprocess",
+            scheduler_instance_id=self.scheduler_instance_id,
+        )
+        self.coordinator = coordinator
         self._tasks: list[asyncio.Task] = []
         self._stop_event: asyncio.Event | None = None
         self._last_daily_review_date: date | None = None
@@ -113,6 +131,13 @@ class RuntimeScheduler:
         if self.status.running:
             return
         _preload_celery_task_api()
+        if self.coordinator is None:
+            from services.database import get_session_factory
+
+            self.coordinator = SchedulerCoordinator(
+                session_factory=get_session_factory(),
+                instance_id=self.scheduler_instance_id,
+            )
         self._stop_event = asyncio.Event()
         self.status.running = True
         self.status.started_at = datetime.now(UTC)
@@ -125,6 +150,8 @@ class RuntimeScheduler:
                     interval_seconds=self.paper_cycle_seconds,
                     runner=self.paper_cycle_runner,
                     records_auto_cycle=True,
+                    run_immediately=False,
+                    coordinated=True,
                 )
             ),
             asyncio.create_task(
@@ -199,10 +226,16 @@ class RuntimeScheduler:
             return
         if self._stop_event is not None:
             self._stop_event.set()
-        for task in self._tasks:
-            task.cancel()
         if self._tasks:
-            await asyncio.gather(*self._tasks, return_exceptions=True)
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*self._tasks, return_exceptions=True),
+                    timeout=5.0,
+                )
+            except TimeoutError:
+                for task in self._tasks:
+                    task.cancel()
+                await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks = []
         self.status.running = False
         self.status.next_cycle_eta_seconds = None
@@ -217,6 +250,7 @@ class RuntimeScheduler:
         records_auto_cycle: bool = False,
         affects_scheduler_health: bool = True,
         run_immediately: bool = True,
+        coordinated: bool = False,
     ) -> None:
         assert self._stop_event is not None
         if not run_immediately:
@@ -227,25 +261,138 @@ class RuntimeScheduler:
             if records_auto_cycle:
                 self._next_cycle_at = started
                 self.status.next_cycle_eta_seconds = 0
-            result = await self._run_once(
-                name=name,
-                runner=runner,
-                affects_scheduler_health=affects_scheduler_health,
+            result = (
+                await self._run_coordinated_once(
+                    name=name,
+                    interval_seconds=interval_seconds,
+                    runner=runner,
+                    affects_scheduler_health=affects_scheduler_health,
+                    observed_at=started,
+                )
+                if coordinated
+                else await self._run_once(
+                    name=name,
+                    runner=runner,
+                    affects_scheduler_health=affects_scheduler_health,
+                )
             )
-            if records_auto_cycle:
+            non_execution_statuses = {"standby_not_leader", "duplicate_slot_skipped"}
+            cycle_executed = not (isinstance(result, dict) and result.get("status") in non_execution_statuses)
+            if records_auto_cycle and cycle_executed:
                 self.status.last_auto_cycle_at = datetime.now(UTC)
                 self._next_cycle_at = self.status.last_auto_cycle_at
-            retry_after_seconds = (
-                float(result.get("retry_after_seconds", 0))
-                if isinstance(result, dict)
-                else 0.0
-            )
+            retry_after_seconds = float(result.get("retry_after_seconds", 0)) if isinstance(result, dict) else 0.0
             wait_seconds = max(interval_seconds, retry_after_seconds, 0.01)
             with suppress(TimeoutError):
                 await asyncio.wait_for(self._stop_event.wait(), timeout=wait_seconds)
             if records_auto_cycle and self._next_cycle_at is not None:
                 elapsed = (datetime.now(UTC) - self._next_cycle_at).total_seconds()
                 self.status.next_cycle_eta_seconds = max(0, int(interval_seconds - elapsed))
+
+    async def _run_coordinated_once(
+        self,
+        *,
+        name: str,
+        interval_seconds: float,
+        runner: Runner,
+        affects_scheduler_health: bool,
+        observed_at: datetime,
+    ) -> Any:
+        assert self.coordinator is not None
+        lease_ttl = max(90.0, interval_seconds * 3)
+        if not self.coordinator.acquire_or_renew_lease(
+            lease_name=name,
+            now=observed_at,
+            ttl_seconds=lease_ttl,
+        ):
+            self.status.current_lock_owner = None
+            result = {"status": "standby_not_leader"}
+            self.status.last_results[name] = result
+            self._publish_external_state()
+            return result
+        self.status.current_lock_owner = self.scheduler_instance_id
+        scheduled_for = _slot_start(observed_at, interval_seconds)
+        self.status.last_scheduled_for = scheduled_for
+        claim = self.coordinator.claim_cycle(job_name=name, scheduled_for=scheduled_for)
+        if not claim.claimed or claim.scheduler_cycle_id is None:
+            self.coordinator.release_lease(lease_name=name)
+            self.status.current_lock_owner = None
+            result = {"status": "duplicate_slot_skipped", "scheduled_for": scheduled_for.isoformat()}
+            self.status.last_results[name] = result
+            self._publish_external_state()
+            return result
+
+        metadata = {
+            "scheduled_for": scheduled_for.isoformat(),
+            "scheduler_instance_id": self.scheduler_instance_id,
+            "cycle_source": "runtime_scheduler",
+            "run_mode": "paper",
+            "deployment_sha": settings.app_build_id,
+            "process_id": os.getpid(),
+            "worker_id": os.getenv("WORKER_ID"),
+            "container_id": os.getenv("CONTAINER_ID") or socket.gethostname(),
+        }
+        # Runner 类型是 Callable[[], Any]；默认 runner 额外接受 provenance，直接绑定 metadata。
+        runner_with_context: Runner = (
+            (lambda: _default_paper_cycle_runner(metadata)) if runner is _default_paper_cycle_runner else runner
+        )
+        failure_count = self.status.failure_counts.get(name, 0)
+        lease_done = asyncio.Event()
+        renewal_task = asyncio.create_task(
+            self._renew_lease_until_done(
+                lease_name=name,
+                lease_ttl=lease_ttl,
+                done=lease_done,
+            )
+        )
+        run_task = asyncio.create_task(
+            self._run_once(
+                name=name,
+                runner=runner_with_context,
+                affects_scheduler_health=affects_scheduler_health,
+            )
+        )
+        cancelled = False
+        try:
+            result = await asyncio.shield(run_task)
+        except asyncio.CancelledError:
+            cancelled = True
+            result = await asyncio.shield(run_task)
+        lease_done.set()
+        await renewal_task
+        failed = self.status.failure_counts.get(name, 0) > failure_count
+        self.coordinator.finish_cycle(
+            claim.scheduler_cycle_id,
+            status="failed" if failed else "completed",
+            failure_reason=str(result.get("error")) if failed and isinstance(result, dict) else None,
+        )
+        self.coordinator.release_lease(lease_name=name)
+        self.status.current_lock_owner = None
+        if cancelled:
+            raise asyncio.CancelledError
+        return result
+
+    async def _renew_lease_until_done(
+        self,
+        *,
+        lease_name: str,
+        lease_ttl: float,
+        done: asyncio.Event,
+    ) -> None:
+        assert self.coordinator is not None
+        heartbeat_seconds = max(1.0, min(30.0, lease_ttl / 3))
+        while not done.is_set():
+            try:
+                await asyncio.wait_for(done.wait(), timeout=heartbeat_seconds)
+            except TimeoutError:
+                renewed = await asyncio.to_thread(
+                    self.coordinator.acquire_or_renew_lease,
+                    lease_name=lease_name,
+                    ttl_seconds=lease_ttl,
+                )
+                if not renewed:
+                    self._scheduler_errors[lease_name] = "scheduler leadership lease was lost"
+                    return
 
     async def _run_once(
         self,
@@ -267,10 +414,9 @@ class RuntimeScheduler:
             self.status.last_failure_at[name] = datetime.now(UTC)
             if affects_scheduler_health:
                 self._scheduler_errors[name] = str(exc)
-        self.status.scheduler_error = "; ".join(
-            f"{task_name}: {error}"
-            for task_name, error in sorted(self._scheduler_errors.items())
-        ) or None
+        self.status.scheduler_error = (
+            "; ".join(f"{task_name}: {error}" for task_name, error in sorted(self._scheduler_errors.items())) or None
+        )
         self._publish_external_state()
         return self.status.last_results[name]
 
@@ -289,9 +435,7 @@ class RuntimeScheduler:
                 "top20_coverage_count": len(checked_symbols),
                 "execution_coverage_count": len(execution_symbols),
                 "execution_symbols": execution_symbols,
-                "exchange_info_ready": bool(exchange_info.get("ready"))
-                if isinstance(exchange_info, dict)
-                else False,
+                "exchange_info_ready": bool(exchange_info.get("ready")) if isinstance(exchange_info, dict) else False,
                 "data_fresh": len(execution_symbols) == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
                 and not execution_stale_symbols,
                 "last_auto_cycle_at": self.status.last_auto_cycle_at.isoformat()
@@ -301,6 +445,11 @@ class RuntimeScheduler:
                 "task_run_counts": self.status.run_counts,
                 "task_failure_counts": self.status.failure_counts,
                 "task_last_results": self.status.last_results,
+                "scheduler_instance_id": self.scheduler_instance_id,
+                "current_lock_owner": self.status.current_lock_owner,
+                "last_scheduled_for": self.status.last_scheduled_for.isoformat()
+                if self.status.last_scheduled_for
+                else None,
             }
         )
 
@@ -377,7 +526,7 @@ def runtime_scheduler_status() -> RuntimeSchedulerStatus:
     return _runtime_scheduler.status
 
 
-def _default_paper_cycle_runner() -> dict:
+def _default_paper_cycle_runner(provenance: dict[str, Any] | None = None) -> dict:
     from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
     from services.execution.tasks import run_all_paper_runtime_cycles
 
@@ -386,8 +535,16 @@ def _default_paper_cycle_runner() -> dict:
             "timeframe": "1m",
             "max_symbols": len(AUTO_PAPER_RESEARCH_SYMBOLS),
             "enable_decision_veto": settings.paper_runtime_enable_decision_veto,
+            **(provenance or {}),
         }
     )
+
+
+def _slot_start(observed_at: datetime, interval_seconds: float) -> datetime:
+    """Normalize all scheduler instances onto the same UTC execution slot."""
+    timestamp = observed_at.astimezone(UTC).timestamp()
+    slot = int(timestamp / interval_seconds) * interval_seconds
+    return datetime.fromtimestamp(slot, tz=UTC)
 
 
 def _default_heartbeat_runner() -> dict:
@@ -406,8 +563,7 @@ def _default_exchange_info_refresh_runner() -> dict:
     symbols = fetch_usdm_exchange_info_symbols()
     assets = fixed_top20_assets(symbols)
     ready = bool(assets) and all(
-        asset.tradable_status == "trading" and asset.precision and asset.min_notional is not None
-        for asset in assets
+        asset.tradable_status == "trading" and asset.precision and asset.min_notional is not None for asset in assets
     )
     updated_runs = refresh_fixed_top20_runtime_universe(symbols) if ready else 0
     return {

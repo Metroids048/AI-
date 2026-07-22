@@ -1,5 +1,7 @@
-@echo off
-REM 项目主入口：启动 AI Quant Platform（停止旧进程 -> 启动纸面交易控制台 -> 打开浏览器）
+﻿@echo off
+REM 项目主入口：启动 AI Quant Platform（清理旧控制台 -> 启动纸面交易控制台 -> 打开浏览器）
+REM UTF-8：必须先切代码页，再用 UTF-8 输出中文（与 scripts\上传.cmd 同模式）
+chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
 
@@ -8,19 +10,13 @@ echo   AI Quant Platform - 启动中
 echo ========================================
 echo.
 
-REM 第一步：停止所有旧的Python进程
-echo [1/3] 停止旧进程...
-taskkill /F /IM python.exe /T >nul 2>&1
-if %ERRORLEVEL%==0 (
-  echo       已停止旧的Python进程
-) else (
-  echo       没有运行中的Python进程
-)
-timeout /t 2 /nobreak >nul
+REM 旧 API/前端由 scripts\launch-paper-console.ps1 按 pid 文件与端口精准停止
+REM 禁止 taskkill /IM python.exe：会误杀 Cursor/Agent，且在多 Python 进程时易卡住
+echo [1/3] 检查环境...
 
-REM 第二步：启动系统
+REM 第二步：启动系统（已在运行时会走快速路径，几秒内打开浏览器）
 echo.
-echo [2/3] 启动系统（加载最新配置）...
+echo [2/3] 启动系统（若需准备数据库，可能约 1 分钟，请勿关闭窗口）...
 set "PWSH=C:\Program Files\PowerShell\7\pwsh.exe"
 if exist "%PWSH%" (
   "%PWSH%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\launch-paper-console.ps1"
@@ -42,7 +38,7 @@ echo   AI Quant Platform started
 echo ========================================
 echo.
 echo Trading: http://127.0.0.1:5173/trading
-echo API:     http://127.0.0.1:8000
+echo API:     http://127.0.0.1:8016
 echo Logs:    logs\startup-last.log  logs\api.log  logs\frontend.log
 echo.
 echo [3/3] 启动完成！浏览器将自动打开。

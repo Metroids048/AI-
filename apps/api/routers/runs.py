@@ -434,6 +434,12 @@ def create_testnet_acceptance_run(
     body: TestnetAcceptanceRunRequest,
     db: Session = Depends(get_db_session),
 ) -> TestnetAcceptanceRunStatus:
+    if not body.execute_external_orders or not (body.authorization_reason or "").strip():
+        raise api_error(
+            status_code=status.HTTP_409_CONFLICT,
+            error_code="external_order_authorization_required",
+            message="Testnet acceptance creates external open/close orders and requires explicit authorization.",
+        )
     if (
         not settings.binance_use_testnet
         or settings.live_trading_enabled
@@ -485,6 +491,7 @@ def create_testnet_acceptance_run(
     _demo_audit_service(db).record_acceptance(
         acceptance_run_id=task.agent_task_id or "",
         result=result,
+        authorization_reason=body.authorization_reason or "",
     )
     _arm_auto_testnet_runs_after_acceptance(db, result)
     task = (

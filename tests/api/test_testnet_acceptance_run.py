@@ -45,6 +45,13 @@ class StubAcceptanceService:
         )
 
 
+def test_testnet_acceptance_api_requires_explicit_external_order_authorization(api_client) -> None:
+    response = api_client.post("/api/v1/execution/testnet-acceptance-runs", json={})
+
+    assert response.status_code == 409
+    assert response.json()["error_code"] == "external_order_authorization_required"
+
+
 def test_testnet_acceptance_api_persists_result_and_exposes_status(api_client, db_session, monkeypatch) -> None:
     from apps.api.routers import runs as runs_router
 
@@ -56,7 +63,12 @@ def test_testnet_acceptance_api_persists_result_and_exposes_status(api_client, d
 
     response = api_client.post(
         "/api/v1/execution/testnet-acceptance-runs",
-        json={"symbols": ["BTC/USDT"], "idempotency_key": "acceptance-api-test"},
+        json={
+            "symbols": ["BTC/USDT"],
+            "idempotency_key": "acceptance-api-test",
+            "execute_external_orders": True,
+            "authorization_reason": "automated API contract test",
+        },
     )
 
     assert response.status_code == 201
@@ -82,7 +94,13 @@ def test_testnet_acceptance_api_accepts_direct_demo_network(api_client, monkeypa
     monkeypatch.setattr(settings, "binance_https_proxy", "")
     monkeypatch.setattr(runs_router, "_testnet_acceptance_service", lambda: StubAcceptanceService())
 
-    response = api_client.post("/api/v1/execution/testnet-acceptance-runs", json={})
+    response = api_client.post(
+        "/api/v1/execution/testnet-acceptance-runs",
+        json={
+            "execute_external_orders": True,
+            "authorization_reason": "automated API contract test",
+        },
+    )
 
     assert response.status_code == 201
     assert response.json()["run_status"] == "completed"
@@ -138,7 +156,14 @@ def test_execution_scope_acceptance_arms_only_validated_directional_run(api_clie
         )
     )
 
-    response = api_client.post("/api/v1/execution/testnet-acceptance-runs", json={"symbols": symbols})
+    response = api_client.post(
+        "/api/v1/execution/testnet-acceptance-runs",
+        json={
+            "symbols": symbols,
+            "execute_external_orders": True,
+            "authorization_reason": "automated scope arming test",
+        },
+    )
 
     assert response.status_code == 201
     technical = PaperRunRepository(db_session).get_paper_run(technical_run.paper_run_id or "")

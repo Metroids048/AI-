@@ -1,5 +1,19 @@
 # Task History
 
+## 2026-07-22 — Repair one-click slow/no-start after encoding fix
+
+- **User report**: After encoding/`taskkill` change, `一键启动` felt broken — long wait, no startup.
+- **Facts**: API `8016/health` and frontend `5173/trading` were already HTTP 200; hang was not the `chcp` change. Root cause: `Test-ProjectListener` still matched only path `量化项目.*vite.js`, so under `AI--main` the "already running" fast path never hit and every re-launch re-ran `prepare_database` (~50s) then waited.
+- **Fix**: Match vite via repo root / `frontend[/\]+admin` (keep legacy `量化项目` as fallback); wait-loop progress every 10s; clearer `一键启动.cmd` messages. Verified fast path: `paper console already running` in ~13s and browser open.
+- **Note**: Blanket `taskkill /IM python.exe` stays removed (mis-kills Cursor/Agent).
+
+## 2026-07-22 — Fix 一键启动.cmd encoding + hang at [1/3]
+
+- **Symptom**: Double-click showed mojibake (`錫`/`锅沧`) and appeared stuck after `[1/3]`.
+- **Root cause**: (1) UTF-8 Chinese without `chcp 65001` under default cmd CP936; (2) `taskkill /F /IM python.exe /T` killed all local Python trees (incl. Cursor/Agent) and could hang with no output; `timeout /t 2 /nobreak >nul` was a secondary hang risk.
+- **Fix**: UTF-8 BOM + `chcp 65001`; remove blanket python kill / timeout; rely on `scripts/launch-paper-console.ps1` port/PID cleanup; correct success banner API port to `8016`.
+- **Verification**: file checks (BOM, no `taskkill /F`, no `timeout /t`) + cmd.exe UTF-8 probe printed `启动中` / `[1/3] 准备启动` correctly.
+
 ## 2026-07-22 — Portable 30-day runtime ledger (ADR-073)
 
 - **Goal**: Let another device analyze latest Paper/Simulation trading records after `git pull`, without committing the hot DB or `.env`.
@@ -660,3 +674,19 @@
 - **Safety**: No mainnet or Binance Simulation order was sent, no scheduler was restarted, and no Paper risk value was changed.
 - **Verification so far**: New focused tests passed independently (contracts 3, normalizer 4, state machine 4, candle validator 3, repositories/migration 10, API 2, baseline regressions 2). Targeted Ruff and Mypy passed. A final full pytest/frontend/pre-commit gate is still pending because long-running tool calls were stopped at the operator's request.
 - **Remaining**: Migrate all legacy runtime/gateway paths onto the new contracts; persist lifecycle/user-stream reducer events; add recovery/timeline APIs and console views; implement portfolio-cycle unification and research-only `trend_pullback_v1`; unify Replay/Shadow/Paper intent bytes; complete PostgreSQL and full final gates.
+
+# [TASK-071] 2026-07-22 Deployment-coupled burst-trading incident repair
+
+- **Root cause**: Agent-triggered Testnet acceptance generated external BTC/ETH open/protect/immediate-close traffic; independent 8000/8016 scheduler launch modes had no cross-process leader; startup executed Paper immediately; order provenance and DB-level candle-intent uniqueness were missing.
+- **Repair**: Added explicit CLI/API external-order authorization, migration `0011`, atomic scheduler lease and per-slot claim, no-immediate-start Paper cycles, DB candle-intent dedupe, order provenance, read-only audit/liveness tools, accelerated 24-hour verification, and incident reports under `docs/audit/`.
+- **Runtime proof**: Fresh migration 0001→0011 passed. Two live schedulers produced one winner for the 02:40 UTC slot and zero duplicate slots. The winning cycle completed in about 64 seconds; it opened no new position and performed existing fail-closed reconciliation of unprotected Simulation positions. The final main process restarted on port 8000 with a fresh scheduler instance, healthy heartbeat, and no immediate Paper cycle.
+- **Safety**: Mainnet remained disabled. No risk, stoploss, takeprofit, leverage, position, cost, or net-edge threshold changed. The temporary second scheduler was stopped after the competition test.
+- **Ongoing evidence**: Codex automation 24 performs 25 hourly read-only samples into `artifacts/live-24h/`; it is forbidden from invoking acceptance or exchange mutation. Accelerated 24h invariant result: 96 slots, 96 claims, 0 duplicate winners.
+
+# [TASK-072] 2026-07-22 Strategy liveness funnel, manual-trade reconstruction, and A-E shadow baseline
+
+- **Scope**: Continued TASK-071 without changing production strategy or any risk/execution threshold. Retargeted the orphaned hourly automation from the failed source task to the active task.
+- **Review-layer delivery**: Extended `audit_decision_funnel` with sequential reach/pass/elimination counts and blocker breakdowns by symbol/hour/regime/direction; added a two-database, read-only manual-trade miss audit; added pure A-E shadow candidate evaluation and a seven-day audit report/CSV.
+- **Evidence**: Seven-day funnel: 765 entry evaluations, MTF 243/645 eliminated, ensemble 241/402 eliminated, meta-label 59/161 eliminated, LLM 4/102 eliminated, 9 new intents. Corrected directional-only shadow recall (729 evaluations): A=91, B=95, C=328, D=91+217 unknown, E=332+220 unknown. The two manual trades remain insufficient evidence because BTC MFE < MAE without persisted R levels and ETH has no confirmed fill price.
+- **Verification**: Ruff `All checks passed!`; Mypy `Success: no issues found in 151 source files`; new focused regressions `11 passed`; Core suite excluding optional pandas-ta adapter `590 passed, 3 skipped`; full suite `8 failed, 591 passed, 4 skipped`, with the same eight pandas-ta missing-dependency failures as TASK-071 and no new failure names.
+- **Remaining**: Complete the true 24-hour wall-clock series; persist full 4h/downstream context for D/E; add fixed-exit MFE/MAE/1R/2R and cost-aware expectancy/drawdown evaluation; then consider one production change at a time only if shadow OOS evidence supports it.

@@ -52,13 +52,13 @@ class BinanceDemoAuditService:
         *,
         acceptance_run_id: str,
         result: TestnetAcceptanceRunResult,
+        authorization_reason: str = "",
     ) -> list[OrderExecution]:
         context = self._context()
         records: list[OrderExecution] = []
         for evidence in result.orders:
-            if (
-                not evidence.gateway_order_id
-                or self.execution_repo.find_order_by_gateway_order_id(evidence.gateway_order_id)
+            if not evidence.gateway_order_id or self.execution_repo.find_order_by_gateway_order_id(
+                evidence.gateway_order_id
             ):
                 continue
             records.append(
@@ -71,9 +71,13 @@ class BinanceDemoAuditService:
                         execution_status="filled" if evidence.gateway_status.lower() == "filled" else "submitted",
                         stoploss_present=evidence.action == "open",
                         close_only_mode=evidence.reduce_only,
+                        order_origin="operator_authorized_testnet_acceptance",
+                        run_mode="testnet_acceptance",
+                        test_run_id=acceptance_run_id,
                         entry_context={
                             "execution_kind": "testnet_acceptance",
                             "acceptance_run_id": acceptance_run_id,
+                            "authorization_reason": authorization_reason,
                             "acceptance_action": evidence.action,
                             "exchange_side": evidence.side,
                             "quantity": evidence.quantity,
@@ -108,6 +112,8 @@ class BinanceDemoAuditService:
                         direction=TradeSide.LONG if side == "buy" else TradeSide.SHORT,
                         execution_status="filled" if order.status.lower() == "filled" else "submitted",
                         close_only_mode=order.reduce_only,
+                        order_origin="exchange_reconciliation",
+                        run_mode="testnet_reconciliation",
                         entry_context={
                             "execution_kind": "binance_demo_reconciliation",
                             "exchange_side": order.side,

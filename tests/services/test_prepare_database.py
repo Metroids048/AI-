@@ -17,6 +17,8 @@ def test_prepare_database_runs_migrations_and_local_runtime_schema(tmp_path) -> 
         assert "strategy_roadmap_states" in tables
         assert "trading_config_snapshots" in tables
         assert "decision_events" in tables
+        assert "scheduler_leases" in tables
+        assert "scheduler_cycles" in tables
         paper_run_columns = {column["name"] for column in inspect(get_engine()).get_columns("paper_runs")}
         assert {
             "active_config_snapshot_id",
@@ -32,9 +34,16 @@ def test_prepare_database_runs_migrations_and_local_runtime_schema(tmp_path) -> 
             "config_snapshot_id",
             "config_hash",
             "normalized_order",
+            "intent_type",
+            "timeframe",
+            "signal_candle_close_time",
+            "order_origin",
+            "run_mode",
+            "scheduler_instance_id",
+            "scheduled_for",
         }.issubset(order_columns)
         with get_engine().connect() as connection:
-            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0010"
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0011"
         position_columns = {column["name"] for column in inspect(get_engine()).get_columns("position_snapshots")}
         assert {"hedge_group_id", "is_hedge_leg"}.issubset(position_columns)
     finally:
@@ -53,7 +62,7 @@ def test_prepare_database_tolerates_preexisting_hedge_columns_at_0008(tmp_path) 
         reset_database_caches()
         prepare_database(database_url)
         with get_engine().connect() as connection:
-            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0010"
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0011"
         position_columns = {column["name"] for column in inspect(get_engine()).get_columns("position_snapshots")}
         assert {"hedge_group_id", "is_hedge_leg"}.issubset(position_columns)
     finally:

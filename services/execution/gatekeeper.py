@@ -161,6 +161,21 @@ class ExecutionGatekeeperService:
             decision_id=request.trade_intent.decision_id if request.trade_intent is not None else None,
             config_snapshot_id=request.trade_intent.config_snapshot_id if request.trade_intent is not None else None,
             config_hash=request.trade_intent.config_hash if request.trade_intent is not None else None,
+            intent_type=request.trade_intent.action.value if request.trade_intent is not None else None,
+            timeframe=timeframe,
+            signal_candle_close_time=(
+                request.trade_intent.signal_candle_close_time if request.trade_intent is not None else None
+            ),
+            order_origin=request.order_origin,
+            run_mode=request.run_mode,
+            test_run_id=request.test_run_id,
+            deployment_sha=request.deployment_sha,
+            scheduler_instance_id=request.scheduler_instance_id,
+            process_id=request.process_id,
+            worker_id=request.worker_id,
+            container_id=request.container_id,
+            cycle_source=request.cycle_source,
+            scheduled_for=request.scheduled_for,
             stoploss_present=stoploss_present,
             close_only_mode=close_only_mode,
             rejection_reason=";".join(rejection_reasons) if rejection_reasons else None,
@@ -180,7 +195,15 @@ class ExecutionGatekeeperService:
             veto_result=(request.veto_result.model_dump(mode="json") if request.veto_result is not None else {}),
             evaluated_risk_state=risk_state,
         )
-        created = self.execution_repo.create_order(order)
+        created, was_created = self.execution_repo.create_order_once(order)
+        if not was_created:
+            return created.model_copy(
+                update={
+                    "execution_status": "duplicate_skipped",
+                    "rejection_reason": "duplicate_candle_intent",
+                    "rejection_codes": ["duplicate_candle_intent"],
+                }
+            )
         if rejection_reasons:
             self._record_rejection(created)
         return created

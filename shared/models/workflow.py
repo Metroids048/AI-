@@ -128,6 +128,14 @@ class PaperRuntimeCycleRequest(PlatformModel):
     max_symbols: int = Field(default=20, ge=1, le=50)
     close_on_opposite_signal: bool = True
     enable_decision_veto: bool = True
+    scheduled_for: datetime | None = None
+    scheduler_instance_id: str | None = None
+    cycle_source: str = "unspecified"
+    run_mode: str = "paper"
+    deployment_sha: str | None = None
+    process_id: int | None = None
+    worker_id: str | None = None
+    container_id: str | None = None
 
 
 class AssetRiskTierSettings(PlatformModel):
@@ -183,6 +191,8 @@ class TestnetAcceptanceRunRequest(PlatformModel):
     max_notional_usdt: float = Field(default=120, ge=50, le=500)
     asset_risk_tiers: dict[str, AssetRiskTierSettings] = Field(default_factory=dict)
     idempotency_key: str | None = None
+    execute_external_orders: bool = False
+    authorization_reason: str | None = None
 
 
 class TestnetAcceptanceOrderEvidence(PlatformModel):
@@ -387,6 +397,16 @@ class ExecutionOrderRequest(PlatformModel):
     trade_intent: TradeIntent | None = None
     market_rules_snapshot: MarketRulesSnapshot | None = None
     confirmed_position_quantity: Decimal | None = Field(default=None, gt=0)
+    order_origin: str = "unspecified"
+    run_mode: str = "unspecified"
+    test_run_id: str | None = None
+    deployment_sha: str | None = None
+    scheduler_instance_id: str | None = None
+    process_id: int | None = None
+    worker_id: str | None = None
+    container_id: str | None = None
+    cycle_source: str | None = None
+    scheduled_for: datetime | None = None
 
 
 class ManualOrderRequest(PlatformModel):
@@ -473,6 +493,19 @@ class OrderExecution(PlatformModel):
     decision_id: str | None = None
     config_snapshot_id: str | None = None
     config_hash: str | None = None
+    intent_type: str | None = None
+    timeframe: str | None = None
+    signal_candle_close_time: datetime | None = None
+    order_origin: str = "unspecified"
+    run_mode: str = "unspecified"
+    test_run_id: str | None = None
+    deployment_sha: str | None = None
+    scheduler_instance_id: str | None = None
+    process_id: int | None = None
+    worker_id: str | None = None
+    container_id: str | None = None
+    cycle_source: str | None = None
+    scheduled_for: datetime | None = None
     normalized_order: dict[str, Any] = Field(default_factory=dict)
     stoploss_present: bool = False
     close_only_mode: bool = False

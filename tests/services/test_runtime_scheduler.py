@@ -17,6 +17,11 @@ from services.execution.scheduler import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_scheduler_state_file(monkeypatch, tmp_path) -> None:  # noqa: ANN001
+    monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(tmp_path / "scheduler-state.json"))
+
+
 def _raise_runtime_error(message: str) -> None:
     raise RuntimeError(message)
 
@@ -142,6 +147,50 @@ async def test_runtime_scheduler_runs_periodic_jobs_and_stops() -> None:
     assert calls == stopped_at
     assert scheduler.status.running is False
     assert scheduler.status.last_auto_cycle_at is not None
+
+
+@pytest.mark.asyncio
+async def test_paper_cycle_does_not_run_immediately_on_process_start() -> None:
+    calls = {"paper": 0, "heartbeat": 0}
+    scheduler = RuntimeScheduler(
+        paper_cycle_seconds=0.20,
+        heartbeat_seconds=0.01,
+        paper_cycle_runner=lambda: calls.__setitem__("paper", calls["paper"] + 1),
+        heartbeat_runner=lambda: calls.__setitem__("heartbeat", calls["heartbeat"] + 1),
+    )
+
+    scheduler.start()
+    await asyncio.sleep(0.06)
+    await scheduler.stop()
+
+    assert calls["paper"] == 0
+    assert calls["heartbeat"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_standby_scheduler_does_not_report_an_executed_auto_cycle() -> None:
+    class StandbyCoordinator:
+        def acquire_or_renew_lease(self, **kwargs) -> bool:  # noqa: ANN003
+            return False
+
+    scheduler = RuntimeScheduler(coordinator=StandbyCoordinator())  # type: ignore[arg-type]
+    scheduler._stop_event = asyncio.Event()
+
+    task = asyncio.create_task(
+        scheduler._run_periodic(
+            name="paper_runtime_cycle",
+            interval_seconds=0.01,
+            runner=lambda: {"status": "unexpected"},
+            records_auto_cycle=True,
+            coordinated=True,
+        )
+    )
+    await asyncio.sleep(0.03)
+    scheduler._stop_event.set()
+    await task
+
+    assert scheduler.status.last_auto_cycle_at is None
+    assert scheduler.status.last_results["paper_runtime_cycle"]["status"] == "standby_not_leader"
 
 
 @pytest.mark.asyncio

@@ -202,3 +202,19 @@ tests/
   3. 统一领域模型与仓库骨架
   4. API 与任务流
   5. 数据、验证、执行、复盘实现
+
+<!-- AGENT-CONFIG-PACK:PROJECT-BRIDGE START -->
+## Agent Config Pack bridge (2026-07-22)
+
+Shared cross-tool contract for this repo (Cursor / Codex / Claude Code):
+
+- Global Working Agreement lives in user globals (`~/.codex/AGENTS.md`, `~/.claude/AGENTS.md`, Cursor `00-agent-working-agreement.mdc`).
+- This file (`AGENTS.md`) is the **project SSOT**. Claude imports it via `@AGENTS.md` in `CLAUDE.md`.
+- Tool patches: `.cursor/rules/00-core-workflow.mdc`, `.cursor/rules/10-verification.mdc`, `.claude/rules/testing.md`.
+- Before claiming COMPLETE: use `verify-work` skill (global or project `.agents/.cursor/.claude/skills/verify-work`).
+- Analysis / planning / review-only requests: do not edit files.
+- Max 3 auto-repairs per failing check; same failure twice without progress → stop and escalate with evidence.
+- Never report unexecuted checks as passed. Prefer project-documented verify commands.
+- Durable lessons only in `docs/AGENT_LESSONS.md` (no secrets, no temp task chatter).
+- Substantial changes: independent read-only review via `.claude/agents/code-reviewer` when available.
+<!-- AGENT-CONFIG-PACK:PROJECT-BRIDGE END -->

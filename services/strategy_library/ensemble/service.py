@@ -21,9 +21,7 @@ from shared.models import (
     TripleBarrierOutcome,
 )
 
-DIRECTION_SOURCES = frozenset(
-    {"technical_dow_trend", "technical_ema_trend", "technical_adx", "technical_mtf_ma"}
-)
+DIRECTION_SOURCES = frozenset({"technical_dow_trend", "technical_ema_trend", "technical_adx", "technical_mtf_ma"})
 ENTRY_SOURCES = frozenset({"technical_macd", "technical_rsi", "technical_fvg", "market_intelligence"})
 RANGE_SOURCES = frozenset({"technical_vwap", "technical_bollinger"})
 LAYERED_FUSION_METHOD = "layered_regime_entry"
@@ -82,9 +80,7 @@ class SignalEnsembleService:
             correlation_prefix="correlation_filter",
         )
 
-    def _create_layered_ensemble(
-        self, request: SignalEnsembleRequest, *, min_direction_sources: int
-    ) -> SignalEnsemble:
+    def _create_layered_ensemble(self, request: SignalEnsembleRequest, *, min_direction_sources: int) -> SignalEnsemble:
         allowed_direction = self._resolve_allowed_direction(
             request.signals, min_direction_sources=min_direction_sources
         )
@@ -256,32 +252,51 @@ class SignalEnsembleService:
         cls,
         signals: list[CandidateSignalSeries],
         *,
-        min_direction_sources: int = MIN_DIRECTION_SOURCE_QUORUM,
+        min_direction_sources: int = 2,  # 降低到2（原MIN_DIRECTION_SOURCE_QUORUM=3）
     ) -> TradeSide | None:
-        """Resolve the regime direction by majority vote across DIRECTION_SOURCES.
+        """Weighted aggregation of direction signals.
 
-        Previously required ALL direction sources to report and unanimously agree,
-        which starved entries whenever any one indicator (e.g. ADX below threshold)
-        simply had nothing to say. Now: fail closed if fewer than
-        MIN_DIRECTION_SOURCE_QUORUM sources report, and fail closed on an exact tie,
-        but otherwise let a clear majority among the sources that did report decide.
+        Changed from binary pass/discard to weighted scoring:
+        - Each direction signal contributes: direction_score = +1.0 (LONG) or -1.0 (SHORT)
+        - Weighted by confidence (default 1.0 if not provided)
+        - Final direction determined by weighted sum
+        - Threshold: >= 0.35 for LONG, <= -0.35 for SHORT
+
+        This removes the hard discard on disagreement while keeping minimum source requirement.
         """
-        by_source: dict[str, TradeSide] = {}
-        for signal in signals:
-            source = cls._signal_source(signal.strategy_id)
-            if source not in DIRECTION_SOURCES:
-                continue
-            existing = by_source.get(source)
-            if existing is not None and existing != signal.direction:
-                return None
-            by_source[source] = signal.direction
-        if len(by_source) < min_direction_sources:
+        if not signals:
             return None
-        long_votes = sum(1 for direction in by_source.values() if direction == TradeSide.LONG)
-        short_votes = sum(1 for direction in by_source.values() if direction == TradeSide.SHORT)
-        if long_votes == short_votes:
+
+        direction_signals = [s for s in signals if cls._signal_source(s.strategy_id) in DIRECTION_SOURCES]
+
+        if len(direction_signals) < min_direction_sources:
             return None
-        return TradeSide.LONG if long_votes > short_votes else TradeSide.SHORT
+
+        # 加权聚合：每个信号贡献 direction_score × confidence
+        long_weight = 0.0
+        short_weight = 0.0
+
+        for signal in direction_signals:
+            confidence = signal.confidence if signal.confidence is not None else 1.0
+            if signal.direction == TradeSide.LONG:
+                long_weight += confidence
+            else:
+                short_weight += confidence
+
+        total_weight = long_weight + short_weight
+        if total_weight == 0:
+            return None
+
+        # 计算加权分数：-1.0 (全空) 到 +1.0 (全多)
+        weighted_score = (long_weight - short_weight) / total_weight
+
+        # 阈值判断（对齐现有逻辑，避免过度激进）
+        if weighted_score >= 0.35:
+            return TradeSide.LONG
+        if weighted_score <= -0.35:
+            return TradeSide.SHORT
+
+        return None  # 中性区域不开仓
 
     @classmethod
     def _eligible_layered_signals(

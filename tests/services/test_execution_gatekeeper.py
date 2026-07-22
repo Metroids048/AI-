@@ -31,6 +31,14 @@ from shared.models import (
     StrategyCreate,
     StrategyRules,
 )
+from shared.models.trading import (
+    ExchangeSide,
+    PositionSide,
+    ProtectionPolicy,
+    RuntimeMode,
+    TradeAction,
+    TradeIntent,
+)
 
 
 def _seed_gatekeeper_context(db_session) -> tuple[ExecutionGatekeeperService, str, str]:
@@ -140,6 +148,39 @@ def test_gatekeeper_accepts_healthy_order_and_persists_risk_snapshot(db_session)
     assert order.rejection_codes == []
     assert order.evaluated_risk_state is not None
     assert order.evaluated_risk_state.account_equity == 10_000.0
+
+
+def test_gatekeeper_marks_duplicate_candle_intent_non_executable(db_session) -> None:
+    gatekeeper, strategy_id, backtest_run_id = _seed_gatekeeper_context(db_session)
+    candle_close = datetime.now(UTC).replace(second=0, microsecond=0)
+    intent = TradeIntent(
+        intent_id="intent-duplicate",
+        cycle_id="cycle-duplicate",
+        decision_id="decision-duplicate",
+        strategy_id=strategy_id,
+        strategy_version="v1",
+        config_snapshot_id="config-1",
+        config_hash="hash-1",
+        runtime_mode=RuntimeMode.PAPER,
+        symbol="BTC/USDT",
+        action=TradeAction.OPEN,
+        position_side=PositionSide.LONG,
+        exchange_side=ExchangeSide.BUY,
+        target_quantity=Decimal("0.001"),
+        signal_reference_price=Decimal("60000"),
+        protection=ProtectionPolicy(stop_price=Decimal("59000"), take_profit_price=Decimal("62000")),
+        signal_candle_close_time=candle_close,
+        created_at=candle_close,
+    )
+    request = _order_request(strategy_id, backtest_run_id, trade_intent=intent)
+
+    first = gatekeeper.submit_order(request)
+    duplicate = gatekeeper.submit_order(request)
+
+    assert first.execution_status == "accepted"
+    assert duplicate.execution_status == "duplicate_skipped"
+    assert duplicate.rejection_codes == ["duplicate_candle_intent"]
+    assert len(ExecutionRepository(db_session).list_orders()) == 1
 
 
 @pytest.mark.parametrize(

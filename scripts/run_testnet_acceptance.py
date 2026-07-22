@@ -7,6 +7,7 @@ can clear the testnet_acceptance_not_verified blocker.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sqlite3
@@ -30,7 +31,13 @@ YELLOW = "\033[93m"
 RESET = "\033[0m"
 
 
-def _persist_result(result: TestnetAcceptanceRunResult, task_id: str, now_iso: str) -> None:
+def _persist_result(
+    result: TestnetAcceptanceRunResult,
+    task_id: str,
+    now_iso: str,
+    *,
+    authorization_reason: str,
+) -> None:
     """Save acceptance result to agent_tasks so blockers check can find it."""
     if not DB_PATH.exists():
         print(f"{YELLOW}WARN: DB not found at {DB_PATH}, skipping persistence{RESET}")
@@ -56,7 +63,25 @@ def _persist_result(result: TestnetAcceptanceRunResult, task_id: str, now_iso: s
             "(agent_task_id, agent_type, task_type, task_status, input_payload, output_payload, "
             "priority, attempt_history, provider_trace, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (task_id, "system", "testnet_acceptance", "completed", "{}", payload, 5, "[]", "{}", now_iso),
+            (
+                task_id,
+                "system",
+                "testnet_acceptance",
+                "completed",
+                json.dumps(
+                    {
+                        "execute_external_orders": True,
+                        "authorization_reason": authorization_reason,
+                        "order_origin": "operator_authorized_testnet_acceptance",
+                    },
+                    ensure_ascii=False,
+                ),
+                payload,
+                5,
+                "[]",
+                "{}",
+                now_iso,
+            ),
         )
         conn.commit()
         print(f"{GREEN}Persisted agent_task {task_id} → agent_tasks table{RESET}")
@@ -83,7 +108,29 @@ def _persist_result(result: TestnetAcceptanceRunResult, task_id: str, now_iso: s
         print(f"{GREEN}Armed validated directional paper runs ({armed} run(s)){RESET}")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--execute-external-orders",
+        action="store_true",
+        help="Explicitly authorize bounded Binance Simulation open/close acceptance orders.",
+    )
+    parser.add_argument(
+        "--reason",
+        help="Operator-visible reason recorded for this externally mutating acceptance run.",
+    )
+    args = parser.parse_args(argv)
+    if not args.execute_external_orders or not (args.reason or "").strip():
+        print(
+            json.dumps(
+                {
+                    "status": "external_order_authorization_required",
+                    "required_flags": ["--execute-external-orders", "--reason"],
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 2
     if not settings.binance_use_testnet or settings.live_trading_enabled:
         print(json.dumps({"status": "blocked_safety_boundary"}))
         return 2
@@ -111,6 +158,8 @@ def main() -> int:
         )
     )
     output = {
+        "order_origin": "operator_authorized_testnet_acceptance",
+        "authorization_reason": args.reason.strip(),
         "run_status": result.run_status,
         "requested_symbols": result.requested_symbols,
         "completed_count": len(result.completed_symbols),
@@ -134,7 +183,7 @@ def main() -> int:
     }
     print(json.dumps(output, ensure_ascii=False, indent=2))
 
-    _persist_result(result, task_id, now_iso)
+    _persist_result(result, task_id, now_iso, authorization_reason=args.reason.strip())
 
     if result.run_status == "completed":
         print(f"\n{GREEN}PASS — run testnet blocker check next:{RESET}")

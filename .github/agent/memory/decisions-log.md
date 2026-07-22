@@ -577,3 +577,19 @@
 - Context: `entry_context` dictionaries and free status strings obscured action, direction, quantity, position mode and recovery semantics.
 - Decision: Use immutable `TradeIntent -> NormalizedOrder -> ExecutionReport`, Decimal amounts, dynamic exchange rule snapshots, a one-way/hedge mapping matrix and a controlled execution state machine. Hedge closes omit `reduceOnly` and require a confirmed position quantity cap; unknown market rules and recovery states fail closed.
 - Consequences: Legacy gateways remain compatible during migration but cannot be considered fully correct until all entry paths use the normalizer and state events are persisted.
+
+## ADR-061: External acceptance traffic and scheduled strategy traffic require separate authorization, leadership, and identity
+
+- Date: 2026-07-22
+- Status: accepted
+- Context: Binance Simulation showed dense orders only around Agent modification windows. The acceptance CLI opened and immediately closed real Simulation positions without an explicit confirmation, while multiple supported launchers could start independent schedulers against the same SQLite database. PaperRun JSON dedupe and audit-only reconciliation were insufficient to prevent or attribute cross-process duplicates.
+- Decision: Treat acceptance as an explicitly authorized external mutation with a recorded reason and dedicated origin. Delay the first Paper cycle until its normal interval. Use a relational leadership lease plus a unique `(job_name, scheduled_for)` slot claim, and enforce a second unique order barrier on strategy/symbol/timeframe/closed-candle/intent. Persist deployment, scheduler, process, worker, container, run-mode, test-run and origin provenance on every new order path.
+- Consequences: Restarting or Agent validation no longer implies a trading cycle; two launch modes may coexist without both executing the same slot; duplicate candle intents converge on the existing row. Historical reconciled orders without old provenance remain partially ambiguous and must not be retroactively relabeled as strategy performance.
+
+## ADR-062: Strategy-filter changes require read-only shadow evidence before production changes
+
+- Date: 2026-07-22
+- Status: accepted
+- Context: After deployment-coupled false trades and duplicate scheduling were repaired, order silence still could not distinguish weak base-signal recognition from excessive MTF/ensemble/LLM filtering. Historical traces also lack complete 4h/downstream evidence after some early-return MTF failures.
+- Decision: Keep production thresholds and execution behavior unchanged. Build Review-layer sequential funnel, manual-trade reconstruction, and A-E shadow candidate evaluation. B makes LLM advisory only, C uses confidence-weighted existing signals, D tests hierarchical MTF only when the required 4h/downstream evidence exists, and E combines B/C/D. Missing evidence must remain `candidate=None`; shadow results cannot create TradeIntents, reserve risk, or call a gateway.
+- Consequences: Candidate-recall differences can identify the dominant filter without taking market risk. No variant may be promoted from recall counts alone; fixed-exit outcome evidence, sample size, 1R/2R, expectancy, profit factor and drawdown are still required before a one-at-a-time production change.
