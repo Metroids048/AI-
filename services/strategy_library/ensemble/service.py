@@ -290,13 +290,17 @@ class SignalEnsembleService:
         # 计算加权分数：-1.0 (全空) 到 +1.0 (全多)
         weighted_score = (long_weight - short_weight) / total_weight
 
-        # 阈值判断（对齐现有逻辑，避免过度激进）
-        if weighted_score >= 0.35:
+        # Threshold: strictly positive = majority LONG, strictly negative = majority SHORT.
+        # Using > 0.0 instead of the previous >= 0.35 so a 2-of-3 majority (score=0.333)
+        # resolves a direction, while an exact 2-2 tie (score=0.0) still fails closed.
+        # The old 0.35 threshold was inadvertently stricter than a simple majority for the
+        # 3-source case (0.333 < 0.35 → None), which blocked all 2/3 consensus entries.
+        if weighted_score > 0.0:
             return TradeSide.LONG
-        if weighted_score <= -0.35:
+        if weighted_score < 0.0:
             return TradeSide.SHORT
 
-        return None  # 中性区域不开仓
+        return None  # exact tie → fail closed
 
     @classmethod
     def _eligible_layered_signals(
