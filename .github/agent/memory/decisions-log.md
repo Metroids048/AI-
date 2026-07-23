@@ -593,3 +593,11 @@
 - Context: After deployment-coupled false trades and duplicate scheduling were repaired, order silence still could not distinguish weak base-signal recognition from excessive MTF/ensemble/LLM filtering. Historical traces also lack complete 4h/downstream evidence after some early-return MTF failures.
 - Decision: Keep production thresholds and execution behavior unchanged. Build Review-layer sequential funnel, manual-trade reconstruction, and A-E shadow candidate evaluation. B makes LLM advisory only, C uses confidence-weighted existing signals, D tests hierarchical MTF only when the required 4h/downstream evidence exists, and E combines B/C/D. Missing evidence must remain `candidate=None`; shadow results cannot create TradeIntents, reserve risk, or call a gateway.
 - Consequences: Candidate-recall differences can identify the dominant filter without taking market risk. No variant may be promoted from recall counts alone; fixed-exit outcome evidence, sample size, 1R/2R, expectancy, profit factor and drawdown are still required before a one-at-a-time production change.
+
+## ADR-063: Freeze trading behavior until the execution contract and state identity are isolated
+
+- Date: 2026-07-23
+- Status: audit decision; no implementation authorized
+- Context: The automatic directional lane reached a valid intent 17 times but failed before exchange submission because the gateway requires `market_rules_snapshot`. Separately, lease loss does not fence a running cycle, and exchange position recovery does not bind direction/origin/position identity before reusing protection state.
+- Decision: Keep BTC/ETH scope and existing fixed position/leverage configuration. Do not change strategy thresholds, Ensemble weights, exits, risk gates or fallback behavior. First validate one synthetic intent through the complete non-mutating execution path, then separately design scheduler fencing and position-identity changes for operator approval.
+- Consequences: The project is not permitted to interpret API 200, completed scheduler cycles, Paper fills or `exchange_already_flat` as proof of a successful automatic round trip.

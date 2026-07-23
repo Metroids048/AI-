@@ -1,0 +1,812 @@
+stage,file,line,gate_name,input,condition,accept_output,reject_output,reason_code,logged,tested
+decision,services/execution/decision_pipeline.py,154,volatility,ast_node,"self._skipped( reason=""technical_signals_insufficient"", reference_price=reference_price, latest=latest, signals=[], ensemble=None, atr=atr, volatility={**volatility, ""signal_count"": 0}, )",fallthrough,"self._skipped( reason=""technical_signals_insufficient"", reference_price=reference_price, latest=latest, signals=[], ensemble=None, atr=atr, volatility={**volatility, ""signal_count"": 0}, )",unknown,yes,yes
+decision,services/execution/decision_pipeline.py,165,enabled,ast_node,settings.market_intelligence_enabled and strategy_allows_market_intelligence,fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,186,enabled,ast_node,"""mtf_ma"" in enabled_signals",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,199,volatility,ast_node,"self._skipped( reason=""multi_timeframe_disagreement"", reference_price=reference_price, latest=latest, signals=signals, ensemble=None, atr=atr, volatility={**volatility, ""multi_timeframe"": multi_timeframe}, )",fallthrough,"self._skipped( reason=""multi_timeframe_disagreement"", reference_price=reference_price, latest=latest, signals=signals, ensemble=None, atr=atr, volatility={**volatility, ""multi_timeframe"": multi_timeframe}, )",unknown,yes,yes
+decision,services/execution/decision_pipeline.py,223,discard,ast_node,"self._skipped( reason=""ensemble_discarded"", reference_price=reference_price, latest=latest, signals=signals, ensemble=ensemble, atr=atr, volatility=volatility, )",fallthrough,"self._skipped( reason=""ensemble_discarded"", reference_price=reference_price, latest=latest, signals=signals, ensemble=ensemble, atr=atr, volatility=volatility, )",unknown,yes,yes
+decision,services/execution/decision_pipeline.py,262,volatility,ast_node,"self._skipped( reason=""meta_label_bet_skipped"", reference_price=reference_price, latest=latest, signals=signals, ensemble=ensemble, meta_label=meta_label, atr=atr, volatility=volatility, )",fallthrough,"self._skipped( reason=""meta_label_bet_skipped"", reference_price=reference_price, latest=latest, signals=signals, ensemble=ensemble, meta_label=meta_label, atr=atr, volatility=volatility, )",unknown,yes,yes
+decision,services/execution/decision_pipeline.py,319,veto,ast_node,"DecisionPipelineResult( direction=ensemble.fused_direction, should_trade=not (veto_result is not None and veto_result.veto), reason=""llm_veto"" if veto_result is not None and veto_result.veto else ""ensemble_meta_label_passed"", reference_price=reference_price, bar_time=latest.timestamp if latest else None, signals=signals, ensemble=ensemble, meta_label=meta_label, veto_result=veto_result, confidence_multiplier=max(min(confidence * size_fraction, 1.0), 0.0), atr=atr, volatility_context=volatility, ",fallthrough,"DecisionPipelineResult( direction=ensemble.fused_direction, should_trade=not (veto_result is not None and veto_result.veto), reason=""llm_veto"" if veto_result is not None and veto_result.veto else ""ensemble_meta_label_passed"", reference_price=reference_price, bar_time=latest.timestamp if latest else None, signals=signals, ensemble=ensemble, meta_label=meta_label, veto_result=veto_result, confidence_multiplier=max(min(confidence * size_fraction, 1.0), 0.0), atr=atr, volatility_context=volatility, ",unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,345,enabled,ast_node,"""macd"" in enabled_signals",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,347,enabled,ast_node,"""dow_trend"" in enabled_signals",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,349,enabled,ast_node,"""price_action"" in enabled_signals",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,351,enabled,ast_node,"""false_breakout"" in enabled_signals",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,353,enabled,ast_node,"""rsi"" in enabled_signals",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,355,enabled,ast_node,"""ema_trend"" in enabled_signals",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,357,enabled,ast_node,"""adx"" in enabled_signals",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,359,enabled,ast_node,"""vwap"" in enabled_signals",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,361,enabled,ast_node,"""bollinger"" in enabled_signals",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,363,enabled,ast_node,"""fvg"" in enabled_signals",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,378,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,394,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,411,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,509,veto,ast_node,not enable_decision_veto,fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,510,veto,ast_node,"DecisionVetoResult( veto=False, veto_reason=""decision veto disabled for this Paper request"", checked_at=datetime.now(UTC), )",fallthrough,"DecisionVetoResult( veto=False, veto_reason=""decision veto disabled for this Paper request"", checked_at=datetime.now(UTC), )",unknown,yes,yes
+decision,services/execution/decision_pipeline.py,516,veto,ast_node,"DecisionVetoResult( veto=False, veto_reason=""decision veto agent repository unavailable -> advisory unavailable"", checked_at=datetime.now(UTC), )",fallthrough,"DecisionVetoResult( veto=False, veto_reason=""decision veto agent repository unavailable -> advisory unavailable"", checked_at=datetime.now(UTC), )",unknown,yes,yes
+decision,services/execution/decision_pipeline.py,521,veto,ast_node,"_daily_veto_calls(self.agent_repo, datetime.now(UTC).date()) >= settings.decision_veto_daily_budget",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,551,veto,ast_node,"DecisionVetoResult( veto=False, veto_reason=""decision veto daily budget exceeded -> advisory unavailable"", checked_at=datetime.now(UTC), agent_task_ref=task.agent_task_id, )",fallthrough,"DecisionVetoResult( veto=False, veto_reason=""decision veto daily budget exceeded -> advisory unavailable"", checked_at=datetime.now(UTC), agent_task_ref=task.agent_task_id, )",unknown,yes,yes
+decision,services/execution/decision_pipeline.py,613,veto,ast_node,"DecisionVetoResult( veto=False, veto_reason=""invalid veto payload -> advisory unavailable"", agent_task_ref=task.agent_task_id, )",fallthrough,"DecisionVetoResult( veto=False, veto_reason=""invalid veto payload -> advisory unavailable"", agent_task_ref=task.agent_task_id, )",unknown,yes,yes
+decision,services/execution/decision_pipeline.py,622,veto,ast_node,"DecisionVetoResult( veto=bool(high_risk_events), veto_reason=( ""high severity risk event present"" if high_risk_events else str(payload.get(""veto_reason"", ""llm advisory completed"")) ), checked_at=datetime.now(UTC), agent_task_ref=task.agent_task_id, )",fallthrough,"DecisionVetoResult( veto=bool(high_risk_events), veto_reason=( ""high severity risk event present"" if high_risk_events else str(payload.get(""veto_reason"", ""llm advisory completed"")) ), checked_at=datetime.now(UTC), agent_task_ref=task.agent_task_id, )",unknown,yes,yes
+decision,services/execution/decision_pipeline.py,650,veto,ast_node,"DecisionPipelineResult( direction=ensemble.fused_direction if ensemble else None, should_trade=False, reason=reason, reference_price=reference_price, bar_time=latest.timestamp if latest else None, signals=signals, ensemble=ensemble, meta_label=meta_label, veto_result=None, confidence_multiplier=0.5, # Conservative fallback instead of 0.0 atr=atr, volatility_context=volatility, trace=_trace( status=reason, signals=signals, ensemble=ensemble, meta_label=meta_label, veto_result=None, volatility=vol",fallthrough,"DecisionPipelineResult( direction=ensemble.fused_direction if ensemble else None, should_trade=False, reason=reason, reference_price=reference_price, bar_time=latest.timestamp if latest else None, signals=signals, ensemble=ensemble, meta_label=meta_label, veto_result=None, confidence_multiplier=0.5, # Conservative fallback instead of 0.0 atr=atr, volatility_context=volatility, trace=_trace( status=reason, signals=signals, ensemble=ensemble, meta_label=meta_label, veto_result=None, volatility=vol",unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,745,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,784,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,803,paper,ast_node,"strategy.strategy_key == ""auto_paper_mature_templates""",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,871,veto,ast_node,"task.agent_type == ""decision_veto_agent"" and task.task_type == ""pre_execution_veto_llm"" and created_at is not None and created_at.date() == day",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/decision_pipeline.py,891,veto,ast_node,"{ ""pipeline_status"": status, ""strategy_lane"": strategy_lane, ""signals"": [signal.model_dump(mode=""json"") for signal in signals], ""ensemble"": ensemble.model_dump(mode=""json"") if ensemble is not None else None, ""meta_label"": meta_label.model_dump(mode=""json"") if meta_label is not None else None, ""veto_result"": veto_result.model_dump(mode=""json"") if veto_result is not None else None, ""volatility"": volatility, }",fallthrough,"{ ""pipeline_status"": status, ""strategy_lane"": strategy_lane, ""signals"": [signal.model_dump(mode=""json"") for signal in signals], ""ensemble"": ensemble.model_dump(mode=""json"") if ensemble is not None else None, ""meta_label"": meta_label.model_dump(mode=""json"") if meta_label is not None else None, ""veto_result"": veto_result.model_dump(mode=""json"") if veto_result is not None else None, ""volatility"": volatility, }",unknown,unknown,yes
+decision,services/execution/paper_signal.py,129,veto,ast_node,not decision.should_trade and veto_result is None,fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,224,paper,ast_node,"_is_link_verification_strategy(rules=rules, paper_run=paper_run)",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,229,paper,ast_node,"_is_cross_sectional_strategy(rules=rules, paper_run=paper_run)",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,236,paper,ast_node,"_is_carry_strategy(rules=rules, paper_run=paper_run)",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,281,veto,ast_node,"DecisionPipelineResult( direction=TradeSide.LONG, should_trade=True, reason=""link_verification_admitted"", reference_price=reference_price, bar_time=bar.timestamp if bar else None, signals=[], ensemble=None, meta_label=None, veto_result=None, confidence_multiplier=1.0, atr=None, volatility_context={""regime"": ""link_verification""}, trace={ ""pipeline_status"": ""link_verification_admitted"", ""strategy_lane"": ""link_verification"", ""meta_label_win_rate"": 1.0, ""meta_label_average_win"": 1.0, ""meta_label_ave",fallthrough,"DecisionPipelineResult( direction=TradeSide.LONG, should_trade=True, reason=""link_verification_admitted"", reference_price=reference_price, bar_time=bar.timestamp if bar else None, signals=[], ensemble=None, meta_label=None, veto_result=None, confidence_multiplier=1.0, atr=None, volatility_context={""regime"": ""link_verification""}, trace={ ""pipeline_status"": ""link_verification_admitted"", ""strategy_lane"": ""link_verification"", ""meta_label_win_rate"": 1.0, ""meta_label_average_win"": 1.0, ""meta_label_ave",unknown,unknown,yes
+decision,services/execution/paper_signal.py,338,min_,ast_node,estimated_net is None or estimated_net < min_net_edge_bps,fallthrough,branch,unknown,yes,yes
+decision,services/execution/paper_signal.py,349,reject,ast_node,"""requires_positive_funding"" not in rejection_reasons",fallthrough,branch,unknown,yes,yes
+decision,services/execution/paper_signal.py,377,reject,ast_node,"DecisionPipelineResult( direction=direction, should_trade=should_trade, reason=""funding_arbitrage_admitted"" if should_trade else ""funding_arbitrage_rejected"", reference_price=reference_price, bar_time=bar.timestamp if bar else None, signals=[], ensemble=None, meta_label=None, veto_result=None, confidence_multiplier=1.0, atr=None, volatility_context={""regime"": ""funding_arbitrage""}, trace={ ""pipeline_status"": pipeline_status, ""strategy_lane"": ""carry"", ""funding_rate"": str(signal.funding_rate) if si",fallthrough,"DecisionPipelineResult( direction=direction, should_trade=should_trade, reason=""funding_arbitrage_admitted"" if should_trade else ""funding_arbitrage_rejected"", reference_price=reference_price, bar_time=bar.timestamp if bar else None, signals=[], ensemble=None, meta_label=None, veto_result=None, confidence_multiplier=1.0, atr=None, volatility_context={""regime"": ""funding_arbitrage""}, trace={ ""pipeline_status"": pipeline_status, ""strategy_lane"": ""carry"", ""funding_rate"": str(signal.funding_rate) if si",unknown,unknown,yes
+decision,services/execution/paper_signal.py,439,min_,ast_node,estimated_net_edge_bps is None or estimated_net_edge_bps < min_net_edge_bps,fallthrough,branch,unknown,yes,yes
+decision,services/execution/paper_signal.py,445,veto,ast_node,"DecisionPipelineResult( direction=direction, should_trade=should_trade, reason=pipeline_status, reference_price=reference_price, bar_time=bar.timestamp if bar else None, signals=[], ensemble=None, meta_label=None, veto_result=None, confidence_multiplier=1.0, atr=None, volatility_context={""regime"": ""cross_sectional_funding_carry""}, trace={ ""pipeline_status"": pipeline_status, ""strategy_lane"": ""cross_sectional_carry"", ""basket_side"": basket_side, ""funding_rate_bps"": funding_rate_bps, ""rank"": rank, """,fallthrough,"DecisionPipelineResult( direction=direction, should_trade=should_trade, reason=pipeline_status, reference_price=reference_price, bar_time=bar.timestamp if bar else None, signals=[], ensemble=None, meta_label=None, veto_result=None, confidence_multiplier=1.0, atr=None, volatility_context={""regime"": ""cross_sectional_funding_carry""}, trace={ ""pipeline_status"": pipeline_status, ""strategy_lane"": ""cross_sectional_carry"", ""basket_side"": basket_side, ""funding_rate_bps"": funding_rate_bps, ""rank"": rank, """,unknown,unknown,yes
+decision,services/execution/paper_signal.py,500,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/execution/paper_signal.py,520,max_,ast_node,"""max_net_loss_bps"" in rules",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,534,min_,ast_node,"""min_net_profit_bps"" in rules",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,542,paper,ast_node,"paper_run.execution_profile.get(""asset_risk_tiers"")",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,583,position,ast_node,"""notional_usdt"" in position_rules",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,586,position,ast_node,"""order_notional_usdt"" in position_rules",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,589,position,ast_node,"""risk_per_trade"" in position_rules",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,615,min_,ast_node,account_equity > 0 and (notional / account_equity) < MIN_SANE_NOTIONAL_FRACTION,fallthrough,branch,unknown,yes,yes
+decision,services/execution/paper_signal.py,674,position,ast_node,position.symbol == symbol,fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,675,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+decision,services/execution/paper_signal.py,689,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+decision,services/execution/paper_signal.py,690,position,ast_node,coefficient > correlation_peer_threshold and position.side == direction,fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,701,correlation,ast_node,high_correlation_peer_count > 0 and max_peer_correlation > correlation_peer_threshold,fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,759,paper,ast_node,"paper_run is not None and paper_run.execution_profile.get(""strategy_lane"") == ""link_verification""",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,765,paper,ast_node,"paper_run is not None and paper_run.execution_profile.get(""strategy_lane"") == ""cross_sectional_carry""",fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,771,paper,ast_node,paper_run is not None,fallthrough,branch,unknown,unknown,yes
+decision,services/execution/paper_signal.py,776,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+decision,services/execution/portfolio_decision.py,28,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/execution/portfolio_decision.py,38,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/execution/portfolio_decision.py,67,correlation,ast_node,correlation is not None and abs(correlation) >= correlation_threshold and candidate.side is not stronger.side,fallthrough,branch,unknown,unknown,yes
+decision,services/execution/portfolio_decision.py,76,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+decision,services/execution/signal_edge_stats.py,88,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+decision,services/execution/signal_edge_stats.py,99,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/execution/signal_edge_stats.py,116,max_,ast_node,(reference_time - computed_at).days > max_age_days,fallthrough,branch,unknown,unknown,yes
+decision,services/execution/signal_edge_stats.py,117,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/execution/signal_edge_stats.py,119,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/execution/signal_edge_stats.py,121,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/execution/signal_edge_stats.py,123,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/execution/signal_edge_stats.py,125,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/execution/signal_edge_stats.py,150,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/review/strategy_ablation.py,71,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/review/strategy_ablation.py,78,veto,ast_node,"isinstance(veto, dict) and veto.get(""veto"") is True",fallthrough,"isinstance(veto, dict) and veto.get(""veto"") is True",unknown,unknown,yes
+decision,services/review/strategy_ablation.py,105,veto,ast_node,"ShadowVariantResult( variant=B_NO_LLM_HARD_VETO, candidate=True if bypassed else current.candidate, side=side if bypassed else current.side, reason=""LLM veto retained as advisory"" if bypassed else current.reason, long_weight=long_weight, short_weight=short_weight, llm_advisory=_llm_veto(trace), )",fallthrough,"ShadowVariantResult( variant=B_NO_LLM_HARD_VETO, candidate=True if bypassed else current.candidate, side=side if bypassed else current.side, reason=""LLM veto retained as advisory"" if bypassed else current.reason, long_weight=long_weight, short_weight=short_weight, llm_advisory=_llm_veto(trace), )",unknown,unknown,yes
+decision,services/review/strategy_ablation.py,125,discard,ast_node,"status != ""ensemble_discarded""",fallthrough,branch,unknown,unknown,yes
+decision,services/review/strategy_ablation.py,178,regime,ast_node,"not isinstance(shadow_context, dict) or not shadow_context.get(""regime_4h_direction"")",fallthrough,branch,unknown,unknown,yes
+decision,services/review/strategy_ablation.py,236,discard,ast_node,"status == ""ensemble_discarded""",fallthrough,branch,unknown,unknown,yes
+decision,services/review/strategy_ablation.py,247,veto,ast_node,"status == ""vetoed""",fallthrough,branch,unknown,unknown,yes
+decision,services/strategy_library/c_plus/__init__.py,98,reject,ast_node,"CPlusDecision( decision_id=decision_id, symbol=symbol, timestamp=timestamp, regime=regime, ensemble=ensemble_result, entry_setup=None, exit_plan=None, rejection_reason=""ensemble_no_direction"", )",fallthrough,"CPlusDecision( decision_id=decision_id, symbol=symbol, timestamp=timestamp, regime=regime, ensemble=ensemble_result, entry_setup=None, exit_plan=None, rejection_reason=""ensemble_no_direction"", )",unknown,unknown,yes
+decision,services/strategy_library/c_plus/__init__.py,111,reject,ast_node,"CPlusDecision( decision_id=decision_id, symbol=symbol, timestamp=timestamp, regime=regime, ensemble=ensemble_result, entry_setup=None, exit_plan=None, rejection_reason=""no_dominant_family"", )",fallthrough,"CPlusDecision( decision_id=decision_id, symbol=symbol, timestamp=timestamp, regime=regime, ensemble=ensemble_result, entry_setup=None, exit_plan=None, rejection_reason=""no_dominant_family"", )",unknown,unknown,yes
+decision,services/strategy_library/c_plus/__init__.py,131,reject,ast_node,"CPlusDecision( decision_id=decision_id, symbol=symbol, timestamp=timestamp, regime=regime, ensemble=ensemble_result, entry_setup=None, exit_plan=None, rejection_reason=""entry_condition_not_met"", )",fallthrough,"CPlusDecision( decision_id=decision_id, symbol=symbol, timestamp=timestamp, regime=regime, ensemble=ensemble_result, entry_setup=None, exit_plan=None, rejection_reason=""entry_condition_not_met"", )",unknown,unknown,yes
+decision,services/strategy_library/c_plus/__init__.py,152,reject,ast_node,"CPlusDecision( decision_id=decision_id, symbol=symbol, timestamp=timestamp, regime=regime, ensemble=ensemble_result, entry_setup=entry_setup, exit_plan=exit_plan, rejection_reason=None, )",fallthrough,"CPlusDecision( decision_id=decision_id, symbol=symbol, timestamp=timestamp, regime=regime, ensemble=ensemble_result, entry_setup=entry_setup, exit_plan=exit_plan, rejection_reason=None, )",unknown,unknown,yes
+decision,services/strategy_library/c_plus/__init__.py,165,reject,ast_node,decision.rejection_reason,fallthrough,branch,unknown,yes,yes
+decision,services/strategy_library/c_plus/__init__.py,166,reject,ast_node,"f""C+ Decision {decision.decision_id[:8]} [{decision.symbol}] "" f""REJECTED: {decision.rejection_reason} "" f""(regime={decision.regime.value}, score={decision.ensemble.final_score:.2f})""",fallthrough,"f""C+ Decision {decision.decision_id[:8]} [{decision.symbol}] "" f""REJECTED: {decision.rejection_reason} "" f""(regime={decision.regime.value}, score={decision.ensemble.final_score:.2f})""",unknown,yes,yes
+decision,services/strategy_library/candidates/trend_pullback_v1.py,33,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/candidates/trend_pullback_v1.py,43,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/entry/models.py,79,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/entry/models.py,96,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/entry/models.py,100,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/entry/models.py,153,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/entry/models.py,173,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/entry/models.py,176,max_,ast_node,breakout_distance > self.max_breakout_atr * latest_atr,fallthrough,branch,unknown,unknown,yes
+decision,services/strategy_library/entry/models.py,177,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/entry/models.py,223,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/entry/models.py,235,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/entry/models.py,237,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/entry/models.py,281,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/entry/models.py,291,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/entry/models.py,293,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/meta_label_model.py,75,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/meta_label_model.py,82,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/meta_label_model.py,84,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/meta_label_model.py,86,max_,ast_node,(reference_time - trained_at).days > max_age_days,fallthrough,branch,unknown,unknown,yes
+decision,services/strategy_library/meta_label_model.py,87,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/meta_label_model.py,117,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/meta_label_model.py,136,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/meta_label_model.py,170,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/meta_label_model.py,175,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+decision,services/strategy_library/meta_label_model.py,176,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/playbook.py,106,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/registry.py,88,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+decision,services/strategy_library/repository.py,71,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,208,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,666,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,713,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,737,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,740,regime,ast_node,body.market_regime is not None,fallthrough,branch,unknown,unknown,yes
+decision,services/strategy_library/repository.py,760,return,ast_node,None,fallthrough,None,unknown,yes,yes
+decision,services/strategy_library/repository.py,790,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,793,paper,ast_node,paper_status is not None,fallthrough,branch,unknown,unknown,yes
+decision,services/strategy_library/repository.py,805,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,819,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+decision,services/strategy_library/repository.py,886,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,994,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1018,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1027,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1056,pass,ast_node,pass,fallthrough,no_action,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1075,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1082,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1133,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1136,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1184,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1274,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1291,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1360,paper,ast_node,paper_run_id is not None,fallthrough,branch,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1398,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1593,position,ast_node,"payload.get(""final_open_position_count"") == 0 and payload.get(""final_open_order_count"") == 0 and list(payload.get(""requested_symbols"") or payload.get(""completed_symbols"") or []) == expected and list(payload.get(""completed_symbols"") or []) == expected and int(payload.get(""filled_order_count"") or 0) >= 2 * len(expected)",fallthrough,branch,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1601,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1636,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1753,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1793,paper,ast_node,"run_type == ""paper""",fallthrough,branch,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1798,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/repository.py,1805,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/chan_theory.py,99,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,unknown
+decision,services/strategy_library/technical/chan_theory.py,117,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,unknown
+decision,services/strategy_library/technical/chan_theory.py,119,enabled,ast_node,not enabled,fallthrough,branch,unknown,unknown,unknown
+decision,services/strategy_library/technical/chan_theory.py,120,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,unknown
+decision,services/strategy_library/technical/dow_trend.py,55,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/dow_trend.py,58,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/dow_trend.py,78,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,21,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,43,reject,ast_node,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_rsi"", signal_time=signal_time, reason=""rsi_overbought_rejection"", confidence=confidence, )",fallthrough,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_rsi"", signal_time=signal_time, reason=""rsi_overbought_rejection"", confidence=confidence, )",unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,51,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,64,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,74,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,95,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,118,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,122,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,137,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,154,reject,ast_node,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_vwap"", signal_time=_signal_time(frame), reason=""vwap_rejection"", confidence=min((vwap - latest_close) / max(latest_close, 1.0) * 40.0 + 0.3, 1.0), )",fallthrough,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_vwap"", signal_time=_signal_time(frame), reason=""vwap_rejection"", confidence=min((vwap - latest_close) / max(latest_close, 1.0) * 40.0 + 0.3, 1.0), )",unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,162,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,175,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,205,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,224,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,238,min_,ast_node,"candle_low > prior_high and (candle_low - prior_high) / max(reference_close, 1.0) >= min_gap_pct",fallthrough,branch,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,240,min_,ast_node,"candle_high < prior_low and (prior_low - candle_high) / max(reference_close, 1.0) >= min_gap_pct",fallthrough,branch,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,252,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,267,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,270,reject,ast_node,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_fvg"", signal_time=signal_time, reason=""fvg_bearish_gap_fill_rejection"", confidence=min(0.4 + fill_ratio * 0.3, 0.95), )",fallthrough,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_fvg"", signal_time=signal_time, reason=""fvg_bearish_gap_fill_rejection"", confidence=min(0.4 + fill_ratio * 0.3, 0.95), )",unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,278,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,296,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,302,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,308,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/indicators.py,313,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/macd.py,25,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/macd.py,66,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,51,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,55,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,81,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,92,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,96,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,117,reject,ast_node,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_pandas_ta_stoch_rsi"", signal_time=_signal_time(frame), reason=""stoch_rsi_overbought_rejection"", confidence=confidence, )",fallthrough,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_pandas_ta_stoch_rsi"", signal_time=_signal_time(frame), reason=""stoch_rsi_overbought_rejection"", confidence=confidence, )",unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,126,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,135,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,139,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,170,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,182,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,189,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,220,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,230,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,234,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,253,reject,ast_node,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_pandas_ta_cmo"", signal_time=_signal_time(frame), reason=""cmo_overbought_rejection"", confidence=min(0.35 + abs(previous_cmo - 50) / 50 * 0.3, 0.85), )",fallthrough,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_pandas_ta_cmo"", signal_time=_signal_time(frame), reason=""cmo_overbought_rejection"", confidence=min(0.35 + abs(previous_cmo - 50) / 50 * 0.3, 0.85), )",unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,262,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,274,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,280,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,306,reject,ast_node,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_pandas_ta_keltner"", signal_time=_signal_time(frame), reason=""keltner_upper_band_rejection"", confidence=min(0.4 + abs(previous_close - previous_upper) / max(latest_close, 1.0) * 30, 0.85), )",fallthrough,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_pandas_ta_keltner"", signal_time=_signal_time(frame), reason=""keltner_upper_band_rejection"", confidence=min(0.4 + abs(previous_close - previous_upper) / max(latest_close, 1.0) * 30, 0.85), )",unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,315,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,325,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,329,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,363,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,373,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,377,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,396,reject,ast_node,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_pandas_ta_mfi"", signal_time=_signal_time(frame), reason=""mfi_overbought_rejection"", confidence=min(0.35 + (max(previous_mfi, latest_mfi) - 80) / 20 * 0.4, 0.9), )",fallthrough,"TradeSignal( symbol=symbol, side=TradeSide.SHORT, source=""technical_pandas_ta_mfi"", signal_time=_signal_time(frame), reason=""mfi_overbought_rejection"", confidence=min(0.35 + (max(previous_mfi, latest_mfi) - 80) / 20 * 0.4, 0.9), )",unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,405,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,415,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,419,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,450,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,459,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,472,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,481,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,490,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,499,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,508,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,517,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,526,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,535,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,544,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,637,min_,ast_node,"len(frame) < config[""min_periods""]",fallthrough,branch,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,638,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/pandas_ta_adapter.py,643,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/price_action.py,14,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/price_action.py,28,return,ast_node,None,fallthrough,None,unknown,yes,yes
+decision,services/strategy_library/technical/price_action.py,41,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/price_action.py,51,reject,ast_node,"_signal( frame=frame, symbol=symbol, direction=TradeSide.LONG, reason=""bullish_pin_bar_rejection"", source=""price_action_pin_bar"", )",fallthrough,"_signal( frame=frame, symbol=symbol, direction=TradeSide.LONG, reason=""bullish_pin_bar_rejection"", source=""price_action_pin_bar"", )",unknown,unknown,yes
+decision,services/strategy_library/technical/price_action.py,59,reject,ast_node,"_signal( frame=frame, symbol=symbol, direction=TradeSide.SHORT, reason=""bearish_pin_bar_rejection"", source=""price_action_pin_bar"", )",fallthrough,"_signal( frame=frame, symbol=symbol, direction=TradeSide.SHORT, reason=""bearish_pin_bar_rejection"", source=""price_action_pin_bar"", )",unknown,unknown,yes
+decision,services/strategy_library/technical/price_action.py,66,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/price_action.py,78,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/price_action.py,104,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/price_action.py,117,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/price_action.py,149,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/price_action.py,174,confidence,ast_node,confidence is None,fallthrough,branch,unknown,unknown,yes
+decision,services/strategy_library/technical/volatility_regime.py,12,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+decision,services/strategy_library/technical/volatility_regime.py,27,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/service.py,43,confidence,signals,confidence below threshold,ensemble,discarded_low_confidence,discarded_low_confidence,yes,yes
+ensemble,services/strategy_library/ensemble/service.py,129,discard,ast_node,"SignalEnsemble( ensemble_id=str(uuid.uuid4()), strategy_refs=[signal.strategy_id for signal in request.signals], fusion_method=request.fusion_method, raw_votes=[], ensemble_status=EnsembleStatus.DISCARDED_LOW_CONFIDENCE, correlation_matrix_ref=f""{correlation_prefix}:{audit}"", created_at=datetime.now(UTC), )",fallthrough,"SignalEnsemble( ensemble_id=str(uuid.uuid4()), strategy_refs=[signal.strategy_id for signal in request.signals], fusion_method=request.fusion_method, raw_votes=[], ensemble_status=EnsembleStatus.DISCARDED_LOW_CONFIDENCE, correlation_matrix_ref=f""{correlation_prefix}:{audit}"", created_at=datetime.now(UTC), )",unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/service.py,198,position,ast_node,"MetaLabel( meta_label_id=str(uuid.uuid4()), ensemble_id=request.ensemble_id, triple_barrier_result=outcome, bet_decision=BetDecision.BET_TAKEN if bet_taken else BetDecision.BET_SKIPPED, position_size_fraction=position_size, model_ref=model_ref, training_window_ref=self._training_ref(request), )",fallthrough,"MetaLabel( meta_label_id=str(uuid.uuid4()), ensemble_id=request.ensemble_id, triple_barrier_result=outcome, bet_decision=BetDecision.BET_TAKEN if bet_taken else BetDecision.BET_SKIPPED, position_size_fraction=position_size, model_ref=model_ref, training_window_ref=self._training_ref(request), )",unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/service.py,218,min_,ast_node,len(left.series) < min_history or len(right.series) < min_history,fallthrough,branch,unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/service.py,219,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/service.py,222,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/service.py,268,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/service.py,272,min_,ast_node,len(direction_signals) < min_direction_sources,fallthrough,branch,unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/service.py,273,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/service.py,288,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/service.py,299,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/service.py,312,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/service.py,316,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/weighted.py,90,min_,ast_node,total_weight < self.min_total_weight,fallthrough,branch,unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/weighted.py,144,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+ensemble,services/strategy_library/ensemble/weighted.py,152,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/account_equity.py,20,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/account_equity.py,41,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/account_equity.py,42,pass,ast_node,pass,fallthrough,no_action,unknown,unknown,yes
+execution,services/execution/account_equity.py,81,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/account_equity.py,82,pass,ast_node,pass,fallthrough,no_action,unknown,unknown,yes
+execution,services/execution/binance_user_stream.py,29,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+execution,services/execution/binance_user_stream.py,32,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+execution,services/execution/binance_user_stream.py,38,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+execution,services/execution/bootstrap.py,305,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+execution,services/execution/bootstrap.py,350,min_,ast_node,"not all( asset[""tradable_status""] == ""trading"" and asset[""precision""] and asset[""min_notional""] is not None for asset in assets )",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/bootstrap.py,360,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/bootstrap.py,434,paper,ast_node,"run.strategy_id == strategy.strategy_id and run.validation_methodology.get(""auto_paper_runtime_key"") == runtime_key",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/bootstrap.py,473,paper,ast_node,"paper_candidate.strategy_id == strategy.strategy_id and paper_candidate.execution_profile.get(""auto_paper_runtime_key"") == runtime_key",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/bootstrap.py,513,paper,ast_node,paper_run is None,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/bootstrap.py,534,testnet,ast_node,not force_paper_only or preserve_testnet_authorization,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/bootstrap.py,538,testnet,ast_node,preserve_testnet_authorization,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/bootstrap.py,542,testnet,ast_node,force_paper_only and not preserve_testnet_authorization,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/bootstrap.py,559,paper,ast_node,paper_run_id,fallthrough,branch,unknown,yes,yes
+execution,services/execution/bootstrap.py,572,return,ast_node,None,fallthrough,None,unknown,yes,yes
+execution,services/execution/bootstrap.py,593,return,ast_node,None,fallthrough,None,unknown,yes,yes
+execution,services/execution/bootstrap.py,808,except,ast_node,Exception,fallthrough,exception_handler,unknown,yes,yes
+execution,services/execution/bootstrap.py,825,paper,ast_node,"run.paper_status != ""running""",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/bootstrap.py,826,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/bootstrap.py,828,paper,ast_node,"runtime_key in {AUTO_PAPER_TECHNICAL_KEY, SIGNAL_OBSERVATION_RUNTIME_KEY}",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/bootstrap.py,829,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/bootstrap.py,855,except,ast_node,Exception,fallthrough,exception_handler,unknown,yes,yes
+execution,services/execution/c_plus_adapter.py,74,reject,ast_node,"self._create_rejection( symbol=symbol, reason=""insufficient_ohlcv_data"", )",fallthrough,"self._create_rejection( symbol=symbol, reason=""insufficient_ohlcv_data"", )",unknown,yes,unknown
+execution,services/execution/c_plus_adapter.py,86,except,ast_node,Exception,fallthrough,exception_handler,unknown,yes,unknown
+execution,services/execution/c_plus_adapter.py,88,reject,ast_node,"self._create_rejection( symbol=symbol, reason=f""c_plus_execution_error: {e!s}"", )",fallthrough,"self._create_rejection( symbol=symbol, reason=f""c_plus_execution_error: {e!s}"", )",unknown,yes,unknown
+execution,services/execution/c_plus_adapter.py,94,reject,ast_node,decision.rejection_reason,fallthrough,branch,unknown,yes,unknown
+execution,services/execution/c_plus_adapter.py,95,reject,ast_node,"self._create_rejection( symbol=symbol, reason=decision.rejection_reason, decision_id=decision.decision_id, regime=decision.regime.value, )",fallthrough,"self._create_rejection( symbol=symbol, reason=decision.rejection_reason, decision_id=decision.decision_id, regime=decision.regime.value, )",unknown,yes,unknown
+execution,services/execution/c_plus_adapter.py,103,reject,ast_node,"self._create_rejection( symbol=symbol, reason=""missing_entry_or_exit"", decision_id=decision.decision_id, regime=decision.regime.value, )",fallthrough,"self._create_rejection( symbol=symbol, reason=""missing_entry_or_exit"", decision_id=decision.decision_id, regime=decision.regime.value, )",unknown,yes,unknown
+execution,services/execution/c_plus_adapter.py,115,reject,ast_node,"CPlusAdapterResult( direction=ensemble.final_side, reference_price=entry_setup.reference_price, entry_price=entry_setup.trigger_price or entry_setup.reference_price, stop_price=exit_plan.initial_stop, take_profit_price=exit_plan.target_1, order_type=entry_setup.entry_type, confidence=ensemble.confidence, rejection_reason=None, decision_id=decision.decision_id, regime=decision.regime.value, strategy_family=ensemble.selected_family.value if ensemble.selected_family else None, )",fallthrough,"CPlusAdapterResult( direction=ensemble.final_side, reference_price=entry_setup.reference_price, entry_price=entry_setup.trigger_price or entry_setup.reference_price, stop_price=exit_plan.initial_stop, take_profit_price=exit_plan.target_1, order_type=entry_setup.entry_type, confidence=ensemble.confidence, rejection_reason=None, decision_id=decision.decision_id, regime=decision.regime.value, strategy_family=ensemble.selected_family.value if ensemble.selected_family else None, )",unknown,unknown,unknown
+execution,services/execution/c_plus_adapter.py,144,return,ast_node,None,fallthrough,None,unknown,unknown,unknown
+execution,services/execution/c_plus_adapter.py,155,except,ast_node,Exception,fallthrough,exception_handler,unknown,yes,unknown
+execution,services/execution/c_plus_adapter.py,157,return,ast_node,None,fallthrough,None,unknown,yes,unknown
+execution,services/execution/c_plus_adapter.py,168,reject,ast_node,"CPlusAdapterResult( direction=None, reference_price=Decimal(""0""), entry_price=None, stop_price=Decimal(""0""), take_profit_price=None, order_type=OrderType.MARKET, confidence=0.0, rejection_reason=reason, decision_id=decision_id, regime=regime, strategy_family=None, )",fallthrough,"CPlusAdapterResult( direction=None, reference_price=Decimal(""0""), entry_price=None, stop_price=Decimal(""0""), take_profit_price=None, order_type=OrderType.MARKET, confidence=0.0, rejection_reason=reason, decision_id=decision_id, regime=regime, strategy_family=None, )",unknown,unknown,unknown
+execution,services/execution/carry_execution.py,64,reject,ast_node,"CarryExecutionStatus( run_id=run_id, run_status=""rejected"", carry_state=""planned"", state_history=states, signal=signal, error_summary=""; "".join(signal.rejection_reasons) or ""funding signal did not pass carry admission"", )",fallthrough,"CarryExecutionStatus( run_id=run_id, run_status=""rejected"", carry_state=""planned"", state_history=states, signal=signal, error_summary=""; "".join(signal.rejection_reasons) or ""funding signal did not pass carry admission"", )",unknown,unknown,yes
+execution,services/execution/carry_execution.py,74,position,ast_node,"any( ( spot_preflight.get(""open_orders""), spot_preflight.get(""open_positions""), perp_preflight.get(""open_orders""), perp_preflight.get(""open_positions""), ) )",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/carry_execution.py,108,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/carry_execution.py,160,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/carry_execution.py,173,position,ast_node,"any( ( spot_final.get(""open_orders""), spot_final.get(""open_positions""), perp_final.get(""open_orders""), perp_final.get(""open_positions""), ) )",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/demo_audit.py,63,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,unknown
+execution,services/execution/demo_audit.py,104,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,unknown
+execution,services/execution/demo_audit.py,137,return,ast_node,None,fallthrough,None,unknown,unknown,unknown
+execution,services/execution/demo_audit.py,142,position,ast_node,latest is not None and latest.wallet_balance == float(account.wallet_balance) and latest.available_balance == float(account.available_balance) and latest.unrealized_pnl == float(account.unrealized_pnl or 0.0) and latest.open_position_count == int(account.open_position_count or 0) and latest.snapshot_time is not None and snapshot_time - latest.snapshot_time < timedelta(minutes=5),fallthrough,branch,unknown,unknown,unknown
+execution,services/execution/demo_audit.py,172,position,ast_node,not account.positions and account.wallet_balance is None,fallthrough,branch,unknown,unknown,unknown
+execution,services/execution/demo_audit.py,188,paper,ast_node,not run_id or run_id == context.paper_run_id,fallthrough,branch,unknown,unknown,unknown
+execution,services/execution/demo_audit.py,189,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,unknown
+execution,services/execution/demo_audit.py,221,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,unknown
+execution,services/execution/demo_audit.py,250,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,unknown
+execution,services/execution/demo_audit.py,253,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,unknown
+execution,services/execution/demo_audit.py,256,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,unknown
+execution,services/execution/demo_audit.py,329,paper,ast_node,paper_run is None,fallthrough,branch,unknown,unknown,unknown
+execution,services/execution/gateway.py,48,min_,ast_node,not close_only and reference_price > 0 and quantity * reference_price < min_notional,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/gateway.py,62,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/gateway.py,63,pass,ast_node,pass,fallthrough,no_action,unknown,unknown,yes
+execution,services/execution/gateway.py,64,min_,ast_node,not close_only and reference_price > 0 and quantity * reference_price < min_notional,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/gateway.py,94,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/gateway.py,102,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/gateway.py,112,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/gateway.py,124,max_,ast_node,max_distance > 0 and abs(price - reference_price) / reference_price > max_distance,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/gateway.py,181,testnet,ast_node,self.use_testnet,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/gateway.py,187,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/gateway.py,190,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/gateway.py,193,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/gateway.py,196,enabled,ast_node,"isinstance(info, dict) and _is_withdrawal_enabled(info.get(""canWithdraw""))",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/gateway.py,332,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/gateway.py,333,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/gateway.py,334,pass,ast_node,pass,fallthrough,no_action,unknown,unknown,yes
+execution,services/execution/gateway.py,340,market_rules_snapshot,TradeIntent,snapshot is None,normalized order,ValueError,market_rules_snapshot_required,no,yes
+execution,services/execution/gateway.py,417,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/gateway.py,452,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/gateway.py,458,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/gateway.py,506,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/gateway.py,509,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/gateway.py,510,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/gateway.py,514,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/gateway.py,554,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/gateway.py,718,testnet,ast_node,"mode == ""testnet""",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/gateway.py,730,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/gateway.py,750,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/gateway.py,811,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/gateway.py,818,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/gateway.py,819,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+execution,services/execution/gateway.py,857,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/gateway.py,882,testnet,ast_node,"backend in {""testnet"", ""testnet-fallback""}",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/gateway.py,901,testnet,ast_node,"api_backend in {""testnet"", ""testnet-fallback""}",fallthrough,branch,unknown,yes,yes
+execution,services/execution/gateway.py,925,position,ast_node,first.connected and (first.positions or first.open_position_count > 0 or first.error),fallthrough,branch,unknown,unknown,yes
+execution,services/execution/gateway.py,949,testnet,ast_node,not settings.binance_use_testnet,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/gateway.py,970,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/gateway.py,999,position,ast_node,positions and snapshot.open_position_count != len(positions),fallthrough,branch,unknown,unknown,yes
+execution,services/execution/gateway.py,1002,position,ast_node,positions,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/gateway.py,1004,testnet,ast_node,"""testnet.binancefuture.com"" in web_ui_url",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/gateway.py,1053,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/gateway.py,1054,pass,ast_node,pass,fallthrough,no_action,unknown,unknown,yes
+execution,services/execution/gateway.py,1073,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/gateway.py,1074,pass,ast_node,pass,fallthrough,no_action,unknown,unknown,yes
+execution,services/execution/gateway.py,1094,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/kill_switch.py,51,enabled,ast_node,not self.enabled,fallthrough,branch,unknown,unknown,unknown
+execution,services/execution/kill_switch.py,52,return,ast_node,False,fallthrough,False,unknown,unknown,unknown
+execution,services/execution/kill_switch.py,59,except,ast_node,Exception,fallthrough,exception_handler,unknown,yes,unknown
+execution,services/execution/kill_switch.py,61,return,ast_node,False,fallthrough,False,unknown,yes,unknown
+execution,services/execution/kill_switch.py,62,return,ast_node,False,fallthrough,False,unknown,yes,unknown
+execution,services/execution/kill_switch.py,72,except,ast_node,Exception,fallthrough,exception_handler,unknown,yes,unknown
+execution,services/execution/kill_switch.py,87,except,ast_node,Exception,fallthrough,exception_handler,unknown,yes,unknown
+execution,services/execution/manual.py,45,testnet,ast_node,"request.mode == ""testnet""",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/manual.py,59,position,ast_node,"position is None and request.mode == ""paper""",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/manual.py,61,position,ast_node,position is None,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/manual.py,94,testnet,ast_node,"request.mode == ""testnet""",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/manual.py,117,testnet,ast_node,"request.mode == ""testnet""",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/manual.py,142,testnet,ast_node,"request.mode == ""testnet""",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/manual.py,257,position,ast_node,position.symbol == symbol and abs(position.quantity) > 0,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/manual.py,259,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/manual_context.py,36,paper,ast_node,"mode != ""paper""",fallthrough,branch,unknown,unknown,unknown
+execution,services/execution/order_normalizer.py,115,position,ast_node,"rules.position_mode not in {""ONE_WAY"", ""HEDGE""}",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/order_normalizer.py,124,position,ast_node,"rules.position_mode == ""HEDGE"" and closing",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/order_normalizer.py,125,position,ast_node,confirmed_position_quantity is None or confirmed_position_quantity <= 0,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/order_normalizer.py,130,min_,ast_node,quantity < rules.min_quantity,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/order_normalizer.py,132,max_,ast_node,rules.max_quantity is not None and quantity > rules.max_quantity,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/order_normalizer.py,135,min_,ast_node,notional < rules.min_notional,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/order_normalizer.py,137,max_,ast_node,rules.max_notional is not None and notional > rules.max_notional,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/order_normalizer.py,140,position,ast_node,"rules.position_mode == ""ONE_WAY""",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/order_normalizer.py,164,position,ast_node,position_side is PositionSide.FLAT,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,31,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,33,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,37,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,42,reject,ast_node,"""-2022"" in text or ""reduceonly order is rejected"" in text",fallthrough,"""-2022"" in text or ""reduceonly order is rejected"" in text",unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,68,position,ast_node,position is not None,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,72,position,ast_node,close_only and position is not None,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,83,min_,ast_node,reference_price > 0 and quantity * reference_price < min_notional,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,118,paper,ast_node,"order.paper_run_id != paper_run.paper_run_id or order.close_only_mode or order.execution_status not in {""submitted"", ""open""} or str(order.entry_context.get(""order_type"", """")).lower() != ""limit"" or not order.gateway_order_id",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,125,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,128,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,131,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,141,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,174,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,189,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,201,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,232,paper,ast_node,not callable(cancel) or paper_run.paper_run_id is None,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,246,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,249,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,253,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,269,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,292,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,297,position,ast_node,"not order_id or not reduce_only or order_type not in {""STOP_MARKET"", ""TAKE_PROFIT_MARKET"", ""LIMIT""} or symbol not in allowed_symbols or symbol in exchange_positions",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,304,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,307,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,316,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,342,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,344,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,347,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,357,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,411,continue,ast_node,continue,fallthrough,skip_current_item,unknown,yes,yes
+execution,services/execution/paper_exchange_execution.py,412,except,ast_node,Exception,fallthrough,exception_handler,unknown,yes,yes
+execution,services/execution/paper_exchange_execution.py,448,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,464,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,468,position,ast_node,symbol in positions,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,501,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,516,position,ast_node,"""open_positions"" not in snapshot",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,525,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,529,position,ast_node,symbol in confirmed_positions,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,538,position,ast_node,symbol in active_positions or symbol not in allowed_symbols,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,539,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,589,position,ast_node,symbol in exchange_positions,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,591,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,608,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,675,gateway_mirror,paper order,mirror armed,gateway result,gateway_failed,binance_auto_execute_failed,yes,yes
+execution,services/execution/paper_exchange_execution.py,709,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,712,position,ast_node,"bool(order.close_only_mode) and _is_reduce_only_already_flat(exc) and not self._exchange_position_present(paper_run=paper_run, symbol=order.symbol)",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,724,reject,ast_node,"self.execution_repo.update_order( order.order_execution_id or """", execution_status=""accepted"", rejection_reason=None, rejection_codes=[ code for code in order.rejection_codes if code != ""binance_auto_execute_failed"" ], gateway_status=""exchange_already_flat"", entry_context={ **order.entry_context, ""exchange_already_flat"": True, ""gateway_flat_error"": str(exc), ""cancelled_protection_order_ids"": flat_cleanup[""cancelled""], ""terminal_protection_order_ids"": flat_cleanup[""failed""], }, lifecycle_history=",fallthrough,"self.execution_repo.update_order( order.order_execution_id or """", execution_status=""accepted"", rejection_reason=None, rejection_codes=[ code for code in order.rejection_codes if code != ""binance_auto_execute_failed"" ], gateway_status=""exchange_already_flat"", entry_context={ **order.entry_context, ""exchange_already_flat"": True, ""gateway_flat_error"": str(exc), ""cancelled_protection_order_ids"": flat_cleanup[""cancelled""], ""terminal_protection_order_ids"": flat_cleanup[""failed""], }, lifecycle_history=",unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,754,position,ast_node,"order.close_only_mode and self._exchange_position_present( paper_run=paper_run, symbol=order.symbol, )",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,762,reject,ast_node,"self.execution_repo.update_order( order.order_execution_id or """", execution_status=""rejected"", rejection_reason=f""binance_auto_execute_failed: {exc}"", rejection_codes=[*order.rejection_codes, ""binance_auto_execute_failed""], gateway_status=""gateway_failed"", entry_context={ **order.entry_context, ""pre_close_cancelled_protection_order_ids"": pre_close_cleanup[""cancelled""], ""pre_close_failed_protection_order_ids"": pre_close_cleanup[""failed""], }, lifecycle_history=[ *order.lifecycle_history, { ""at"": d",fallthrough,"self.execution_repo.update_order( order.order_execution_id or """", execution_status=""rejected"", rejection_reason=f""binance_auto_execute_failed: {exc}"", rejection_codes=[*order.rejection_codes, ""binance_auto_execute_failed""], gateway_status=""gateway_failed"", entry_context={ **order.entry_context, ""pre_close_cancelled_protection_order_ids"": pre_close_cleanup[""cancelled""], ""pre_close_failed_protection_order_ids"": pre_close_cleanup[""failed""], }, lifecycle_history=[ *order.lifecycle_history, { ""at"": d",unknown,unknown,yes
+execution,services/execution/paper_exchange_execution.py,792,reject,ast_node,"gateway_status in {""rejected"", ""cancelled"", ""canceled"", ""expired""}",fallthrough,branch,unknown,yes,yes
+execution,services/execution/paper_exchange_execution.py,802,reject,ast_node,"self.execution_repo.update_order( order.order_execution_id or """", execution_status=execution_status, rejection_reason=rejection_reason, rejection_codes=rejection_codes, entry_context={ **order.entry_context, ""protection_order_refs"": gateway_result.get(""protection_order_refs"", []), ""pre_close_cancelled_protection_order_ids"": pre_close_cleanup[""cancelled""], ""pre_close_failed_protection_order_ids"": pre_close_cleanup[""failed""], ""cancelled_protection_order_ids"": cleanup[""cancelled""], ""terminal_protec",fallthrough,"self.execution_repo.update_order( order.order_execution_id or """", execution_status=execution_status, rejection_reason=rejection_reason, rejection_codes=rejection_codes, entry_context={ **order.entry_context, ""protection_order_refs"": gateway_result.get(""protection_order_refs"", []), ""pre_close_cancelled_protection_order_ids"": pre_close_cleanup[""cancelled""], ""pre_close_failed_protection_order_ids"": pre_close_cleanup[""failed""], ""cancelled_protection_order_ids"": cleanup[""cancelled""], ""terminal_protec",unknown,unknown,yes
+execution,services/execution/paper_order_lifecycle.py,88,min_,ast_node,reference_price > 0 and quantity * float(reference_price) < min_notional,fallthrough,branch,unknown,unknown,unknown
+execution,services/execution/paper_order_lifecycle.py,194,position,ast_node,position.side == TradeSide.LONG,fallthrough,branch,unknown,unknown,unknown
+execution,services/execution/paper_runtime.py,112,paper,ast_node,paper_run is None,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/paper_runtime.py,139,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/runtime_config_migration.py,51,paper,ast_node,paper_run is None or paper_run.paper_run_id is None,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/runtime_state.py,39,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/runtime_state.py,43,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/runtime_state.py,71,max_,ast_node,(reference - heartbeat_at).total_seconds() > max_age_seconds,fallthrough,branch,unknown,yes,yes
+execution,services/execution/spot_gateway.py,121,testnet,ast_node,settings.spot_testnet_api_key or settings.spot_testnet_api_secret,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/state_machine.py,13,pass,ast_node,pass,fallthrough,no_action,unknown,unknown,yes
+execution,services/execution/state_machine.py,103,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+execution,services/execution/state_machine.py,110,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+execution,services/execution/state_machine.py,113,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+execution,services/execution/state_machine.py,118,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+execution,services/execution/tasks.py,85,paper,ast_node,run.paper_run_id is None,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/tasks.py,86,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/tasks.py,107,paper,ast_node,not is_auto_scheduled_paper_run(run),fallthrough,branch,unknown,unknown,yes
+execution,services/execution/tasks.py,108,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/tasks.py,176,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/tasks.py,189,paper,ast_node,not is_auto_scheduled_paper_run(run) or run.paper_run_id is None,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/tasks.py,190,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/testnet_acceptance.py,53,position,ast_node,"preflight.get(""open_orders"") or preflight.get(""open_positions"")",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/testnet_acceptance.py,120,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/testnet_acceptance.py,139,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/testnet_acceptance.py,163,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/testnet_authorization.py,31,paper,ast_node,"run.execution_profile.get(""auto_paper_runtime_key"") != AUTO_PAPER_TECHNICAL_KEY",fallthrough,branch,unknown,unknown,yes
+execution,services/execution/testnet_authorization.py,32,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/testnet_authorization.py,43,paper,ast_node,updated is None or updated.paper_run_id is None,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/testnet_authorization.py,44,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/testnet_cleanup.py,94,testnet,ast_node,not binance_use_testnet or live_trading_enabled,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/testnet_cleanup.py,106,position,ast_node,not open_orders and not open_positions,fallthrough,branch,unknown,unknown,yes
+execution,services/execution/testnet_cleanup.py,138,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/testnet_cleanup.py,143,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/testnet_cleanup.py,170,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+execution,services/execution/testnet_cleanup.py,195,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+execution,services/execution/testnet_cleanup.py,211,position,ast_node,residual_orders or residual_positions,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/exit_ladder.py,67,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/exit_ladder.py,71,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/exit_ladder.py,75,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/exit_ladder.py,91,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/exit_ladder.py,94,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/exit_ladder.py,140,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/exit_ladder.py,234,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/exit_ladder.py,238,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/exit_ladder.py,243,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/exit_ladder.py,259,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/exit_ladder.py,262,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,114,paper,ast_node,paper_run is None,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,171,paper,ast_node,self._gateway_mirror_armed(paper_run),fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,193,paper,ast_node,"paper_run.execution_profile.get(""strategy_lane"") == ""cross_sectional_carry""",fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,203,position,ast_node,hard_drawdown_locked and current_position is not None,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,245,continue,ast_node,continue,fallthrough,skip_current_item,unknown,yes,yes
+exit,services/execution/paper_cycle_orchestrator.py,262,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,265,position,ast_node,current_position is not None and protection_bar is not None,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,319,paper,ast_node,"self._should_execute_on_binance(paper_run, order=order)",fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,340,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,352,paper,ast_node,not self._should_execute_on_binance(paper_run),fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,393,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,469,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,482,paper,ast_node,"self._should_execute_on_binance(paper_run, order=order)",fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,502,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,534,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,535,position,ast_node,"self._should_time_exit( strategy=strategy, position=current_position, levels=levels, bar=protection_bar, cycle_time=cycle_time, )",fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,587,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,597,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,603,position,ast_node,cycle_key in processed_keys and current_position is None,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,614,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,658,position,ast_node,"current_position is None and not bool(base_order.entry_context.get(""paper_order_should_trade"", True))",fallthrough,branch,unknown,yes,yes
+exit,services/execution/paper_cycle_orchestrator.py,673,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,678,position,ast_node,current_position is not None,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,709,paper,ast_node,"self._should_execute_on_binance(paper_run, order=order)",fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,731,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,745,paper,ast_node,not self._should_execute_on_binance(paper_run),fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,795,continue,ast_node,continue,fallthrough,skip_current_item,unknown,yes,yes
+exit,services/execution/paper_cycle_orchestrator.py,798,paper,ast_node,"not rank_dropout and not bool(base_order.entry_context.get(""paper_order_should_trade"", True))",fallthrough,branch,unknown,yes,yes
+exit,services/execution/paper_cycle_orchestrator.py,817,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,819,position,ast_node,rank_dropout or (request.close_on_opposite_signal and current_position.side != base_order.direction),fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,828,paper,ast_node,"self._should_execute_on_binance(paper_run, order=order)",fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,850,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,869,paper,ast_node,not self._should_execute_on_binance(paper_run),fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,903,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,921,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,923,paper,ast_node,"self._should_execute_on_binance(paper_run) and self.gateway is not None and not gateway_symbol_available(gateway=self.gateway, symbol=symbol)",fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,940,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,952,reject,ast_node,order.rejection_codes and set(order.rejection_codes).issubset(retryable_rejections),fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,968,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,970,paper,ast_node,"self._should_execute_on_binance(paper_run, order=order)",fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,991,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1006,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1026,paper,ast_node,"self._should_execute_on_binance(paper_run, order=hedge_order)",fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1053,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1069,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1070,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1085,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1129,paper,ast_node,not self._should_execute_on_binance(paper_run),fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1204,continue,ast_node,continue,fallthrough,skip_current_item,unknown,yes,yes
+exit,services/execution/paper_cycle_orchestrator.py,1234,reject,ast_node,"PaperRuntimeCycleResult( paper_run_id=paper_run_id, paper_status=updated_run.paper_status, cycle_time=cycle_time, scanned_symbols=scanned_symbols, actions=actions, opened_positions=opened_positions, closed_positions=closed_positions, rejected_orders=rejected_orders, skipped_symbols=skipped_symbols, open_position_symbols=sorted(active_positions.keys()), account_equity=account_equity, )",fallthrough,"PaperRuntimeCycleResult( paper_run_id=paper_run_id, paper_status=updated_run.paper_status, cycle_time=cycle_time, scanned_symbols=scanned_symbols, actions=actions, opened_positions=opened_positions, closed_positions=closed_positions, rejected_orders=rejected_orders, skipped_symbols=skipped_symbols, open_position_symbols=sorted(active_positions.keys()), account_equity=account_equity, )",unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1250,paper,ast_node,paper_run is None,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1265,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1411,position,ast_node,abs(state.remaining_quantity - abs(position.quantity)) > 1e-9,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1427,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1428,paper,ast_node,paper_run.paper_run_id is None,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1429,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1436,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1439,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1452,protection_lookup,active position,latest filled entry exists,levels,None,protection_missing,no,yes
+exit,services/execution/paper_cycle_orchestrator.py,1461,paper,ast_node,paper_run.paper_run_id is None,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1462,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1469,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1481,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1485,position,ast_node,position.side == TradeSide.LONG and trailed_stop > stop_price,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1487,position,ast_node,position.side == TradeSide.SHORT and trailed_stop < stop_price,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1540,protective_trigger,OHLCV bar,stop/take hit,close intent,no action,stoploss_or_takeprofit,yes,yes
+exit,services/execution/paper_cycle_orchestrator.py,1546,position,ast_node,position.side == TradeSide.LONG,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1556,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1569,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1586,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1609,enabled,ast_node,not enabled or order is None or order.close_only_mode,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1613,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1615,reject,ast_node,"bool(trace.get(""pipeline_status"")) and not order.rejection_codes",fallthrough,"bool(trace.get(""pipeline_status"")) and not order.rejection_codes",unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1636,min_,ast_node,hours is None or min_r is None or levels.original_stop_price is None,fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1637,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1644,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1661,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1664,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1671,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1723,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1879,paper,ast_node,"paper_run.execution_profile.get(""universe_mode"") != ""fixed_top20""",fallthrough,branch,unknown,yes,yes
+exit,services/execution/paper_cycle_orchestrator.py,1880,return,ast_node,None,fallthrough,None,unknown,yes,yes
+exit,services/execution/paper_cycle_orchestrator.py,1883,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1885,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1888,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1889,paper,ast_node,"status == ""unknown"" and paper_run.execution_profile.get(""execution_mode"", ""paper_only"") == ""paper_only"" and not paper_run.execution_profile.get(""mirror_to_gateway"", False)",fallthrough,branch,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1897,return,ast_node,None,fallthrough,None,unknown,yes,yes
+exit,services/execution/paper_cycle_orchestrator.py,1899,return,ast_node,None,fallthrough,None,unknown,yes,yes
+exit,services/execution/paper_cycle_orchestrator.py,1929,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1931,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1935,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1940,reject,ast_node,"""-2022"" in text or ""reduceonly order is rejected"" in text",fallthrough,"""-2022"" in text or ""reduceonly order is rejected"" in text",unknown,unknown,yes
+exit,services/execution/paper_cycle_orchestrator.py,1950,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/auth.py,27,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/auth.py,59,min_,ast_node,"not secrets.compare_digest(token, settings.admin_api_token)",fallthrough,branch,unknown,unknown,yes
+other,apps/api/main.py,47,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+other,apps/api/main.py,70,paper,ast_node,"os.getenv(""PAPER_CONSOLE_SKIP_BACKGROUND_BOOTSTRAP"", ""false"").lower() != ""true""",fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/agents.py,92,veto,ast_node,"LLMStatusResponse( providers=providers, any_provider_configured=any(item.configured for item in providers), recent_decision_veto_tasks=recent_tasks, recent_decision_veto_failure_count=failure_count, )",fallthrough,"LLMStatusResponse( providers=providers, any_provider_configured=any(item.configured for item in providers), recent_decision_veto_tasks=recent_tasks, recent_decision_veto_failure_count=failure_count, )",unknown,unknown,yes
+other,apps/api/routers/console.py,37,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,apps/api/routers/console.py,46,position,ast_node,position.symbol in seen_symbols,fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/console.py,47,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,apps/api/routers/market.py,145,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/market.py,176,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/market.py,194,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/market.py,211,enabled,ast_node,not settings.binance_live_ws_enabled,fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/market.py,221,return,ast_node,None,fallthrough,None,unknown,yes,yes
+other,apps/api/routers/market.py,230,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,apps/api/routers/market.py,241,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/market.py,289,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,apps/api/routers/market.py,296,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,apps/api/routers/market.py,297,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/market.py,314,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,apps/api/routers/market.py,406,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,apps/api/routers/market.py,457,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/market.py,461,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/market.py,476,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/market.py,478,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/market.py,499,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,apps/api/routers/market.py,511,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/market.py,527,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/market.py,547,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,apps/api/routers/market.py,565,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,apps/api/routers/metrics.py,50,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,apps/api/routers/runs.py,111,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/runs.py,114,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/runs.py,145,continue,ast_node,continue,fallthrough,skip_current_item,unknown,yes,yes
+other,apps/api/routers/runs.py,297,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,apps/api/routers/runs.py,312,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+other,apps/api/routers/runs.py,319,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+other,apps/api/routers/runs.py,326,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+other,apps/api/routers/runs.py,341,testnet,ast_node,not settings.binance_use_testnet or settings.live_trading_enabled,fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,370,testnet,ast_node,not settings.binance_use_testnet,fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,443,testnet,ast_node,not settings.binance_use_testnet or settings.live_trading_enabled or not settings.binance_api_key or not settings.binance_api_secret,fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,481,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,apps/api/routers/runs.py,516,testnet,ast_node,"task is None or task.task_type != ""testnet_acceptance""",fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,528,testnet,ast_node,"task is None or task.task_type != ""testnet_acceptance""",fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,549,testnet,ast_node,not settings.binance_use_testnet or settings.live_trading_enabled or not settings.binance_api_key or not settings.binance_api_secret or not spot_demo_credentials_configured(),fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,589,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,apps/api/routers/runs.py,668,reject,ast_node,"order.execution_status == ""rejected""",fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,688,reject,ast_node,"order.execution_status == ""rejected""",fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,747,paper,ast_node,paper_run_id is None,fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,767,paper,ast_node,"run.paper_status != ""running"" or run.paper_run_id is None",fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,768,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,apps/api/routers/runs.py,799,paper,ast_node,_paper_repo(db).get_paper_run(paper_run_id) is None,fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,854,paper,ast_node,_paper_repo(db).get_paper_run(paper_run_id) is None,fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,1106,paper,ast_node,paper_run is None,fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,1133,paper,ast_node,_paper_repo(db).get_paper_run(paper_run_id) is None,fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/runs.py,1147,paper,ast_node,_paper_repo(db).get_paper_run(paper_run_id) is None,fallthrough,branch,unknown,unknown,yes
+other,apps/api/routers/system.py,24,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/agents/llm_runtime.py,189,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/agents/llm_runtime.py,196,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/agents/llm_runtime.py,300,veto,ast_node,"task_type == ""pre_execution_veto_llm""",fallthrough,branch,unknown,unknown,yes
+other,services/agents/llm_runtime.py,311,veto,ast_node,"{ ""prompt_version"": prompt_version, ""system"": ( ""You are a strict execution veto agent. "" ""Never suggest direction, price, or position size. "" ""Return JSON only with keys: veto, veto_reason."" ), ""user"": json.dumps( { ""agent_type"": agent_type, ""task_type"": task_type, ""payload"": payload, ""schema"": {""veto"": ""boolean"", ""veto_reason"": ""string""}, }, ensure_ascii=True, ), }",fallthrough,"{ ""prompt_version"": prompt_version, ""system"": ( ""You are a strict execution veto agent. "" ""Never suggest direction, price, or position size. "" ""Return JSON only with keys: veto, veto_reason."" ), ""user"": json.dumps( { ""agent_type"": agent_type, ""task_type"": task_type, ""payload"": payload, ""schema"": {""veto"": ""boolean"", ""veto_reason"": ""string""}, }, ensure_ascii=True, ), }",unknown,unknown,yes
+other,services/agents/llm_runtime.py,345,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/agents/llm_runtime.py,380,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/agents/llm_runtime.py,401,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/agents/llm_runtime.py,425,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/agents/rag_context.py,124,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,unknown
+other,services/agents/service.py,121,veto,ast_node,"task.agent_type == ""decision_veto_agent"" and task.task_type == ""pre_execution_veto_llm""",fallthrough,branch,unknown,unknown,yes
+other,services/agents/service.py,122,veto,ast_node,self._execute_llm_veto(task),fallthrough,self._execute_llm_veto(task),unknown,unknown,yes
+other,services/agents/service.py,254,veto,ast_node,"{ ""executor_registered"": True, ""completed"": True, ""executor_name"": ""deterministic_decision_veto"", ""veto_result"": veto_result.model_dump(mode=""json""), ""risk_event_count"": len(risk_events), ""high_risk_event_count"": len(high_risk_events), ""output_ref"": f""decision_veto:{task.agent_task_id}"", }",fallthrough,"{ ""executor_registered"": True, ""completed"": True, ""executor_name"": ""deterministic_decision_veto"", ""veto_result"": veto_result.model_dump(mode=""json""), ""risk_event_count"": len(risk_events), ""high_risk_event_count"": len(high_risk_events), ""output_ref"": f""decision_veto:{task.agent_task_id}"", }",unknown,unknown,yes
+other,services/agents/service.py,285,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/agents/service.py,330,veto,ast_node,"not isinstance(raw_output.get(""veto""), bool) or not isinstance(raw_output.get(""veto_reason""), str)",fallthrough,branch,unknown,yes,yes
+other,services/agents/service.py,336,veto,ast_node,"{ ""executor_registered"": True, ""completed"": True, ""task_status"": ""completed"", ""executor_name"": ""llm_decision_veto"", ""schema_validation_status"": ""passed"", ""provider_trace"": provider_trace, ""attempt_history"": [{""status"": ""passed"", **provider_trace}], ""veto_result"": raw_output, ""output_ref"": f""decision_veto:{task.agent_task_id}"", }",fallthrough,"{ ""executor_registered"": True, ""completed"": True, ""task_status"": ""completed"", ""executor_name"": ""llm_decision_veto"", ""schema_validation_status"": ""passed"", ""provider_trace"": provider_trace, ""attempt_history"": [{""status"": ""passed"", **provider_trace}], ""veto_result"": raw_output, ""output_ref"": f""decision_veto:{task.agent_task_id}"", }",unknown,unknown,yes
+other,services/agents/service.py,348,veto,ast_node,"{ ""executor_registered"": True, ""completed"": False, ""task_status"": ""failed"", ""executor_name"": ""llm_decision_veto"", ""message"": str(exc), ""schema_validation_status"": ""timeout"", ""provider_trace"": {}, ""attempt_history"": [{""status"": ""timeout"", ""message"": str(exc)}], ""safe_veto_applied"": True, ""veto_result"": { ""veto"": True, ""veto_reason"": ""llm timeout -> fail closed"", ""agent_task_ref"": task.agent_task_id, }, ""output_ref"": f""decision_veto:{task.agent_task_id}"", }",fallthrough,"{ ""executor_registered"": True, ""completed"": False, ""task_status"": ""failed"", ""executor_name"": ""llm_decision_veto"", ""message"": str(exc), ""schema_validation_status"": ""timeout"", ""provider_trace"": {}, ""attempt_history"": [{""status"": ""timeout"", ""message"": str(exc)}], ""safe_veto_applied"": True, ""veto_result"": { ""veto"": True, ""veto_reason"": ""llm timeout -> fail closed"", ""agent_task_ref"": task.agent_task_id, }, ""output_ref"": f""decision_veto:{task.agent_task_id}"", }",unknown,unknown,yes
+other,services/agents/service.py,371,veto,ast_node,"{ ""executor_registered"": True, ""completed"": False, ""task_status"": ""failed"", ""executor_name"": ""llm_decision_veto"", ""message"": str(exc), ""schema_validation_status"": ""provider_unavailable"", ""provider_trace"": {}, ""attempt_history"": [{""status"": ""provider_unavailable"", ""message"": str(exc)}], ""safe_veto_applied"": True, ""veto_result"": { ""veto"": True, ""veto_reason"": ""llm runtime not configured or unavailable -> fail closed"", ""agent_task_ref"": task.agent_task_id, }, ""output_ref"": f""decision_veto:{task.age",fallthrough,"{ ""executor_registered"": True, ""completed"": False, ""task_status"": ""failed"", ""executor_name"": ""llm_decision_veto"", ""message"": str(exc), ""schema_validation_status"": ""provider_unavailable"", ""provider_trace"": {}, ""attempt_history"": [{""status"": ""provider_unavailable"", ""message"": str(exc)}], ""safe_veto_applied"": True, ""veto_result"": { ""veto"": True, ""veto_reason"": ""llm runtime not configured or unavailable -> fail closed"", ""agent_task_ref"": task.agent_task_id, }, ""output_ref"": f""decision_veto:{task.age",unknown,yes,yes
+other,services/agents/service.py,388,except,ast_node,Exception,fallthrough,exception_handler,unknown,yes,yes
+other,services/agents/service.py,390,veto,ast_node,"{ ""executor_registered"": True, ""completed"": False, ""task_status"": ""failed"", ""executor_name"": ""llm_decision_veto"", ""message"": str(exc), ""schema_validation_status"": ""failed"", ""provider_trace"": {}, ""attempt_history"": [{""status"": ""failed"", ""message"": str(exc)}], ""safe_veto_applied"": True, ""veto_result"": { ""veto"": True, ""veto_reason"": ""schema validation failed -> fail closed"", ""agent_task_ref"": task.agent_task_id, }, ""output_ref"": f""decision_veto:{task.agent_task_id}"", }",fallthrough,"{ ""executor_registered"": True, ""completed"": False, ""task_status"": ""failed"", ""executor_name"": ""llm_decision_veto"", ""message"": str(exc), ""schema_validation_status"": ""failed"", ""provider_trace"": {}, ""attempt_history"": [{""status"": ""failed"", ""message"": str(exc)}], ""safe_veto_applied"": True, ""veto_result"": { ""veto"": True, ""veto_reason"": ""schema validation failed -> fail closed"", ""agent_task_ref"": task.agent_task_id, }, ""output_ref"": f""decision_veto:{task.agent_task_id}"", }",unknown,yes,yes
+other,services/agents/service.py,410,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,85,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/binance.py,87,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/binance.py,91,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/data/binance.py,102,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/binance.py,105,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/binance.py,109,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/data/binance.py,112,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/binance.py,168,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/data/binance.py,169,testnet,ast_node,"primary.rstrip(""/"") == LEGACY_TESTNET_USDM_REST_BASE",fallthrough,branch,unknown,unknown,yes
+other,services/data/binance.py,254,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,278,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,288,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,292,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,332,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,402,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/binance.py,420,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,428,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/data/binance.py,429,testnet,ast_node,"self.market_type != ""usdm"" or active_base_url == LEGACY_TESTNET_USDM_REST_BASE",fallthrough,branch,unknown,unknown,yes
+other,services/data/binance.py,471,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,499,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/binance.py,537,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/binance.py,598,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/binance.py,619,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,622,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,627,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,647,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/binance.py,662,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,666,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,803,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/binance.py,864,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/data/candle_validation.py,86,max_,ast_node,exchange_server_time - latest.close_time > max_age,fallthrough,branch,unknown,unknown,yes
+other,services/data/heartbeat.py,63,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/live_feed_bus.py,84,pass,ast_node,pass,fallthrough,no_action,unknown,unknown,yes
+other,services/data/market.py,52,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/data/market.py,158,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/data/market.py,159,pass,ast_node,pass,fallthrough,no_action,unknown,unknown,yes
+other,services/data/market.py,172,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/data/market.py,180,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/data/market.py,220,reject,ast_node,"FundingArbitrageSignal( symbol=symbol, perp_symbol=perp_symbol, funding_rate=snapshot.funding_rate, funding_bps=funding_bps, basis_bps=basis_bps, fee_bps=fee_bps, slippage_bps=slippage_bps, round_trip_cost_bps=round_trip_cost_bps, estimated_net_edge_bps=estimated_net, should_enter_paper=should_enter, rejection_reasons=list(dict.fromkeys(rejection_reasons)), recommended_strategy_template={ ""source"": ""binance_funding_arbitrage"", ""core_thesis"": ""Capture positive funding with spot/perp hedged paper ",fallthrough,"FundingArbitrageSignal( symbol=symbol, perp_symbol=perp_symbol, funding_rate=snapshot.funding_rate, funding_bps=funding_bps, basis_bps=basis_bps, fee_bps=fee_bps, slippage_bps=slippage_bps, round_trip_cost_bps=round_trip_cost_bps, estimated_net_edge_bps=estimated_net, should_enter_paper=should_enter, rejection_reasons=list(dict.fromkeys(rejection_reasons)), recommended_strategy_template={ ""source"": ""binance_funding_arbitrage"", ""core_thesis"": ""Capture positive funding with spot/perp hedged paper ",unknown,yes,yes
+other,services/data/market.py,267,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/market.py,269,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/market.py,273,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/market.py,278,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/market.py,281,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/data/market.py,282,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/market_intelligence.py,143,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/market_intelligence.py,147,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/market_intelligence.py,151,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/market_intelligence.py,243,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/market_intelligence.py,333,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/market_intelligence.py,349,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/market_intelligence.py,383,cooldown,ast_node,active_cooldown,fallthrough,branch,unknown,unknown,yes
+other,services/data/market_intelligence.py,397,cooldown,ast_node,snapshot.active_event_cooldown or snapshot.macro_risk_score >= 0.8 or snapshot.news_risk_score >= 0.8,fallthrough,branch,unknown,unknown,yes
+other,services/data/market_intelligence.py,410,cooldown,ast_node,snapshot.active_event_cooldown,fallthrough,branch,unknown,yes,yes
+other,services/data/market_intelligence.py,422,return,ast_node,None,fallthrough,None,unknown,yes,yes
+other,services/data/market_intelligence.py,460,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/market_intelligence.py,464,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/market_intelligence.py,475,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/market_intelligence.py,476,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/news.py,69,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/news.py,130,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/repository.py,122,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/repository.py,131,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/repository.py,226,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/repository.py,321,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/repository.py,542,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/repository.py,556,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/repository.py,558,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/repository.py,571,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/repository.py,575,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+other,services/data/tasks.py,26,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/tasks.py,118,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/data/tasks.py,191,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/tasks.py,194,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/data/tasks.py,229,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/data/universe.py,140,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/data/universe.py,141,min_,ast_node,"item.get(""filterType"") in {""MIN_NOTIONAL"", ""NOTIONAL""}",fallthrough,branch,unknown,unknown,yes
+other,services/data/universe.py,145,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/database.py,60,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+other,services/database.py,66,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+other,services/database.py,70,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+other,services/database.py,76,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+other,services/notifications.py,101,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/notifications.py,128,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/notifications.py,161,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+other,services/notifications.py,164,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+other,services/notifications.py,184,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+other,services/notifications.py,228,max_,ast_node,transient_failure and attempt_number < self.max_attempts,fallthrough,branch,unknown,unknown,yes
+other,services/validation/admission.py,32,min_,ast_node,gate_sharpe < self.policy.min_sharpe,fallthrough,branch,unknown,unknown,yes
+other,services/validation/admission.py,34,min_,ast_node,report.profit_factor < self.policy.min_profit_factor,fallthrough,branch,unknown,unknown,yes
+other,services/validation/admission.py,36,max_,ast_node,report.max_drawdown > self.policy.max_drawdown,fallthrough,branch,unknown,unknown,yes
+other,services/validation/admission.py,38,min_,ast_node,report.expectancy <= self.policy.min_expectancy,fallthrough,branch,unknown,unknown,yes
+other,services/validation/admission.py,55,reject,ast_node,"GateDecision( strategy_id=report.strategy_id, passed=False, decision_status=""rejected_with_reason"", reason=""; "".join(failed_thresholds), failed_thresholds=failed_thresholds, deflated_sharpe_applied=report.deflated_sharpe is not None, )",fallthrough,"GateDecision( strategy_id=report.strategy_id, passed=False, decision_status=""rejected_with_reason"", reason=""; "".join(failed_thresholds), failed_thresholds=failed_thresholds, deflated_sharpe_applied=report.deflated_sharpe is not None, )",unknown,unknown,yes
+other,services/validation/admission.py,80,reject,ast_node,"GateDecision( strategy_id=run.strategy_id, passed=False, decision_status=""rejected_with_reason"", reason=""missing_metrics_summary"", failed_thresholds=[""missing_metrics_summary""], )",fallthrough,"GateDecision( strategy_id=run.strategy_id, passed=False, decision_status=""rejected_with_reason"", reason=""missing_metrics_summary"", failed_thresholds=[""missing_metrics_summary""], )",unknown,unknown,yes
+other,services/validation/candidate_leaderboard.py,95,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/validation/carry.py,48,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/validation/carry.py,57,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/validation/carry.py,116,min_,ast_node,gate_sharpe < default_policy.min_sharpe,fallthrough,branch,unknown,unknown,yes
+other,services/validation/carry.py,118,min_,ast_node,metrics.profit_factor < default_policy.min_profit_factor,fallthrough,branch,unknown,unknown,yes
+other,services/validation/carry.py,120,max_,ast_node,metrics.max_drawdown > default_policy.max_drawdown,fallthrough,branch,unknown,unknown,yes
+other,services/validation/carry.py,122,min_,ast_node,metrics.expectancy <= default_policy.min_expectancy,fallthrough,branch,unknown,unknown,yes
+other,services/validation/metrics.py,32,volatility,ast_node,volatility == 0,fallthrough,branch,unknown,unknown,yes
+other,services/validation/metrics.py,48,max_,ast_node,drawdown > max_drawdown,fallthrough,branch,unknown,unknown,yes
+other,services/validation/report.py,64,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/validation/report.py,69,reject,ast_node,"GateDecision( strategy_id=base_gate.strategy_id, passed=False, decision_status=""rejected_with_reason"", reason=f""{base_gate.reason or 'validation failed'}; failed_oos_windows={','.join(failed_windows)}"", failed_thresholds=failed_thresholds, thresholds_applied=base_gate.thresholds_applied, deflated_sharpe_applied=base_gate.deflated_sharpe_applied, )",fallthrough,"GateDecision( strategy_id=base_gate.strategy_id, passed=False, decision_status=""rejected_with_reason"", reason=f""{base_gate.reason or 'validation failed'}; failed_oos_windows={','.join(failed_windows)}"", failed_thresholds=failed_thresholds, thresholds_applied=base_gate.thresholds_applied, deflated_sharpe_applied=base_gate.deflated_sharpe_applied, )",unknown,unknown,yes
+other,services/validation/stress_scenarios.py,23,regime,ast_node,"stress_results.get(""funding_regime_flip_expectancy"", 0.0) <= 0",fallthrough,branch,unknown,unknown,yes
+other,services/validation/stress_scenarios.py,27,max_,ast_node,"stress_results.get(""exchange_outage_max_drawdown"", 0.0) > 0.25",fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,521,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+other,services/validation/technical_replay.py,758,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/validation/technical_replay.py,760,position,ast_node,position is not None,fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,763,position,ast_node,position is not None,fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,764,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/validation/technical_replay.py,777,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/validation/technical_replay.py,781,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+other,services/validation/technical_replay.py,818,position,ast_node,position is not None and position.remaining_fraction > 0,fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,838,position,ast_node,position.ladder is None or self.exit_mode != EXIT_MODE_EXIT_LADDER,fallthrough,branch,unknown,yes,yes
+other,services/validation/technical_replay.py,866,position,ast_node,position.side == TradeSide.LONG and float(bar.low) <= stop_price,fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,878,position,ast_node,position.side == TradeSide.SHORT and float(bar.high) >= stop_price,fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,937,position,ast_node,ladder.all_levels_executed and position.trail_after_r is not None,fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,983,position,ast_node,position.side == TradeSide.LONG,fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,984,position,ast_node,float(bar.low) <= position.stop_price,fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,986,position,ast_node,position.take_price > 0 and float(bar.high) >= position.take_price,fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,989,position,ast_node,float(bar.high) >= position.stop_price,fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,991,position,ast_node,position.take_price > 0 and float(bar.low) <= position.take_price,fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,1017,position,ast_node,position.side == TradeSide.LONG,fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,1197,min_,ast_node,candidate_oos.sharpe <= default_policy.min_sharpe or candidate_oos.profit_factor < default_policy.min_profit_factor or candidate_oos.max_drawdown >= default_policy.max_drawdown or candidate_oos.net_expectancy <= default_policy.min_expectancy,fallthrough,branch,unknown,unknown,yes
+other,services/validation/technical_replay.py,1245,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+reconciliation,services/execution/paper_exchange_execution.py,327,exchange_position_recovery,exchange position,untracked symbol,position snapshot,skip,exchange_position_recovered,yes,partial
+risk,services/execution/gatekeeper.py,110,veto,ast_node,request.veto_result is not None and request.veto_result.veto,fallthrough,branch,unknown,yes,yes
+risk,services/execution/gatekeeper.py,200,reject,ast_node,"created.model_copy( update={ ""execution_status"": ""duplicate_skipped"", ""rejection_reason"": ""duplicate_candle_intent"", ""rejection_codes"": [""duplicate_candle_intent""], } )",fallthrough,"created.model_copy( update={ ""execution_status"": ""duplicate_skipped"", ""rejection_reason"": ""duplicate_candle_intent"", ""rejection_codes"": [""duplicate_candle_intent""], } )",unknown,unknown,yes
+risk,services/execution/gatekeeper.py,207,reject,ast_node,rejection_reasons,fallthrough,branch,unknown,yes,yes
+risk,services/execution/gatekeeper.py,231,pass,ast_node,pass,fallthrough,no_action,unknown,unknown,yes
+risk,services/execution/gatekeeper.py,237,max_,ast_node,projected_symbol_exposure > profile.max_symbol_exposure,fallthrough,branch,unknown,yes,yes
+risk,services/execution/gatekeeper.py,239,max_,ast_node,projected_total_exposure > profile.max_total_exposure,fallthrough,branch,unknown,yes,yes
+risk,services/execution/gatekeeper.py,244,correlation,ast_node,not risk_state.portfolio_correlation_available,fallthrough,branch,unknown,yes,yes
+risk,services/execution/gatekeeper.py,246,correlation,ast_node,risk_state.high_correlation_peer_count >= correlated_peer_count_limit,fallthrough,branch,unknown,yes,yes
+risk,services/execution/gatekeeper.py,258,position,ast_node,risk_state.open_positions >= profile.max_open_positions,fallthrough,branch,unknown,yes,yes
+risk,services/execution/gatekeeper.py,260,max_,ast_node,risk_state.requested_leverage > profile.max_leverage,fallthrough,branch,unknown,yes,yes
+risk,services/execution/gatekeeper.py,288,reject,ast_node,rejection_reasons,fallthrough,rejection_reasons,unknown,yes,yes
+risk,services/execution/gatekeeper.py,292,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+risk,services/execution/gatekeeper.py,294,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+risk,services/execution/portfolio_risk.py,13,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+risk,services/execution/portfolio_risk.py,20,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+risk,services/execution/portfolio_risk.py,27,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+risk,services/execution/pre_submit_validation.py,32,max_,ast_node,now - snapshot.received_at > policy.max_quote_age,fallthrough,branch,unknown,unknown,yes
+risk,services/execution/pre_submit_validation.py,35,max_,ast_node,deviation > policy.max_signal_deviation_fraction,fallthrough,branch,unknown,unknown,yes
+risk,services/execution/pre_submit_validation.py,38,max_,ast_node,spread > policy.max_spread_fraction,fallthrough,branch,unknown,unknown,yes
+risk,services/execution/pre_submit_validation.py,43,position,ast_node,intent.position_side is PositionSide.LONG,fallthrough,branch,unknown,unknown,yes
+risk,services/execution/pre_submit_validation.py,54,minimum,ast_node,actual_rr < policy.minimum_reward_risk,fallthrough,branch,unknown,unknown,yes
+risk,services/execution/risk_tiers.py,75,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+risk,services/execution/risk_tiers.py,93,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+risk,services/execution/risk_tiers.py,98,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+risk,services/execution/risk_tiers.py,122,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+risk,services/execution/risk_tiers.py,124,position,ast_node,"""leverage"" not in payload or ""max_position_fraction"" not in payload",fallthrough,branch,unknown,unknown,yes
+risk,services/execution/risk_tiers.py,125,continue,ast_node,continue,fallthrough,skip_current_item,unknown,unknown,yes
+risk,services/execution/risk_tiers.py,136,volatility,ast_node,_has_dynamic_volatility_tiers(configured),fallthrough,branch,unknown,unknown,yes
+risk,services/execution/risk_tiers.py,156,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+risk,services/execution/risk_tiers.py,172,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+risk,services/execution/risk_tiers.py,176,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+scheduler,services/execution/scheduler.py,132,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+scheduler,services/execution/scheduler.py,221,enabled,ast_node,settings.binance_live_ws_enabled,fallthrough,branch,unknown,unknown,yes
+scheduler,services/execution/scheduler.py,226,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+scheduler,services/execution/scheduler.py,317,cycle_claim,slot,claim not acquired,runner skipped,duplicate_slot_skipped,duplicate_slot_skipped,yes,yes
+scheduler,services/execution/scheduler.py,394,lease_fencing,runner task,lease renewal false,none,runner continues,scheduler leadership lease was lost,yes,no
+scheduler,services/execution/scheduler.py,395,return,ast_node,None,fallthrough,None,unknown,unknown,yes
+scheduler,services/execution/scheduler.py,411,except,ast_node,Exception,fallthrough,exception_handler,unknown,unknown,yes
+scheduler,services/execution/scheduler.py,533,veto,ast_node,"run_all_paper_runtime_cycles.run( { ""timeframe"": ""1m"", ""max_symbols"": len(AUTO_PAPER_RESEARCH_SYMBOLS), ""enable_decision_veto"": settings.paper_runtime_enable_decision_veto, **(provenance or {}), } )",fallthrough,"run_all_paper_runtime_cycles.run( { ""timeframe"": ""1m"", ""max_symbols"": len(AUTO_PAPER_RESEARCH_SYMBOLS), ""enable_decision_veto"": settings.paper_runtime_enable_decision_veto, **(provenance or {}), } )",unknown,unknown,yes
+scheduler,services/execution/scheduler_coordination.py,75,return,ast_node,False,fallthrough,False,unknown,unknown,yes
+scheduler,services/execution/scheduler_coordination.py,140,return,ast_node,None,fallthrough,None,unknown,unknown,yes

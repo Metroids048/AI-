@@ -1,0 +1,11 @@
+聚焦：1 failed, 146 passed, 1 warning in 123.90s
+首个失败：tests/services/test_signal_ensemble.py::test_layered_fusion_resolves_direction_by_majority_vote_not_unanimity
+断言：ensemble.fused_direction is None，期望 long；状态为 discarded_low_confidence。
+
+全量：11 failed, 597 passed, 4 skipped, 5 warnings in 185.49s
+失败分组：
+- tests/services/test_c_plus_strategy.py 两个 regime router 断言（trend_up/down -> uncertain）。
+- tests/services/test_signal_ensemble.py 一个多数票断言。
+- tests/test_pandas_ta_adapter.py 八个失败，运行环境未安装 pandas-ta，代码在适配器入口抛 ImportError。
+
+无密钥、Token、Cookie、完整账户响应或数据库副本。

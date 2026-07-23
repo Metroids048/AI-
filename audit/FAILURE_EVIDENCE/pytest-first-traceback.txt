@@ -1,0 +1,34 @@
+F
+================================== FAILURES ===================================
+____ test_layered_fusion_resolves_direction_by_majority_vote_not_unanimity ____
+
+    def test_layered_fusion_resolves_direction_by_majority_vote_not_unanimity() -> None:
+        """The direction gate used to require ALL direction sources to unanimously
+        agree, which starved entries whenever a single indicator disagreed (e.g. ADX
+        lagging). It now resolves by majority (2-of-3 here), so a lone dissenting
+        direction source no longer blocks the whole ensemble.
+        """
+        request = SignalEnsembleRequest(
+            fusion_method="layered_regime_entry",
+            min_history=200,
+            signals=[
+                _layered_signal("technical_dow_trend:long", direction="long"),
+                _layered_signal("technical_ema_trend:long", direction="long"),
+                _layered_signal("technical_adx:short", direction="short"),
+                _layered_signal("technical_macd:long", direction="long"),
+                _layered_signal("technical_rsi:long", direction="long"),
+                _layered_signal("price_action_pin_bar:long", direction="long"),
+            ],
+        )
+
+        ensemble = SignalEnsembleService().create_ensemble(request)
+
+>       assert ensemble.fused_direction == "long"
+E       AssertionError: assert None == 'long'
+E        +  where None = SignalEnsemble(ensemble_id='d1910520-d26a-47e2-9428-6443fd204763', strategy_refs=['technical_dow_trend:long', 'technic...'discarded_low_confidence'>, created_at=datetime.datetime(2026, 7, 23, 9, 34, 3, 646197, tzinfo=datetime.timezone.utc)).fused_direction
+
+tests\services\test_signal_ensemble.py:223: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/services/test_signal_ensemble.py::test_layered_fusion_resolves_direction_by_majority_vote_not_unanimity
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 7.63s
