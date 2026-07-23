@@ -19,6 +19,8 @@ def test_prepare_database_runs_migrations_and_local_runtime_schema(tmp_path) -> 
         assert "decision_events" in tables
         assert "scheduler_leases" in tables
         assert "scheduler_cycles" in tables
+        assert "position_records" in tables
+        assert "protection_records" in tables
         paper_run_columns = {column["name"] for column in inspect(get_engine()).get_columns("paper_runs")}
         assert {
             "active_config_snapshot_id",
@@ -41,11 +43,14 @@ def test_prepare_database_runs_migrations_and_local_runtime_schema(tmp_path) -> 
             "run_mode",
             "scheduler_instance_id",
             "scheduled_for",
+            "position_record_id",
         }.issubset(order_columns)
         with get_engine().connect() as connection:
-            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0011"
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0012"
         position_columns = {column["name"] for column in inspect(get_engine()).get_columns("position_snapshots")}
-        assert {"hedge_group_id", "is_hedge_leg"}.issubset(position_columns)
+        assert {"hedge_group_id", "is_hedge_leg", "position_record_id"}.issubset(position_columns)
+        lease_columns = {column["name"] for column in inspect(get_engine()).get_columns("scheduler_leases")}
+        assert "fencing_token" in lease_columns
     finally:
         reset_database_caches()
 
@@ -62,7 +67,7 @@ def test_prepare_database_tolerates_preexisting_hedge_columns_at_0008(tmp_path) 
         reset_database_caches()
         prepare_database(database_url)
         with get_engine().connect() as connection:
-            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0011"
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0012"
         position_columns = {column["name"] for column in inspect(get_engine()).get_columns("position_snapshots")}
         assert {"hedge_group_id", "is_hedge_leg"}.issubset(position_columns)
     finally:

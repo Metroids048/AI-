@@ -311,9 +311,19 @@ class RuntimeScheduler:
             self._publish_external_state()
             return result
         self.status.current_lock_owner = self.scheduler_instance_id
+        fencing_token = self.coordinator.fencing_token(lease_name=name)
+        if fencing_token is None:
+            result = {"status": "lease_lost/fenced"}
+            self.status.last_results[name] = result
+            self._publish_external_state()
+            return result
         scheduled_for = _slot_start(observed_at, interval_seconds)
         self.status.last_scheduled_for = scheduled_for
-        claim = self.coordinator.claim_cycle(job_name=name, scheduled_for=scheduled_for)
+        claim = self.coordinator.claim_cycle(
+            job_name=name,
+            scheduled_for=scheduled_for,
+            fencing_token=fencing_token,
+        )
         if not claim.claimed or claim.scheduler_cycle_id is None:
             self.coordinator.release_lease(lease_name=name)
             self.status.current_lock_owner = None
@@ -331,6 +341,9 @@ class RuntimeScheduler:
             "process_id": os.getpid(),
             "worker_id": os.getenv("WORKER_ID"),
             "container_id": os.getenv("CONTAINER_ID") or socket.gethostname(),
+            "scheduler_cycle_id": claim.scheduler_cycle_id,
+            "lease_name": name,
+            "fencing_token": fencing_token,
         }
         # Runner 类型是 Callable[[], Any]；默认 runner 额外接受 provenance，直接绑定 metadata。
         runner_with_context: Runner = (
@@ -342,6 +355,7 @@ class RuntimeScheduler:
             self._renew_lease_until_done(
                 lease_name=name,
                 lease_ttl=lease_ttl,
+                fencing_token=fencing_token,
                 done=lease_done,
             )
         )
@@ -377,6 +391,7 @@ class RuntimeScheduler:
         *,
         lease_name: str,
         lease_ttl: float,
+        fencing_token: int,
         done: asyncio.Event,
     ) -> None:
         assert self.coordinator is not None
@@ -389,6 +404,7 @@ class RuntimeScheduler:
                     self.coordinator.acquire_or_renew_lease,
                     lease_name=lease_name,
                     ttl_seconds=lease_ttl,
+                    fencing_token=fencing_token,
                 )
                 if not renewed:
                     self._scheduler_errors[lease_name] = "scheduler leadership lease was lost"

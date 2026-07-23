@@ -29,13 +29,14 @@ class CcxtMarketRulesLoader:
         self,
         *,
         symbol: str,
+        exchange_symbol: str | None = None,
         position_mode: str,
         margin_mode: str,
         leverage: Decimal,
         loaded_at: datetime,
     ) -> MarketRulesSnapshot:
         markets = self.client.load_markets()
-        market = markets.get(symbol)
+        market = markets.get(exchange_symbol or symbol) or markets.get(symbol)
         if not isinstance(market, dict):
             raise OrderNormalizationError("exchange market metadata is unavailable")
         raw_info = market.get("info")
@@ -70,6 +71,30 @@ class CcxtMarketRulesLoader:
         snapshot_key = f"{symbol}|{position_mode}|{margin_mode}|{leverage}|{loaded_at.isoformat()}"
         max_qty = amount_limits.get("max")
         max_notional = cost_limits.get("max")
+        exchange = str(getattr(self.client, "id", None) or "").strip()
+        market_type = str(market.get("type") or market.get("subType") or "").strip()
+        resolved_exchange_symbol = str(market.get("symbol") or market.get("id") or "").strip()
+        if not exchange or not market_type or not resolved_exchange_symbol:
+            raise OrderNormalizationError("exchange market metadata missing identity fields")
+        if not isinstance(market.get("active"), bool):
+            raise OrderNormalizationError("exchange market metadata missing active state")
+        contract_size = required_decimal(market.get("contractSize"), "contract_size")
+
+        def precision_or_increment(raw_value: Any, increment: Decimal) -> int:
+            """Normalize CCXT decimal-mode precision and derive it from exchange steps when needed."""
+            if raw_value is not None:
+                try:
+                    parsed = Decimal(str(raw_value))
+                    if parsed >= 1 and parsed == parsed.to_integral_value():
+                        return int(parsed)
+                    if parsed > 0:
+                        exponent = parsed.as_tuple().exponent
+                        return max(0, -int(exponent)) if isinstance(exponent, int) else 0
+                except (ArithmeticError, ValueError):
+                    pass
+            exponent = increment.as_tuple().exponent
+            return max(0, -int(exponent)) if isinstance(exponent, int) else 0
+
         return MarketRulesSnapshot(
             rules_snapshot_id=f"rules:{hashlib.sha256(snapshot_key.encode('utf-8')).hexdigest()}",
             symbol=symbol,
@@ -84,6 +109,19 @@ class CcxtMarketRulesLoader:
             min_notional=min_notional,
             max_notional=(Decimal(str(max_notional)) if max_notional is not None else None),
             loaded_at=loaded_at,
+            exchange=exchange,
+            market_type=market_type,
+            exchange_symbol=resolved_exchange_symbol,
+            price_precision=precision_or_increment(
+                market.get("precision", {}).get("price") if isinstance(market.get("precision"), dict) else None,
+                tick_size,
+            ),
+            amount_precision=precision_or_increment(
+                market.get("precision", {}).get("amount") if isinstance(market.get("precision"), dict) else None,
+                step_size,
+            ),
+            contract_size=contract_size,
+            market_active=market["active"],
         )
 
 
@@ -110,6 +148,8 @@ class OrderNormalizer:
             raise OrderNormalizationError("intent symbol does not match market rules snapshot")
         if rules.market_status != "TRADING":
             raise OrderNormalizationError("market status is not executable")
+        if not rules.market_active:
+            raise OrderNormalizationError("market is not active")
         if rules.margin_mode not in {"CROSS", "ISOLATED"}:
             raise OrderNormalizationError("margin mode is unknown")
         if rules.position_mode not in {"ONE_WAY", "HEDGE"}:

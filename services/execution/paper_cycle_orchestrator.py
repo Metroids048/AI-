@@ -13,6 +13,7 @@ from services.data.service import DEFAULT_BINANCE_TOP20
 from services.execution.account_equity import sync_paper_account_equity
 from services.execution.cross_sectional import CrossSectionalRankEntry, compute_funding_rank_snapshot
 from services.execution.decision_engine import DecisionEngine
+from services.execution.execution_events import record_execution_event
 from services.execution.exit_ladder import (
     ExitLadderState,
     apply_level_fill,
@@ -26,17 +27,21 @@ from services.execution.exit_ladder import (
 )
 from services.execution.gatekeeper import ExecutionGatekeeperService
 from services.execution.gateway import ExchangeGateway, gateway_symbol_available
+from services.execution.order_context import OrderExecutionContextBuilder
 from services.execution.paper_exchange_execution import PaperExchangeExecutionService
 from services.execution.paper_order_lifecycle import (
     EstimatedTransactionCost,
     PaperOrderLifecycleService,
     RealizedOutcome,
     estimated_transaction_cost,
+    protection_geometry_valid,
     realized_pnl,
 )
 from services.execution.paper_signal import PaperSignalGenerator
+from services.execution.scheduler_coordination import validate_fence
 from services.strategy_library import (
     ConfigSnapshotRepository,
+    DecisionEventRepository,
     DecisionSnapshotRepository,
     ExecutionRepository,
     PaperRunRepository,
@@ -46,6 +51,7 @@ from services.strategy_library import (
 from shared.config import settings
 from shared.models import (
     ConfigSnapshot,
+    DecisionEventType,
     DecisionSnapshot,
     ExchangeSide,
     ExecutionOrderRequest,
@@ -100,6 +106,7 @@ class PaperCycleOrchestrator:
         self.signal_generator = signal_generator
         self.decision_snapshot_repo = decision_snapshot_repo
         self.review_repo = review_repo
+        self.context_builder = OrderExecutionContextBuilder(gateway) if gateway is not None else None
 
     def run_cycle(
         self,
@@ -130,9 +137,41 @@ class PaperCycleOrchestrator:
             run_type="paper",
             run_id=paper_run_id,
         )
-        active_positions = {position.symbol: position for position in current_positions}
+        active_positions = {
+            position.symbol: position
+            for position in current_positions
+            if position.position_record_id is not None
+            and (
+                (record := self.execution_repo.get_position_record(position.position_record_id)) is not None
+                and record.management_status.value == "MANAGED_STRATEGY"
+            )
+        }
         scanned_symbols = self._select_symbols(paper_run=paper_run, request=request)
         runtime_timeframe = self._runtime_timeframe(strategy=strategy, request=request)
+        if not self._scheduler_fence_valid(request):
+            return PaperRuntimeCycleResult(
+                paper_run_id=paper_run_id,
+                paper_status=paper_run.paper_status,
+                cycle_time=cycle_time,
+                scanned_symbols=scanned_symbols,
+                actions=[
+                    PaperRuntimeAction(
+                        symbol=symbol,
+                        action="rejected",
+                        reason="lease_lost/fenced",
+                        decision_trace={"reason_code": "lease_lost/fenced"},
+                    )
+                    for symbol in scanned_symbols
+                ],
+                rejected_orders=len(scanned_symbols),
+                open_position_symbols=sorted(active_positions),
+                account_equity=float(
+                    paper_run.paper_metrics_summary.get(
+                        "account_equity",
+                        paper_run.execution_profile.get("account_equity", 0.0),
+                    )
+                ),
+            )
         actions: list[PaperRuntimeAction] = []
         metrics = dict(paper_run.paper_metrics_summary)
         metrics = sync_paper_account_equity(
@@ -208,6 +247,7 @@ class PaperCycleOrchestrator:
                             paper_run=paper_run,
                             strategy=strategy,
                             position=current_position,
+                            runtime_request=request,
                         ),
                         current_position=current_position,
                         close_price=float(protection_bar.close),
@@ -215,6 +255,27 @@ class PaperCycleOrchestrator:
                     )
                     order = self.gatekeeper.submit_order(close_order)
                     if order.execution_status == "accepted":
+                        if self._should_execute_on_binance(paper_run, order=order):
+                            order = self.exchange_execution.ensure_binance_execution(
+                                paper_run=paper_run,
+                                order=order,
+                                order_request=close_order,
+                                position=current_position,
+                            )
+                            if order.execution_status != "accepted":
+                                rejected_orders += 1
+                                actions.append(
+                                    PaperRuntimeAction(
+                                        symbol=symbol,
+                                        action="rejected",
+                                        direction=current_position.side,
+                                        reason=order.rejection_reason,
+                                        order_execution_id=order.order_execution_id,
+                                        reference_price=float(protection_bar.close),
+                                        close_only=True,
+                                    )
+                                )
+                                continue
                         order = self._fill_order(order=order, cycle_time=cycle_time)
                         realized = self._close_position(
                             paper_run_id=paper_run_id,
@@ -294,6 +355,7 @@ class PaperCycleOrchestrator:
                                 paper_run=paper_run,
                                 strategy=strategy,
                                 position=current_position,
+                                runtime_request=request,
                             ),
                             current_position=current_position,
                             close_price=trigger_price,
@@ -414,6 +476,12 @@ class PaperCycleOrchestrator:
                         bar=protection_bar,
                     )
                     if trigger is not None:
+                        self._record_exit_triggered(
+                            paper_run=paper_run,
+                            position=current_position,
+                            reason_code=trigger.trigger_type,
+                            timestamp=cycle_time,
+                        )
                         partial_fraction = (
                             None
                             if ladder is not None
@@ -472,6 +540,7 @@ class PaperCycleOrchestrator:
                                 paper_run=paper_run,
                                 strategy=strategy,
                                 position=current_position,
+                                runtime_request=request,
                             ),
                             current_position=current_position,
                             close_price=trigger.price,
@@ -544,6 +613,7 @@ class PaperCycleOrchestrator:
                                 paper_run=paper_run,
                                 strategy=strategy,
                                 position=current_position,
+                                runtime_request=request,
                             ),
                             current_position=current_position,
                             close_price=float(protection_bar.close),
@@ -551,6 +621,27 @@ class PaperCycleOrchestrator:
                         )
                         order = self.gatekeeper.submit_order(close_order)
                         if order.execution_status == "accepted":
+                            if self._should_execute_on_binance(paper_run, order=order):
+                                order = self.exchange_execution.ensure_binance_execution(
+                                    paper_run=paper_run,
+                                    order=order,
+                                    order_request=close_order,
+                                    position=current_position,
+                                )
+                                if order.execution_status != "accepted":
+                                    rejected_orders += 1
+                                    actions.append(
+                                        PaperRuntimeAction(
+                                            symbol=symbol,
+                                            action="rejected",
+                                            direction=current_position.side,
+                                            reason=order.rejection_reason,
+                                            order_execution_id=order.order_execution_id,
+                                            reference_price=float(protection_bar.close),
+                                            close_only=True,
+                                        )
+                                    )
+                                    continue
                             order = self._fill_order(order=order, cycle_time=cycle_time)
                             realized = self._close_position(
                                 paper_run_id=paper_run_id,
@@ -652,6 +743,8 @@ class PaperCycleOrchestrator:
                     "container_id": request.container_id,
                     "cycle_source": request.cycle_source,
                     "scheduled_for": request.scheduled_for,
+                    "fencing_token": request.fencing_token,
+                    "lease_name": request.lease_name,
                 }
             )
             decision_trace = dict(base_order.entry_context.get("decision_pipeline", {}))
@@ -698,6 +791,12 @@ class PaperCycleOrchestrator:
                         bar=latest_bar,
                     )
                     if trigger is not None:
+                        self._record_exit_triggered(
+                            paper_run=paper_run,
+                            position=current_position,
+                            reason_code=trigger.trigger_type,
+                            timestamp=cycle_time,
+                        )
                         close_order = self._close_order_request(
                             base_order=base_order,
                             current_position=current_position,
@@ -939,6 +1038,21 @@ class PaperCycleOrchestrator:
                 )
                 continue
 
+            if not self._scheduler_fence_valid(request):
+                rejected_orders += 1
+                actions.append(
+                    PaperRuntimeAction(
+                        symbol=symbol,
+                        action="rejected",
+                        direction=base_order.direction,
+                        reason="lease_lost/fenced",
+                        reference_price=reference_price,
+                        idempotency_key=cycle_key,
+                        decision_trace={"reason_code": "lease_lost/fenced"},
+                    )
+                )
+                continue
+
             base_order = self._with_open_trade_intent(
                 base_order=base_order,
                 cycle_id=cycle_key,
@@ -946,6 +1060,35 @@ class PaperCycleOrchestrator:
                 reference_price=Decimal(str(reference_price)),
                 decision_candle_close_time=latest_bar.timestamp,
             )
+            if self.context_builder is not None and self._should_execute_on_binance(paper_run):
+                try:
+                    base_order = self.context_builder.build(
+                        base_order,
+                        paper_run=paper_run,
+                        order_origin="live_scheduler",
+                    )
+                except ValueError as exc:
+                    record_execution_event(
+                        repository=DecisionEventRepository(self.execution_repo.session),
+                        event_type=DecisionEventType.EXECUTION_CONTRACT_REJECTED,
+                        paper_run=paper_run,
+                        request=base_order,
+                        reason_code="MARKET_RULES_UNAVAILABLE",
+                        payload={"error": str(exc)},
+                    )
+                    rejected_orders += 1
+                    actions.append(
+                        PaperRuntimeAction(
+                            symbol=symbol,
+                            action="rejected",
+                            direction=base_order.direction,
+                            reason=str(exc),
+                            reference_price=reference_price,
+                            idempotency_key=cycle_key,
+                            decision_trace={"reason_code": "MARKET_RULES_UNAVAILABLE"},
+                        )
+                    )
+                    continue
             order = self.gatekeeper.submit_order(base_order)
             if order.execution_status != "accepted":
                 retryable_rejections = {"data_not_fresh", "blocking_risk_event"}
@@ -966,6 +1109,15 @@ class PaperCycleOrchestrator:
                     )
                 )
                 continue
+
+            record_execution_event(
+                repository=DecisionEventRepository(self.execution_repo.session),
+                event_type=DecisionEventType.CANDIDATE_ACCEPTED,
+                paper_run=paper_run,
+                request=base_order,
+                reason_code="candidate_accepted",
+                payload={"order_execution_id": order.order_execution_id},
+            )
 
             if self._should_execute_on_binance(paper_run, order=order):
                 order = self.exchange_execution.ensure_binance_execution(
@@ -1089,7 +1241,6 @@ class PaperCycleOrchestrator:
                 order=order,
                 cycle_time=cycle_time,
             )
-
             # Open hedge position if hedge order was successfully filled
             if hedge_order is not None and hedge_order.execution_status == "accepted":
                 hedge_position = self._open_position(
@@ -1292,6 +1443,18 @@ class PaperCycleOrchestrator:
         entry_timeframe = strategy.rules.entry_rules.get("entry_timeframe")
         return str(entry_timeframe or request.timeframe)
 
+    def _scheduler_fence_valid(self, request: PaperRuntimeCycleRequest) -> bool:
+        if request.cycle_source != "runtime_scheduler":
+            return True
+        if request.scheduler_instance_id is None or request.fencing_token is None:
+            return False
+        return validate_fence(
+            self.execution_repo.session,
+            lease_name=request.lease_name,
+            owner_id=request.scheduler_instance_id,
+            fencing_token=request.fencing_token,
+        )
+
     @staticmethod
     def _with_open_trade_intent(
         *,
@@ -1427,14 +1590,15 @@ class PaperCycleOrchestrator:
             return None
         if paper_run.paper_run_id is None:
             return None
-        entry_order = self.execution_repo.find_latest_filled_entry_order(
-            run_type="paper",
-            run_id=paper_run.paper_run_id,
-            symbol=position.symbol,
-        )
-        if entry_order is None:
+        if position.position_record_id is None:
             return None
-        stop_price = _float_or_none(entry_order.stoploss_plan.get("price"))
+        record = self.execution_repo.get_position_record(position.position_record_id)
+        if record is None or record.management_status.value != "MANAGED_STRATEGY":
+            return None
+        protection = self.execution_repo.get_latest_protection_record(position.position_record_id)
+        if protection is None or protection.status.value != "ACTIVE":
+            return None
+        stop_price = protection.stop_price
         if stop_price is None:
             return None
         initialized = initialize_exit_ladder(
@@ -1460,15 +1624,29 @@ class PaperCycleOrchestrator:
     ) -> ProtectiveLevels | None:
         if paper_run.paper_run_id is None:
             return None
-        entry_order = self.execution_repo.find_latest_filled_entry_order(
-            run_type="paper",
-            run_id=paper_run.paper_run_id,
-            symbol=position.symbol,
-        )
-        if entry_order is None:
+        if position.position_record_id is None:
             return None
-        stop_price = _float_or_none(entry_order.stoploss_plan.get("price"))
-        take_price = _float_or_none(entry_order.takeprofit_plan.get("price"))
+        record = self.execution_repo.get_position_record(position.position_record_id)
+        if record is None:
+            return None
+        protection = self.execution_repo.get_latest_protection_record(position.position_record_id)
+        if protection is None:
+            return None
+        stop_price = protection.stop_price
+        take_price = protection.take_profit_price
+        if not protection_geometry_valid(
+            side=position.side,
+            reference_price=position.mark_price,
+            stop_price=stop_price,
+            take_price=take_price,
+        ):
+            self.execution_repo.update_protection_record(
+                protection.protection_record_id or "",
+                status="INVALID_PROTECTION_GEOMETRY",
+            )
+            return None
+        if record.management_status.value != "MANAGED_STRATEGY" or protection.status.value != "ACTIVE":
+            return None
         original_stop = stop_price
         trail_after_r = _float_or_none(strategy.rules.takeprofit_rules.get("trail_after_r"))
         if exit_ladder is not None:
@@ -1490,7 +1668,7 @@ class PaperCycleOrchestrator:
             stop_price=stop_price,
             take_price=take_price,
             original_stop_price=original_stop,
-            entry_order_id=entry_order.order_execution_id,
+            entry_order_id=record.entry_order_id,
             trail_after_r=trail_after_r,
         )
 
@@ -1595,6 +1773,32 @@ class PaperCycleOrchestrator:
             },
         )
 
+    def _record_exit_triggered(
+        self,
+        *,
+        paper_run: PaperRun,
+        position: PositionSnapshot,
+        reason_code: str,
+        timestamp: datetime,
+    ) -> None:
+        if position.position_record_id is None:
+            return
+        record = self.execution_repo.get_position_record(position.position_record_id)
+        if record is None or record.entry_order_id is None:
+            return
+        entry_order = self.execution_repo.get_order(record.entry_order_id)
+        if entry_order is None:
+            return
+        record_execution_event(
+            repository=DecisionEventRepository(self.execution_repo.session),
+            event_type=DecisionEventType.EXIT_TRIGGERED,
+            paper_run=paper_run,
+            identity_order=entry_order,
+            position_record_id=position.position_record_id,
+            reason_code=reason_code,
+            timestamp=timestamp,
+        )
+
     def _should_execute_on_binance(self, paper_run: PaperRun, *, order: OrderExecution | None = None) -> bool:
         execution_mode = str(paper_run.execution_profile.get("execution_mode", "paper_only"))
         legacy_mirror_enabled = bool(paper_run.execution_profile.get("mirror_to_gateway", False))
@@ -1685,6 +1889,7 @@ class PaperCycleOrchestrator:
         paper_run: PaperRun,
         strategy: StrategyContract,
         position: PositionSnapshot,
+        runtime_request: PaperRuntimeCycleRequest,
     ) -> ExecutionOrderRequest:
         return ExecutionOrderRequest(
             strategy_id=paper_run.strategy_id,
@@ -1695,6 +1900,15 @@ class PaperCycleOrchestrator:
             validation_backtest_run_id=paper_run.gate_decision_ref,
             risk_profile_id=paper_run.execution_profile.get("risk_profile_id"),
             paper_run_id=paper_run.paper_run_id,
+            scheduler_instance_id=runtime_request.scheduler_instance_id,
+            deployment_sha=runtime_request.deployment_sha,
+            process_id=runtime_request.process_id,
+            worker_id=runtime_request.worker_id,
+            container_id=runtime_request.container_id,
+            cycle_source=runtime_request.cycle_source,
+            scheduled_for=runtime_request.scheduled_for,
+            fencing_token=runtime_request.fencing_token,
+            lease_name=runtime_request.lease_name,
         )
 
     def _expire_pending_limit_entries(
@@ -1748,11 +1962,13 @@ class PaperCycleOrchestrator:
         return self.order_lifecycle.fill_order(order=order, cycle_time=cycle_time)
 
     def _open_position(self, *, paper_run_id: str, order: OrderExecution, cycle_time: datetime) -> PositionSnapshot:
-        return self.order_lifecycle.open_position(
+        position = self.order_lifecycle.open_position(
             paper_run_id=paper_run_id,
             order=order,
             cycle_time=cycle_time,
         )
+        self.exchange_execution.register_session_managed_position(position.position_record_id)
+        return position
 
     def _close_position(
         self,
@@ -1853,6 +2069,15 @@ class PaperCycleOrchestrator:
             paper_run_id=base_order.paper_run_id,
             risk_state=base_order.risk_state,
             idempotency_key=f"{cycle_key}_hedge",
+            scheduler_instance_id=base_order.scheduler_instance_id,
+            deployment_sha=base_order.deployment_sha,
+            process_id=base_order.process_id,
+            worker_id=base_order.worker_id,
+            container_id=base_order.container_id,
+            cycle_source=base_order.cycle_source,
+            scheduled_for=base_order.scheduled_for,
+            fencing_token=base_order.fencing_token,
+            lease_name=base_order.lease_name,
         )
 
     def _mark_position_as_hedged(

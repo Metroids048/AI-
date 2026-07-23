@@ -38,7 +38,11 @@ from shared.models import (
     OptimizationRun,
     OrderExecution,
     PaperRun,
+    PositionManagementStatus,
+    PositionRecord,
     PositionSnapshot,
+    ProtectionRecord,
+    ProtectionRecordStatus,
     ReconciliationRecord,
     ReviewReport,
     RiskLevel,
@@ -419,6 +423,11 @@ def _decision_event_from_orm(row: models.DecisionEvent) -> DecisionEvent:
         symbol=row.symbol,
         timeframe=row.timeframe,
         candle_close_time=_ensure_utc(row.candle_close_time) or _utcnow(),
+        run_id=row.run_id,
+        position_side=row.position_side,
+        order_origin=row.order_origin,
+        position_record_id=row.position_record_id,
+        reason_code=row.reason_code,
         payload=row.payload or {},
         created_at=_ensure_utc(row.created_at),
     )
@@ -541,6 +550,7 @@ def _order_execution_from_orm(row: models.OrderExecution) -> OrderExecution:
         lifecycle_history=row.lifecycle_history or [],
         reconciliation_status=row.reconciliation_status,
         last_gateway_update_at=_ensure_utc(row.last_gateway_update_at),
+        position_record_id=row.position_record_id,
         created_at=row.created_at,
     )
 
@@ -557,8 +567,41 @@ def _position_snapshot_from_orm(row: models.PositionSnapshot) -> PositionSnapsho
         mark_price=row.mark_price,
         unrealized_pnl=row.unrealized_pnl,
         snapshot_time=_ensure_utc(row.snapshot_time) or _utcnow(),
+        position_record_id=row.position_record_id,
         hedge_group_id=row.hedge_group_id,
         is_hedge_leg=row.is_hedge_leg,
+    )
+
+
+def _position_record_from_orm(row: models.PositionRecord) -> PositionRecord:
+    return PositionRecord(
+        position_record_id=row.position_record_id,
+        exchange_account=row.exchange_account,
+        symbol=row.symbol,
+        position_side=TradeSide(row.position_side),
+        entry_order_id=row.entry_order_id,
+        entry_fill_id=row.entry_fill_id,
+        opened_at=_ensure_utc(row.opened_at) or _utcnow(),
+        quantity=row.quantity,
+        order_origin=row.order_origin,
+        strategy_id=row.strategy_id,
+        run_id=row.run_id,
+        management_status=PositionManagementStatus(row.management_status),
+        created_at=_ensure_utc(row.created_at),
+        updated_at=_ensure_utc(row.updated_at),
+    )
+
+
+def _protection_record_from_orm(row: models.ProtectionRecord) -> ProtectionRecord:
+    return ProtectionRecord(
+        protection_record_id=row.protection_record_id,
+        position_record_id=row.position_record_id,
+        stop_price=row.stop_price,
+        take_profit_price=row.take_profit_price,
+        protection_source=row.protection_source,
+        status=ProtectionRecordStatus(row.status),
+        created_at=_ensure_utc(row.created_at),
+        updated_at=_ensure_utc(row.updated_at),
     )
 
 
@@ -1451,6 +1494,11 @@ class DecisionEventRepository:
             symbol=event.symbol,
             timeframe=event.timeframe,
             candle_close_time=event.candle_close_time,
+            run_id=event.run_id,
+            position_side=event.position_side,
+            order_origin=event.order_origin,
+            position_record_id=event.position_record_id,
+            reason_code=event.reason_code,
             payload=self._redact_payload(event.payload),
             decision_key=decision_key,
             created_at=event.created_at or _utcnow(),
@@ -1727,6 +1775,7 @@ class ExecutionRepository:
             lifecycle_history=_jsonable(order.lifecycle_history),
             reconciliation_status=order.reconciliation_status,
             last_gateway_update_at=order.last_gateway_update_at,
+            position_record_id=order.position_record_id,
         )
         self.session.add(row)
         try:
@@ -1809,6 +1858,129 @@ class ExecutionRepository:
         self.session.refresh(row)
         return _order_execution_from_orm(row)
 
+    def create_position_record(self, record: PositionRecord) -> PositionRecord:
+        row = models.PositionRecord(
+            position_record_id=record.position_record_id or str(uuid.uuid4()),
+            exchange_account=record.exchange_account,
+            symbol=record.symbol,
+            position_side=str(record.position_side),
+            entry_order_id=record.entry_order_id,
+            entry_fill_id=record.entry_fill_id,
+            opened_at=record.opened_at,
+            quantity=record.quantity,
+            order_origin=record.order_origin,
+            strategy_id=record.strategy_id,
+            run_id=record.run_id,
+            management_status=record.management_status.value,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _position_record_from_orm(row)
+
+    def get_position_record(self, position_record_id: str) -> PositionRecord | None:
+        row = self.session.get(models.PositionRecord, position_record_id)
+        return _position_record_from_orm(row) if row else None
+
+    def find_open_position_record(
+        self,
+        *,
+        exchange_account: str,
+        symbol: str,
+        position_side: TradeSide,
+        run_id: str | None = None,
+        managed_only: bool = False,
+    ) -> PositionRecord | None:
+        query = self.session.query(models.PositionRecord).filter(
+            models.PositionRecord.exchange_account == exchange_account,
+            models.PositionRecord.symbol == symbol,
+            models.PositionRecord.position_side == str(position_side),
+            models.PositionRecord.management_status != PositionManagementStatus.CLOSED.value,
+        )
+        if run_id is not None:
+            query = query.filter(models.PositionRecord.run_id == run_id)
+        if managed_only:
+            query = query.filter(
+                models.PositionRecord.management_status == PositionManagementStatus.MANAGED_STRATEGY.value
+            )
+        row = query.order_by(models.PositionRecord.opened_at.desc()).first()
+        return _position_record_from_orm(row) if row else None
+
+    def find_managed_position_record_for_run(self, *, run_id: str, symbol: str) -> PositionRecord | None:
+        row = (
+            self.session.query(models.PositionRecord)
+            .filter(
+                models.PositionRecord.run_id == run_id,
+                models.PositionRecord.symbol == symbol,
+                models.PositionRecord.management_status == PositionManagementStatus.MANAGED_STRATEGY.value,
+            )
+            .order_by(models.PositionRecord.opened_at.desc())
+            .first()
+        )
+        return _position_record_from_orm(row) if row else None
+
+    def find_unmanaged_position_record(
+        self,
+        *,
+        exchange_account: str,
+        symbol: str,
+        position_side: TradeSide,
+        run_id: str | None = None,
+    ) -> PositionRecord | None:
+        query = self.session.query(models.PositionRecord).filter(
+            models.PositionRecord.exchange_account == exchange_account,
+            models.PositionRecord.symbol == symbol,
+            models.PositionRecord.position_side == str(position_side),
+            models.PositionRecord.management_status == PositionManagementStatus.UNMANAGED_EXTERNAL_POSITION.value,
+        )
+        if run_id is not None:
+            query = query.filter(models.PositionRecord.run_id == run_id)
+        row = query.order_by(models.PositionRecord.opened_at.desc()).first()
+        return _position_record_from_orm(row) if row else None
+
+    def update_position_record(self, position_record_id: str, **fields) -> PositionRecord | None:
+        row = self.session.get(models.PositionRecord, position_record_id)
+        if row is None:
+            return None
+        for key, value in fields.items():
+            setattr(row, key, value.value if hasattr(value, "value") else value)
+        self.session.commit()
+        self.session.refresh(row)
+        return _position_record_from_orm(row)
+
+    def create_protection_record(self, record: ProtectionRecord) -> ProtectionRecord:
+        row = models.ProtectionRecord(
+            protection_record_id=record.protection_record_id or str(uuid.uuid4()),
+            position_record_id=record.position_record_id,
+            stop_price=record.stop_price,
+            take_profit_price=record.take_profit_price,
+            protection_source=record.protection_source,
+            status=record.status.value,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _protection_record_from_orm(row)
+
+    def get_latest_protection_record(self, position_record_id: str) -> ProtectionRecord | None:
+        row = (
+            self.session.query(models.ProtectionRecord)
+            .filter(models.ProtectionRecord.position_record_id == position_record_id)
+            .order_by(models.ProtectionRecord.created_at.desc())
+            .first()
+        )
+        return _protection_record_from_orm(row) if row else None
+
+    def update_protection_record(self, protection_record_id: str, **fields) -> ProtectionRecord | None:
+        row = self.session.get(models.ProtectionRecord, protection_record_id)
+        if row is None:
+            return None
+        for key, value in fields.items():
+            setattr(row, key, value.value if hasattr(value, "value") else value)
+        self.session.commit()
+        self.session.refresh(row)
+        return _protection_record_from_orm(row)
+
     def list_positions(self) -> list[PositionSnapshot]:
         rows = self.session.query(models.PositionSnapshot).order_by(models.PositionSnapshot.snapshot_time).all()
         return [_position_snapshot_from_orm(row) for row in rows]
@@ -1853,6 +2025,7 @@ class ExecutionRepository:
             mark_price=snapshot.mark_price,
             unrealized_pnl=snapshot.unrealized_pnl,
             snapshot_time=snapshot.snapshot_time,
+            position_record_id=snapshot.position_record_id,
             hedge_group_id=snapshot.hedge_group_id,
             is_hedge_leg=snapshot.is_hedge_leg,
         )

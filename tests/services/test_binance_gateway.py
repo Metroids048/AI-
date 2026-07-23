@@ -227,6 +227,13 @@ def test_binance_gateway_uses_normalized_hedge_close_matrix() -> None:
         min_quantity=Decimal("0.001"),
         min_notional=Decimal("20"),
         loaded_at=now,
+        exchange="binance",
+        market_type="swap",
+        exchange_symbol="BTC/USDT:USDT",
+        price_precision=1,
+        amount_precision=3,
+        contract_size=Decimal("1"),
+        market_active=True,
     )
     client = HedgeClient()
     gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)

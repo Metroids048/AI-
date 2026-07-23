@@ -21,7 +21,7 @@ def test_load_database_revision_reports_head_schema(tmp_path) -> None:
     database_url = f"sqlite:///{(tmp_path / 'revision.db').as_posix()}"
     prepare_database(database_url)
 
-    assert _load_database_revision(database_url) == "0011"
+    assert _load_database_revision(database_url) == "0012"
 
 
 def test_diff_reports_mismatched_field_with_both_values() -> None:

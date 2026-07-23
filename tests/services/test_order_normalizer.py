@@ -35,6 +35,13 @@ def _rules(*, position_mode: str = "ONE_WAY") -> MarketRulesSnapshot:
         max_quantity=Decimal("100"),
         min_notional=Decimal("20"),
         loaded_at=datetime(2026, 7, 20, 7, 0, tzinfo=UTC),
+        exchange="binance",
+        market_type="swap",
+        exchange_symbol="BTC/USDT:USDT",
+        price_precision=2,
+        amount_precision=3,
+        contract_size=Decimal("1"),
+        market_active=True,
     )
 
 
@@ -125,10 +132,16 @@ def test_unknown_market_rules_fail_closed() -> None:
 
 def test_market_rules_loader_uses_exchange_metadata_without_static_fallback() -> None:
     class Client:
+        id = "binance"
+
         def load_markets(self):
             return {
                 "BTC/USDT:USDT": {
+                    "symbol": "BTC/USDT:USDT",
+                    "type": "swap",
+                    "contractSize": 1,
                     "active": True,
+                    "precision": {"price": 2, "amount": 3},
                     "limits": {
                         "amount": {"min": 0.001, "max": 100},
                         "cost": {"min": 20, "max": None},

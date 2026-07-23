@@ -25,14 +25,14 @@ def sample_frame() -> pd.DataFrame:
 @pytest.fixture
 def uptrend_frame() -> pd.DataFrame:
     """生成上升趋势数据."""
-    close_prices = [50000 + i * 50 for i in range(100)]
+    close_prices = [50000 + i * 50 for i in range(240)]
     data = {
-        "timestamp": pd.date_range("2024-01-01", periods=100, freq="1h"),
+        "timestamp": pd.date_range("2024-01-01", periods=240, freq="1h"),
         "open": close_prices,
         "high": [p + 100 for p in close_prices],
         "low": [p - 50 for p in close_prices],
         "close": close_prices,
-        "volume": [1000.0] * 100,
+        "volume": [1000.0] * 240,
     }
     return pd.DataFrame(data)
 
@@ -40,14 +40,14 @@ def uptrend_frame() -> pd.DataFrame:
 @pytest.fixture
 def downtrend_frame() -> pd.DataFrame:
     """生成下降趋势数据."""
-    close_prices = [50000 - i * 50 for i in range(100)]
+    close_prices = [50000 - i * 50 for i in range(240)]
     data = {
-        "timestamp": pd.date_range("2024-01-01", periods=100, freq="1h"),
+        "timestamp": pd.date_range("2024-01-01", periods=240, freq="1h"),
         "open": close_prices,
         "high": [p + 50 for p in close_prices],
         "low": [p - 100 for p in close_prices],
         "close": close_prices,
-        "volume": [1000.0] * 100,
+        "volume": [1000.0] * 240,
     }
     return pd.DataFrame(data)
 

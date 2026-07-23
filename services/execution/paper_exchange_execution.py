@@ -13,14 +13,21 @@ from decimal import Decimal
 from typing import Any
 
 from services.data.universe import exchange_to_platform_symbol
-from services.strategy_library import ExecutionRepository, ReviewRepository
+from services.execution.execution_events import record_execution_event
+from services.execution.paper_order_lifecycle import protection_geometry_valid
+from services.execution.scheduler_coordination import validate_fence
+from services.strategy_library import DecisionEventRepository, ExecutionRepository, ReviewRepository
 from shared.models import (
+    DecisionEventType,
     ExecutionOrderRequest,
     FailureRecord,
     OrderExecution,
     PaperRun,
     PaperRuntimeAction,
+    PositionManagementStatus,
+    PositionRecord,
     PositionSnapshot,
+    ProtectionRecordStatus,
     StrategyContract,
     TradeSide,
 )
@@ -55,6 +62,11 @@ class PaperExchangeExecutionService:
         self.execution_repo = execution_repo
         self.gateway = gateway
         self.review_repo = review_repo
+        self._session_managed_position_ids: set[str] = set()
+
+    def register_session_managed_position(self, position_record_id: str | None) -> None:
+        if position_record_id:
+            self._session_managed_position_ids.add(position_record_id)
 
     @staticmethod
     def gateway_order_request(
@@ -175,8 +187,26 @@ class PaperExchangeExecutionService:
             symbol = exchange_to_platform_symbol(str(item.get("symbol") or ""))
             quantity = abs(float(item.get("contracts") or 0.0))
             if symbol and quantity > 0:
-                positions[symbol] = {**item, "contracts": quantity}
+                side = str(item.get("side") or "").lower() or "unknown"
+                key = symbol if symbol not in positions else f"{symbol}#{side}"
+                positions[key] = {**item, "contracts": quantity}
         return positions
+
+    @staticmethod
+    def _exchange_position_symbol(key: str, position: dict[str, Any]) -> str:
+        return exchange_to_platform_symbol(str(position.get("symbol") or key.split("#", 1)[0]))
+
+    @classmethod
+    def _exchange_position_symbols(cls, positions: dict[str, dict[str, Any]]) -> set[str]:
+        return {cls._exchange_position_symbol(key, item) for key, item in positions.items()}
+
+    @classmethod
+    def _ambiguous_hedge_symbols(cls, positions: dict[str, dict[str, Any]]) -> set[str]:
+        counts: dict[str, int] = {}
+        for key, item in positions.items():
+            symbol = cls._exchange_position_symbol(key, item)
+            counts[symbol] = counts.get(symbol, 0) + 1
+        return {symbol for symbol, count in counts.items() if count > 1}
 
     def _exchange_position_present(self, *, paper_run: PaperRun, symbol: str) -> bool:
         gateway = self.gateway
@@ -188,7 +218,74 @@ class PaperExchangeExecutionService:
             )
         except Exception:  # noqa: BLE001 - preserve local position on uncertain exchange state
             return True
-        return symbol in self._exchange_positions(snapshot)
+        return symbol in self._exchange_position_symbols(self._exchange_positions(snapshot))
+
+    def _exchange_account(self) -> str:
+        capability = getattr(self.gateway, "capability", None)
+        exchange = str(getattr(capability, "exchange", None) or "paper")
+        market_type = str(getattr(capability, "market_type", None) or "paper")
+        backend = str(getattr(self.gateway, "api_backend", None) or "local")
+        return f"{exchange}:{market_type}:{backend}"
+
+    def _managed_record_for_exchange(
+        self,
+        *,
+        paper_run: PaperRun,
+        symbol: str,
+        exchange_position: dict[str, Any],
+    ):
+        if self.execution_repo is None:
+            return None
+        side = TradeSide.SHORT if str(exchange_position.get("side") or "").lower() == "short" else TradeSide.LONG
+        record = self.execution_repo.find_open_position_record(
+            exchange_account=self._exchange_account(),
+            symbol=symbol,
+            position_side=side,
+            run_id=paper_run.paper_run_id,
+            managed_only=True,
+        )
+        if (
+            record is None
+            or record.management_status is not PositionManagementStatus.MANAGED_STRATEGY
+            or record.entry_order_id is None
+            or record.entry_fill_id is None
+            or record.strategy_id != paper_run.strategy_id
+        ):
+            return None
+        if record.position_record_id not in self._session_managed_position_ids:
+            raw_update_time = _float_or_none(exchange_position.get("position_update_time"))
+            if raw_update_time is None or raw_update_time <= 0:
+                return None
+            timestamp_seconds = raw_update_time / 1000 if raw_update_time > 10_000_000_000 else raw_update_time
+            exchange_update_time = datetime.fromtimestamp(timestamp_seconds, tz=UTC)
+            record_opened_at = record.opened_at
+            if record_opened_at.tzinfo is None:
+                record_opened_at = record_opened_at.replace(tzinfo=UTC)
+            if abs((exchange_update_time - record_opened_at).total_seconds()) > 300:
+                return None
+        entry = self.execution_repo.get_order(record.entry_order_id)
+        if (
+            entry is None
+            or entry.position_record_id != record.position_record_id
+            or str(entry.gateway_order_id or "") != str(record.entry_fill_id)
+            or entry.paper_run_id != paper_run.paper_run_id
+            or entry.strategy_id != paper_run.strategy_id
+            or entry.execution_status not in {"filled", "submitted", "open"}
+            or entry.order_origin not in {"live_scheduler", "paper_scheduler"}
+            or abs(abs(float(exchange_position.get("contracts") or 0.0)) - record.quantity) > 1e-8
+        ):
+            return None
+        exchange_entry_price = _float_or_none(exchange_position.get("entry_price"))
+        recorded_entry_price = _float_or_none(entry.entry_context.get("reference_price"))
+        if (
+            exchange_entry_price is not None
+            and exchange_entry_price > 0
+            and recorded_entry_price is not None
+            and recorded_entry_price > 0
+            and abs(exchange_entry_price - recorded_entry_price) > max(recorded_entry_price * 0.01, 1e-8)
+        ):
+            return None
+        return record
 
     def _record_gateway_mirror_failure(
         self,
@@ -233,12 +330,14 @@ class PaperExchangeExecutionService:
             return result
         if self.execution_repo is None:
             return result
-        entry = self.execution_repo.find_latest_filled_entry_order(
-            run_type="paper",
+        record = self.execution_repo.find_managed_position_record_for_run(
             run_id=paper_run.paper_run_id,
             symbol=symbol,
         )
-        if entry is None:
+        if record is None or record.entry_order_id is None:
+            return result
+        entry = self.execution_repo.get_order(record.entry_order_id)
+        if entry is None or entry.position_record_id != record.position_record_id:
             return result
         refs = entry.entry_context.get("protection_order_refs", [])
         for ref in refs if isinstance(refs, list) else []:
@@ -299,7 +398,7 @@ class PaperExchangeExecutionService:
                 or not reduce_only
                 or order_type not in {"STOP_MARKET", "TAKE_PROFIT_MARKET", "LIMIT"}
                 or symbol not in allowed_symbols
-                or symbol in exchange_positions
+                or symbol in self._exchange_position_symbols(exchange_positions)
             ):
                 continue
             try:
@@ -351,19 +450,101 @@ class PaperExchangeExecutionService:
         actions: list[PaperRuntimeAction] = []
         if self.execution_repo is None:
             return actions
-        for symbol, exchange_position in exchange_positions.items():
+        ambiguous_symbols = self._ambiguous_hedge_symbols(exchange_positions)
+        for position_key, exchange_position in exchange_positions.items():
+            symbol = self._exchange_position_symbol(position_key, exchange_position)
+            if symbol in ambiguous_symbols:
+                if not any(
+                    action.symbol == symbol and action.action == "reconcile_ambiguous_hedge_position"
+                    for action in actions
+                ):
+                    actions.append(
+                        PaperRuntimeAction(
+                            symbol=symbol,
+                            action="reconcile_ambiguous_hedge_position",
+                            reason="both exchange sides are open; automatic protection and exit are disabled",
+                            close_only=True,
+                            decision_trace={"reason_code": "AMBIGUOUS_HEDGE_POSITION_IDENTITY"},
+                        )
+                    )
+                continue
+            side = TradeSide.SHORT if str(exchange_position.get("side") or "").lower() == "short" else TradeSide.LONG
+            any_record = self.execution_repo.find_open_position_record(
+                exchange_account=self._exchange_account(),
+                symbol=symbol,
+                position_side=side,
+                run_id=paper_run.paper_run_id,
+                managed_only=True,
+            )
+            if any_record is None:
+                any_record = self.execution_repo.find_unmanaged_position_record(
+                    exchange_account=self._exchange_account(),
+                    symbol=symbol,
+                    position_side=side,
+                    run_id=paper_run.paper_run_id,
+                )
+            candidate_protection = (
+                self.execution_repo.get_latest_protection_record(any_record.position_record_id or "")
+                if any_record is not None
+                else None
+            )
+            reference_price = float(exchange_position.get("mark_price") or exchange_position.get("entry_price") or 0.0)
+            if (
+                candidate_protection is not None
+                and candidate_protection.status is ProtectionRecordStatus.ACTIVE
+                and not protection_geometry_valid(
+                    side=side,
+                    reference_price=reference_price,
+                    stop_price=candidate_protection.stop_price,
+                    take_price=candidate_protection.take_profit_price,
+                )
+            ):
+                self.execution_repo.update_protection_record(
+                    candidate_protection.protection_record_id or "",
+                    status=ProtectionRecordStatus.INVALID_PROTECTION_GEOMETRY,
+                )
+            managed_record = self._managed_record_for_exchange(
+                paper_run=paper_run,
+                symbol=symbol,
+                exchange_position=exchange_position,
+            )
+            if managed_record is None:
+                actions.append(
+                    PaperRuntimeAction(
+                        symbol=symbol,
+                        action="reconcile_unmanaged_external_position",
+                        reason="no exact managed position identity; protection refresh and emergency close disabled",
+                        close_only=True,
+                        decision_trace={"reason_code": PositionManagementStatus.UNMANAGED_EXTERNAL_POSITION.value},
+                    )
+                )
+                continue
+            protection = self.execution_repo.get_latest_protection_record(managed_record.position_record_id or "")
+            if protection is None or protection.status is not ProtectionRecordStatus.ACTIVE:
+                actions.append(
+                    PaperRuntimeAction(
+                        symbol=symbol,
+                        action="reconcile_invalid_or_missing_protection",
+                        reason="managed position has no active protection identity",
+                        close_only=True,
+                        decision_trace={
+                            "reason_code": (
+                                protection.status.value if protection is not None else "PROTECTION_IDENTITY_UNAVAILABLE"
+                            )
+                        },
+                    )
+                )
+                continue
             existing_types = open_algo_by_symbol.get(symbol, set())
             if {"STOP", "TAKE"}.issubset(existing_types):
                 continue
-            entry = self.execution_repo.find_latest_filled_entry_order(
-                run_type="paper",
-                run_id=paper_run.paper_run_id or "",
-                symbol=symbol,
+            entry = (
+                self.execution_repo.get_order(managed_record.entry_order_id) if managed_record.entry_order_id else None
             )
             quantity = abs(float(exchange_position.get("contracts") or 0.0))
             mark_price = float(exchange_position.get("mark_price") or 0.0)
-            stop_price = _float_or_none(entry.stoploss_plan.get("price")) if entry else None
-            take_price = _float_or_none(entry.takeprofit_plan.get("price")) if entry else None
+            stop_price = protection.stop_price
+            take_price = protection.take_profit_price
             failure_reason = "protection_refresh_returned_empty"
             if callable(refresh) and entry is not None and stop_price is not None and take_price is not None:
                 protection_request = ExecutionOrderRequest(
@@ -401,9 +582,7 @@ class PaperExchangeExecutionService:
                                 action="reconcile_rearm_protection",
                                 reference_price=mark_price,
                                 decision_trace={
-                                    "missing_protection_types": sorted(
-                                        {"STOP", "TAKE"} - existing_types
-                                    ),
+                                    "missing_protection_types": sorted({"STOP", "TAKE"} - existing_types),
                                     "protection_order_refs": refs,
                                 },
                             )
@@ -415,9 +594,7 @@ class PaperExchangeExecutionService:
                 failure_reason = "missing_entry_protection_plan"
             if callable(submit):
                 side = (
-                    TradeSide.SHORT
-                    if str(exchange_position.get("side") or "").lower() == "short"
-                    else TradeSide.LONG
+                    TradeSide.SHORT if str(exchange_position.get("side") or "").lower() == "short" else TradeSide.LONG
                 )
                 try:
                     result = submit(
@@ -465,7 +642,7 @@ class PaperExchangeExecutionService:
         with suppress(Exception):
             snapshot = gateway.reconcile(live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}:rearm")
             positions = self._exchange_positions(snapshot)
-            if symbol in positions:
+            if symbol in self._exchange_position_symbols(positions):
                 self.ensure_exchange_protections(
                     paper_run=paper_run,
                     snapshot=snapshot,
@@ -516,7 +693,8 @@ class PaperExchangeExecutionService:
         if "open_positions" not in snapshot:
             return empty
         exchange_positions = self._exchange_positions(snapshot)
-        missing_symbols = set(active_positions) - set(exchange_positions)
+        ambiguous_symbols = self._ambiguous_hedge_symbols(exchange_positions)
+        missing_symbols = set(active_positions) - self._exchange_position_symbols(exchange_positions)
         if missing_symbols:
             try:
                 confirmation = gateway.reconcile(
@@ -526,43 +704,120 @@ class PaperExchangeExecutionService:
                 return empty
             confirmed_positions = self._exchange_positions(confirmation)
             for symbol in missing_symbols:
-                if symbol in confirmed_positions:
-                    exchange_positions[symbol] = confirmed_positions[symbol]
+                for position_key, item in confirmed_positions.items():
+                    if self._exchange_position_symbol(position_key, item) == symbol:
+                        exchange_positions[position_key] = item
             if confirmation.get("open_orders"):
                 snapshot = {**snapshot, "open_orders": confirmation["open_orders"]}
+            ambiguous_symbols = self._ambiguous_hedge_symbols(exchange_positions)
         actions: list[PaperRuntimeAction] = []
+        for symbol in ambiguous_symbols:
+            active_positions.pop(symbol, None)
+            actions.append(
+                PaperRuntimeAction(
+                    symbol=symbol,
+                    action="reconcile_ambiguous_hedge_position",
+                    reason="both exchange sides are open; automatic protection and exit are disabled",
+                    close_only=True,
+                    decision_trace={"reason_code": "AMBIGUOUS_HEDGE_POSITION_IDENTITY"},
+                )
+            )
         allowed_symbols = set(paper_run.candidate_symbols)
+        for position_key, item in list(exchange_positions.items()):
+            symbol = self._exchange_position_symbol(position_key, item)
+            if symbol in ambiguous_symbols:
+                continue
+            local_position = active_positions.get(symbol)
+            if local_position is None:
+                continue
+            managed_record = self._managed_record_for_exchange(
+                paper_run=paper_run,
+                symbol=symbol,
+                exchange_position=item,
+            )
+            if managed_record is not None:
+                continue
+            active_positions.pop(symbol, None)
+            if self.execution_repo is not None and local_position.position_record_id is not None:
+                stale_record = self.execution_repo.get_position_record(local_position.position_record_id)
+                if stale_record is not None:
+                    self.execution_repo.update_position_record(
+                        stale_record.position_record_id or "",
+                        management_status=PositionManagementStatus.CLOSED,
+                    )
+                    stale_protection = self.execution_repo.get_latest_protection_record(
+                        stale_record.position_record_id or ""
+                    )
+                    if stale_protection is not None:
+                        self.execution_repo.update_protection_record(
+                            stale_protection.protection_record_id or "",
+                            status=ProtectionRecordStatus.INACTIVE,
+                        )
+            actions.append(
+                PaperRuntimeAction(
+                    symbol=symbol,
+                    action="reconcile_identity_mismatch_quarantined",
+                    direction=local_position.side,
+                    reason="exchange position cannot be proven to belong to the current execution session",
+                    close_only=True,
+                    decision_trace={"reason_code": PositionManagementStatus.UNMANAGED_EXTERNAL_POSITION.value},
+                )
+            )
         if self.execution_repo is not None:
-            for symbol, item in exchange_positions.items():
+            for position_key, item in exchange_positions.items():
+                symbol = self._exchange_position_symbol(position_key, item)
+                if symbol in ambiguous_symbols:
+                    continue
                 reconcile_missing_counts.pop(symbol, None)
                 if symbol in active_positions or symbol not in allowed_symbols:
                     continue
                 side = TradeSide.SHORT if str(item.get("side") or "").lower() == "short" else TradeSide.LONG
                 entry_price = float(item.get("entry_price") or item.get("mark_price") or 0.0)
                 mark_price = float(item.get("mark_price") or entry_price)
-                recovered = self.execution_repo.create_position_snapshot(
-                    PositionSnapshot(
-                        run_type="paper",
-                        run_id=paper_run_id,
-                        symbol=symbol,
-                        side=side,
-                        quantity=abs(float(item.get("contracts") or 0.0)),
-                        entry_price=entry_price,
-                        mark_price=mark_price,
-                        unrealized_pnl=float(item.get("unrealized_pnl") or 0.0),
-                        snapshot_time=cycle_time,
-                    )
+                record = self.execution_repo.find_unmanaged_position_record(
+                    exchange_account=self._exchange_account(),
+                    symbol=symbol,
+                    position_side=side,
+                    run_id=paper_run_id,
                 )
-                active_positions[symbol] = recovered
+                if record is None:
+                    record = self.execution_repo.create_position_record(
+                        PositionRecord(
+                            exchange_account=self._exchange_account(),
+                            symbol=symbol,
+                            position_side=side,
+                            opened_at=cycle_time,
+                            quantity=abs(float(item.get("contracts") or 0.0)),
+                            order_origin="external_reconciliation",
+                            strategy_id=None,
+                            run_id=paper_run_id,
+                            management_status=PositionManagementStatus.UNMANAGED_EXTERNAL_POSITION,
+                        )
+                    )
+                    self.execution_repo.create_position_snapshot(
+                        PositionSnapshot(
+                            run_type="paper",
+                            run_id=paper_run_id,
+                            symbol=symbol,
+                            side=side,
+                            quantity=abs(float(item.get("contracts") or 0.0)),
+                            entry_price=entry_price,
+                            mark_price=mark_price,
+                            unrealized_pnl=float(item.get("unrealized_pnl") or 0.0),
+                            snapshot_time=cycle_time,
+                            position_record_id=record.position_record_id,
+                        )
+                    )
                 actions.append(
                     PaperRuntimeAction(
                         symbol=symbol,
-                        action=f"reconcile_exchange_open_{side}",
+                        action="reconcile_unmanaged_external_position",
                         direction=side,
                         reference_price=mark_price,
                         decision_trace={
                             "recovery_source": "binance_position_truth",
                             "reconcile_decoupled_from_entry_cycle": True,
+                            "reason_code": PositionManagementStatus.UNMANAGED_EXTERNAL_POSITION.value,
                         },
                     )
                 )
@@ -580,13 +835,52 @@ class PaperExchangeExecutionService:
                 exchange_positions=exchange_positions,
             )
         )
+        if self.execution_repo is not None:
+            event_repo = DecisionEventRepository(self.execution_repo.session)
+            for position_key, exchange_position in exchange_positions.items():
+                symbol = self._exchange_position_symbol(position_key, exchange_position)
+                if symbol in ambiguous_symbols:
+                    continue
+                managed_record = self._managed_record_for_exchange(
+                    paper_run=paper_run,
+                    symbol=symbol,
+                    exchange_position=exchange_position,
+                )
+                if managed_record is None or managed_record.entry_order_id is None:
+                    continue
+                entry = self.execution_repo.get_order(managed_record.entry_order_id)
+                if entry is None:
+                    continue
+                existing = event_repo.list_events(
+                    paper_run_id=paper_run.paper_run_id or "",
+                    cycle_id=entry.cycle_id,
+                )
+                if any(
+                    event.event_type is DecisionEventType.POSITION_RECONCILED
+                    and event.position_record_id == managed_record.position_record_id
+                    for event in existing
+                ):
+                    continue
+                record_execution_event(
+                    repository=event_repo,
+                    event_type=DecisionEventType.POSITION_RECONCILED,
+                    paper_run=paper_run,
+                    identity_order=entry,
+                    position_record_id=managed_record.position_record_id,
+                    reason_code="exchange_position_confirmed",
+                    payload={
+                        "exchange_quantity": exchange_position.get("contracts"),
+                        "exchange_entry_price": exchange_position.get("entry_price"),
+                        "exchange_mark_price": exchange_position.get("mark_price"),
+                    },
+                )
         closed = 0
         net_pnl = 0.0
         gross_pnl = 0.0
         fee_cost = 0.0
         slippage_cost = 0.0
         for symbol, position in list(active_positions.items()):
-            if symbol in exchange_positions:
+            if symbol in self._exchange_position_symbols(exchange_positions):
                 reconcile_missing_counts.pop(symbol, None)
                 continue
             missing_count = reconcile_missing_counts.get(symbol, 0) + 1
@@ -662,21 +956,83 @@ class PaperExchangeExecutionService:
             return order
         pre_close_cleanup: dict[str, list[str]] = {"cancelled": [], "failed": []}
         try:
+            if order_request.cycle_source == "runtime_scheduler" and (
+                self.execution_repo is None
+                or order_request.scheduler_instance_id is None
+                or order_request.fencing_token is None
+                or not validate_fence(
+                    self.execution_repo.session,
+                    lease_name=order_request.lease_name,
+                    owner_id=order_request.scheduler_instance_id,
+                    fencing_token=order_request.fencing_token,
+                )
+            ):
+                raise ValueError("lease_lost/fenced")
             if order.close_only_mode:
                 pre_close_cleanup = self.cancel_latest_entry_protections(
                     paper_run=paper_run,
                     symbol=order.symbol,
                 )
                 if pre_close_cleanup["failed"]:
-                    raise ValueError(
-                        "gateway_protection_cancel_unconfirmed: "
-                        + ",".join(pre_close_cleanup["failed"])
-                    )
+                    raise ValueError("gateway_protection_cancel_unconfirmed: " + ",".join(pre_close_cleanup["failed"]))
             mirror_request = self.gateway_order_request(order_request=order_request, position=position)
+            event_repo = (
+                DecisionEventRepository(self.execution_repo.session) if self.execution_repo is not None else None
+            )
+            event_request = mirror_request if mirror_request.trade_intent is not None else None
+            event_identity = order
+            if (
+                event_request is None
+                and position is not None
+                and position.position_record_id is not None
+                and self.execution_repo is not None
+            ):
+                position_record = self.execution_repo.get_position_record(position.position_record_id)
+                if position_record is not None and position_record.entry_order_id is not None:
+                    event_identity = self.execution_repo.get_order(position_record.entry_order_id) or order
             gateway_result = gateway.submit_order(
                 live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}",
                 order_request=mirror_request,
             )
+            if self.execution_repo is not None:
+                event_repo = DecisionEventRepository(self.execution_repo.session)
+                event_payload = {
+                    "order_execution_id": order.order_execution_id,
+                    "gateway_order_id": gateway_result.get("gateway_order_id"),
+                    "gateway_status": gateway_result.get("gateway_status"),
+                }
+                try:
+                    submitted_event = record_execution_event(
+                        repository=event_repo,
+                        event_type=DecisionEventType.EXECUTION_ORDER_SUBMITTED,
+                        paper_run=paper_run,
+                        request=event_request,
+                        identity_order=event_identity,
+                        position_record_id=(
+                            position.position_record_id if position is not None else order.position_record_id
+                        ),
+                        reason_code="gateway_submit_completed",
+                        payload=event_payload,
+                    )
+                    if submitted_event is None and order_request.cycle_source == "runtime_scheduler":
+                        event_payload["event_persistence_error"] = "EXECUTION_EVENT_IDENTITY_UNAVAILABLE"
+                    acknowledged_event = record_execution_event(
+                        repository=event_repo,
+                        event_type=DecisionEventType.ORDER_ACKNOWLEDGED,
+                        paper_run=paper_run,
+                        request=event_request,
+                        identity_order=event_identity,
+                        position_record_id=(
+                            position.position_record_id if position is not None else order.position_record_id
+                        ),
+                        reason_code=str(gateway_result.get("gateway_status") or "gateway_acknowledged"),
+                        payload=event_payload,
+                    )
+                    if acknowledged_event is None:
+                        event_payload["event_persistence_error"] = "EXECUTION_EVENT_IDENTITY_UNAVAILABLE"
+                except Exception as event_exc:  # noqa: BLE001 - exchange acknowledgement remains authoritative
+                    self.execution_repo.session.rollback()
+                    event_payload["event_persistence_error"] = str(event_exc)
             if refresh_protection or bool(order_request.entry_context.get("refresh_protection")):
                 remaining = float(order_request.entry_context.get("remaining_quantity") or 0.0)
                 stop_price = order_request.entry_context.get("protection_stop_price")
@@ -685,6 +1041,13 @@ class PaperExchangeExecutionService:
                     raise ValueError("gateway_protection_refresh_unsupported")
                 if remaining <= 0 or stop_price is None:
                     raise ValueError("gateway_protection_refresh_missing_levels")
+                if position is not None and not protection_geometry_valid(
+                    side=position.side,
+                    reference_price=float(order_request.entry_context.get("reference_price") or position.mark_price),
+                    stop_price=_float_or_none(stop_price),
+                    take_price=None,
+                ):
+                    raise ValueError("INVALID_PROTECTION_GEOMETRY")
                 protection_request = mirror_request.model_copy(
                     update={
                         "stoploss_plan": {"price": float(stop_price)},
@@ -727,9 +1090,7 @@ class PaperExchangeExecutionService:
                         execution_status="accepted",
                         rejection_reason=None,
                         rejection_codes=[
-                            code
-                            for code in order.rejection_codes
-                            if code != "binance_auto_execute_failed"
+                            code for code in order.rejection_codes if code != "binance_auto_execute_failed"
                         ],
                         gateway_status="exchange_already_flat",
                         entry_context={
@@ -807,6 +1168,10 @@ class PaperExchangeExecutionService:
                 rejection_codes=rejection_codes,
                 entry_context={
                     **order.entry_context,
+                    "quantity": gateway_result.get("quantity", order.entry_context.get("quantity")),
+                    "event_persistence_error": event_payload.get("event_persistence_error")
+                    if self.execution_repo is not None
+                    else None,
                     "protection_order_refs": gateway_result.get("protection_order_refs", []),
                     "pre_close_cancelled_protection_order_ids": pre_close_cleanup["cancelled"],
                     "pre_close_failed_protection_order_ids": pre_close_cleanup["failed"],

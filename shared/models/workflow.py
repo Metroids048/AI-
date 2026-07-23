@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any
 
 from pydantic import Field, model_validator
@@ -136,6 +137,9 @@ class PaperRuntimeCycleRequest(PlatformModel):
     process_id: int | None = None
     worker_id: str | None = None
     container_id: str | None = None
+    scheduler_cycle_id: str | None = None
+    lease_name: str = "paper_runtime_cycle"
+    fencing_token: int | None = Field(default=None, ge=1)
 
 
 class AssetRiskTierSettings(PlatformModel):
@@ -407,6 +411,9 @@ class ExecutionOrderRequest(PlatformModel):
     container_id: str | None = None
     cycle_source: str | None = None
     scheduled_for: datetime | None = None
+    position_record_id: str | None = None
+    fencing_token: int | None = Field(default=None, ge=1)
+    lease_name: str = "paper_runtime_cycle"
 
 
 class ManualOrderRequest(PlatformModel):
@@ -528,7 +535,48 @@ class OrderExecution(PlatformModel):
     lifecycle_history: list[dict[str, Any]] = Field(default_factory=list)
     reconciliation_status: str | None = None
     last_gateway_update_at: datetime | None = None
+    position_record_id: str | None = None
     created_at: datetime | None = None
+
+
+class PositionManagementStatus(StrEnum):
+    MANAGED_STRATEGY = "MANAGED_STRATEGY"
+    UNMANAGED_EXTERNAL_POSITION = "UNMANAGED_EXTERNAL_POSITION"
+    CLOSED = "CLOSED"
+
+
+class ProtectionRecordStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    INVALID_PROTECTION_GEOMETRY = "INVALID_PROTECTION_GEOMETRY"
+    INACTIVE = "INACTIVE"
+
+
+class PositionRecord(PlatformModel):
+    position_record_id: str | None = None
+    exchange_account: str
+    symbol: str
+    position_side: TradeSide
+    entry_order_id: str | None = None
+    entry_fill_id: str | None = None
+    opened_at: datetime
+    quantity: float = Field(gt=0)
+    order_origin: str
+    strategy_id: str | None = None
+    run_id: str | None = None
+    management_status: PositionManagementStatus
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ProtectionRecord(PlatformModel):
+    protection_record_id: str | None = None
+    position_record_id: str
+    stop_price: float | None = Field(default=None, gt=0)
+    take_profit_price: float | None = Field(default=None, gt=0)
+    protection_source: str
+    status: ProtectionRecordStatus = ProtectionRecordStatus.ACTIVE
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class PositionSnapshot(PlatformModel):
@@ -542,6 +590,7 @@ class PositionSnapshot(PlatformModel):
     mark_price: float
     unrealized_pnl: float = 0.0
     snapshot_time: datetime
+    position_record_id: str | None = None
     hedge_group_id: str | None = None  # Identifies positions that are part of a delta-neutral hedge
     is_hedge_leg: bool = False  # True if this is the hedge leg (e.g., spot in a carry trade)
 

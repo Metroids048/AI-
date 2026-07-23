@@ -104,6 +104,12 @@ class DecisionEventType(StrEnum):
     RECONCILED = "RECONCILED"
     POSITION_CLOSED = "POSITION_CLOSED"
     BLOCKED = "BLOCKED"
+    CANDIDATE_ACCEPTED = "candidate_accepted"
+    EXECUTION_CONTRACT_REJECTED = "execution_contract_rejected"
+    EXECUTION_ORDER_SUBMITTED = "order_submitted"
+    ORDER_ACKNOWLEDGED = "order_acknowledged"
+    POSITION_RECONCILED = "position_reconciled"
+    EXIT_TRIGGERED = "exit_triggered"
 
 
 class ValidatedMarketSnapshot(ImmutableContract):
@@ -218,6 +224,13 @@ class MarketRulesSnapshot(ImmutableContract):
     max_notional: Decimal | None = Field(default=None, gt=0)
     loaded_at: datetime
     source: str = "exchange_market_metadata"
+    exchange: str
+    market_type: str
+    exchange_symbol: str
+    price_precision: int = Field(ge=0)
+    amount_precision: int = Field(ge=0)
+    contract_size: Decimal = Field(gt=0)
+    market_active: bool
 
 
 class NormalizedOrder(ImmutableContract):
@@ -263,6 +276,11 @@ class DecisionEvent(ImmutableContract):
     symbol: str
     timeframe: str
     candle_close_time: datetime
+    run_id: str | None = None
+    position_side: str | None = None
+    order_origin: str | None = None
+    position_record_id: str | None = None
+    reason_code: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
 

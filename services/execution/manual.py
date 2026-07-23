@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 from services.execution.gatekeeper import ExecutionGatekeeperService
 from services.execution.gateway import ExchangeGateway, NullExchangeGateway
+from services.execution.order_context import OrderExecutionContextBuilder
 from services.strategy_library import ExecutionRepository
 from shared.models import (
     AdjustLeverageRequest,
@@ -20,6 +21,8 @@ from shared.models import (
     LeverageAdjustmentResult,
     ManualOrderRequest,
     OrderExecution,
+    PositionManagementStatus,
+    PositionRecord,
     PositionSnapshot,
     TradeSide,
 )
@@ -36,9 +39,15 @@ class ManualTradingService:
         self.execution_repo = execution_repo
         self.gatekeeper = gatekeeper
         self.gateway = gateway or NullExchangeGateway()
+        self.context_builder = OrderExecutionContextBuilder(self.gateway)
 
     def submit_manual_order(self, request: ManualOrderRequest) -> OrderExecution:
         order_request = self._order_request_from_manual(request)
+        order_request = self.context_builder.build(
+            order_request,
+            order_origin="manual",
+            require_market_rules=request.mode == "testnet",
+        )
         order = self.gatekeeper.submit_order(order_request)
         if order.execution_status != "accepted":
             return order
@@ -88,6 +97,11 @@ class ManualTradingService:
             ),
             idempotency_key=request.idempotency_key,
         )
+        order_request = self.context_builder.build(
+            order_request,
+            order_origin="manual_close",
+            require_market_rules=request.mode == "testnet",
+        )
         order = self.gatekeeper.submit_order(order_request)
         if order.execution_status != "accepted":
             return order
@@ -109,6 +123,7 @@ class ManualTradingService:
                 mark_price=request.reference_price,
                 unrealized_pnl=0.0,
                 snapshot_time=datetime.now(UTC),
+                position_record_id=position.position_record_id,
             )
         )
         return filled
@@ -143,31 +158,37 @@ class ManualTradingService:
             if not order.gateway_order_id:
                 raise ValueError("testnet order has no gateway_order_id")
             gateway_result = self.gateway.cancel_order(gateway_order_id=order.gateway_order_id)
-            return self.execution_repo.update_order(
+            return (
+                self.execution_repo.update_order(
+                    order.order_execution_id or "",
+                    execution_status="cancelled",
+                    gateway_status=str(gateway_result.get("gateway_status", "cancelled")),
+                    lifecycle_history=[
+                        *order.lifecycle_history,
+                        {
+                            "at": datetime.now(UTC).isoformat(),
+                            "status": gateway_result.get("gateway_status", "cancelled"),
+                            "event": "manual_cancel",
+                        },
+                    ],
+                    last_gateway_update_at=datetime.now(UTC),
+                )
+                or order
+            )
+        return (
+            self.execution_repo.update_order(
                 order.order_execution_id or "",
                 execution_status="cancelled",
-                gateway_status=str(gateway_result.get("gateway_status", "cancelled")),
+                gateway_name=order.gateway_name or "paper_manual",
+                gateway_status="cancelled",
                 lifecycle_history=[
                     *order.lifecycle_history,
-                    {
-                        "at": datetime.now(UTC).isoformat(),
-                        "status": gateway_result.get("gateway_status", "cancelled"),
-                        "event": "manual_cancel",
-                    },
+                    {"at": datetime.now(UTC).isoformat(), "status": "cancelled", "event": "manual_cancel"},
                 ],
                 last_gateway_update_at=datetime.now(UTC),
-            ) or order
-        return self.execution_repo.update_order(
-            order.order_execution_id or "",
-            execution_status="cancelled",
-            gateway_name=order.gateway_name or "paper_manual",
-            gateway_status="cancelled",
-            lifecycle_history=[
-                *order.lifecycle_history,
-                {"at": datetime.now(UTC).isoformat(), "status": "cancelled", "event": "manual_cancel"},
-            ],
-            last_gateway_update_at=datetime.now(UTC),
-        ) or order
+            )
+            or order
+        )
 
     def _order_request_from_manual(self, request: ManualOrderRequest) -> ExecutionOrderRequest:
         requested_notional = request.quantity * request.reference_price
@@ -206,37 +227,58 @@ class ManualTradingService:
         )
 
     def _fill_order(self, *, order: OrderExecution, gateway_name: str) -> OrderExecution:
-        return self.execution_repo.update_order(
-            order.order_execution_id or "",
-            execution_status="filled",
-            gateway_name=gateway_name,
-            gateway_status="filled",
-            lifecycle_history=[
-                *order.lifecycle_history,
-                {"at": datetime.now(UTC).isoformat(), "status": "filled", "event": "manual_fill"},
-            ],
-            last_gateway_update_at=datetime.now(UTC),
-        ) or order
+        return (
+            self.execution_repo.update_order(
+                order.order_execution_id or "",
+                execution_status="filled",
+                gateway_name=gateway_name,
+                gateway_status="filled",
+                lifecycle_history=[
+                    *order.lifecycle_history,
+                    {"at": datetime.now(UTC).isoformat(), "status": "filled", "event": "manual_fill"},
+                ],
+                last_gateway_update_at=datetime.now(UTC),
+            )
+            or order
+        )
 
     def _mark_gateway_submitted(self, *, order: OrderExecution, gateway_result: dict) -> OrderExecution:
-        return self.execution_repo.update_order(
-            order.order_execution_id or "",
-            gateway_name=self.gateway.capability.gateway_name,
-            gateway_order_id=gateway_result.get("gateway_order_id"),
-            gateway_status=gateway_result.get("gateway_status"),
-            lifecycle_history=[
-                *order.lifecycle_history,
-                {
-                    "at": datetime.now(UTC).isoformat(),
-                    "status": gateway_result.get("gateway_status"),
-                    "event": "manual_submit",
-                },
-            ],
-            last_gateway_update_at=datetime.now(UTC),
-        ) or order
+        return (
+            self.execution_repo.update_order(
+                order.order_execution_id or "",
+                gateway_name=self.gateway.capability.gateway_name,
+                gateway_order_id=gateway_result.get("gateway_order_id"),
+                gateway_status=gateway_result.get("gateway_status"),
+                lifecycle_history=[
+                    *order.lifecycle_history,
+                    {
+                        "at": datetime.now(UTC).isoformat(),
+                        "status": gateway_result.get("gateway_status"),
+                        "event": "manual_submit",
+                    },
+                ],
+                last_gateway_update_at=datetime.now(UTC),
+            )
+            or order
+        )
 
     def _open_or_replace_position(self, *, request: ManualOrderRequest, order: OrderExecution) -> PositionSnapshot:
         quantity = request.quantity if request.direction == TradeSide.LONG else -request.quantity
+        record = self.execution_repo.create_position_record(
+            PositionRecord(
+                exchange_account=str(order.entry_context.get("exchange_account") or "paper:paper:local"),
+                symbol=request.symbol,
+                position_side=request.direction,
+                entry_order_id=order.order_execution_id,
+                entry_fill_id=order.gateway_order_id,
+                opened_at=datetime.now(UTC),
+                quantity=abs(quantity),
+                order_origin="manual",
+                strategy_id=request.strategy_id,
+                run_id=request.paper_run_id or "manual",
+                management_status=PositionManagementStatus.UNMANAGED_EXTERNAL_POSITION,
+            )
+        )
         return self.execution_repo.create_position_snapshot(
             PositionSnapshot(
                 run_type="paper",
@@ -248,6 +290,7 @@ class ManualTradingService:
                 mark_price=request.reference_price,
                 unrealized_pnl=0.0,
                 snapshot_time=datetime.now(UTC),
+                position_record_id=record.position_record_id,
             )
         )
 

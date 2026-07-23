@@ -601,3 +601,12 @@
 - Context: The automatic directional lane reached a valid intent 17 times but failed before exchange submission because the gateway requires `market_rules_snapshot`. Separately, lease loss does not fence a running cycle, and exchange position recovery does not bind direction/origin/position identity before reusing protection state.
 - Decision: Keep BTC/ETH scope and existing fixed position/leverage configuration. Do not change strategy thresholds, Ensemble weights, exits, risk gates or fallback behavior. First validate one synthetic intent through the complete non-mutating execution path, then separately design scheduler fencing and position-identity changes for operator approval.
 - Consequences: The project is not permitted to interpret API 200, completed scheduler cycles, Paper fills or `exchange_already_flat` as proof of a successful automatic round trip.
+
+## ADR-064: Paper gateway execution requires exchange metadata and proven position identity
+
+- Date: 2026-07-23
+- Status: accepted
+- Context: Accepted automatic intents reached the Gateway without `market_rules_snapshot`, while exchange reconciliation could associate historical protection with a different side, origin, or position. Lease ownership also lacked a monotonic submit fence.
+- Decision: Build one order execution context from current CCXT metadata for Manual/Testnet and gateway-capable Paper paths; retain Gateway fail-closed behavior for missing rules. Persist explicit PositionRecord/ProtectionRecord links, quarantine identity mismatches as unmanaged external positions, validate protection geometry, preserve hedge sides, and require owner plus fencing token for lease release and submit checks. Preserve legacy event enum values while adding the six lower-case execution lifecycle event values.
+- Consequences: External positions cannot inherit historical protection or enter the automatic exit loop. A restart may resume management only from an exact persisted strategy-entry identity, never from process-local membership or `run_id + symbol`. Completion still requires a natural scheduler candidate with persisted accepted/submitted/acknowledged/reconciled events and a read-only Demo order id.
+- Additional boundary: dual-side HEDGE recovery is treated as ambiguous and isolated; restart recovery requires an exchange position update timestamp close to the persisted opened_at, while same-session strategy positions retain the normal managed path.

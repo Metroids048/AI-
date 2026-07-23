@@ -473,6 +473,9 @@ class OrderExecution(Base):
     lifecycle_history: Mapped[list] = mapped_column(JSON, default=list)
     reconciliation_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     last_gateway_update_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    position_record_id: Mapped[str | None] = mapped_column(
+        ForeignKey("position_records.position_record_id"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
@@ -486,6 +489,7 @@ class SchedulerLease(Base):
     acquired_at: Mapped[datetime] = mapped_column()
     heartbeat_at: Mapped[datetime] = mapped_column()
     expires_at: Mapped[datetime] = mapped_column(index=True)
+    fencing_token: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class SchedulerCycle(Base):
@@ -505,6 +509,39 @@ class SchedulerCycle(Base):
     started_at: Mapped[datetime] = mapped_column()
     completed_at: Mapped[datetime | None] = mapped_column(nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fencing_token: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class PositionRecord(Base):
+    __tablename__ = "position_records"
+
+    position_record_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    exchange_account: Mapped[str] = mapped_column(String(120), index=True)
+    symbol: Mapped[str] = mapped_column(String(30), index=True)
+    position_side: Mapped[str] = mapped_column(String(20), index=True)
+    entry_order_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    entry_fill_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    opened_at: Mapped[datetime] = mapped_column(index=True)
+    quantity: Mapped[float] = mapped_column(Float)
+    order_origin: Mapped[str] = mapped_column(String(50), index=True)
+    strategy_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    run_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    management_status: Mapped[str] = mapped_column(String(50), index=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class ProtectionRecord(Base):
+    __tablename__ = "protection_records"
+
+    protection_record_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    position_record_id: Mapped[str] = mapped_column(ForeignKey("position_records.position_record_id"), index=True)
+    stop_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    take_profit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    protection_source: Mapped[str] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(50), index=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
 
 class PositionSnapshot(Base):
@@ -520,6 +557,9 @@ class PositionSnapshot(Base):
     mark_price: Mapped[float] = mapped_column(Float)
     unrealized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     snapshot_time: Mapped[datetime] = mapped_column(index=True)
+    position_record_id: Mapped[str | None] = mapped_column(
+        ForeignKey("position_records.position_record_id"), nullable=True, index=True
+    )
     hedge_group_id: Mapped[str | None] = mapped_column(String(60), nullable=True, index=True)
     is_hedge_leg: Mapped[bool] = mapped_column(default=False)
 
@@ -555,6 +595,11 @@ class DecisionEvent(Base):
     timeframe: Mapped[str] = mapped_column(String(20))
     candle_close_time: Mapped[datetime] = mapped_column(index=True)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    run_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    position_side: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    order_origin: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    position_record_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    reason_code: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     decision_key: Mapped[str | None] = mapped_column(String(220), nullable=True, unique=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
 

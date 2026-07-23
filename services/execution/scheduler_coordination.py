@@ -44,6 +44,7 @@ class SchedulerCoordinator:
         self.hostname = hostname or socket.gethostname()
         self.process_id = process_id or os.getpid()
         self.deployment_sha = deployment_sha or settings.app_build_id
+        self._fencing_tokens: dict[str, int] = {}
 
     def acquire_or_renew_lease(
         self,
@@ -51,6 +52,7 @@ class SchedulerCoordinator:
         lease_name: str = "paper_runtime_cycle",
         now: datetime | None = None,
         ttl_seconds: float = 90,
+        fencing_token: int | None = None,
     ) -> bool:
         observed_at = _db_time(now or datetime.now(UTC))
         with self.session_factory() as session:
@@ -65,14 +67,24 @@ class SchedulerCoordinator:
                         acquired_at=observed_at,
                         heartbeat_at=observed_at,
                         expires_at=observed_at + timedelta(seconds=ttl_seconds),
+                        fencing_token=1,
                     )
                 )
                 try:
                     session.commit()
+                    self._fencing_tokens[lease_name] = 1
                     return True
                 except IntegrityError:
                     session.rollback()
                     return False
+            if (
+                lease.owner_id == self.instance_id
+                and fencing_token is not None
+                and lease.fencing_token != fencing_token
+            ):
+                return False
+            takeover = lease.owner_id != self.instance_id or lease.expires_at <= observed_at
+            next_token = int(lease.fencing_token or 1) + (1 if takeover else 0)
             updated = (
                 session.query(models.SchedulerLease)
                 .filter(
@@ -90,18 +102,40 @@ class SchedulerCoordinator:
                         "acquired_at": observed_at,
                         "heartbeat_at": observed_at,
                         "expires_at": observed_at + timedelta(seconds=ttl_seconds),
+                        "fencing_token": next_token,
                     },
                     synchronize_session=False,
                 )
             )
             session.commit()
+            if updated == 1:
+                self._fencing_tokens[lease_name] = next_token
             return updated == 1
 
-    def release_lease(self, *, lease_name: str = "paper_runtime_cycle") -> None:
+    def fencing_token(self, *, lease_name: str = "paper_runtime_cycle") -> int | None:
         with self.session_factory() as session:
             lease = session.get(models.SchedulerLease, lease_name)
-            if lease is not None and lease.owner_id == self.instance_id:
-                session.delete(lease)
+            token = int(lease.fencing_token) if lease is not None else None
+            if token is not None:
+                self._fencing_tokens[lease_name] = token
+            return token
+
+    def release_lease(
+        self,
+        *,
+        lease_name: str = "paper_runtime_cycle",
+        fencing_token: int | None = None,
+    ) -> None:
+        with self.session_factory() as session:
+            lease = session.get(models.SchedulerLease, lease_name)
+            expected_token = fencing_token or self._fencing_tokens.get(lease_name)
+            if (
+                lease is not None
+                and lease.owner_id == self.instance_id
+                and expected_token is not None
+                and int(lease.fencing_token or 0) == expected_token
+            ):
+                lease.expires_at = _db_time(datetime.now(UTC))
                 session.commit()
 
     def claim_cycle(
@@ -111,6 +145,7 @@ class SchedulerCoordinator:
         scheduled_for: datetime,
         cycle_source: str = "runtime_scheduler",
         run_mode: str = "paper",
+        fencing_token: int | None = None,
     ) -> CycleClaim:
         with self.session_factory() as session:
             row = models.SchedulerCycle(
@@ -124,6 +159,7 @@ class SchedulerCoordinator:
                 process_id=self.process_id,
                 status="claimed",
                 started_at=_db_time(datetime.now(UTC)),
+                fencing_token=(fencing_token or self._fencing_tokens.get("paper_runtime_cycle")),
             )
             session.add(row)
             try:
@@ -149,3 +185,21 @@ class SchedulerCoordinator:
             if job_name is not None:
                 query = query.filter(models.SchedulerCycle.job_name == job_name)
             return query.order_by(models.SchedulerCycle.scheduled_for).all()
+
+
+def validate_fence(
+    session: Session,
+    *,
+    lease_name: str,
+    owner_id: str,
+    fencing_token: int,
+    now: datetime | None = None,
+) -> bool:
+    observed_at = _db_time(now or datetime.now(UTC))
+    lease = session.get(models.SchedulerLease, lease_name)
+    return bool(
+        lease is not None
+        and lease.owner_id == owner_id
+        and int(lease.fencing_token or 0) == fencing_token
+        and lease.expires_at > observed_at
+    )

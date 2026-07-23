@@ -31,7 +31,10 @@ from shared.models import (
     PaperRun,
     PaperRunStepRequest,
     PaperRuntimeCycleRequest,
+    PositionManagementStatus,
+    PositionRecord,
     PositionSnapshot,
+    ProtectionRecord,
     RunStatus,
     StrategyCreate,
     TradeSide,
@@ -306,7 +309,7 @@ class TestRankDropoutClose:
         execution_repo = ExecutionRepository(db_session)
         # D/USDT was originally opened while it ranked inside the basket; funding
         # has since normalized to rank 4 of 7, outside a basket_size=3 basket.
-        execution_repo.create_order(
+        entry_order = execution_repo.create_order(
             OrderExecution(
                 strategy_id=strategy.strategy_id,
                 symbol="D/USDT",
@@ -321,6 +324,32 @@ class TestRankDropoutClose:
                 paper_run_id=paper_run.paper_run_id,
             )
         )
+        opened_at = datetime.now(UTC) - timedelta(minutes=5)
+        record = execution_repo.create_position_record(
+            PositionRecord(
+                exchange_account="paper:paper:local",
+                symbol="D/USDT",
+                position_side=TradeSide.SHORT,
+                entry_order_id=entry_order.order_execution_id,
+                opened_at=opened_at,
+                quantity=1.0,
+                order_origin="paper_scheduler",
+                strategy_id=strategy.strategy_id,
+                run_id=paper_run.paper_run_id,
+                management_status=PositionManagementStatus.MANAGED_STRATEGY,
+            )
+        )
+        execution_repo.create_protection_record(
+            ProtectionRecord(
+                position_record_id=record.position_record_id or "",
+                stop_price=400.0,
+                protection_source="strategy_entry",
+            )
+        )
+        execution_repo.update_order(
+            entry_order.order_execution_id or "",
+            position_record_id=record.position_record_id,
+        )
         execution_repo.create_position_snapshot(
             PositionSnapshot(
                 run_type="paper",
@@ -331,7 +360,8 @@ class TestRankDropoutClose:
                 entry_price=100.0,
                 mark_price=100.0,
                 unrealized_pnl=0.0,
-                snapshot_time=datetime.now(UTC) - timedelta(minutes=5),
+                snapshot_time=opened_at,
+                position_record_id=record.position_record_id,
             )
         )
 

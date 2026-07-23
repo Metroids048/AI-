@@ -30,10 +30,14 @@ from shared.models import (
     ExecutionOrderRequest,
     ExecutionRiskState,
     GateDecision,
+    MarketRulesSnapshot,
     OrderExecution,
     PaperRun,
     PaperRuntimeCycleRequest,
+    PositionManagementStatus,
+    PositionRecord,
     PositionSnapshot,
+    ProtectionRecord,
     StrategyCreate,
     TradeSide,
 )
@@ -444,7 +448,12 @@ def test_runtime_exit_ladder_level2_then_remainder_trails(db_session) -> None:
             },
         },
     )
-    ExecutionRepository(db_session).create_position_snapshot(
+    execution_repo = ExecutionRepository(db_session)
+    existing_position = execution_repo.list_latest_positions_for_run(
+        run_type="paper",
+        run_id=paper_run.paper_run_id or "",
+    )[0]
+    execution_repo.create_position_snapshot(
         PositionSnapshot(
             run_type="paper",
             run_id=paper_run.paper_run_id or "",
@@ -455,6 +464,7 @@ def test_runtime_exit_ladder_level2_then_remainder_trails(db_session) -> None:
             mark_price=105.0,
             unrealized_pnl=3.0,
             snapshot_time=datetime.now(UTC) - timedelta(minutes=5),
+            position_record_id=existing_position.position_record_id,
         )
     )
     _store_bar(db_session, low=104, high=108, close=107.5, timeframe="1m")
@@ -748,7 +758,13 @@ def test_reduce_only_flat_on_protective_close_clears_local(db_session, monkeypat
             # protective close then hits ReduceOnly -2022 (race / stale snapshot).
             return {
                 "open_positions": [
-                    {"symbol": "BTC/USDT:USDT", "contracts": 1.0, "side": "long"},
+                    {
+                        "symbol": "BTC/USDT:USDT",
+                        "contracts": 1.0,
+                        "side": "long",
+                        "entry_price": 100.0,
+                        "mark_price": 100.0,
+                    },
                 ]
             }
 
@@ -917,6 +933,28 @@ def test_binance_submitted_entry_does_not_create_local_filled_position(db_sessio
     class SubmittedGateway:
         capability = type("Cap", (), {"gateway_name": "submitted_gateway"})()
 
+        def load_market_rules_snapshot(self, *, symbol, leverage, loaded_at):  # noqa: ANN001
+            return MarketRulesSnapshot(
+                rules_snapshot_id="rules:submitted-gateway",
+                symbol=symbol,
+                market_status="TRADING",
+                position_mode="ONE_WAY",
+                margin_mode="CROSS",
+                leverage=leverage,
+                tick_size=Decimal("0.1"),
+                step_size=Decimal("0.001"),
+                min_quantity=Decimal("0.001"),
+                min_notional=Decimal("5"),
+                loaded_at=loaded_at,
+                exchange="binance",
+                market_type="swap",
+                exchange_symbol="BTC/USDT:USDT",
+                price_precision=1,
+                amount_precision=3,
+                contract_size=Decimal("1"),
+                market_active=True,
+            )
+
         def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
             return {
                 "gateway_order_id": "pending-entry-1",
@@ -1055,8 +1093,8 @@ def test_runtime_reconcile_recovers_exchange_only_position(db_session) -> None:
         request=PaperRuntimeCycleRequest(symbols=[], timeframe="15m", enable_decision_veto=False),
     )
 
-    assert result.open_position_symbols == ["BTC/USDT"]
-    assert any(action.action == "reconcile_exchange_open_short" for action in result.actions)
+    assert result.open_position_symbols == []
+    assert any(action.action == "reconcile_unmanaged_external_position" for action in result.actions)
     recovered = ExecutionRepository(db_session).list_latest_positions_for_run(
         run_type="paper",
         run_id=paper_run.paper_run_id or "",
@@ -1064,6 +1102,10 @@ def test_runtime_reconcile_recovers_exchange_only_position(db_session) -> None:
     assert recovered.side == TradeSide.SHORT
     assert recovered.quantity == 0.25
     assert recovered.entry_price == 101.0
+    assert recovered.position_record_id is not None
+    record = ExecutionRepository(db_session).get_position_record(recovered.position_record_id)
+    assert record is not None
+    assert record.management_status is PositionManagementStatus.UNMANAGED_EXTERNAL_POSITION
 
 
 def test_runtime_reconcile_cancels_orphan_exchange_protection(db_session) -> None:
@@ -1164,7 +1206,15 @@ def test_runtime_gateway_close_cancels_entry_protection_orders(db_session, monke
 
         def reconcile(self, *, live_run_id: str) -> dict:
             return {
-                "open_positions": [{"symbol": "BTC/USDT:USDT", "contracts": 1.0, "side": "long"}],
+                "open_positions": [
+                    {
+                        "symbol": "BTC/USDT:USDT",
+                        "contracts": 1.0,
+                        "side": "long",
+                        "entry_price": 100.0,
+                        "mark_price": 100.0,
+                    }
+                ],
                 "open_orders": [],
             }
 
@@ -1346,12 +1396,14 @@ def _runtime_with_position(
         )
     )
     execution_repo = ExecutionRepository(db_session)
-    execution_repo.create_order(
+    entry_order = execution_repo.create_order(
         OrderExecution(
             strategy_id=strategy.strategy_id,
             symbol="BTC/USDT",
             direction=side,
             execution_status="filled",
+            gateway_order_id="paper-entry-1",
+            order_origin="paper_scheduler",
             stoploss_present=True,
             close_only_mode=False,
             entry_context={
@@ -1367,6 +1419,34 @@ def _runtime_with_position(
             evaluated_risk_state=ExecutionRiskState(account_equity=10_000, equity_peak=10_000),
         )
     )
+    opened_at = datetime.now(UTC) - timedelta(minutes=5) - timedelta(hours=position_age_hours)
+    position_record = execution_repo.create_position_record(
+        PositionRecord(
+            exchange_account="paper:paper:local",
+            symbol="BTC/USDT",
+            position_side=side,
+            entry_order_id=entry_order.order_execution_id,
+            entry_fill_id=entry_order.gateway_order_id,
+            opened_at=opened_at,
+            quantity=1.0,
+            order_origin="paper_scheduler",
+            strategy_id=strategy.strategy_id,
+            run_id=paper_run.paper_run_id,
+            management_status=PositionManagementStatus.MANAGED_STRATEGY,
+        )
+    )
+    execution_repo.create_protection_record(
+        ProtectionRecord(
+            position_record_id=position_record.position_record_id or "",
+            stop_price=stop_price,
+            take_profit_price=take_price,
+            protection_source="strategy_entry",
+        )
+    )
+    execution_repo.update_order(
+        entry_order.order_execution_id or "",
+        position_record_id=position_record.position_record_id,
+    )
     execution_repo.create_position_snapshot(
         PositionSnapshot(
             run_type="paper",
@@ -1377,7 +1457,8 @@ def _runtime_with_position(
             entry_price=100.0,
             mark_price=100.0,
             unrealized_pnl=0.0,
-            snapshot_time=datetime.now(UTC) - timedelta(minutes=5) - timedelta(hours=position_age_hours),
+            snapshot_time=opened_at,
+            position_record_id=position_record.position_record_id,
         )
     )
     runtime = PaperRuntimeService(
@@ -1399,6 +1480,7 @@ def _runtime_with_position(
         ),
         gateway=gateway,
     )
+    runtime.exchange_execution.register_session_managed_position(position_record.position_record_id)
     return runtime, paper_run
 
 

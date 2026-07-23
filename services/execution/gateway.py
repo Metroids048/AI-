@@ -6,9 +6,11 @@ import contextlib
 import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any, Protocol
 
 from services.data.universe import FIXED_TOP20_SYMBOLS, platform_to_exchange_symbol
+from services.execution.order_context import build_gateway_market_rules
 from services.execution.order_normalizer import OrderNormalizer
 from shared.binance_network import binance_ccxt_config
 from shared.config import settings
@@ -238,6 +240,21 @@ class BinanceUsdtPerpetualGateway:
         if price is None or float(price) <= 0:
             raise ValueError(f"unable to resolve positive last price for {symbol}")
         return float(price)
+
+    def load_market_rules_snapshot(
+        self,
+        *,
+        symbol: str,
+        leverage: Decimal,
+        loaded_at: datetime,
+    ):
+        return build_gateway_market_rules(
+            client=self.client,
+            symbol=symbol,
+            exchange_symbol=_normalize_binance_symbol(symbol),
+            leverage=leverage,
+            loaded_at=loaded_at,
+        )
 
     def submit_acceptance_order(
         self,
@@ -480,6 +497,7 @@ class BinanceUsdtPerpetualGateway:
                     "entry_price": _position_numeric(position, "entryPrice", "entry_price"),
                     "mark_price": _position_numeric(position, "markPrice", "mark_price"),
                     "unrealized_pnl": _position_numeric(position, "unrealizedPnl", "unrealized_pnl"),
+                    "position_update_time": _position_numeric(position, "timestamp", "updateTime"),
                     "leverage": _effective_position_leverage(position)
                     or leverage_by_symbol.get(_binance_market_id(str(position.get("symbol") or "")), 0.0),
                 }
@@ -687,8 +705,7 @@ class BinanceUsdtPerpetualGateway:
 MOCK_TRADING_WEB_URL = "https://demo.binance.com/en/futures/BTCUSDT"
 TESTNET_TRADING_WEB_URL = "https://testnet.binancefuture.com/en/futures/BTCUSDT"
 MAINNET_NOT_SYNCED_HINT = (
-    "主网 futures.binance.com 的仓位/订单永远不会同步到本系统"
-    "（LIVE_TRADING_ENABLED=false）。请只与下方模拟盘网页对账。"
+    "主网 futures.binance.com 的仓位/订单永远不会同步到本系统（LIVE_TRADING_ENABLED=false）。请只与下方模拟盘网页对账。"
 )
 
 
@@ -909,7 +926,7 @@ def _binance_account_warning(*, api_backend: str) -> str:
             "对账入口：testnet.binancefuture.com（须同一套 Testnet API Key 账号）。"
             "不要打开 futures.binance.com 主网对比。"
         )
-    return f"{base} 对账入口：demo.binance.com。" "不要打开 futures.binance.com 主网对比。"
+    return f"{base} 对账入口：demo.binance.com。不要打开 futures.binance.com 主网对比。"
 
 
 def probe_testnet_account(
