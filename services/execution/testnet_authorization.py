@@ -64,3 +64,52 @@ def arm_validated_directional_run(
         config_repo.create_snapshot(snapshot, base_config_hash=updated.active_config_hash)
         updated_count += 1
     return updated_count
+
+
+def directional_run_is_armed(
+    session: Session,
+    *,
+    symbols: list[str] | tuple[str, ...] = AUTO_SIMULATION_EXECUTION_SYMBOLS,
+) -> bool:
+    """Return whether a running directional lane is actually armed for exact-scope simulation."""
+
+    expected_symbols = list(symbols)
+    expected_scope_hash = execution_scope_hash(expected_symbols)
+    for run in PaperRunRepository(session).list_paper_runs():
+        if run.paper_status != "running":
+            continue
+        profile = run.execution_profile
+        if profile.get("auto_paper_runtime_key") != AUTO_PAPER_TECHNICAL_KEY:
+            continue
+        active = ConfigSnapshotRepository(session).get_active(run.paper_run_id or "")
+        active_config = active.config if active is not None else {}
+        active_profile = active_config.get("execution_profile")
+        strategy_rules = active_config.get("strategy_rules")
+        return bool(
+            profile.get("execution_mode") == "binance_simulation_first"
+            and profile.get("mirror_to_gateway") is True
+            and profile.get("cost_gate_verified") is True
+            and list(profile.get("acceptance_symbols") or []) == expected_symbols
+            and profile.get("acceptance_scope_hash") == expected_scope_hash
+            and isinstance(active_profile, dict)
+            and active_profile.get("execution_mode") == "binance_simulation_first"
+            and active_profile.get("mirror_to_gateway") is True
+            and active_profile.get("cost_gate_verified") is True
+            and list(active_profile.get("acceptance_symbols") or []) == expected_symbols
+            and active_profile.get("acceptance_scope_hash") == expected_scope_hash
+            and isinstance(strategy_rules, dict)
+            and bool(strategy_rules)
+        )
+    return False
+
+
+def directional_run_unmanaged_symbols(session: Session) -> list[str]:
+    """Return current exchange positions that are not owned by the active directional run."""
+
+    for run in PaperRunRepository(session).list_paper_runs():
+        if run.paper_status != "running":
+            continue
+        if run.execution_profile.get("auto_paper_runtime_key") != AUTO_PAPER_TECHNICAL_KEY:
+            continue
+        return sorted(set(run.paper_metrics_summary.get("unmanaged_external_symbols") or []))
+    return []

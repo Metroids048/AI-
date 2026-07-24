@@ -663,3 +663,19 @@
 - Focused execution verification passed. Natural Demo strategy-order proof remains unavailable because a blocking `consecutive_loss_limit_breached` risk event is active and current exchange positions are external reconciliation facts. Status remains `PARTIAL`.
 - Managed strategy positions now survive runtime restarts only when the persisted PositionRecord, linked scheduler-origin entry order, exchange fill id, run/strategy, side, quantity, and entry price all match. Runtime-session membership is not identity; manual/external records remain unmanaged and cannot be adopted implicitly.
 - HEDGE recovery is fail-closed when both LONG and SHORT are open for one symbol; neither side is auto-protected or auto-closed until identity is unambiguous. Exchange position update time is required for restart recovery.
+
+## Exchange-First Binance Simulation Runtime (2026-07-24)
+
+- The automated directional execution universe is exactly `BTC/USDT` and `ETH/USDT`; Binance USDT-M Testnet/Simulation is the authoritative order, fill, position, and realized-PnL source.
+- SQLite/Paper records are post-exchange projections, attribution/audit records, and recovery caches. A local accepted order or position is never proof that Binance executed a trade.
+- Safe startup now defaults the directional lane to `binance_simulation_first` only under Testnet credentials and mainnet-off settings, and re-arms a retained stale `paper_only` run from an existing exact BTC/ETH acceptance proof.
+- Runtime readiness must verify both exact-scope acceptance and that the actual running directional `PaperRun.execution_profile` is armed (`execution_mode`, gateway flag, cost gate, symbols, and scope hash). The blocker CLI and status API now expose `directional_run_not_armed` instead of reporting a false ready state.
+- Confirmed Binance average fill price and filled quantity are authoritative for local open/close projection. A submitted/open exchange order remains locally flat; a filled exchange quantity is never resized by local minimum-notional logic.
+
+## 2026-07-24 Directional throughput runtime facts
+
+- A green `execution_ready` state does not imply a directional candidate exists. The supplied runtime ledger showed the dominant pre-Gatekeeper blockers were `technical_signals_insufficient` and strict `multi_timeframe_disagreement`.
+- `operator_heuristic_v2_relaxed` now truly implements its documented policy: the 15m entry direction must agree with at least one of the configured 1h/4h higher timeframes. The earlier implementation changed only the ensemble quorum while a preceding strict MTF gate still rejected it.
+- The Testnet-only fallback is enabled only for an armed `binance_simulation_first` directional run and is tagged `decision_variant=simulation_sampling_fallback` / `testnet_sampling_mode=true`. It never runs on mainnet or local-only Paper.
+- Bootstrap stages packaged active-manifest rules into the immutable ConfigSnapshot for the next cycle, preventing stale database strategy rules from silently overriding a deployed candidate.
+- `py -3 -m scripts.verify_directional_exchange_first` is the deterministic offline proof command. It uses real indicator evaluation and the real orchestration/Gatekeeper/context path with a strict fake Binance fill; it performs no network or exchange mutation.

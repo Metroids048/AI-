@@ -15,7 +15,8 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_scope_hash
+from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY
 from services.execution.gateway import BinanceUsdtPerpetualGateway
 from shared.config import settings
 
@@ -143,6 +144,45 @@ def _check_db_blockers(db_path: Path) -> list[str]:
 
         if not acceptance_found:
             blockers.append("testnet_acceptance_not_verified")
+        else:
+            expected_scope_hash = execution_scope_hash(expected)
+            try:
+                run_rows = conn.execute(
+                    "SELECT execution_profile, paper_metrics_summary FROM paper_runs "
+                    "WHERE paper_status = 'running' ORDER BY created_at DESC"
+                ).fetchall()
+            except Exception:
+                run_rows = []
+
+            directional_run_armed = False
+            for row in run_rows:
+                try:
+                    raw_profile = row["execution_profile"]
+                    profile = json.loads(raw_profile) if isinstance(raw_profile, str) else (raw_profile or {})
+                except Exception:
+                    continue
+                if profile.get("auto_paper_runtime_key") != AUTO_PAPER_TECHNICAL_KEY:
+                    continue
+                directional_run_armed = bool(
+                    profile.get("execution_mode") == "binance_simulation_first"
+                    and profile.get("mirror_to_gateway") is True
+                    and profile.get("cost_gate_verified") is True
+                    and list(profile.get("acceptance_symbols") or []) == expected
+                    and profile.get("acceptance_scope_hash") == expected_scope_hash
+                )
+                try:
+                    raw_metrics = row["paper_metrics_summary"]
+                    metrics = json.loads(raw_metrics) if isinstance(raw_metrics, str) else (raw_metrics or {})
+                except Exception:
+                    metrics = {}
+                unmanaged_symbols = list(metrics.get("unmanaged_external_symbols") or [])
+                if unmanaged_symbols:
+                    blockers.append("unmanaged_external_position")
+                    print(f"  {YELLOW}unmanaged exchange positions:{RESET} " + ", ".join(unmanaged_symbols))
+                break
+
+            if not directional_run_armed:
+                blockers.append("directional_run_not_armed")
 
         conn.close()
     except Exception as exc:
@@ -210,7 +250,7 @@ def main(db_path: Path = DB_PATH) -> int:
     print("\n--- Layer 3: Database ---")
     db_blockers = _check_db_blockers(db_path)
     if not db_blockers:
-        _ok(f"no blocking_risk_event  testnet_acceptance_verified for {active_symbols}")
+        _ok(f"no blocking_risk_event  testnet_acceptance_verified  directional_run_armed for {active_symbols}")
     else:
         for b in db_blockers:
             _fail(f"blocker: {b}")
@@ -220,6 +260,14 @@ def main(db_path: Path = DB_PATH) -> int:
             f"\n  {YELLOW}ACTION REQUIRED:{RESET} Trigger new acceptance run for exactly {active_symbols}\n"
             f'  POST /api/runs/testnet-acceptance  body: {{"symbols": {active_symbols}}}\n'
             f"  NOTE: old run da7edfd9 covered BTC/ETH/SOL (3 symbols) — exact-match fails for BTC/ETH (2 symbols)"
+        )
+
+    if "directional_run_not_armed" in db_blockers:
+        print(
+            f"\n  {YELLOW}ACTION REQUIRED:{RESET} The exact-scope acceptance exists, but the running BTC/ETH "
+            "directional lane is still paper_only or has stale authorization metadata.\n"
+            "  Restart the exchange-first runtime so bootstrap can re-arm the retained directional run; "
+            "then rerun this check."
         )
 
     all_blockers.extend(db_blockers)

@@ -5,6 +5,9 @@ from __future__ import annotations
 from statistics import mean
 from typing import Any
 
+from services.data.universe import execution_scope_hash
+from shared.config import settings
+
 
 def meta_label_edge_stats(net_returns: list[float]) -> dict[str, float]:
     """Derive win-rate and average win/loss magnitudes from historical sample returns."""
@@ -34,12 +37,7 @@ def net_edge_after_cost(
     round_trip_slippage_rate: float,
 ) -> float:
     """Gross expectancy minus round-trip fee and slippage rates (all fractional returns)."""
-    return (
-        win_rate * average_win
-        - (1.0 - win_rate) * average_loss
-        - round_trip_fee_rate
-        - round_trip_slippage_rate
-    )
+    return win_rate * average_win - (1.0 - win_rate) * average_loss - round_trip_fee_rate - round_trip_slippage_rate
 
 
 def net_edge_rejection_codes(entry_context: dict[str, Any]) -> list[str]:
@@ -48,6 +46,19 @@ def net_edge_rejection_codes(entry_context: dict[str, Any]) -> list[str]:
         return []
     if bool(entry_context.get("observation_only_mode", False)):
         return []  # Signal observation channel: bypass cost gate, other risk controls remain active
+    if bool(entry_context.get("testnet_sampling_mode", False)) and (
+        entry_context.get("decision_variant") == "simulation_sampling_fallback"
+        and entry_context.get("strategy_lane") == "directional"
+        and entry_context.get("execution_scope_hash") == execution_scope_hash()
+        and settings.binance_use_testnet
+        and settings.binance_auto_execute
+        and not settings.live_trading_enabled
+    ):
+        # The sampling fallback exists to collect real Testnet fills before it
+        # has deployable OOS evidence.  Only this pre-validation expectancy gate
+        # is bypassed; Gatekeeper stop, position, leverage, exposure, loss and
+        # kill-switch checks still run unchanged.
+        return []
     if bool(entry_context.get("validated_edge_required", False)):
         validated_edge = entry_context.get("validated_edge_net_expectancy")
         if validated_edge is None:

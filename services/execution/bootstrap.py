@@ -301,8 +301,17 @@ def binance_credentials_configured() -> bool:
 
 
 def default_mirror_to_gateway() -> bool:
-    """New automatic runs remain local until a cost-gated Testnet trial is explicitly armed."""
-    return False
+    """Use Binance Simulation as the default execution target when it is safely authorized.
+
+    This predicate never enables mainnet. Cost-gate and exact-scope acceptance remain
+    separate per-run requirements enforced by ``_should_execute_on_binance``.
+    """
+    return bool(
+        binance_credentials_configured()
+        and settings.binance_auto_execute
+        and settings.binance_use_testnet
+        and not settings.live_trading_enabled
+    )
 
 
 def bootstrap_medium_risk_profile() -> str:
@@ -330,8 +339,12 @@ def bootstrap_medium_risk_profile() -> str:
 
 
 def bootstrap_paper_testnet_mirror() -> int:
-    """Do not auto-enable gateway mirroring for existing PaperRuns."""
-    logger.info("paper testnet mirror bootstrap skipped: mirroring is operator opt-in")
+    """Legacy compatibility hook; per-run exchange-first profiles are configured elsewhere.
+
+    The name is retained for callers, but Binance Simulation is not a mirror of local
+    Paper state. ``_ensure_auto_paper_run`` owns the safe exchange-first mode.
+    """
+    logger.info("legacy paper mirror bootstrap skipped: per-run exchange-first profile is authoritative")
     return 0
 
 
@@ -509,6 +522,11 @@ def _ensure_auto_paper_run(
             "universe_assets": universe_assets,
             "llm_veto_enabled": True,
             "market_intelligence_enabled": True,
+            # When the OOS-validated primary is silent, the armed BTC/ETH
+            # Testnet lane may evaluate the existing relaxed candidate solely
+            # to collect exchange-fill samples.  Mainnet and local-only Paper
+            # paths can never use this fallback.
+            "simulation_sampling_fallback_enabled": strategy_lane == "directional",
         }
         if paper_run is None:
             paper_run = paper_repo.create_paper_run(
@@ -583,7 +601,49 @@ def bootstrap_auto_trading_paper_run() -> str | None:
         rules=AUTO_PAPER_STRATEGY_RULES,
         risk_profile_id=risk_profile_id,
         auto_schedule_enabled=False,
+        force_paper_only=True,
     )
+
+
+def _rearm_directional_run_from_verified_acceptance(paper_run_id: str) -> bool:
+    """Recover exchange-first authorization from an existing exact BTC/ETH acceptance proof.
+
+    A prior bootstrap could preserve a stale ``paper_only`` profile even though the
+    acceptance proof remained valid. This makes startup self-healing without bypassing
+    acceptance, cost, testnet, or mainnet safety gates.
+    """
+    from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_scope_hash
+    from services.database import get_session_factory
+    from services.execution.testnet_authorization import arm_validated_directional_run
+    from services.strategy_library import AgentTaskRepository, PaperRunRepository
+
+    symbols = list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    scope_hash = execution_scope_hash(symbols)
+    with get_session_factory()() as session:
+        acceptance = AgentTaskRepository(session).find_verified_testnet_acceptance(symbols)
+        if acceptance is None:
+            return False
+        paper_run = PaperRunRepository(session).get_paper_run(paper_run_id)
+        if paper_run is None:
+            return False
+        profile = paper_run.execution_profile
+        already_armed = (
+            profile.get("execution_mode") == "binance_simulation_first"
+            and profile.get("mirror_to_gateway") is True
+            and profile.get("cost_gate_verified") is True
+            and list(profile.get("acceptance_symbols") or []) == symbols
+            and profile.get("acceptance_scope_hash") == scope_hash
+        )
+        if already_armed:
+            return True
+        armed = arm_validated_directional_run(
+            session,
+            symbols=symbols,
+            verified_at=acceptance.created_at.isoformat() if acceptance.created_at is not None else None,
+        )
+        if armed:
+            logger.info("re-armed exchange-first directional run from exact BTC/ETH acceptance: %s", paper_run_id)
+        return bool(armed)
 
 
 def bootstrap_auto_trading_technical_paper_run() -> str | None:
@@ -597,15 +657,13 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
     # candidate_symbols is the research-universe scope (always Top3 for monitoring).
     # The manifest's eligible_symbols are the per-symbol trading gate enforced at
     # signal time via active.json presence — not the paper-run scope definition.
-    return _ensure_auto_paper_run(
+    paper_run_id = _ensure_auto_paper_run(
         runtime_key=AUTO_PAPER_TECHNICAL_KEY,
         strategy_key=AUTO_PAPER_TECHNICAL_KEY,
         strategy_lane="directional",
         core_thesis=(
-            "Local auto-cycle bootstrap strategy. Scans the active BTC/ETH/SOL research universe through "
-            "mature template lanes: funding/carry, trend breakout, mean reversion, and "
-            "volatility-filtered breakout. Operator 4h/15m experience logic is kept as a disabled "
-            "research candidate, not the default auto lane."
+            "Exchange-first BTC/ETH directional strategy using the validated mature-template signal pipeline. "
+            "Broader research candidates never receive automatic execution permission."
         ),
         rules=resolved_rules,
         risk_profile_id=risk_profile_id,
@@ -613,6 +671,32 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
         preserve_testnet_authorization=True,
         symbols=AUTO_PAPER_EXECUTION_SYMBOLS,
     )
+    if paper_run_id is not None and default_mirror_to_gateway():
+        _rearm_directional_run_from_verified_acceptance(paper_run_id)
+    if paper_run_id is not None:
+        # Runtime decisions read the immutable active ConfigSnapshot before the
+        # legacy Strategy row.  Merely logging manifest drift left deployed
+        # runs on old candidates indefinitely, even after a new validated
+        # manifest was packaged.  Stage the resolved rules for the next cycle
+        # while preserving the existing exchange authorization and fixed risk
+        # profile in the run's execution_profile.
+        from services.database import get_session_factory
+        from services.execution.runtime_config_migration import stage_promoted_runtime_config
+
+        with get_session_factory()() as sync_session:
+            staged = stage_promoted_runtime_config(
+                sync_session,
+                strategy_key=AUTO_PAPER_TECHNICAL_KEY,
+                promoted_rules=resolved_rules,
+                created_by="bootstrap-active-manifest-sync",
+            )
+        logger.info(
+            "directional runtime config sync: run=%s status=%s hash=%s",
+            staged.paper_run_id,
+            staged.status,
+            staged.config_hash,
+        )
+    return paper_run_id
 
 
 def bootstrap_link_verification_strategy() -> str | None:

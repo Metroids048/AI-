@@ -195,10 +195,11 @@ def test_trading_status_reports_external_desktop_scheduler(api_client, monkeypat
 def test_trading_status_treats_btc_eth_execution_scope_as_complete(api_client, db_session, monkeypatch) -> None:
     from apps.api.config import settings
     from apps.api.routers import runs as runs_router
-    from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
+    from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_scope_hash
+    from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY
     from services.execution.runtime_state import ExternalSchedulerState
-    from services.strategy_library import AgentTaskRepository
-    from shared.models import AgentTask
+    from services.strategy_library import AgentTaskRepository, PaperRunRepository
+    from shared.models import AgentTask, PaperRun
 
     monkeypatch.setattr(settings, "binance_api_key", "key")
     monkeypatch.setattr(settings, "binance_api_secret", "secret")
@@ -232,6 +233,23 @@ def test_trading_status_treats_btc_eth_execution_scope_as_complete(api_client, d
         )
     )
 
+    PaperRunRepository(db_session).create_paper_run(
+        PaperRun(
+            strategy_id="technical-strategy",
+            symbol_scope=list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+            candidate_symbols=list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+            execution_profile={
+                "auto_paper_runtime_key": AUTO_PAPER_TECHNICAL_KEY,
+                "execution_mode": "binance_simulation_first",
+                "mirror_to_gateway": True,
+                "cost_gate_verified": True,
+                "acceptance_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+                "acceptance_scope_hash": execution_scope_hash(list(AUTO_SIMULATION_EXECUTION_SYMBOLS)),
+            },
+            paper_status="running",
+        )
+    )
+
     response = api_client.get("/api/v1/execution/trading-status")
 
     assert response.status_code == 200
@@ -245,6 +263,71 @@ def test_trading_status_treats_btc_eth_execution_scope_as_complete(api_client, d
     assert body["acceptance_scope_hash"]
     assert "last_strategy_gateway_order_at" in body
     assert "last_strategy_gateway_order_id" in body
+
+
+def test_trading_status_blocks_when_acceptance_exists_but_directional_run_is_not_armed(
+    api_client, db_session, monkeypatch
+) -> None:
+    from apps.api.config import settings
+    from apps.api.routers import runs as runs_router
+    from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
+    from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY
+    from services.execution.runtime_state import ExternalSchedulerState
+    from services.strategy_library import AgentTaskRepository, PaperRunRepository
+    from shared.models import AgentTask, PaperRun
+
+    monkeypatch.setattr(settings, "binance_api_key", "key")
+    monkeypatch.setattr(settings, "binance_api_secret", "secret")
+    monkeypatch.setattr(settings, "binance_use_testnet", True)
+    monkeypatch.setattr(settings, "live_trading_enabled", False)
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
+    monkeypatch.setattr(runs_router, "_local_scheduler_process_running", lambda: True)
+    monkeypatch.setattr(
+        runs_router,
+        "load_external_scheduler_state",
+        lambda: ExternalSchedulerState(
+            running=True,
+            top20_coverage_count=len(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+            exchange_info_ready=True,
+            data_fresh=True,
+        ),
+    )
+    AgentTaskRepository(db_session).create_task(
+        AgentTask(
+            agent_type="execution",
+            task_type="testnet_acceptance",
+            task_status="completed",
+            output_payload={
+                "run_status": "completed",
+                "requested_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+                "completed_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+                "filled_order_count": 2 * len(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+                "final_open_position_count": 0,
+                "final_open_order_count": 0,
+            },
+        )
+    )
+    PaperRunRepository(db_session).create_paper_run(
+        PaperRun(
+            strategy_id="technical-strategy",
+            symbol_scope=list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+            candidate_symbols=list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+            execution_profile={
+                "auto_paper_runtime_key": AUTO_PAPER_TECHNICAL_KEY,
+                "execution_mode": "paper_only",
+                "mirror_to_gateway": False,
+                "cost_gate_verified": False,
+            },
+            paper_status="running",
+        )
+    )
+
+    response = api_client.get("/api/v1/execution/trading-status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["execution_ready"] is False
+    assert "directional_run_not_armed" in body["execution_blockers"]
 
 
 def test_manual_trading_context_is_paper_only_and_reused(api_client) -> None:

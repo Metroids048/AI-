@@ -53,21 +53,26 @@ def test_bootstrap_never_overwrites_existing_strategy_rules() -> None:
     )
 
 
-def test_default_mirror_to_gateway_stays_disabled_until_cost_gate_is_explicitly_armed(monkeypatch) -> None:
+def test_default_mirror_to_gateway_enables_only_safe_authorized_testnet(monkeypatch) -> None:
     monkeypatch.setattr(settings, "binance_api_key", "")
     monkeypatch.setattr(settings, "binance_api_secret", "")
+    monkeypatch.setattr(settings, "binance_use_testnet", True)
+    monkeypatch.setattr(settings, "live_trading_enabled", False)
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
     assert default_mirror_to_gateway() is False
 
     monkeypatch.setattr(settings, "binance_api_key", "key")
     monkeypatch.setattr(settings, "binance_api_secret", "secret")
-    monkeypatch.setattr(settings, "binance_use_testnet", True)
-    monkeypatch.setattr(settings, "live_trading_enabled", False)
     monkeypatch.setattr(settings, "binance_auto_execute", False)
     assert default_mirror_to_gateway() is False
 
     monkeypatch.setattr(settings, "binance_auto_execute", True)
+    assert default_mirror_to_gateway() is True
+
+    monkeypatch.setattr(settings, "binance_use_testnet", False)
     assert default_mirror_to_gateway() is False
 
+    monkeypatch.setattr(settings, "binance_use_testnet", True)
     monkeypatch.setattr(settings, "live_trading_enabled", True)
     assert default_mirror_to_gateway() is False
 
@@ -149,9 +154,9 @@ def test_bootstrap_creates_carry_and_directional_runs(db_session, monkeypatch) -
     assert carry_run.execution_profile.get("auto_schedule_enabled") is False
     assert technical_run.execution_profile.get("auto_schedule_enabled") is True
     assert carry_run.execution_profile.get("execution_mode") == "paper_only"
-    assert technical_run.execution_profile.get("execution_mode") == "paper_only"
+    assert technical_run.execution_profile.get("execution_mode") == "binance_simulation_first"
     assert carry_run.execution_profile.get("mirror_to_gateway") is False
-    assert technical_run.execution_profile.get("mirror_to_gateway") is False
+    assert technical_run.execution_profile.get("mirror_to_gateway") is True
     assert carry_run.execution_profile.get("cost_gate_verified") is False
     assert carry_run.selection_basis == "fixed_operator_top20"
     assert carry_run.candidate_symbols == list(DEFAULT_BINANCE_TOP20)
@@ -295,6 +300,63 @@ def test_bootstrap_preserves_verified_directional_simulation_authorization(db_se
     assert refreshed.execution_profile.get("execution_mode") == "binance_simulation_first"
     assert refreshed.execution_profile.get("testnet_acceptance_verified_at") == "2026-07-12T00:00:00+00:00"
     assert refreshed.execution_profile.get("max_symbols") == 2
+
+
+def test_bootstrap_rearms_stale_directional_run_from_existing_exact_acceptance(db_session, monkeypatch) -> None:
+    import services.execution.bootstrap as bootstrap_module
+    from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
+    from services.strategy_library import AgentTaskRepository, PaperRunRepository
+    from shared.models import AgentTask
+
+    monkeypatch.setattr(settings, "binance_api_key", "key")
+    monkeypatch.setattr(settings, "binance_api_secret", "secret")
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
+    monkeypatch.setattr(settings, "binance_use_testnet", True)
+    monkeypatch.setattr(settings, "live_trading_enabled", False)
+    monkeypatch.setattr(
+        bootstrap_module,
+        "resolve_auto_paper_technical_evidence",
+        lambda: (AUTO_PAPER_TECHNICAL_RULES, tuple(AUTO_PAPER_RESEARCH_SYMBOLS)),
+    )
+
+    run_id = bootstrap_auto_trading_technical_paper_run()
+    assert run_id is not None
+    repo = PaperRunRepository(db_session)
+    run = repo.get_paper_run(run_id)
+    assert run is not None
+    repo.update_paper_run(
+        run_id,
+        execution_profile={
+            **run.execution_profile,
+            "execution_mode": "paper_only",
+            "mirror_to_gateway": False,
+            "cost_gate_verified": False,
+        },
+    )
+    AgentTaskRepository(db_session).create_task(
+        AgentTask(
+            agent_type="execution",
+            task_type="testnet_acceptance",
+            task_status="completed",
+            output_payload={
+                "run_status": "completed",
+                "requested_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+                "completed_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+                "filled_order_count": 2 * len(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+                "final_open_position_count": 0,
+                "final_open_order_count": 0,
+            },
+        )
+    )
+
+    assert bootstrap_auto_trading_technical_paper_run() == run_id
+
+    refreshed = repo.get_paper_run(run_id)
+    assert refreshed is not None
+    assert refreshed.execution_profile["execution_mode"] == "binance_simulation_first"
+    assert refreshed.execution_profile["mirror_to_gateway"] is True
+    assert refreshed.execution_profile["cost_gate_verified"] is True
+    assert refreshed.execution_profile["acceptance_symbols"] == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
 
 
 def test_has_verified_testnet_acceptance_ignores_recent_task_window(db_session) -> None:
@@ -473,3 +535,39 @@ def test_console_startup_preserves_operator_auto_execute_setting_and_rotates_log
     assert '"--log-level", "warning"' in api_script
     assert "$env:BINANCE_HTTPS_PROXY = $env:HTTPS_PROXY" in launcher_script
     assert "py -3" not in console_script
+
+
+def test_bootstrap_stages_manifest_rules_when_active_runtime_snapshot_is_stale(db_session, monkeypatch) -> None:
+    import services.execution.bootstrap as bootstrap_module
+    from services.strategy_library import ConfigSnapshotRepository, PaperRunRepository
+    from services.strategy_library.candidates.registry import get_candidate
+
+    monkeypatch.setattr(settings, "binance_api_key", "key")
+    monkeypatch.setattr(settings, "binance_api_secret", "secret")
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
+    monkeypatch.setattr(settings, "binance_use_testnet", True)
+    monkeypatch.setattr(settings, "live_trading_enabled", False)
+    stale_rules = AUTO_PAPER_TECHNICAL_RULES
+    current_rules = get_candidate("trend_momentum_v1").get_config()
+    monkeypatch.setattr(
+        bootstrap_module,
+        "resolve_auto_paper_technical_evidence",
+        lambda: (stale_rules, tuple(AUTO_PAPER_RESEARCH_SYMBOLS)),
+    )
+    run_id = bootstrap_auto_trading_technical_paper_run()
+    assert run_id is not None
+    monkeypatch.setattr(
+        bootstrap_module,
+        "resolve_auto_paper_technical_evidence",
+        lambda: (current_rules, tuple(AUTO_PAPER_RESEARCH_SYMBOLS)),
+    )
+    assert bootstrap_auto_trading_technical_paper_run() == run_id
+
+    config_repo = ConfigSnapshotRepository(db_session)
+    pending = config_repo.get_pending(run_id)
+    assert pending is not None
+    assert pending.config["strategy_rules"]["entry_rules"]["candidate_id"] == "trend_momentum_v1"
+    run = PaperRunRepository(db_session).get_paper_run(run_id)
+    assert run is not None
+    assert pending.config["execution_profile"]["risk_per_trade"] == run.execution_profile["risk_per_trade"]
+    assert pending.config["execution_profile"]["max_leverage"] == run.execution_profile["max_leverage"]

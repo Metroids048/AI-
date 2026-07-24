@@ -43,6 +43,7 @@ class TradingRuntimeStatus(PlatformModel):
     market_data_coverage_count: int = 0
     acceptance_symbols: list[str] = Field(default_factory=list)
     acceptance_scope_hash: str | None = None
+    unmanaged_external_symbols: list[str] = Field(default_factory=list)
     last_strategy_gateway_order_at: datetime | None = None
     last_strategy_gateway_order_id: str | None = None
     backend_build_id: str = "development"

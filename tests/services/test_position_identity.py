@@ -65,6 +65,10 @@ class FilledNormalizedGateway(ReconcileGateway):
             "gateway_order_id": "normalized-fill-1",
             "gateway_status": "filled",
             "quantity": 0.01,
+            "filled_quantity": 0.01,
+            "average_fill_price": 60_125.5,
+            "fill_timestamp": "2026-07-23T02:00:00+00:00",
+            "fill_source": "create_order",
             "protection_order_refs": [],
         }
 
@@ -452,10 +456,50 @@ def test_gateway_normalized_fill_quantity_becomes_position_identity_quantity(db_
     )
 
     assert filled.entry_context["quantity"] == 0.01
+    assert filled.entry_context["exchange_average_fill_price"] == 60_125.5
+    assert filled.entry_context["exchange_fill_confirmed"] is True
     assert position.quantity == 0.01
+    assert position.entry_price == 60_125.5
     record = repo.get_position_record(position.position_record_id or "")
     assert record is not None
     assert record.quantity == 0.01
+
+
+def test_confirmed_exchange_fill_is_not_resized_to_local_min_notional(db_session) -> None:
+    repo = ExecutionRepository(db_session)
+    order = repo.create_order(
+        OrderExecution(
+            strategy_id="strategy-btc",
+            symbol="BTC/USDT",
+            direction=TradeSide.LONG,
+            execution_status="filled",
+            gateway_name="binance_usdt_perpetual",
+            gateway_order_id="small-fill-1",
+            paper_run_id="paper-run-btc",
+            entry_context={
+                "reference_price": 60_000.0,
+                "quantity": 0.01,
+                "min_notional_usdt": 50.0,
+                "exchange_fill_confirmed": True,
+                "exchange_filled_quantity": 0.0001,
+                "exchange_average_fill_price": 60_000.0,
+                "exchange_account": "binance:usdt_perpetual:paper",
+            },
+            stoploss_plan={"price": 59_000.0},
+            takeprofit_plan={"price": 62_000.0},
+        )
+    )
+
+    position = PaperOrderLifecycleService(execution_repo=repo).open_position(
+        paper_run_id="paper-run-btc",
+        order=order,
+        cycle_time=datetime(2026, 7, 23, 2, 30, tzinfo=UTC),
+    )
+
+    assert position.quantity == 0.0001
+    record = repo.get_position_record(position.position_record_id or "")
+    assert record is not None
+    assert record.quantity == 0.0001
 
 
 def test_automatic_exit_request_carries_scheduler_fence() -> None:
@@ -519,3 +563,57 @@ def test_full_close_marks_position_and_protection_terminal(db_session) -> None:
     protection = repo.get_latest_protection_record(position.position_record_id or "")
     assert record is not None and record.management_status is PositionManagementStatus.CLOSED
     assert protection is not None and protection.status is ProtectionRecordStatus.INACTIVE
+
+
+def test_binance_filled_status_without_authoritative_fill_details_stays_unprojected(db_session) -> None:
+    class MissingFillDetailsGateway(ReconcileGateway):
+        class _Capability:
+            gateway_name = "binance_usdt_perpetual"
+            exchange = "binance"
+            market_type = "usdt_perpetual"
+
+        capability = _Capability()
+
+        def submit_order(self, **kwargs) -> dict:  # noqa: ANN003
+            self.submitted.append(kwargs)
+            return {
+                "gateway_order_id": "filled-without-details",
+                "gateway_status": "filled",
+                "quantity": 0.01,
+                "protection_order_refs": [],
+            }
+
+    run = _create_paper_run(db_session)
+    repo = ExecutionRepository(db_session)
+    order = repo.create_order(
+        OrderExecution(
+            strategy_id=run.strategy_id,
+            symbol="BTC/USDT",
+            direction=TradeSide.LONG,
+            execution_status="accepted",
+            stoploss_present=True,
+            stoploss_plan={"price": 59_000},
+            paper_run_id=run.paper_run_id,
+            entry_context={"reference_price": 60_000.0, "quantity": 0.01},
+        )
+    )
+
+    result = PaperExchangeExecutionService(
+        execution_repo=repo,
+        gateway=MissingFillDetailsGateway(),
+    ).ensure_binance_execution(
+        paper_run=run,
+        order=order,
+        order_request=ExecutionOrderRequest(
+            strategy_id=run.strategy_id,
+            symbol="BTC/USDT",
+            direction=TradeSide.LONG,
+            entry_context=order.entry_context,
+            stoploss_plan=order.stoploss_plan,
+            paper_run_id=run.paper_run_id,
+        ),
+        position=None,
+    )
+
+    assert result.execution_status == "submitted"
+    assert result.entry_context["exchange_fill_confirmed"] is False

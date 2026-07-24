@@ -669,6 +669,7 @@ class PaperExchangeExecutionService:
             "gross_pnl": 0.0,
             "fee_cost": 0.0,
             "slippage_cost": 0.0,
+            "entry_blocked_symbols": [],
         }
         gateway = self.gateway
         if gateway is None:
@@ -694,6 +695,7 @@ class PaperExchangeExecutionService:
             return empty
         exchange_positions = self._exchange_positions(snapshot)
         ambiguous_symbols = self._ambiguous_hedge_symbols(exchange_positions)
+        entry_blocked_symbols = set(ambiguous_symbols)
         missing_symbols = set(active_positions) - self._exchange_position_symbols(exchange_positions)
         if missing_symbols:
             try:
@@ -738,6 +740,7 @@ class PaperExchangeExecutionService:
             if managed_record is not None:
                 continue
             active_positions.pop(symbol, None)
+            entry_blocked_symbols.add(symbol)
             if self.execution_repo is not None and local_position.position_record_id is not None:
                 stale_record = self.execution_repo.get_position_record(local_position.position_record_id)
                 if stale_record is not None:
@@ -771,6 +774,7 @@ class PaperExchangeExecutionService:
                 reconcile_missing_counts.pop(symbol, None)
                 if symbol in active_positions or symbol not in allowed_symbols:
                     continue
+                entry_blocked_symbols.add(symbol)
                 side = TradeSide.SHORT if str(item.get("side") or "").lower() == "short" else TradeSide.LONG
                 entry_price = float(item.get("entry_price") or item.get("mark_price") or 0.0)
                 mark_price = float(item.get("mark_price") or entry_price)
@@ -940,6 +944,7 @@ class PaperExchangeExecutionService:
             "gross_pnl": gross_pnl,
             "fee_cost": fee_cost,
             "slippage_cost": slippage_cost,
+            "entry_blocked_symbols": sorted(entry_blocked_symbols),
         }
 
     def ensure_binance_execution(
@@ -1146,8 +1151,19 @@ class PaperExchangeExecutionService:
             )
         gateway_status = str(gateway_result.get("gateway_status", "submitted")).lower()
         cleanup: dict[str, list[str]] = pre_close_cleanup
-        if gateway_status in {"filled", "closed"}:
+        exchange_fill_confirmed = bool(
+            gateway_status in {"filled", "closed"}
+            and gateway_result.get("filled_quantity")
+            and gateway_result.get("average_fill_price")
+        )
+        gateway_name = str(getattr(gateway.capability, "gateway_name", ""))
+        requires_authoritative_fill = gateway_name == "binance_usdt_perpetual"
+        if gateway_status in {"filled", "closed"} and (exchange_fill_confirmed or not requires_authoritative_fill):
             execution_status = "accepted"
+            rejection_reason = None
+            rejection_codes = order.rejection_codes
+        elif gateway_status in {"filled", "closed"}:
+            execution_status = "submitted"
             rejection_reason = None
             rejection_codes = order.rejection_codes
         elif gateway_status in {"rejected", "cancelled", "canceled", "expired"}:
@@ -1168,7 +1184,14 @@ class PaperExchangeExecutionService:
                 rejection_codes=rejection_codes,
                 entry_context={
                     **order.entry_context,
-                    "quantity": gateway_result.get("quantity", order.entry_context.get("quantity")),
+                    "quantity": gateway_result.get("filled_quantity")
+                    or gateway_result.get("quantity", order.entry_context.get("quantity")),
+                    "exchange_requested_quantity": gateway_result.get("quantity"),
+                    "exchange_filled_quantity": gateway_result.get("filled_quantity"),
+                    "exchange_average_fill_price": gateway_result.get("average_fill_price"),
+                    "exchange_fill_timestamp": gateway_result.get("fill_timestamp"),
+                    "exchange_fill_source": gateway_result.get("fill_source"),
+                    "exchange_fill_confirmed": exchange_fill_confirmed,
                     "event_persistence_error": event_payload.get("event_persistence_error")
                     if self.execution_repo is not None
                     else None,

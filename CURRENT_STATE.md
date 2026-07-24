@@ -1,6 +1,6 @@
 # Current State
 
-Last updated: 2026-07-21 Asia/Shanghai
+Last updated: 2026-07-24 Asia/Shanghai
 
 ## Authority
 
@@ -8,18 +8,17 @@ Current truth is resolved in this order: current code and tests, the active runt
 
 ## Runtime
 
-- Environment: Paper / Binance Simulation only; mainnet remains disabled.
-- Automatic execution universe is manifest-scoped: currently `BTC/USDT`, `ETH/USDT`.
-- Offline technical research universe: Top10 liquid contracts (`BTC/USDT`, `ETH/USDT`, `SOL/USDT`, `XRP/USDT`, `BNB/USDT`, `DOGE/USDT`, `ADA/USDT`, `LINK/USDT`, `AVAX/USDT`, `TRX/USDT`). Research coverage never grants execution permission.
-- Scheduled lanes: `auto_paper_mature_templates` and Binance-Simulation sampling lane `signal_observation_technical`.
-- Directional lane: requires fresh symbol-scoped OOS evidence whose candidate and rules hash match runtime rules.
-- Observation lane: uses real technical signals and may submit to Binance Simulation only after exact Top3 acceptance. It remains non-authoritative and excluded from strategy performance.
-- Runtime readiness is based on the active execution scope (`BTC/USDT`, `ETH/USDT`, `SOL/USDT`), not legacy hard-coded Top20 counts.
-- Current Top3 acceptance: run `da7edfd9-c1d4-4b04-8b66-02fe82e4af89`, 6/6 fills at 40x, BTC/ETH/SOL each received STOP_MARKET + TAKE_PROFIT_MARKET ReduceOnly refs, final 0 positions / 0 open orders. **Note: this run covered BTC/ETH/SOL (3 symbols); the current execution scope is BTC/ETH (2 symbols). `find_verified_testnet_acceptance` uses exact-match on `completed_symbols`, so this run does NOT satisfy the 2-symbol check. A new acceptance run must be triggered for exactly `["BTC/USDT","ETH/USDT"]` before execution_ready can be true.**
-- Acceptance script now automatically cleans non-zero Testnet/Simulation state before the acceptance run via `services/execution/testnet_cleanup.py::testnet_account_cleanup` (Testnet-only guard; fail-closed on any error).
-- Real sampling evidence: `signal_observation` produced BTC gateway order `22305428148` and SOL gateway order `3246292050` on the current build/scope. Both were market entries with 40x and native dual protection; the observation lane remains excluded from strategy performance.
-- Reconciliation hardening: Binance Algo orders are included in acceptance/final state; transient missing positions must remain absent across two scheduler cycles before local close; exchange-only positions are recovered locally; missing Stop/TP is re-armed or fail-closed to ReduceOnly close; ReduceOnly `-2022` is only treated as flat after a fresh exchange-flat confirmation.
-- LLM failures are advisory. Deterministic blocking risk events remain authoritative.
+- **Execution authority:** Binance USDT-M Testnet / Binance Simulation is the authoritative execution source for the automated directional lane. SQLite/Paper records are a post-execution projection and audit/recovery cache.
+- Automatic execution universe: exactly `BTC/USDT`, `ETH/USDT`. Research universes do not grant execution permission.
+- Production desktop path: `一键启动.cmd` -> `launch-paper-console.ps1` -> API-only service on 8016 + independent `RuntimeScheduler` -> `run_all_paper_runtime_cycles`.
+- Directional lane: `auto_paper_mature_templates`. When the safe Testnet settings, exact-scope acceptance, OOS/config evidence, Gatekeeper, and runtime readiness checks pass, its mode is `binance_simulation_first`.
+- Exchange-first order lifecycle: strategy/Gatekeeper authorization -> Binance submit/ack/fill -> local order and position projection using exchange average fill price and filled quantity. Local `accepted` is not a fill.
+- Exchange-first close lifecycle: Binance ReduceOnly close/ack/fill -> local position reduction/closure and realized-PnL projection using the exchange exit fill.
+- Local-only Paper execution is reserved for tests, mocks, deterministic replay, and explicitly local research lanes. It is not proof that 7x24 exchange automation is working.
+- Manual or exchange-only positions remain unmanaged until explicitly adopted and cannot inherit historical strategy protection state.
+- Acceptance/canary orders are tagged and excluded from strategy performance.
+- Current operator runtime check on 2026-07-24 reported `execution_ready=True`, no blockers, fresh BTC/ETH market data, `binance_auto_execute=True`, and exact BTC/ETH Testnet acceptance verified. Runtime state must always be rechecked on the device actually running the service.
+- Mainnet remains disabled.
 
 ## Config Snapshot System (2026-07-21)
 
@@ -31,9 +30,7 @@ Current truth is resolved in this order: current code and tests, the active runt
 - `scripts/publish_active_edge_evidence.py` — copy local OOS edge-stats pointers to `docs/evidence/active-edge-stats/` for CI-checkable committed evidence.
 - Active edge-stats evidence committed at `docs/evidence/active-edge-stats/auto_paper_mature_templates/trend_momentum_v1/`.
 
-**Remaining blocker**: BTC/ETH exact-scope Testnet acceptance is required for the directional lane to execute on Binance Simulation. The existing acceptance run `da7edfd9` covered BTC/ETH/SOL (3 symbols); current execution scope is BTC/ETH (2 symbols). Run `scripts/run_testnet_acceptance.py` to complete a new BTC/ETH-only acceptance before `BINANCE_AUTO_EXECUTE=true`.
-
-## Paper Risk
+## Binance Simulation Risk
 
 The operator-selected aggressive sampling profile remains active: 5% single-trade risk, 40x leverage ceiling, 35% symbol exposure, 90% total exposure, and 20% daily loss limit. It is forbidden for live trading and must be revalidated and tightened before any live phase.
 
@@ -83,7 +80,7 @@ Last updated: 2026-07-19
 - `max_leverage`: 40
 - `max_position_fraction`: 0.35
 
-执行范围固定为 `BTC/USDT`、`ETH/USDT`；组合初始风险上限 25%、组合敞口 90%、日损失上限 20%。`paper-btc-eth-sampling-v1` 是当前 Paper 采样配置。`BINANCE_AUTO_EXECUTE` 的代码与示例环境默认值均为 `false`；本次重构没有重新武装调度器。当前 blocker 至少包括配置漂移迁移尚未完成、调度心跳需重新验证，以及 BTC/ETH 精确范围验收未完成。旧验收记录 da7edfd9 覆盖 BTC/ETH/SOL，与当前 BTC/ETH 范围不匹配；重新验收属于外部状态变更，必须另行明确授权。
+执行范围固定为 `BTC/USDT`、`ETH/USDT`；组合初始风险上限 25%、组合敞口 90%、日损失上限 20%。`paper-btc-eth-sampling-v1` 是当前 Paper 采样配置。自动 BTC/ETH 方向通道在安全 Testnet 条件满足时默认采用 `binance_simulation_first`；示例配置启用 `BINANCE_AUTO_EXECUTE=true`，同时保持 `BINANCE_USE_TESTNET=true` 与 `LIVE_TRADING_ENABLED=false`。实际是否就绪以运行设备上的 `scripts.check_execution_blockers` 和 `/api/runs/trading-status` 为准。
 
 - Missing, stale, ineligible, or rules-mismatched evidence rejects the main lane with `validated_edge_stats_missing_or_stale`.
 - Local candidate reports live under `artifacts/signal_edge_stats/`; active manifest is the committed, CI-verified exception.
@@ -98,3 +95,11 @@ agent-python -m scripts.verify_config
 ```
 
 Fresh verification on 2026-07-18: backend `474 passed, 2 skipped, 2 deselected`; targeted Ruff and Mypy clean; frontend `37 passed`; production build passed. Scheduler state now reports BTC/ETH execution coverage 2 while preserving SOL research coverage. Historical verification/reconciliation orders do not count as proof.
+## 2026-07-24 Directional Throughput Fix
+
+- The exchange-first BTC/ETH lane remains armed by exact-scope Testnet acceptance; local SQLite is post-fill projection only.
+- Historical runtime evidence showed the dominant no-order causes occurred before Gatekeeper: `technical_signals_insufficient` and strict `multi_timeframe_disagreement`.
+- The validated primary `trend_momentum_v1` remains first choice. In safe Binance Testnet only, primary starvation may invoke the existing `operator_heuristic_v2_relaxed` sampling fallback, requiring the 15m entry direction plus at least one matching 1h/4h direction.
+- Sampling fallback decisions are tagged `decision_variant=simulation_sampling_fallback` and `testnet_sampling_mode=true`; they retain current BTC/ETH fixed sizing, leverage, stops, targets and account-risk gates. They never run on mainnet or local-only Paper.
+- Bootstrap stages the packaged active manifest into ConfigSnapshot so stale database rules cannot silently override deployed strategy rules.
+- Offline verification command: `py -3 -m scripts.verify_directional_exchange_first`. It proves the real decision/orchestration path reaches a strict fake Binance fill and projects the confirmed exchange price/quantity. It does not claim real Binance connectivity.

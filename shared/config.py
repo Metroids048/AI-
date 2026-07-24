@@ -49,9 +49,10 @@ class Settings(BaseSettings):
     paper_runtime_enable_decision_veto: bool = True
     # Local dev: bypass multi-timeframe + meta-label filters so Paper cycles can open test positions.
     paper_runtime_relaxed_signals: bool = False
-    # When true, auto-cycle submits to Binance before local paper fill (same path as manual testnet).
-    # Default is fail-safe: automatic research cycles stay local Paper unless the operator opts in.
-    binance_auto_execute: bool = False
+    # Binance Simulation is the authoritative execution path for the automated BTC/ETH lane.
+    # Mainnet remains impossible while BINANCE_USE_TESTNET=true and LIVE_TRADING_ENABLED=false.
+    # Per-run exact-scope acceptance and cost-gate authorization are still mandatory.
+    binance_auto_execute: bool = True
     gateway_protection_max_distance_bps: float = 800.0
     # Default order type for automated paper/live entries. No order-book data exists in this
     # platform, so "limit" prices are always reference_price +/- execution_limit_slippage_bps,
@@ -71,9 +72,7 @@ class Settings(BaseSettings):
     # Accept the Anthropic-SDK-conventional ANTHROPIC_API_KEY as an alias so
     # operators following upstream docs don't silently fall through to the
     # free-tier providers below with zero indication why.
-    claude_api_key: str = Field(
-        default="", validation_alias=AliasChoices("CLAUDE_API_KEY", "ANTHROPIC_API_KEY")
-    )
+    claude_api_key: str = Field(default="", validation_alias=AliasChoices("CLAUDE_API_KEY", "ANTHROPIC_API_KEY"))
     claude_model: str = "claude-sonnet-4-6"
     anthropic_api_base_url: str = "https://api.anthropic.com"
     agent_llm_provider_map: str = ""

@@ -22,6 +22,25 @@
 5. WorldQuant、GitHub、论文、A 股系统都是策略来源，不是平台主干。
 6. 不允许跳过 Validation Layer 直接接 Execution Layer。
 
+## Exchange-First Execution Invariant (Non-Negotiable)
+
+The automated directional trading lane has one authoritative execution source: **Binance USDT-M Testnet / Binance Simulation**. The local SQLite/Paper subsystem is a projection, audit journal, strategy attribution store, and recovery cache. It is never proof that an exchange trade occurred.
+
+1. The automatic execution universe is exactly `BTC/USDT` and `ETH/USDT` unless the operator explicitly changes it. Research coverage does not grant execution permission.
+2. For an exchange-enabled automated run, the required sequence is: strategy decision -> Gatekeeper authorization -> Binance order submission -> Binance acknowledgement/fill -> local order/position/PnL projection.
+3. A local position must not be opened, reduced, or closed before the corresponding Binance execution is confirmed. A local `accepted` status means only that the strategy/risk gate authorized an attempt.
+4. Local entry price, exit price, filled quantity, fees, realized PnL, and timestamps must come from Binance execution data or subsequent exchange reconciliation. Strategy reference prices and OHLCV trigger prices are not execution truth.
+5. When Binance and the local database disagree, Binance is authoritative. Reconciliation repairs or quarantines the local projection; it must never mutate the exchange merely to match stale local state.
+6. Manual or exchange-only positions are `UNMANAGED_EXTERNAL_POSITION` until explicitly adopted. They must not inherit historical strategy protection records.
+7. Local-only Paper execution is permitted only for explicit unit tests, deterministic replay, mocks, and offline research. It is not the default or acceptance path for the 7x24 automated BTC/ETH runtime.
+8. Testnet acceptance/canary orders must be tagged and excluded from strategy performance. They prove connectivity, not strategy profitability.
+9. Fixed BTC/ETH position, leverage, stop-loss, take-profit, Gatekeeper, and net-edge settings remain owned by the existing runtime configuration. Agents must not replace them with generic dynamic sizing or new symbols without explicit operator approval.
+10. Future Agent work must not describe Binance as a downstream “mirror” of local Paper state. Legacy `Paper*` names are compatibility names only; their exchange-enabled behavior must obey this invariant.
+11. The validated primary directional candidate remains the default. On exact-scope BTC/ETH Binance Testnet only, when that primary is silent because of `technical_signals_insufficient`, `multi_timeframe_disagreement`, `ensemble_discarded`, or `meta_label_bet_skipped`, the runtime may evaluate the existing `operator_heuristic_v2_relaxed` candidate as a bounded sampling fallback. It must be tagged `simulation_sampling_fallback`, retain the current fixed position/leverage/stop/take-profit and all account-risk gates, never run on mainnet or local-only Paper, and be reported separately from primary-candidate performance.
+12. Packaged active-manifest strategy rules are the runtime source of truth. Bootstrap must stage rule drift into the immutable ConfigSnapshot for the next cycle; silently preserving stale database rules is forbidden.
+
+Completion evidence for automated execution must include a real Binance Simulation order ID and exchange fill/position evidence. Local rows, mock calls, acceptance orders, or a successful strategy decision alone are insufficient.
+
 ## Six-Layer Architecture
 
 ### 1. Data Layer
@@ -110,7 +129,7 @@
 
 - 当前事实优先级：当前代码与测试 -> 运行时数据库/调度状态 -> `CURRENT_STATE.md` -> 架构与 ADR。
 - `docs/archive/` 和 `scripts/archive/` 仅供历史审计；AI 不得把其中的诊断结论当作当前事实。
-- 自动研究范围固定为 BTC/ETH/SOL；主技术通道缺少匹配的 OOS evidence 时必须拒绝，观察通道的原始 K 线代理不得作为策略准入证据。
+- 自动执行范围固定为 BTC/ETH；更广研究范围不得自动获得执行权限。主技术通道缺少匹配的 OOS evidence 时必须拒绝，观察通道不得作为真实交易或策略准入证据。
 
 ### 6. Review Layer
 
@@ -137,9 +156,8 @@
 
 ## Initial Market Scope
 
-- 第一阶段主市场：`BTC/USDT` 永续
+- 当前自动执行市场：`BTC/USDT`、`ETH/USDT` USDT-M 永续（Binance Simulation）
 - 数据模型从第一天起必须支持未来扩展到：
-  - `ETH`
   - `SOL`
   - `A股`
   - `美股`

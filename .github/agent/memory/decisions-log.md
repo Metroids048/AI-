@@ -610,3 +610,18 @@
 - Decision: Build one order execution context from current CCXT metadata for Manual/Testnet and gateway-capable Paper paths; retain Gateway fail-closed behavior for missing rules. Persist explicit PositionRecord/ProtectionRecord links, quarantine identity mismatches as unmanaged external positions, validate protection geometry, preserve hedge sides, and require owner plus fencing token for lease release and submit checks. Preserve legacy event enum values while adding the six lower-case execution lifecycle event values.
 - Consequences: External positions cannot inherit historical protection or enter the automatic exit loop. A restart may resume management only from an exact persisted strategy-entry identity, never from process-local membership or `run_id + symbol`. Completion still requires a natural scheduler candidate with persisted accepted/submitted/acknowledged/reconciled events and a read-only Demo order id.
 - Additional boundary: dual-side HEDGE recovery is treated as ambiguous and isolated; restart recovery requires an exchange position update timestamp close to the persisted opened_at, while same-session strategy positions retain the normal managed path.
+
+## 2026-07-24 — Binance Simulation is the execution authority
+
+- **Decision:** For the BTC/ETH 7x24 directional lane, submit and confirm on Binance USDT-M Testnet before opening, reducing, or closing the local projection. Local-only Paper remains available solely for explicit tests, deterministic replay, mocks, and offline research.
+- **Reason:** The previous “Paper first, exchange mirror second” language allowed false-positive readiness, local fills without exchange evidence, and local PnL based on strategy reference prices rather than confirmed fills.
+- **Compatibility:** Existing `Paper*` class/table names remain temporarily to avoid a broad migration; their names do not define execution authority.
+- **Guardrail:** Fixed symbols, position size, leverage, risk, stop-loss, take-profit, Gatekeeper, and net-edge settings are unchanged.
+
+## ADR-064: Testnet candidate starvation uses a bounded existing-strategy fallback, not more execution rewrites
+
+- Date: 2026-07-24
+- Status: accepted for Binance Simulation only
+- Context: Exchange readiness, exact BTC/ETH authorization, scheduler activity and exchange-first run arming were all green, yet the directional lane created zero orders. Runtime ledger evidence showed most decisions died before Gatekeeper at `technical_signals_insufficient` or strict `multi_timeframe_disagreement`; the exchange adapter was not the active bottleneck.
+- Decision: Keep `trend_momentum_v1` as the primary. Only on exact-scope BTC/ETH Binance Testnet, when the primary is silent for one of four pre-execution starvation reasons, evaluate the existing `operator_heuristic_v2_relaxed` candidate. Its documented 2-of-3 rule is implemented as 15m entry direction plus at least one matching 1h/4h direction. Tag all such decisions as `simulation_sampling_fallback`, disable LLM veto for that fallback, bypass only the pre-validation net-edge evidence gate, and preserve current sizing, leverage, stops, targets and all account-risk controls. Mainnet and local-only Paper cannot use it.
+- Consequences: Testnet can accumulate actual exchange-fill samples instead of remaining permanently silent. Primary and fallback performance must be reported separately, and the fallback cannot be promoted to live execution from candidate counts alone.

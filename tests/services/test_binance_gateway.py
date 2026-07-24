@@ -582,3 +582,48 @@ def test_binance_gateway_reconcile_survives_open_orders_warning() -> None:
     assert snapshot["open_order_count"] == 0
     assert snapshot["reconciliation_status"] == "warning"
     assert any(note.startswith("open_orders_scan_failed:") for note in snapshot["notes"])
+
+
+def test_binance_gateway_returns_authoritative_fill_details_for_filled_entry() -> None:
+    class FilledClient(StubCcxtClient):
+        def create_order(self, symbol, order_type, side, amount, price=None, params=None):  # noqa: ANN001
+            self.created_orders.append(
+                {
+                    "symbol": symbol,
+                    "order_type": order_type,
+                    "side": side,
+                    "amount": amount,
+                    "price": price,
+                    "params": params,
+                }
+            )
+            return {
+                "id": "filled-entry-1",
+                "status": "closed",
+                "average": 60_012.5,
+                "filled": 0.009,
+                "timestamp": 1_784_378_462_000,
+            }
+
+    gateway = BinanceUsdtPerpetualGateway(client=FilledClient(), use_testnet=True)
+    result = gateway.submit_order(
+        live_run_id="paper-testnet:run-1",
+        order_request=ExecutionOrderRequest(
+            strategy_id="strategy-1",
+            symbol="BTC/USDT",
+            direction=TradeSide.LONG,
+            entry_context={
+                "order_type": "market",
+                "quantity": 0.009,
+                "reference_price": 60_000.0,
+            },
+            stoploss_plan={"price": 59_000.0},
+            takeprofit_plan={"price": 62_000.0},
+        ),
+    )
+
+    assert result["gateway_status"] == "filled"
+    assert result["average_fill_price"] == 60_012.5
+    assert result["filled_quantity"] == 0.009
+    assert result["fill_timestamp"] == "2026-07-18T12:41:02+00:00"
+    assert result["fill_source"] == "create_order"

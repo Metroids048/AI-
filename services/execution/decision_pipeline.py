@@ -163,9 +163,7 @@ class DecisionPipeline:
         market_intelligence_signal = None
         strategy_allows_market_intelligence = bool(strategy.rules.entry_rules.get("market_intelligence_enabled", True))
         if settings.market_intelligence_enabled and strategy_allows_market_intelligence:
-            market_intelligence_signal = MarketIntelligenceService(data_repo=self.data_repo).build_signal(
-                symbol=symbol
-            )
+            market_intelligence_signal = MarketIntelligenceService(data_repo=self.data_repo).build_signal(symbol=symbol)
             volatility = {
                 **volatility,
                 "market_intelligence": market_intelligence_signal.model_dump(mode="json"),
@@ -211,8 +209,7 @@ class DecisionPipeline:
         ensemble = self.ensemble_service.create_ensemble(
             SignalEnsembleRequest(
                 signals=[
-                    _candidate_from_signal(signal, bars)
-                    for signal in [*signals, *confirmation_direction_signals]
+                    _candidate_from_signal(signal, bars) for signal in [*signals, *confirmation_direction_signals]
                 ],
                 fusion_method=str(strategy.rules.entry_rules.get("fusion_method", "weighted_vote")),
             )
@@ -253,11 +250,15 @@ class DecisionPipeline:
         )
         if self.execution_repo is not None:
             meta_label = self.execution_repo.create_meta_label(meta_label)
-        validated_edge_required = strategy.strategy_key == "auto_paper_mature_templates"
+        simulation_sampling_mode = bool(strategy.rules.entry_rules.get("simulation_sampling_mode", False))
+        validated_edge_required = (
+            strategy.strategy_key == "auto_paper_mature_templates" and not simulation_sampling_mode
+        )
         if (
             meta_label.bet_decision != BetDecision.BET_TAKEN
             and not relaxed_signals
             and not validated_edge_required
+            and not simulation_sampling_mode
         ):
             return self._skipped(
                 reason="meta_label_bet_skipped",
@@ -306,6 +307,7 @@ class DecisionPipeline:
                 "edge_stats_source": edge_stats["source"],
                 "edge_artifact_ref": edge_stats["artifact_ref"],
                 "validated_edge_required": edge_stats["validated_edge_required"],
+                "testnet_sampling_mode": simulation_sampling_mode,
                 "validated_edge_net_expectancy": edge_stats["net_expectancy"],
                 "validated_edge_oos_sample_count": edge_stats["oos_sample_count"],
                 "round_trip_fee_rate": (2.0 * fee_bps) / 10_000.0,
@@ -420,9 +422,13 @@ class DecisionPipeline:
         main_signals: list[TradeSignal],
         enabled_signals: set[str] | frozenset[str],
     ) -> dict[str, Any]:
+        del enabled_signals
         main_direction = _dominant_signal_direction(main_signals)
-        state_timeframe = strategy.rules.entry_rules.get("state_timeframe")
-        state_confirmation: dict[str, Any] | None = None
+        entry_rules = strategy.rules.entry_rules
+        confirmation_mode = str(entry_rules.get("mtf_confirmation_mode", "strict_all")).strip().lower()
+        state_timeframe = entry_rules.get("state_timeframe")
+        state_signals: list[TradeSignal] = []
+        state_direction: TradeSide | None = None
         if state_timeframe and str(state_timeframe) != timeframe:
             state_bars = self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=str(state_timeframe), limit=240)
             state_signals = self._technical_signals(
@@ -431,7 +437,47 @@ class DecisionPipeline:
                 enabled_signals=_enabled_signals(strategy, timeframe=str(state_timeframe)),
             )
             state_direction = _dominant_signal_direction(state_signals)
-            if not state_bars or not state_signals or main_direction is None or state_direction is None:
+
+        confirm_timeframe = _confirmation_timeframe(strategy=strategy, entry_timeframe=timeframe)
+        confirm_signals: list[TradeSignal] = []
+        confirm_direction: TradeSide | None = None
+        if confirm_timeframe != timeframe:
+            confirm_bars = self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=confirm_timeframe, limit=240)
+            confirm_signals = self._technical_signals(
+                frame=_bars_to_frame(confirm_bars),
+                symbol=symbol,
+                enabled_signals=_enabled_signals(strategy, timeframe=confirm_timeframe),
+            )
+            confirm_direction = _dominant_signal_direction(confirm_signals)
+
+        if confirmation_mode == "entry_plus_one_higher":
+            matching_sets: list[list[TradeSignal]] = []
+            if main_direction is not None and state_direction == main_direction:
+                matching_sets.append(state_signals)
+            if main_direction is not None and confirm_direction == main_direction:
+                matching_sets.append(confirm_signals)
+            direction_signals = _deduplicate_signals_by_source(
+                signal for signal_set in matching_sets for signal in signal_set
+            )
+            passed = main_direction is not None and bool(direction_signals)
+            return {
+                "passed": passed,
+                "status": ("entry_plus_one_higher_confirmed" if passed else "entry_plus_one_higher_disagreed"),
+                "confirmation_mode": confirmation_mode,
+                "main_timeframe": timeframe,
+                "main_direction": str(main_direction) if main_direction is not None else None,
+                "state_timeframe": str(state_timeframe) if state_timeframe else None,
+                "state_direction": str(state_direction) if state_direction is not None else None,
+                "state_signal_count": len(state_signals),
+                "confirm_timeframe": confirm_timeframe,
+                "confirm_direction": str(confirm_direction) if confirm_direction is not None else None,
+                "confirm_signal_count": len(confirm_signals),
+                "matching_higher_timeframe_count": len(matching_sets),
+                "direction_signals": direction_signals,
+            }
+
+        if state_timeframe and str(state_timeframe) != timeframe:
+            if not state_signals or main_direction is None or state_direction is None:
                 return {
                     "passed": False,
                     "status": "state_confirmation_unavailable_fail_closed",
@@ -439,11 +485,6 @@ class DecisionPipeline:
                     "state_timeframe": str(state_timeframe),
                     "state_signal_count": len(state_signals),
                 }
-            state_confirmation = {
-                "timeframe": str(state_timeframe),
-                "direction": str(state_direction),
-                "signal_count": len(state_signals),
-            }
             if main_direction != state_direction:
                 return {
                     "passed": False,
@@ -454,7 +495,15 @@ class DecisionPipeline:
                     "state_direction": str(state_direction),
                     "state_signal_count": len(state_signals),
                 }
-        confirm_timeframe = _confirmation_timeframe(strategy=strategy, entry_timeframe=timeframe)
+        state_confirmation = (
+            {
+                "timeframe": str(state_timeframe),
+                "direction": str(state_direction),
+                "signal_count": len(state_signals),
+            }
+            if state_timeframe and state_direction is not None
+            else None
+        )
         if confirm_timeframe == timeframe:
             return {
                 "passed": True,
@@ -462,15 +511,7 @@ class DecisionPipeline:
                 "main_timeframe": timeframe,
                 "confirm_timeframe": confirm_timeframe,
             }
-        confirm_bars = self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=confirm_timeframe, limit=240)
-        confirm_frame = _bars_to_frame(confirm_bars)
-        confirm_signals = self._technical_signals(
-            frame=confirm_frame,
-            symbol=symbol,
-            enabled_signals=_enabled_signals(strategy, timeframe=confirm_timeframe),
-        )
-        confirm_direction = _dominant_signal_direction(confirm_signals)
-        if not confirm_bars or not confirm_signals or main_direction is None or confirm_direction is None:
+        if not confirm_signals or main_direction is None or confirm_direction is None:
             return {
                 "passed": False,
                 "status": "confirmation_unavailable_fail_closed",
@@ -486,10 +527,6 @@ class DecisionPipeline:
             "main_direction": str(main_direction),
             "confirm_direction": str(confirm_direction),
             "confirm_signal_count": len(confirm_signals),
-            # These are the canonical 4h regime votes.  The 15m/1h checks above
-            # already establish cross-timeframe agreement; passing the 4h votes
-            # into the ensemble prevents its layered direction gate from seeing
-            # only 15m entry signals and incorrectly resolving no direction.
             "direction_signals": confirm_signals,
             **({"state_confirmation": state_confirmation} if state_confirmation else {}),
         }
@@ -743,6 +780,15 @@ def _dominant_signal_direction(signals: list[TradeSignal]) -> TradeSide | None:
     if score < 0:
         return TradeSide.SHORT
     return None
+
+
+def _deduplicate_signals_by_source(signals: Any) -> list[TradeSignal]:
+    strongest: dict[str, TradeSignal] = {}
+    for signal in signals:
+        existing = strongest.get(signal.source)
+        if existing is None or float(signal.confidence or 0.0) > float(existing.confidence or 0.0):
+            strongest[signal.source] = signal
+    return list(strongest.values())
 
 
 def _candidate_from_signal(signal: TradeSignal, bars: list[OHLCVBar]) -> CandidateSignalSeries:

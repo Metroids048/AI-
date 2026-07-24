@@ -79,6 +79,77 @@ def _order_id(payload: dict[str, Any]) -> str:
     return str(payload.get("id") or payload.get("orderId") or "")
 
 
+def _positive_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _payload_info(payload: dict[str, Any]) -> dict[str, Any]:
+    raw_info = payload.get("info")
+    return raw_info if isinstance(raw_info, dict) else {}
+
+
+def _filled_quantity(payload: dict[str, Any]) -> float | None:
+    info = _payload_info(payload)
+    for value in (payload.get("filled"), info.get("executedQty"), info.get("cumQty")):
+        parsed = _positive_float(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _average_fill_price(payload: dict[str, Any]) -> float | None:
+    info = _payload_info(payload)
+    for value in (payload.get("average"), info.get("avgPrice"), info.get("averagePrice")):
+        parsed = _positive_float(value)
+        if parsed is not None:
+            return parsed
+    filled = _filled_quantity(payload)
+    quote = _positive_float(info.get("cumQuote") or info.get("cumQuoteQty"))
+    if filled is not None and quote is not None:
+        return quote / filled
+    return None
+
+
+def _fill_timestamp(payload: dict[str, Any]) -> str | None:
+    info = _payload_info(payload)
+    raw = (
+        payload.get("lastTradeTimestamp")
+        or payload.get("timestamp")
+        or info.get("updateTime")
+        or info.get("transactTime")
+        or info.get("time")
+    )
+    if raw is None:
+        return None
+    try:
+        timestamp = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if timestamp > 10_000_000_000:
+        timestamp /= 1000
+    return datetime.fromtimestamp(timestamp, tz=UTC).isoformat()
+
+
+def _hydrate_filled_order(*, client: Any, symbol: str, payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    if _average_fill_price(payload) is not None and _filled_quantity(payload) is not None:
+        return payload, "create_order"
+    order_id = _order_id(payload)
+    fetch_order = getattr(client, "fetch_order", None)
+    if not order_id or not callable(fetch_order):
+        return payload, "create_order"
+    try:
+        fetched = fetch_order(order_id, symbol)
+    except Exception:  # noqa: BLE001 - reconciliation remains the fallback
+        return payload, "create_order"
+    if not isinstance(fetched, dict):
+        return payload, "create_order"
+    return {**payload, **fetched}, "fetch_order"
+
+
 def _is_withdrawal_enabled(value: Any) -> bool:
     return value is True or str(value).strip().lower() in {"1", "true", "yes"}
 
@@ -420,6 +491,13 @@ class BinanceUsdtPerpetualGateway:
                 }
             )
         gateway_status = _normalize_order_status(created.get("status"))
+        fill_source: str | None = None
+        if gateway_status in {"filled", "closed"}:
+            created, fill_source = _hydrate_filled_order(client=self.client, symbol=symbol, payload=created)
+            gateway_status = _normalize_order_status(created.get("status"))
+        average_fill_price = _average_fill_price(created)
+        filled_quantity = _filled_quantity(created)
+        fill_timestamp = _fill_timestamp(created)
         protection_refs: list[dict[str, Any]] = []
         # A resting limit entry has no position to protect yet.  Submitting
         # ReduceOnly brackets before its fill reserves close capacity and makes
@@ -445,6 +523,10 @@ class BinanceUsdtPerpetualGateway:
             "gateway_status": gateway_status,
             "symbol": order_request.symbol,
             "quantity": quantity,
+            "filled_quantity": filled_quantity,
+            "average_fill_price": average_fill_price,
+            "fill_timestamp": fill_timestamp,
+            "fill_source": fill_source,
             "requested_notional": float(order_request.entry_context.get("requested_notional") or 0.0),
             "reduce_only": close_only,
             "protection_order_refs": protection_refs,

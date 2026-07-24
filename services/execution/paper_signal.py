@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from services.data import DataRepository
 from services.data.market import MarketQueryService
-from services.data.universe import execution_scope_hash
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_scope_hash
 from services.execution.account_equity import resolve_paper_account_equity
 from services.execution.decision_pipeline import DecisionPipeline, DecisionPipelineResult
 from services.strategy_library import (
@@ -19,6 +19,7 @@ from services.strategy_library import (
     ReviewRepository,
     StrategyRepository,
 )
+from services.strategy_library.candidates.registry import get_candidate
 from shared.config import settings
 from shared.models import (
     DecisionVetoResult,
@@ -97,7 +98,10 @@ class PaperSignalGenerator:
             strategy=strategy,
             atr=decision.atr,
         )
-        order_type = str(strategy.rules.entry_rules.get("order_type", settings.execution_default_order_type))
+        order_type = str(
+            decision.trace.get("order_type_override")
+            or strategy.rules.entry_rules.get("order_type", settings.execution_default_order_type)
+        )
         limit_price = self._limit_price(
             reference_price=reference_price,
             direction=direction,
@@ -195,10 +199,19 @@ class PaperSignalGenerator:
                 "validated_edge_required": decision.trace.get("validated_edge_required", False),
                 "validated_edge_net_expectancy": decision.trace.get("validated_edge_net_expectancy"),
                 "validated_edge_oos_sample_count": decision.trace.get("validated_edge_oos_sample_count"),
+                "testnet_sampling_mode": decision.trace.get("testnet_sampling_mode", False),
+                "decision_variant": decision.trace.get("decision_variant", "primary"),
+                "primary_candidate_id": decision.trace.get("primary_candidate_id"),
+                "primary_rejection_reason": decision.trace.get("primary_rejection_reason"),
                 "strategy_lane": decision.trace.get("strategy_lane"),
                 "observation_only_mode": decision.trace.get("strategy_lane") == "signal_observation",
-                "strategy_performance_eligible": decision.trace.get("strategy_lane")
-                not in ("link_verification", "signal_observation"),
+                "strategy_performance_eligible": (
+                    decision.trace.get("strategy_lane") not in ("link_verification", "signal_observation")
+                    and decision.trace.get("decision_variant", "primary") == "primary"
+                ),
+                "sampling_performance_eligible": (
+                    decision.trace.get("decision_variant") == "simulation_sampling_fallback"
+                ),
             },
             stoploss_plan={"price": float(stoploss), "basis": "strategy_rule_or_atr_required_stop"},
             takeprofit_plan={"price": float(takeprofit), "basis": "strategy_rule_or_atr_takeprofit"},
@@ -261,7 +274,94 @@ class PaperSignalGenerator:
                     "edge_stats_source": "raw_bar_proxy_non_authoritative",
                 },
             )
+        if self._sampling_fallback_allowed(paper_run=paper_run, primary=decision, symbol=symbol):
+            fallback_config = get_candidate("operator_heuristic_v2_relaxed").get_config()
+            # Entry selection changes only for Testnet sampling.  Existing
+            # position, leverage and all exit/protection settings stay owned by
+            # the armed runtime's active strategy configuration.
+            fallback_config["exit_rules"] = strategy.rules.exit_rules
+            fallback_config["stoploss_rules"] = strategy.rules.stoploss_rules
+            fallback_config["takeprofit_rules"] = strategy.rules.takeprofit_rules
+            fallback_config["position_rules"] = strategy.rules.position_rules
+            fallback_entry = dict(fallback_config["entry_rules"])
+            fallback_entry.update(
+                {
+                    "simulation_sampling_mode": True,
+                    "market_intelligence_enabled": False,
+                    # Natural Testnet sampling must produce an exchange fill rather
+                    # than a resting limit order that leaves the strategy chain
+                    # unproven for another full observation window.
+                    "order_type": "market",
+                }
+            )
+            fallback_config["entry_rules"] = fallback_entry
+            fallback_strategy = strategy.model_copy(
+                update={
+                    "strategy_key": "auto_paper_testnet_sampling",
+                    "source": "testnet_sampling_fallback",
+                    "rules": type(strategy.rules)(**fallback_config),
+                }
+            )
+            fallback = self.decision_pipeline.evaluate(
+                strategy=fallback_strategy,
+                symbol=symbol,
+                timeframe=timeframe,
+                enable_decision_veto=False,
+                relaxed_signals=False,
+            )
+            if fallback.should_trade:
+                return replace(
+                    fallback,
+                    trace={
+                        **fallback.trace,
+                        "strategy_lane": "directional",
+                        "decision_variant": "simulation_sampling_fallback",
+                        "testnet_sampling_mode": True,
+                        "primary_candidate_id": strategy.rules.entry_rules.get("candidate_id"),
+                        "primary_rejection_reason": decision.reason,
+                        "candidate_id": "operator_heuristic_v2_relaxed",
+                        "order_type_override": "market",
+                    },
+                )
+            return replace(
+                decision,
+                trace={
+                    **decision.trace,
+                    "sampling_fallback_attempted": True,
+                    "sampling_fallback_rejection_reason": fallback.reason,
+                },
+            )
         return decision
+
+    @staticmethod
+    def _sampling_fallback_allowed(*, paper_run: PaperRun | None, primary: DecisionPipelineResult, symbol: str) -> bool:
+        if paper_run is None or primary.should_trade:
+            return False
+        profile = paper_run.execution_profile
+        expected_symbols = list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+        if symbol not in AUTO_SIMULATION_EXECUTION_SYMBOLS:
+            return False
+        if list(profile.get("acceptance_symbols") or []) != expected_symbols:
+            return False
+        if profile.get("acceptance_scope_hash") != execution_scope_hash(expected_symbols):
+            return False
+        return bool(
+            profile.get("strategy_lane") == "directional"
+            and profile.get("simulation_sampling_fallback_enabled", False)
+            and profile.get("execution_mode") == "binance_simulation_first"
+            and profile.get("mirror_to_gateway") is True
+            and profile.get("cost_gate_verified") is True
+            and settings.binance_use_testnet
+            and settings.binance_auto_execute
+            and not settings.live_trading_enabled
+            and primary.reason
+            in {
+                "technical_signals_insufficient",
+                "multi_timeframe_disagreement",
+                "ensemble_discarded",
+                "meta_label_bet_skipped",
+            }
+        )
 
     def _link_verification_decision(
         self,

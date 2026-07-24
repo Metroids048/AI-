@@ -44,7 +44,11 @@ from services.execution.runtime_state import load_external_scheduler_state
 from services.execution.scheduler import runtime_scheduler_status
 from services.execution.spot_gateway import spot_demo_credentials_configured
 from services.execution.testnet_acceptance import TestnetAcceptanceService
-from services.execution.testnet_authorization import arm_validated_directional_run
+from services.execution.testnet_authorization import (
+    arm_validated_directional_run,
+    directional_run_is_armed,
+    directional_run_unmanaged_symbols,
+)
 from services.strategy_library import (
     AgentTaskRepository,
     ConfigConflictError,
@@ -364,6 +368,11 @@ def get_trading_status(db: Session = Depends(get_db_session)) -> TradingRuntimeS
     acceptance_verified = acceptance_task is not None
     if not acceptance_verified:
         blockers.append("testnet_acceptance_not_verified")
+    if acceptance_verified and not directional_run_is_armed(db, symbols=active_symbols):
+        blockers.append("directional_run_not_armed")
+    unmanaged_external_symbols = directional_run_unmanaged_symbols(db)
+    if unmanaged_external_symbols:
+        blockers.append("unmanaged_external_position")
     execution_ready = not blockers
     auto_execution_state = "ready" if execution_ready else "blocked_" + blockers[0]
     notes = ["secrets are never returned by this endpoint"]
@@ -401,6 +410,7 @@ def get_trading_status(db: Session = Depends(get_db_session)) -> TradingRuntimeS
         market_data_coverage_count=market_data_coverage,
         acceptance_symbols=active_symbols if acceptance_verified else [],
         acceptance_scope_hash=execution_scope_hash() if acceptance_verified else None,
+        unmanaged_external_symbols=unmanaged_external_symbols,
         last_strategy_gateway_order_at=(
             latest_strategy_gateway_order.created_at if latest_strategy_gateway_order else None
         ),

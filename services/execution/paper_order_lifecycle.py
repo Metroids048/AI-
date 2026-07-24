@@ -90,13 +90,25 @@ class PaperOrderLifecycleService:
         order: OrderExecution,
         cycle_time: datetime,
     ) -> PositionSnapshot:
-        reference_price = Decimal(str(order.entry_context.get("reference_price", "0")))
+        exchange_fill_confirmed = bool(order.entry_context.get("exchange_fill_confirmed"))
+        reference_price = Decimal(
+            str(
+                order.entry_context.get("exchange_average_fill_price")
+                if exchange_fill_confirmed
+                else order.entry_context.get("reference_price", "0")
+            )
+        )
         requested_notional = Decimal(str(order.entry_context.get("requested_notional", "0")))
-        quantity = float(order.entry_context.get("quantity") or 0.0)
+        quantity_value = (
+            order.entry_context.get("exchange_filled_quantity")
+            if exchange_fill_confirmed
+            else order.entry_context.get("quantity")
+        )
+        quantity = float(quantity_value or 0.0)
         if quantity <= 0:
             quantity = float(requested_notional / reference_price) if reference_price > 0 else 0.0
         min_notional = float(order.entry_context.get("min_notional_usdt", 50.0))
-        if reference_price > 0 and quantity * float(reference_price) < min_notional:
+        if not exchange_fill_confirmed and reference_price > 0 and quantity * float(reference_price) < min_notional:
             quantity = min_notional / float(reference_price)
         position_record = self.execution_repo.create_position_record(
             PositionRecord(

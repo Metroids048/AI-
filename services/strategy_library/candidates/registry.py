@@ -288,6 +288,11 @@ def _operator_heuristic_v2_relaxed_config() -> dict[str, Any]:
     config = _operator_heuristic_v1_config()
     config["entry_rules"]["candidate_id"] = "operator_heuristic_v2_relaxed"
     config["entry_rules"]["fusion_method"] = "layered_regime_entry_relaxed"
+    # The entry trigger must agree with at least one higher timeframe.  The
+    # previous implementation changed only the ensemble quorum while an
+    # earlier hard three-timeframe gate still rejected the decision first, so
+    # this candidate never actually implemented its documented 2-of-3 policy.
+    config["entry_rules"]["mtf_confirmation_mode"] = "entry_plus_one_higher"
     return config
 
 
@@ -299,9 +304,9 @@ OPERATOR_HEURISTIC_V2_RELAXED = StrategyCandidate(
         "increases signal density without sacrificing net expectancy, addressing the "
         "漏斗过滤过严 issue identified in module 13 funnel analysis"
     ),
-    version="2.0.0",
+    version="2.0.1",
     created_at=datetime(2026, 7, 15),
-    market="BTC/USDT",
+    market="BTC/USDT,ETH/USDT",
     timeframe="15m",
     config_factory=_operator_heuristic_v2_relaxed_config,
 )

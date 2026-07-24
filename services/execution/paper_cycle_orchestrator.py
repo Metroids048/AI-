@@ -206,6 +206,7 @@ class PaperCycleOrchestrator:
         hard_drawdown_locked = self._is_hard_drawdown_locked(paper_run=paper_run, metrics=metrics)
 
         actions.extend(self._expire_pending_limit_entries(paper_run=paper_run, cycle_time=cycle_time))
+        entry_blocked_symbols: set[str] = set()
 
         if self._gateway_mirror_armed(paper_run):
             reconcile_result = self.exchange_execution.reconcile_local_positions_with_exchange(
@@ -227,6 +228,7 @@ class PaperCycleOrchestrator:
             estimated_slippage_total += float(reconcile_result["slippage_cost"])
             daily_realized_pnl += float(reconcile_result["net_pnl"])
             weekly_realized_pnl += float(reconcile_result["net_pnl"])
+            entry_blocked_symbols.update(reconcile_result.get("entry_blocked_symbols", []))
 
         cross_sectional_snapshot: dict[str, CrossSectionalRankEntry] = {}
         if paper_run.execution_profile.get("strategy_lane") == "cross_sectional_carry":
@@ -277,10 +279,14 @@ class PaperCycleOrchestrator:
                                 )
                                 continue
                         order = self._fill_order(order=order, cycle_time=cycle_time)
+                        execution_price = _authoritative_fill_price(
+                            order=order,
+                            fallback_price=float(protection_bar.close),
+                        )
                         realized = self._close_position(
                             paper_run_id=paper_run_id,
                             position=current_position,
-                            mark_price=float(protection_bar.close),
+                            mark_price=execution_price,
                             cycle_time=cycle_time,
                             strategy=strategy,
                         )
@@ -298,7 +304,7 @@ class PaperCycleOrchestrator:
                                 action=f"hard_drawdown_close_{current_position.side}",
                                 direction=current_position.side,
                                 order_execution_id=order.order_execution_id,
-                                reference_price=float(protection_bar.close),
+                                reference_price=execution_price,
                                 close_only=True,
                                 decision_trace={"exit_reason": "hard_drawdown_lock"},
                             )
@@ -401,16 +407,17 @@ class PaperCycleOrchestrator:
                                     )
                                     continue
                             order = self._fill_order(order=order, cycle_time=cycle_time)
+                            execution_price = _authoritative_fill_price(order=order, fallback_price=trigger_price)
                             partial_position = current_position.model_copy(update={"quantity": partial_quantity})
                             realized = self._close_position(
                                 paper_run_id=paper_run_id,
                                 position=partial_position,
-                                mark_price=trigger_price,
+                                mark_price=execution_price,
                                 cycle_time=cycle_time,
                                 strategy=strategy,
                                 remaining_quantity=remaining_quantity,
                             )
-                            self._record_estimated_order_cost(order=order, strategy=strategy, price=trigger_price)
+                            self._record_estimated_order_cost(order=order, strategy=strategy, price=execution_price)
                             if not self._should_execute_on_binance(paper_run):
                                 self._maybe_mirror_to_gateway(
                                     paper_run=paper_run,
@@ -426,7 +433,7 @@ class PaperCycleOrchestrator:
                             exit_ladder_metrics[symbol] = updated_ladder.as_dict()
                             metrics["exit_ladder"] = exit_ladder_metrics
                             remaining = current_position.model_copy(
-                                update={"quantity": remaining_quantity, "mark_price": trigger_price}
+                                update={"quantity": remaining_quantity, "mark_price": execution_price}
                             )
                             active_positions[symbol] = remaining
                             protective_trailing[symbol] = {
@@ -442,7 +449,7 @@ class PaperCycleOrchestrator:
                                     action=f"exit_ladder_partial_{current_position.side}",
                                     direction=current_position.side,
                                     order_execution_id=order.order_execution_id,
-                                    reference_price=trigger_price,
+                                    reference_price=execution_price,
                                     close_only=True,
                                     decision_trace={
                                         "exit_ladder_r": pending.r_multiple,
@@ -494,14 +501,83 @@ class PaperCycleOrchestrator:
                         )
                         if partial_fraction is not None:
                             partial_quantity = current_position.quantity * partial_fraction
+                            remaining_quantity = current_position.quantity - partial_quantity
+                            partial_close_order = self._close_order_request(
+                                base_order=self._protection_order_request(
+                                    paper_run=paper_run,
+                                    strategy=strategy,
+                                    position=current_position,
+                                    runtime_request=request,
+                                ),
+                                current_position=current_position,
+                                close_price=trigger.price,
+                                close_reason="partial_takeprofit",
+                                close_quantity=abs(partial_quantity),
+                            )
+                            partial_close_order = partial_close_order.model_copy(
+                                update={
+                                    "stoploss_plan": {"price": current_position.entry_price},
+                                    "entry_context": {
+                                        **partial_close_order.entry_context,
+                                        "remaining_quantity": abs(remaining_quantity),
+                                        "refresh_protection": True,
+                                        "protection_stop_price": current_position.entry_price,
+                                        "open_side": current_position.side.value,
+                                    },
+                                }
+                            )
+                            order = self.gatekeeper.submit_order(partial_close_order)
+                            if order.execution_status != "accepted":
+                                rejected_orders += 1
+                                actions.append(
+                                    PaperRuntimeAction(
+                                        symbol=symbol,
+                                        action="rejected",
+                                        direction=current_position.side,
+                                        reason=order.rejection_reason,
+                                        order_execution_id=order.order_execution_id,
+                                        reference_price=trigger.price,
+                                        close_only=True,
+                                    )
+                                )
+                                continue
+                            if self._should_execute_on_binance(paper_run, order=order):
+                                order = self.exchange_execution.ensure_binance_execution(
+                                    paper_run=paper_run,
+                                    order=order,
+                                    order_request=partial_close_order,
+                                    position=current_position,
+                                    refresh_protection=True,
+                                )
+                                if order.execution_status != "accepted":
+                                    rejected_orders += 1
+                                    actions.append(
+                                        PaperRuntimeAction(
+                                            symbol=symbol,
+                                            action="rejected",
+                                            direction=current_position.side,
+                                            reason=order.rejection_reason,
+                                            order_execution_id=order.order_execution_id,
+                                            reference_price=trigger.price,
+                                            close_only=True,
+                                        )
+                                    )
+                                    continue
+                            order = self._fill_order(order=order, cycle_time=cycle_time)
+                            execution_price = _authoritative_fill_price(order=order, fallback_price=trigger.price)
                             partial_position = current_position.model_copy(update={"quantity": partial_quantity})
                             realized = self._close_position(
                                 paper_run_id=paper_run_id,
                                 position=partial_position,
-                                mark_price=trigger.price,
+                                mark_price=execution_price,
                                 cycle_time=cycle_time,
                                 strategy=strategy,
-                                remaining_quantity=current_position.quantity - partial_quantity,
+                                remaining_quantity=remaining_quantity,
+                            )
+                            self._record_estimated_order_cost(
+                                order=order,
+                                strategy=strategy,
+                                price=execution_price,
                             )
                             realized_total += realized.net_pnl
                             gross_realized_total += realized.gross_pnl
@@ -509,8 +585,8 @@ class PaperCycleOrchestrator:
                             estimated_slippage_total += realized.slippage_cost
                             remaining = current_position.model_copy(
                                 update={
-                                    "quantity": current_position.quantity - partial_quantity,
-                                    "mark_price": trigger.price,
+                                    "quantity": remaining_quantity,
+                                    "mark_price": execution_price,
                                 }
                             )
                             active_positions[symbol] = remaining
@@ -526,7 +602,8 @@ class PaperCycleOrchestrator:
                                     symbol=symbol,
                                     action=f"partial_takeprofit_{current_position.side}",
                                     direction=current_position.side,
-                                    reference_price=trigger.price,
+                                    order_execution_id=order.order_execution_id,
+                                    reference_price=execution_price,
                                     close_only=True,
                                     decision_trace={
                                         "partial_close_fraction": partial_fraction,
@@ -570,14 +647,15 @@ class PaperCycleOrchestrator:
                                     )
                                     continue
                             order = self._fill_order(order=order, cycle_time=cycle_time)
+                            execution_price = _authoritative_fill_price(order=order, fallback_price=trigger.price)
                             realized = self._close_position(
                                 paper_run_id=paper_run_id,
                                 position=current_position,
-                                mark_price=trigger.price,
+                                mark_price=execution_price,
                                 cycle_time=cycle_time,
                                 strategy=strategy,
                             )
-                            self._record_estimated_order_cost(order=order, strategy=strategy, price=trigger.price)
+                            self._record_estimated_order_cost(order=order, strategy=strategy, price=execution_price)
                             realized_total += realized.net_pnl
                             gross_realized_total += realized.gross_pnl
                             estimated_fee_total += realized.fee_cost
@@ -595,7 +673,7 @@ class PaperCycleOrchestrator:
                                     action=f"{trigger.trigger_type}_close_{current_position.side}",
                                     direction=current_position.side,
                                     order_execution_id=order.order_execution_id,
-                                    reference_price=trigger.price,
+                                    reference_price=execution_price,
                                     close_only=True,
                                     decision_trace={"protection_timeframe": "1m"},
                                 )
@@ -643,17 +721,21 @@ class PaperCycleOrchestrator:
                                     )
                                     continue
                             order = self._fill_order(order=order, cycle_time=cycle_time)
+                            execution_price = _authoritative_fill_price(
+                                order=order,
+                                fallback_price=float(protection_bar.close),
+                            )
                             realized = self._close_position(
                                 paper_run_id=paper_run_id,
                                 position=current_position,
-                                mark_price=float(protection_bar.close),
+                                mark_price=execution_price,
                                 cycle_time=cycle_time,
                                 strategy=strategy,
                             )
                             self._record_estimated_order_cost(
                                 order=order,
                                 strategy=strategy,
-                                price=float(protection_bar.close),
+                                price=execution_price,
                             )
                             realized_total += realized.net_pnl
                             gross_realized_total += realized.gross_pnl
@@ -670,7 +752,7 @@ class PaperCycleOrchestrator:
                                     action=f"time_exit_close_{current_position.side}",
                                     direction=current_position.side,
                                     order_execution_id=order.order_execution_id,
-                                    reference_price=float(protection_bar.close),
+                                    reference_price=execution_price,
                                     close_only=True,
                                     decision_trace={"protection_timeframe": "1m", "exit_reason": "time_exit"},
                                 )
@@ -700,6 +782,24 @@ class PaperCycleOrchestrator:
                         reason="symbol already processed for this closed bar",
                         reference_price=float(latest_bar.close),
                         idempotency_key=cycle_key,
+                    )
+                )
+                continue
+            if current_position is None and symbol in entry_blocked_symbols:
+                skipped_symbols += 1
+                if cycle_key not in new_processed_keys:
+                    new_processed_keys.append(cycle_key)
+                actions.append(
+                    PaperRuntimeAction(
+                        symbol=symbol,
+                        action="skip_unmanaged_external_position",
+                        reason="exchange position is not owned by the active strategy run",
+                        reference_price=float(latest_bar.close),
+                        idempotency_key=cycle_key,
+                        decision_trace={
+                            "reason_code": "UNMANAGED_EXTERNAL_POSITION",
+                            "exchange_truth_prevents_entry": True,
+                        },
                     )
                 )
                 continue
@@ -829,17 +929,18 @@ class PaperCycleOrchestrator:
                                     )
                                     continue
                             order = self._fill_order(order=order, cycle_time=cycle_time)
+                            execution_price = _authoritative_fill_price(order=order, fallback_price=trigger.price)
                             realized = self._close_position(
                                 paper_run_id=paper_run_id,
                                 position=current_position,
-                                mark_price=trigger.price,
+                                mark_price=execution_price,
                                 cycle_time=cycle_time,
                                 strategy=strategy,
                             )
                             order = self._record_estimated_order_cost(
                                 order=order,
                                 strategy=strategy,
-                                price=trigger.price,
+                                price=execution_price,
                             )
                             if not self._should_execute_on_binance(paper_run):
                                 self._maybe_mirror_to_gateway(
@@ -870,7 +971,7 @@ class PaperCycleOrchestrator:
                                     action=f"{trigger.trigger_type}_close_{current_position.side}",
                                     direction=current_position.side,
                                     order_execution_id=order.order_execution_id,
-                                    reference_price=trigger.price,
+                                    reference_price=execution_price,
                                     close_only=True,
                                     idempotency_key=cycle_key,
                                     decision_trace=decision_trace,
@@ -948,14 +1049,19 @@ class PaperCycleOrchestrator:
                                 )
                                 continue
                         order = self._fill_order(order=order, cycle_time=cycle_time)
+                        execution_price = _authoritative_fill_price(order=order, fallback_price=reference_price)
                         realized = self._close_position(
                             paper_run_id=paper_run_id,
                             position=current_position,
-                            mark_price=reference_price,
+                            mark_price=execution_price,
                             cycle_time=cycle_time,
                             strategy=strategy,
                         )
-                        order = self._record_estimated_order_cost(order=order, strategy=strategy, price=reference_price)
+                        order = self._record_estimated_order_cost(
+                            order=order,
+                            strategy=strategy,
+                            price=execution_price,
+                        )
                         realized_total += realized.net_pnl
                         gross_realized_total += realized.gross_pnl
                         estimated_fee_total += realized.fee_cost
@@ -978,7 +1084,7 @@ class PaperCycleOrchestrator:
                                 action="close_long" if current_position.side == TradeSide.LONG else "close_short",
                                 direction=current_position.side,
                                 order_execution_id=order.order_execution_id,
-                                reference_price=reference_price,
+                                reference_price=execution_price,
                                 close_only=True,
                                 idempotency_key=cycle_key,
                                 decision_trace=decision_trace,
@@ -1330,6 +1436,7 @@ class PaperCycleOrchestrator:
             "protective_trailing": protective_trailing,
             "exit_ladder": exit_ladder_metrics,
             "exchange_missing_position_counts": reconcile_missing_counts,
+            "unmanaged_external_symbols": sorted(entry_blocked_symbols),
             "last_cycle_actions": [action.model_dump(mode="json") for action in actions],
             "last_cycle_decisions": [
                 {
@@ -2094,6 +2201,15 @@ class PaperCycleOrchestrator:
                 "is_hedge_leg": is_hedge_leg,
             }
         )
+
+
+def _authoritative_fill_price(*, order: OrderExecution, fallback_price: float) -> float:
+    """Return the confirmed exchange fill price, falling back only for local-only adapters."""
+    if bool(order.entry_context.get("exchange_fill_confirmed")):
+        fill_price = _float_or_none(order.entry_context.get("exchange_average_fill_price"))
+        if fill_price is not None and fill_price > 0:
+            return fill_price
+    return fallback_price
 
 
 def _realized_pnl(*, position: PositionSnapshot, mark_price: float) -> float:
