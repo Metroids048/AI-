@@ -357,7 +357,8 @@ def refresh_fixed_top20_runtime_universe(exchange_info_symbols: list[dict[str, A
     """Replace stale bootstrap contract metadata only after Binance confirms it."""
     from services.data.universe import fixed_top20_assets
     from services.database import get_session_factory
-    from services.strategy_library import PaperRunRepository
+    from services.strategy_library import ConfigSnapshotRepository, PaperRunRepository
+    from shared.models import ConfigSnapshot
 
     assets = [asset.model_dump(mode="json") for asset in fixed_top20_assets(exchange_info_symbols)]
     if not all(
@@ -368,15 +369,32 @@ def refresh_fixed_top20_runtime_universe(exchange_info_symbols: list[dict[str, A
     updated = 0
     with get_session_factory()() as session:
         repo = PaperRunRepository(session)
+        config_repo = ConfigSnapshotRepository(session)
         for run in repo.list_paper_runs():
             if run.execution_profile.get("universe_mode") != "fixed_top20":
                 continue
+            refreshed_profile = {**run.execution_profile, "universe_assets": assets}
             repo.update_paper_run(
                 run.paper_run_id or "",
-                execution_profile={**run.execution_profile, "universe_assets": assets},
+                execution_profile=refreshed_profile,
             )
+            active = config_repo.get_active(run.paper_run_id or "")
+            if active is not None:
+                active_config = dict(active.config)
+                active_profile = active_config.get("execution_profile")
+                snapshot_profile = active_profile if isinstance(active_profile, dict) else refreshed_profile
+                snapshot = ConfigSnapshot.create(
+                    paper_run_id=run.paper_run_id or "",
+                    config={
+                        **active_config,
+                        "execution_profile": {**snapshot_profile, "universe_assets": assets},
+                    },
+                    created_by="exchange-info-refresh",
+                    effective_cycle_id="NEXT_CYCLE",
+                    previous_snapshot_id=active.config_snapshot_id,
+                )
+                config_repo.create_snapshot(snapshot, base_config_hash=run.active_config_hash)
             updated += 1
-        session.commit()
     return updated
 
 
