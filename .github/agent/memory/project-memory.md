@@ -1,13 +1,13 @@
 # Project Memory
 
-## One-click launcher path matcher (2026-07-22)
+## One-click launcher path matcher (2026-07-24)
 
 - `scripts/launch-paper-console.ps1` `Test-ProjectListener` must recognize vite under the current repo path (`AI--main` / `frontend/.../admin`), not only the legacy folder name `量化项目`. Wrong match skips the "already running" fast path and forces ~50s DB re-prep on every click.
-- `一键启动.cmd` keeps `chcp 65001` + UTF-8 BOM for Chinese; do not restore `taskkill /IM python.exe`.
+- `一键启动.cmd` must remain a plain ASCII batch wrapper. This host's `cmd.exe` parses a UTF-8 Chinese batch before its `chcp` command takes effect and does not execute UTF-16LE batches. Keep localized text in the delegated PowerShell launcher or other Unicode-aware surfaces; do not restore `taskkill /IM python.exe`.
 
-## One-click launcher encoding and hang fix (2026-07-22)
+## One-click launcher encoding and hang fix (2026-07-24)
 
-- `一键启动.cmd` must use `chcp 65001` (and UTF-8 BOM) before any Chinese `echo`; sibling pattern already existed in `scripts/上传.cmd`.
+- The `cmd.exe` launcher uses ASCII-only output and delegates to `scripts/launch-paper-console.ps1`. Do not add UTF-8/UTF-16 Chinese comments or `echo` content to the batch file; the active code page cannot make parsing reliable on this host.
 - Do **not** `taskkill /IM python.exe` from the launcher — it mis-kills Cursor/Agent Python and can stall at `[1/3]` with no console output. Process cleanup belongs in `scripts/launch-paper-console.ps1` (pid file + port).
 - Success banner API URL is `http://127.0.0.1:8016` (matches `launch-paper-console.ps1` default), not 8000.
 

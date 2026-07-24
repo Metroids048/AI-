@@ -1,5 +1,12 @@
 # Task History
 
+## 2026-07-24 — Repair one-click launcher batch encoding compatibility
+
+- **Symptom**: The formal `一键启动.cmd` entry point did not start API or RuntimeScheduler when invoked by `cmd.exe`; its log showed truncated command fragments such as `kkill` and `Bypass`.
+- **Root cause**: The batch used UTF-8 Chinese content. This host's `cmd.exe` tokenized the file before `chcp 65001` could take effect. UTF-16LE was also rejected as `��@`.
+- **Fix**: Make the batch wrapper ASCII-only and preserve the existing PowerShell launcher, PID/port cleanup, and launch behavior.
+- **Verification**: `cmd.exe /d /s /c "一键启动.cmd < nul"` reached `services ready`; API `/health` and frontend `/trading` returned HTTP 200. No strategy, risk, order-routing, or trading parameters changed.
+
 ## 2026-07-22 — Repair one-click slow/no-start after encoding fix
 
 - **User report**: After encoding/`taskkill` change, `一键启动` felt broken — long wait, no startup.
