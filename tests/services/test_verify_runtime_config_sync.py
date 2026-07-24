@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from scripts.verify_runtime_config_sync import (
+    CURRENT_SCHEMA_REVISION,
     _diff_strategy_rules,
     _load_database_revision,
     _load_effective_strategy_rules,
@@ -21,7 +22,7 @@ def test_load_database_revision_reports_head_schema(tmp_path) -> None:
     database_url = f"sqlite:///{(tmp_path / 'revision.db').as_posix()}"
     prepare_database(database_url)
 
-    assert _load_database_revision(database_url) == "0012"
+    assert _load_database_revision(database_url) == CURRENT_SCHEMA_REVISION
 
 
 def test_diff_reports_mismatched_field_with_both_values() -> None:

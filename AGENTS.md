@@ -41,6 +41,29 @@ The automated directional trading lane has one authoritative execution source: *
 
 Completion evidence for automated execution must include a real Binance Simulation order ID and exchange fill/position evidence. Local rows, mock calls, acceptance orders, or a successful strategy decision alone are insufficient.
 
+## Automatic Trading Completion Loop
+
+The automatic trading system is not complete merely because code changed, tests
+passed, a local Paper order exists, or execution reached an adapter.
+
+For an automatic-trading task, continue this evidence-backed loop until the
+requested real Binance Testnet proof exists or a strictly external blocker makes
+it impossible:
+
+OBSERVE -> trace a real scheduler cycle and candidate -> locate the earliest
+failing boundary -> form one root-cause hypothesis -> reproduce it with a
+failing test -> implement the smallest fix -> run focused and regression tests
+-> restart the real API and RuntimeScheduler -> observe a new natural cycle ->
+verify against Binance Testnet.
+
+Binance Testnet is the execution source of truth. SQLite Paper state is only a
+post-fill projection. A task requiring a complete automatic open/close lifecycle
+may be marked COMPLETE only after a normal PAPER_SCHEDULER strategy entry has a
+real Binance Testnet order ID and confirmed fill, a normal automatic exit has a
+real reduce-only Binance Testnet order ID and confirmed fill, and both are
+reconciled correctly into local state. Manual, acceptance, mock, direct-database,
+local-Paper, and synthetic fast-round-trip evidence is invalid.
+
 ## Six-Layer Architecture
 
 ### 1. Data Layer

@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 RULE_BLOCK_NAMES = ("entry_rules", "exit_rules", "stoploss_rules", "takeprofit_rules", "position_rules")
+CURRENT_SCHEMA_REVISION = "0012"
 
 # Bootstrap functions register several strategy_key -> rules-dict pairs. Keep
 # this table in sync with services/execution/bootstrap.py's *_KEY / *_RULES
@@ -239,13 +240,13 @@ def main() -> int:
     print(f"database_url = {database_url}")
 
     revision = _load_database_revision(database_url)
-    if revision != "0010":
+    if revision != CURRENT_SCHEMA_REVISION:
         print(
-            f"FAIL: database revision is {revision or '<unversioned>'}; expected 0010. "
+            f"FAIL: database revision is {revision or '<unversioned>'}; expected {CURRENT_SCHEMA_REVISION}. "
             "Run scripts/prepare_database.py before reading runtime config."
         )
         return 1
-    print("OK: database revision is 0010.")
+    print(f"OK: database revision is {CURRENT_SCHEMA_REVISION}.")
 
     effective_rules, config_source, active_config_hash = _load_effective_strategy_rules(database_url, args.strategy_key)
     if effective_rules is None:
