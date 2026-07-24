@@ -32,6 +32,10 @@ def _parse_datetime(value: str | None) -> datetime:
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 def _directional_run_ids(session) -> set[str]:  # noqa: ANN001
     return {
         run.paper_run_id or ""
@@ -43,7 +47,7 @@ def _directional_run_ids(session) -> set[str]:  # noqa: ANN001
 
 
 def _eligible_order(order, *, run_ids: set[str], since: datetime):  # noqa: ANN001, ANN201
-    if order.created_at is None or order.created_at < since:
+    if order.created_at is None or _as_utc(order.created_at) < _as_utc(since):
         return False
     if order.paper_run_id not in run_ids:
         return False
