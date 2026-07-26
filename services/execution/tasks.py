@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
 
 from services.data import DataRepository
 from services.database import get_session_factory
+from services.execution.account_equity import resolve_manual_position_pnl
 from services.execution.auto_schedule import is_auto_scheduled_paper_run
 from services.execution.gatekeeper import ExecutionGatekeeperService
 from services.execution.gateway import configured_gateways
@@ -24,7 +25,14 @@ from services.strategy_library import (
     StrategyRepository,
     ValidationRepository,
 )
-from shared.models import NotificationOutboxItem, PaperRun, RiskEvent, RiskEventType, RiskProfile, RiskSeverity
+from shared.models import (
+    NotificationOutboxItem,
+    PaperRun,
+    RiskEvent,
+    RiskEventType,
+    RiskProfile,
+    RiskSeverity,
+)
 
 
 @shared_task(name="services.execution.tasks.enqueue_paper_run", queue="paper_queue")
@@ -100,19 +108,48 @@ def risk_profile_sweep() -> dict:
         paper_repo = PaperRunRepository(session)
         risk_repo = RiskProfileRepository(session)
         data_repo = DataRepository(session)
+        execution_repo = ExecutionRepository(session)
         profile = risk_repo.list_profiles()[0] if risk_repo.list_profiles() else None
         checked = 0
         events = 0
+
+        # 获取gateway用于查询手动持仓浮亏
+        gateways = configured_gateways()
+        gateway = gateways[0] if gateways else None
+
         for run in paper_repo.list_paper_runs():
             if not is_auto_scheduled_paper_run(run):
+                continue
+            paper_run_id = run.paper_run_id
+            if paper_run_id is None:
                 continue
             checked += 1
             metrics = run.paper_metrics_summary
             account_equity = float(
                 metrics.get("account_equity") or run.execution_profile.get("account_equity") or 10_000.0
             )
-            equity_peak = float(metrics.get("equity_peak") or account_equity)
-            drawdown = max(0.0, (equity_peak - account_equity) / max(equity_peak, 1.0))
+
+            # 策略专属权益：扣除手动/未托管持仓的浮亏。用同一个resolve_manual_position_pnl
+            # 函数，paper_signal.py的gatekeeper预检查也调用它，避免两条路径各算各的
+            manual_pnl = resolve_manual_position_pnl(
+                paper_run=run,
+                execution_repo=execution_repo,
+                gateway=gateway,
+            )
+            strategy_equity = account_equity - manual_pnl
+
+            # 使用策略专属的权益峰值
+            strategy_equity_peak = float(metrics.get("strategy_equity_peak") or strategy_equity)
+            strategy_equity_peak = max(strategy_equity_peak, strategy_equity)
+
+            # 基于策略权益计算回撤
+            drawdown = max(0.0, (strategy_equity_peak - strategy_equity) / max(strategy_equity_peak, 1.0))
+
+            # 更新metrics中的策略权益峰值
+            if manual_pnl != 0.0 or "strategy_equity_peak" not in metrics:
+                updated_metrics = {**metrics, "strategy_equity_peak": strategy_equity_peak}
+                paper_repo.update_paper_run(paper_run_id, paper_metrics_summary=updated_metrics)
+
             consecutive_losses = int(metrics.get("consecutive_losses", 0))
             api_failures = int(metrics.get("api_failures_window", 0))
             active_profile = profile or RiskProfile()
@@ -125,18 +162,27 @@ def risk_profile_sweep() -> dict:
                 reasons.append("consecutive_loss_limit_breached")
             if api_failures >= active_profile.api_failure_limit:
                 reasons.append("api_failure_limit_breached")
+
             if reasons:
-                data_repo.store_risk_event(
-                    RiskEvent(
-                        event_type=RiskEventType.RISK_LIMIT_BREACH,
-                        severity=RiskSeverity.HIGH,
-                        source="risk_profile_sweep",
-                        description=f"Paper run {run.paper_run_id} breached risk sweep: {', '.join(reasons)}",
-                        affected_scope=run.candidate_symbols or run.symbol_scope,
-                        recommended_action="pause_strategy",
+                # 去重检查：避免为同一个run重复创建相同类型的风险事件
+                existing_events = data_repo.list_active_risk_events_by_type(event_type=RiskEventType.RISK_LIMIT_BREACH)
+                already_exists = any(paper_run_id in event.description for event in existing_events)
+
+                if not already_exists:
+                    # 风险事件应该在24小时后自动过期，避免永久累积
+                    expires_at = datetime.now(UTC) + timedelta(hours=24)
+                    data_repo.store_risk_event(
+                        RiskEvent(
+                            event_type=RiskEventType.RISK_LIMIT_BREACH,
+                            severity=RiskSeverity.HIGH,
+                            source="risk_profile_sweep",
+                            description=f"Paper run {paper_run_id} breached risk sweep: {', '.join(reasons)}",
+                            affected_scope=run.candidate_symbols or run.symbol_scope,
+                            recommended_action="pause_strategy",
+                            expires_at=expires_at,
+                        )
                     )
-                )
-                events += 1
+                    events += 1
         return {"checked_paper_runs": checked, "risk_events": events}
     finally:
         session.close()

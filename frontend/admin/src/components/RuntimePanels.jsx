@@ -241,7 +241,7 @@ export function MessageSourcesPanel({ dataSources, intelligenceSignal, riskEvent
     ? [{
         id: "market-intelligence",
         source: "market_intelligence",
-        title: `${intelligenceSignal.direction ?? "neutral"} / weight ${formatNumber(intelligenceSignal.vote_weight, 3)}`,
+        title: `${intelligenceSignal.direction === "long" ? "多" : intelligenceSignal.direction === "short" ? "空" : "中性"} / 权重 ${formatNumber(intelligenceSignal.vote_weight, 3)}`,
         severity: intelligenceSignal.risk_level,
         published_at: intelligenceSignal.generated_at,
         action: intelligenceSignal.active_event_cooldown ? "cooldown" : intelligenceSignal.should_participate ? "vote" : "observe",
@@ -346,7 +346,7 @@ export function AutoSettingsPanel({ paperRunId, autoSettings, onSave }) {
       <div className="ticket-grid">
         <label>执行模式<select value={form.execution_mode} onChange={(event) => update("execution_mode", event.target.value)}>
           <option value="binance_simulation_first">币安模拟盘优先</option>
-          <option value="paper_only">仅本地 Paper</option>
+          <option value="paper_only">仅本地</option>
         </select></label>
         <label>杠杆<input type="number" value={form.max_leverage} onChange={(event) => update("max_leverage", event.target.value)} /></label>
         <label>单笔风险<input type="number" step="0.001" value={form.risk_per_trade} onChange={(event) => update("risk_per_trade", event.target.value)} /></label>
@@ -370,8 +370,8 @@ export function AutoSettingsPanel({ paperRunId, autoSettings, onSave }) {
         <p className="ticket-note">档位随上方杠杆/单币敞口滑块保存后重新计算，保存前展示的是当前生效值。</p>
       </div>
       <div className="ticket-type-tabs">
-        <button type="button" className={form.llm_veto_enabled ? "active" : ""} onClick={() => update("llm_veto_enabled", !form.llm_veto_enabled)}>LLM Veto</button>
-        <button type="button" className={form.market_intelligence_enabled ? "active" : ""} onClick={() => update("market_intelligence_enabled", !form.market_intelligence_enabled)}>Market Intelligence</button>
+        <button type="button" className={form.llm_veto_enabled ? "active" : ""} onClick={() => update("llm_veto_enabled", !form.llm_veto_enabled)}>LLM 否决</button>
+        <button type="button" className={form.market_intelligence_enabled ? "active" : ""} onClick={() => update("market_intelligence_enabled", !form.market_intelligence_enabled)}>市场情报</button>
       </div>
       <button type="button" onClick={submit} disabled={!paperRunId}>保存自动开单设置</button>
     </section>
@@ -391,19 +391,19 @@ export function OrderSyncPanel({ orderSync }) {
         <span>本地 {local.length} / Binance {gateway.length}</span>
       </div>
       <div className="decision-summary">
-        <span>模式：{orderSync?.execution_mode ?? "-"}</span>
+        <span>模式：{orderSync?.execution_mode === "binance_simulation_first" ? "币安模拟盘优先" : orderSync?.execution_mode === "paper_only" ? "仅本地" : orderSync?.execution_mode ?? "-"}</span>
         <span>持仓：{asArray(orderSync?.positions).length}</span>
         <span>保护单：{refs.length}</span>
         <span>已匹配：{orderSync?.matched_local_order_count ?? 0}</span>
         <span>本地未匹配：{unmatchedLocal.length}</span>
-        <span>Binance 未匹配：{unmatchedGateway.length}</span>
+        <span>交易所未匹配：{unmatchedGateway.length}</span>
       </div>
       <div className="compact-table">
         <div className="compact-table-row four header">
           <span>本地单</span>
           <span>交易对</span>
           <span>状态</span>
-          <span>Binance</span>
+          <span>交易所</span>
         </div>
         {local.slice(0, 8).map((order) => (
           <div className="compact-table-row four" key={order.order_execution_id}>
@@ -425,14 +425,14 @@ export function MarketIntelligencePanel({ signal }) {
   return (
     <section className="exchange-panel intelligence-panel">
       <div className="panel-title">
-        <h2>Market Intelligence</h2>
+      <h2>市场情报</h2>
         <span>{signal?.should_participate ? "投票中" : signal?.active_event_cooldown ? "冷却" : "观察"}</span>
       </div>
       {signal ? (
         <div className="decision-summary">
-          <span>方向：{signal.direction ?? "neutral"}</span>
-          <span>Long：{formatNumber(signal.long_probability, 3)}</span>
-          <span>Short：{formatNumber(signal.short_probability, 3)}</span>
+          <span>方向：{signal.direction === "long" ? "多" : signal.direction === "short" ? "空" : signal.direction === "neutral" ? "中性" : signal.direction ?? "中性"}</span>
+          <span>多：{formatNumber(signal.long_probability, 3)}</span>
+          <span>空：{formatNumber(signal.short_probability, 3)}</span>
           <span>置信：{formatNumber(signal.confidence, 3)}</span>
           <span>权重：{formatNumber(signal.vote_weight, 3)} / 0.300</span>
           <span>风险：{signal.risk_level}</span>
@@ -455,6 +455,21 @@ export function MarketIntelligencePanel({ signal }) {
   );
 }
 
+const PIPELINE_STATUS_LABELS = {
+  bet_taken: "已开单",
+  position_already_open: "持仓中",
+  skipped: "已跳过",
+  rejected: "已拒绝",
+  discarded_low_confidence: "置信不足",
+  funding_arbitrage_entered: "套利已进",
+  funding_arbitrage_exited: "套利已退",
+  unknown: "未知",
+};
+
+function pipelineStatusLabel(status) {
+  return PIPELINE_STATUS_LABELS[status] ?? status ?? "未知";
+}
+
 function DecisionSummary({ trace }) {
   const signals = asArray(trace.signals);
   const ensemble = trace.ensemble ?? {};
@@ -472,8 +487,8 @@ function DecisionSummary({ trace }) {
   const isCarry = trace.strategy_lane === "carry" || trace.pipeline_status?.startsWith("funding_arbitrage");
   return (
     <div className="decision-summary">
-      <span>车道：{trace.strategy_lane ?? (isCarry ? "carry" : "directional")}</span>
-      <span>状态：{trace.pipeline_status ?? "unknown"}</span>
+      <span>车道：{trace.strategy_lane === "carry" ? "资金费套利" : trace.strategy_lane === "directional" ? "方向策略" : trace.strategy_lane ?? (isCarry ? "资金费套利" : "方向策略")}</span>
+      <span>状态：{pipelineStatusLabel(trace.pipeline_status)}</span>
       {isCarry ? (
         <>
           <span>扣费后净边际（bps）：{trace.estimated_net_edge_bps ?? "—"}</span>

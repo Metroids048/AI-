@@ -208,19 +208,40 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     return Promise.allSettled(tasks);
   }, [symbol, perpSymbol, timeframe]);
 
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
   useEffect(() => {
     // Keep retrying after transient API restarts. A sticky error used to stop
     // all polling forever, leaving the console on "服务不可用" until hard refresh.
     if (LOCAL_CONSOLE_API_ONLY) return undefined;
+
+    // Initial fetch
     refresh();
+
+    // Dynamic polling with adaptive interval based on state
     // When the WS stream is live, reduce polling to a 30s fallback to avoid
     // duplicating WS pushes (previously polled every 8s regardless of WS
     // state, wasting bandwidth). When polling-only (WS down), refresh every 8s.
     // While recovering from an error, poll faster so the desk comes back quickly.
-    const interval = state.error ? 5000 : state.streamStatus === "live" ? 30000 : 8000;
-    const timer = window.setInterval(refresh, interval);
-    return () => window.clearInterval(timer);
-  }, [refresh, state.error, state.streamStatus]);
+    let timer = null;
+    const scheduleNext = () => {
+      // Read current state from ref to avoid dependency on state
+      const currentState = stateRef.current;
+      const interval = currentState.error ? 5000 : currentState.streamStatus === "live" ? 30000 : 8000;
+      timer = window.setTimeout(() => {
+        refresh();
+        scheduleNext(); // Schedule next poll after this one completes
+      }, interval);
+    };
+    scheduleNext();
+
+    return () => {
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [symbol, perpSymbol, timeframe, refresh]);
 
   useEffect(() => {
     // Always poll Binance Demo account so Positions/Orders tabs stay in sync.

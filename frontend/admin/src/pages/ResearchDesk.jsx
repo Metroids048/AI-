@@ -55,7 +55,7 @@ export function ResearchDesk() {
   return (
     <main className="app-shell page-shell">
       <header className="page-header">
-        <p className="eyebrow">Data / Research Source</p>
+        <p className="eyebrow">数据 / 研究来源</p>
         <h1>研究工作台</h1>
       </header>
       <ActionMessage message={actionMessage} />

@@ -10,7 +10,7 @@ from typing import Any
 
 from services.data import DataRepository
 from services.data.service import DEFAULT_BINANCE_TOP20
-from services.execution.account_equity import sync_paper_account_equity
+from services.execution.account_equity import resolve_manual_position_pnl, sync_paper_account_equity
 from services.execution.cross_sectional import CrossSectionalRankEntry, compute_funding_rank_snapshot
 from services.execution.decision_engine import DecisionEngine
 from services.execution.execution_events import record_execution_event
@@ -1346,6 +1346,7 @@ class PaperCycleOrchestrator:
                 paper_run_id=paper_run_id,
                 order=order,
                 cycle_time=cycle_time,
+                execution_mode=str(paper_run.execution_profile.get("execution_mode", "binance_simulation_first")),
             )
             # Open hedge position if hedge order was successfully filled
             if hedge_order is not None and hedge_order.execution_status == "accepted":
@@ -1353,6 +1354,7 @@ class PaperCycleOrchestrator:
                     paper_run_id=paper_run_id,
                     order=hedge_order,
                     cycle_time=cycle_time,
+                    execution_mode=str(paper_run.execution_profile.get("execution_mode", "binance_simulation_first")),
                 )
                 # Mark both positions as part of a hedge group
                 hedge_group_id = f"hedge_{order.order_execution_id}"
@@ -1518,13 +1520,23 @@ class PaperCycleOrchestrator:
     def _is_hard_drawdown_locked(self, *, paper_run: PaperRun, metrics: dict[str, Any]) -> bool:
         initial_equity = float(paper_run.execution_profile.get("account_equity") or 10_000.0)
         account_equity = float(metrics.get("account_equity") or initial_equity)
-        equity_peak = float(metrics.get("equity_peak") or account_equity)
+        # Exclude manual/external position PnL — same adjustment as the gatekeeper
+        # drawdown check (paper_signal.py) and the background sweep (tasks.py),
+        # otherwise a manual position's unrealized loss can hard-lock this run.
+        manual_pnl = resolve_manual_position_pnl(
+            paper_run=paper_run,
+            execution_repo=self.execution_repo,
+            gateway=self.gateway,
+        )
+        strategy_equity = account_equity - manual_pnl
+        equity_peak = float(metrics.get("strategy_equity_peak") or metrics.get("equity_peak") or strategy_equity)
+        equity_peak = max(equity_peak, strategy_equity)
         if equity_peak <= 0:
             return False
         profile_id = paper_run.execution_profile.get("risk_profile_id")
         profile = self.gatekeeper.risk_profile_repo.get_profile(profile_id) if profile_id else None
         hard_limit = float(profile.hard_stop_drawdown_limit) if profile is not None else 0.20
-        return (equity_peak - account_equity) / equity_peak >= hard_limit
+        return (equity_peak - strategy_equity) / equity_peak >= hard_limit
 
     @staticmethod
     def _starting_equity(paper_run: PaperRun) -> float:
@@ -2068,13 +2080,25 @@ class PaperCycleOrchestrator:
     def _fill_order(self, *, order: OrderExecution, cycle_time: datetime) -> OrderExecution:
         return self.order_lifecycle.fill_order(order=order, cycle_time=cycle_time)
 
-    def _open_position(self, *, paper_run_id: str, order: OrderExecution, cycle_time: datetime) -> PositionSnapshot:
+    def _open_position(
+        self,
+        *,
+        paper_run_id: str,
+        order: OrderExecution,
+        cycle_time: datetime,
+        execution_mode: str = "binance_simulation_first",
+    ) -> PositionSnapshot:
         position = self.order_lifecycle.open_position(
             paper_run_id=paper_run_id,
             order=order,
             cycle_time=cycle_time,
+            execution_mode=execution_mode,
         )
-        self.exchange_execution.register_session_managed_position(position.position_record_id)
+        # Only register for exchange-reconcile tracking when this is a real exchange fill.
+        # paper_only local fills use PAPER_SIMULATION_ONLY status and must NOT enter the
+        # MANAGED_STRATEGY reconcile path that compares against live exchange positions.
+        if execution_mode != "paper_only":
+            self.exchange_execution.register_session_managed_position(position.position_record_id)
         return position
 
     def _close_position(

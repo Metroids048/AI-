@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from statistics import mean
 
 from services.strategy_library.meta_label_model import load_active_model, predict_win_probability
+from services.strategy_library.regime import MarketRegime
 from shared.models import (
     BetDecision,
     CandidateSignalSeries,
@@ -40,7 +41,7 @@ RELAXED_DIRECTION_SOURCE_QUORUM = 2
 class SignalEnsembleService:
     """Fuse low-correlation signal candidates into a single trade candidate."""
 
-    def create_ensemble(self, request: SignalEnsembleRequest) -> SignalEnsemble:
+    def create_ensemble(self, request: SignalEnsembleRequest, *, regime: MarketRegime | None = None) -> SignalEnsemble:
         if not request.signals:
             raise ValueError("at least one signal is required")
         if request.fusion_method in {LAYERED_FUSION_METHOD, LAYERED_RELAXED_FUSION_METHOD}:
@@ -49,7 +50,7 @@ class SignalEnsembleService:
                 if request.fusion_method == LAYERED_RELAXED_FUSION_METHOD
                 else MIN_DIRECTION_SOURCE_QUORUM
             )
-            return self._create_layered_ensemble(request, min_direction_sources=min_direction_sources)
+            return self._create_layered_ensemble(request, min_direction_sources=min_direction_sources, regime=regime)
         return self._create_weighted_ensemble(request)
 
     def _create_weighted_ensemble(self, request: SignalEnsembleRequest) -> SignalEnsemble:
@@ -80,11 +81,17 @@ class SignalEnsembleService:
             correlation_prefix="correlation_filter",
         )
 
-    def _create_layered_ensemble(self, request: SignalEnsembleRequest, *, min_direction_sources: int) -> SignalEnsemble:
+    def _create_layered_ensemble(
+        self,
+        request: SignalEnsembleRequest,
+        *,
+        min_direction_sources: int,
+        regime: MarketRegime | None = None,
+    ) -> SignalEnsemble:
         allowed_direction = self._resolve_allowed_direction(
             request.signals, min_direction_sources=min_direction_sources
         )
-        eligible = self._eligible_layered_signals(request.signals, allowed_direction=allowed_direction)
+        eligible = self._eligible_layered_signals(request.signals, allowed_direction=allowed_direction, regime=regime)
         adjusted = self._correlation_filter(
             eligible,
             threshold=request.correlation_threshold,
@@ -101,6 +108,7 @@ class SignalEnsembleService:
             if weight > 0
         ]
         direction_label = "none" if allowed_direction is None else str(allowed_direction.value)
+        regime_label = "none" if regime is None else str(regime.value)
         return self._finalize_votes(
             request=request,
             votes=votes,
@@ -108,6 +116,7 @@ class SignalEnsembleService:
                 "fusion_method": request.fusion_method,
                 "min_direction_sources": min_direction_sources,
                 "allowed_direction": direction_label,
+                "market_regime": regime_label,
                 "correlation_threshold": request.correlation_threshold,
                 "min_history": request.min_history,
                 "input_count": len(request.signals),
@@ -308,7 +317,15 @@ class SignalEnsembleService:
         signals: list[CandidateSignalSeries],
         *,
         allowed_direction: TradeSide | None,
+        regime: MarketRegime | None = None,
     ) -> list[CandidateSignalSeries]:
+        # RANGE regime: trend-style entry signals are noisy in a sideways market, so
+        # only range/mean-reversion signals (VWAP/Bollinger) vote, and their own
+        # direction decides the trade -- they no longer need to agree with the
+        # direction-source majority. TREND_UP/TREND_DOWN/UNCERTAIN/None keep the
+        # existing behavior unchanged (entry signals must match allowed_direction).
+        if regime == MarketRegime.RANGE:
+            return [signal for signal in signals if cls._signal_layer(signal.strategy_id) == "range"]
         eligible: list[CandidateSignalSeries] = []
         for signal in signals:
             layer = cls._signal_layer(signal.strategy_id)

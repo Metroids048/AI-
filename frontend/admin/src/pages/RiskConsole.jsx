@@ -69,7 +69,7 @@ export function RiskConsole() {
   return (
     <main className="app-shell page-shell">
       <header className="page-header">
-        <p className="eyebrow">Risk Layer</p>
+        <p className="eyebrow">风控层</p>
         <h1>风控控制台</h1>
       </header>
       <ActionMessage message={actionMessage} />

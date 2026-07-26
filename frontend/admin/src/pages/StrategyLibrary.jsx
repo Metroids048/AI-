@@ -22,7 +22,7 @@ export function StrategyLibrary() {
   const [actionMessage, setActionMessage] = useState("");
   const [showIdeaForm, setShowIdeaForm] = useState(false);
   const [ideaForm, setIdeaForm] = useState({ title: "", source: "manual_note", symbol: "BTC/USDT", hypothesis_summary: "", rationale: "" });
-  const playbook = useQuery({ queryKey: ["strategy-playbook"], queryFn: () => request("/api/v1/strategy-library/playbook"), staleTime: 60000 });
+  const playbook = useQuery({ queryKey: ["strategy-playbook"], queryFn: () => request("/api/v1/strategy-library/playbook"), staleTime: 60000, retry: 1 });
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: () => request("/api/v1/strategies"), staleTime: 15000 });
   const drafts = useQuery({ queryKey: ["strategy-drafts"], queryFn: () => request("/api/v1/strategies/drafts"), staleTime: 15000 });
   const ideas = useQuery({ queryKey: ["strategy-ideas"], queryFn: () => request("/api/v1/strategies/ideas"), staleTime: 15000 });
@@ -56,7 +56,7 @@ export function StrategyLibrary() {
 
   return (
     <main className="app-shell page-shell strategy-playbook-page">
-      <header className="page-header"><p className="eyebrow">Strategy Layer</p><h1>策略库</h1></header>
+      <header className="page-header"><p className="eyebrow">策略层</p><h1>策略库</h1></header>
       {actionMessage ? <div className="action-line">{actionMessage}</div> : null}
       <div className="playbook-tabs" role="tablist" aria-label="策略库视图">
         {TABS.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={activeTab === id} className={activeTab === id ? "active" : ""} onClick={() => setActiveTab(id)}>{label}</button>)}

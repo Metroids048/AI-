@@ -351,11 +351,11 @@ async def _run_scheduler(runtime, run, db_url: str):  # noqa: ANN001, ANN201
     return scheduler.status.model_dump(), cycle_results
 
 
-def _request_json(url: str, *, token: str | None = None) -> Any:
+def _request_json(url: str, *, token: str | None = None, timeout: float = 5.0) -> Any:
     request = urllib.request.Request(url)
     if token:
         request.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(request, timeout=5) as response:  # noqa: S310
+    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -392,8 +392,11 @@ def _serve_and_query(*, db_url: str, run_id: str, port: int, output_dir: Path) -
             token = "natural-proof-token"
             return {
                 "health": health,
+                # runtime-status runs DB queries; give it a generous timeout
                 "runtime_status": _request_json(
-                    f"http://127.0.0.1:{port}/api/v1/execution/paper-runs/{run_id}/runtime-status", token=token
+                    f"http://127.0.0.1:{port}/api/v1/execution/paper-runs/{run_id}/runtime-status",
+                    token=token,
+                    timeout=20.0,
                 ),
                 "orders": _request_json(f"http://127.0.0.1:{port}/api/v1/execution/orders", token=token),
                 "positions": _request_json(f"http://127.0.0.1:{port}/api/v1/execution/positions", token=token),

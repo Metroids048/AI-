@@ -87,7 +87,7 @@ export function ValidationCenter() {
   return (
     <main className="app-shell page-shell">
       <header className="page-header">
-        <p className="eyebrow">Validation Layer</p>
+        <p className="eyebrow">验证层</p>
         <h1>验证中心</h1>
       </header>
       <ActionMessage message={actionMessage} />

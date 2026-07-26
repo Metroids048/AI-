@@ -63,7 +63,7 @@ export function OpsConsole() {
   return (
     <main className="app-shell page-shell">
       <header className="page-header">
-        <p className="eyebrow">Ops / Agent Layer</p>
+        <p className="eyebrow">运维 / Agent 层</p>
         <h1>运维控制台</h1>
       </header>
 
@@ -80,12 +80,12 @@ export function OpsConsole() {
       </section>
 
       <section className="status-row ops-status-row">
-        <StatusPill label="系统健康" value={health.data?.status ?? "loading"} tone={health.data?.status === "ok" ? "ok" : "warn"} />
-        <StatusPill label="调度器" value={tradingStatus.data?.scheduler_mode ?? "unknown"} tone={schedulerTone} />
-        <StatusPill label="自动循环" value={tradingStatus.data?.scheduler_running ? "running" : "stopped"} tone={schedulerTone} />
-        <StatusPill label="交易模式" value={tradingStatus.data?.mode ?? "paper"} />
-        <StatusPill label="凭据" value={tradingStatus.data?.credentials_configured ? "configured" : "missing"} />
-        <StatusPill label="Live Feed" value={Object.keys(tradingStatus.data?.live_feed_status ?? {}).length} />
+        <StatusPill label="系统健康" value={health.data?.status === "ok" ? "正常" : health.data?.status ?? "加载中"} tone={health.data?.status === "ok" ? "ok" : "warn"} />
+        <StatusPill label="调度器" value={tradingStatus.data?.scheduler_mode ?? "未知"} tone={schedulerTone} />
+        <StatusPill label="自动循环" value={tradingStatus.data?.scheduler_running ? "运行中" : "已停止"} tone={schedulerTone} />
+        <StatusPill label="交易模式" value={tradingStatus.data?.mode === "testnet" ? "币安模拟盘" : tradingStatus.data?.mode === "paper" ? "本地模拟盘" : tradingStatus.data?.mode ?? "本地模拟盘"} />
+        <StatusPill label="凭据" value={tradingStatus.data?.credentials_configured ? "已配置" : "未配置"} />
+        <StatusPill label="实时行情" value={Object.keys(tradingStatus.data?.live_feed_status ?? {}).length + " 路"} />
       </section>
 
       <section className="records-grid">

@@ -21,6 +21,11 @@ from shared.models.execution_runtime import (
     BinanceTestnetPositionView,
 )
 
+# Module-level cache for binance-testnet-account endpoint
+_testnet_account_cache: BinanceTestnetAccountStatus | None = None
+_testnet_cache_timestamp: datetime | None = None
+_TESTNET_CACHE_TTL_SECONDS = 3  # 3 seconds cache to reduce Binance API calls
+
 
 class ExchangeGateway(Protocol):
     capability: ExchangeGatewayCapability
@@ -1015,17 +1020,43 @@ def probe_testnet_account(
     *,
     order_limit: int = 10,
     order_symbols: list[str] | tuple[str, ...] | None = None,
+    force_refresh: bool = False,
 ) -> BinanceTestnetAccountStatus:
-    """Fetch live Binance Mock Trading balances, positions, and recent orders via API."""
-    # First call after process start can race with demo/testnet URL selection and
+    """Fetch live Binance Mock Trading balances, positions, and recent orders via API.
+
+    Uses a 3-second cache to prevent hammering Binance API on rapid frontend refreshes.
+    Set force_refresh=True to bypass cache.
+    """
+    global _testnet_account_cache, _testnet_cache_timestamp
+
+    now = datetime.now(UTC)
+
+    # Return cached result if valid
+    if (
+        not force_refresh
+        and _testnet_account_cache is not None
+        and _testnet_cache_timestamp is not None
+        and (now - _testnet_cache_timestamp).total_seconds() < _TESTNET_CACHE_TTL_SECONDS
+    ):
+        return _testnet_account_cache
+
+    # Refresh cache: First call after process start can race with demo/testnet URL selection and
     # time-sync; retry once so the desk does not briefly show flat while Binance
     # still has live Demo positions.
     first = _probe_testnet_account_once(order_limit=order_limit, order_symbols=order_symbols)
     if first.connected and (first.positions or first.open_position_count > 0 or first.error):
+        _testnet_account_cache = first
+        _testnet_cache_timestamp = now
         return first
     if not first.connected and first.error and "credentials" in str(first.error).lower():
+        _testnet_account_cache = first
+        _testnet_cache_timestamp = now
         return first
-    return _probe_testnet_account_once(order_limit=order_limit, order_symbols=order_symbols)
+
+    result = _probe_testnet_account_once(order_limit=order_limit, order_symbols=order_symbols)
+    _testnet_account_cache = result
+    _testnet_cache_timestamp = now
+    return result
 
 
 def _probe_testnet_account_once(

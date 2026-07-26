@@ -49,7 +49,7 @@ export function ResearchSourceDetail() {
 
   return (
     <main className="app-shell page-shell">
-      <DetailHeader eyebrow="Research Source" title={sourceId} backTo="/research" />
+      <DetailHeader eyebrow="研究来源" title={sourceId} backTo="/research" />
       <ActionMessage message={actionMessage} />
       {source.isError ? <div className="action-line">加载失败：{source.error.message}</div> : null}
       <section className="funding-metrics">

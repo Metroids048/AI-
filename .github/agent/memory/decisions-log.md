@@ -1,5 +1,31 @@
 # Decisions Log
 
+## ADR-076: 1d/4h Swing strategy shows promise but insufficient sample size
+
+- Date: 2026-07-26
+- Status: deferred (insufficient sample)
+- Context: Phase 5 of strategy optimization required OOS validation of AUTO_PAPER_SWING_RULES (1d direction + 4h entry, 14-day max hold) against 90 days of historical BTC/ETH data. Created `scripts/validate_swing_strategy.py` using `TechnicalStrategyValidationService.replay()` with the same walk-forward OOS methodology. All four quality gates passed: Sharpe=1.326 (>1.0✅), PF=1.423 (>1.3✅), MaxDD=13.96% (<25%✅), Expectancy=0.0081 (>0✅). However, only 11 trades were generated in 90 days, below the 20-trade minimum for statistical significance.
+- Decision: Do NOT lower the sample-size gate or enable `auto_schedule_enabled=True`. The 1d/4h Swing strategy remains `auto_schedule_enabled=False` and NOT wired into `bootstrap_local_paper_runtime()` until longer historical replay (180-270 days) accumulates 20+ trades. The quality metrics are encouraging (all four gates passed with comfortable margin), but 11 trades is insufficient to distinguish skill from luck.
+- Consequences: AUTO_PAPER_SWING_KEY stays disabled. The "medium-term swing capability" that Phase 5 was meant to add remains unavailable until the data precondition is met. This is the correct fail-closed posture: better to wait for statistically meaningful evidence than to promote a strategy on 11 lucky trades. The validation infrastructure (replay script, metrics, gate check, audit report at `docs/audit/swing-strategy-oos-report.md`) is now in place and ready for future execution when 180-270 days of data exist.
+- Recommendation for future validation: extend lookback to 180 days minimum (approximately 20-25 trades expected for 1d/4h timeframe with 14-day max hold), or wait for 6 months of forward runtime data accumulation before re-running `scripts/validate_swing_strategy.py`.
+
+## ADR-075: Cross-sectional carry OOS validation blocked by missing funding rate history
+
+- Date: 2026-07-26
+- Status: blocked (data dependency)
+- Context: Phase 4 of strategy optimization required OOS validation of the cross-sectional funding-rate carry strategy against historical data. Created `services/validation/cross_sectional_replay.py` and `scripts/validate_cross_sectional_carry.py` following the same walk-forward OOS methodology as other validation modules. However, execution revealed that `.local_paper_console.db` contains **zero** `market_extras` records with non-null `funding_rate` — the `funding_rate` collection infrastructure exists in `services/data/binance.py::fetch_funding_rate_history` but has never been invoked, so the database has no funding rate time-series to replay against.
+- Decision: Do NOT fabricate synthetic funding rate data or skip the OOS validation gate. The cross-sectional carry strategy remains `default_enabled_for_auto_trading=False` and `paper_status=NOT_STARTED` as originally configured. Phase 4 validation is **deferred** until real funding rate history accumulates (requires: enable funding rate collection in the data heartbeat, wait 30+ days for sufficient rebalance cycles, then re-run `scripts/validate_cross_sectional_carry.py`).
+- Consequences: AUTO_PAPER_CROSS_SECTIONAL_CARRY_RULES stays disabled. The "market-neutral carry收益源" that Phase 4 was meant to add remains unavailable until the data precondition is met. This is the correct fail-closed posture: better to have no carry strategy than an unvalidated one running live. The validation infrastructure (replay script, metrics, gate check) is now in place and ready for future execution when data exists.
+- Workaround for immediate testing (out of scope for this task): operator could manually backfill historical funding rates via `BinanceMarketDataService.fetch_funding_rate_history(symbol, since, limit)` in a one-time script, but this would be retrospective data acquisition (not the same as forward-collected runtime data) and still requires decision on lookback period / symbols / storage.
+
+## ADR-074: Meta-Label classifier training attempted but feature set insufficient
+
+- Date: 2026-07-26
+- Status: accepted
+- Context: Phase 3 of strategy optimization required training a Meta-Label win-probability classifier to replace the rule-based heuristic. The training script (`scripts/train_meta_label_model.py`) successfully reconstructed 26,793 samples across 3 symbols (BTC/ETH/SOL) on 1h timeframe with strict walk-forward time-ordered split. However, the resulting model achieved OOS AUC = 0.4837, below the required 0.55 gate.
+- Decision: Do NOT force-accept the undertrained model. The existing rule-based heuristic in `SignalEnsembleService.create_meta_label` remains active via the fail-closed `load_active_model` mechanism. Current feature set (atr_percent, trailing_return_5/20, volume_zscore_20, ensemble_confidence, direction/entry_vote_count, funding_rate_bps, hour_of_day_sin/cos) lacks sufficient predictive power for 8-bar forward return direction. This is a real research finding, not a bug.
+- Consequences: Meta-Label胜率估计继续使用规则版本（历史同方向样本的平均胜率），不会产生低质量预测。未来优化可以考虑：(1) 增加regime/volatility interaction features；(2) 尝试非线性模型（如LightGBM）；(3) 调整label_horizon_bars适配不同timeframe特性；(4) 增加跨品种相关性特征。但这些都需要独立的特征工程研究任务，不在当前Phase 3范围内。
+
 ## ADR-073: Portable 30-day runtime ledger under docs/evidence
 
 - Date: 2026-07-22

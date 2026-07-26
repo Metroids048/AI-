@@ -10,8 +10,9 @@ from decimal import Decimal
 from services.data import DataRepository
 from services.data.market import MarketQueryService
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_scope_hash
-from services.execution.account_equity import resolve_paper_account_equity
+from services.execution.account_equity import resolve_manual_position_pnl, resolve_paper_account_equity
 from services.execution.decision_pipeline import DecisionPipeline, DecisionPipelineResult
+from services.execution.gateway import configured_gateways
 from services.strategy_library import (
     AgentTaskRepository,
     ExecutionRepository,
@@ -739,12 +740,27 @@ class PaperSignalGenerator:
         reference_price: Decimal,
         stoploss_price: Decimal,
     ) -> ExecutionRiskState:
-        account_equity, equity_source = resolve_paper_account_equity(
+        raw_account_equity, equity_source = resolve_paper_account_equity(
             paper_run=paper_run,
             execution_repo=self.execution_repo,
         )
+        # Exclude manual/external position PnL so its unrealized loss never trips
+        # this strategy's own risk gate. Sizing/exposure math below still uses the
+        # raw exchange equity (real capital available); only the drawdown-facing
+        # account_equity/equity_peak pair fed to ExecutionRiskState is adjusted.
+        manual_pnl = 0.0
+        if self.execution_repo is not None:
+            gateways = configured_gateways()
+            gateway = gateways[0] if gateways else None
+            manual_pnl = resolve_manual_position_pnl(
+                paper_run=paper_run,
+                execution_repo=self.execution_repo,
+                gateway=gateway,
+            )
+        account_equity = raw_account_equity - manual_pnl
         equity_peak = float(
-            paper_run.paper_metrics_summary.get("equity_peak")
+            paper_run.paper_metrics_summary.get("strategy_equity_peak")
+            or paper_run.paper_metrics_summary.get("equity_peak")
             or paper_run.execution_profile.get("equity_peak")
             or account_equity
         )

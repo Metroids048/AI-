@@ -774,7 +774,12 @@ class PaperExchangeExecutionService:
                 reconcile_missing_counts.pop(symbol, None)
                 if symbol in active_positions or symbol not in allowed_symbols:
                     continue
-                entry_blocked_symbols.add(symbol)
+                # Operator flag: allow new entries even when an unmanaged external
+                # position exists on the exchange. In ONE_WAY mode, any order will
+                # interact with the existing position (adds to long / reduces long).
+                # Default is fail-closed (block entry) per exchange-first invariant.
+                if not paper_run.execution_profile.get("allow_entry_with_unmanaged_positions"):
+                    entry_blocked_symbols.add(symbol)
                 side = TradeSide.SHORT if str(item.get("side") or "").lower() == "short" else TradeSide.LONG
                 entry_price = float(item.get("entry_price") or item.get("mark_price") or 0.0)
                 mark_price = float(item.get("mark_price") or entry_price)

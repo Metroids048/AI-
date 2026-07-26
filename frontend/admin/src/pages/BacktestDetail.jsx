@@ -30,7 +30,7 @@ export function BacktestDetail() {
   return (
     <main className="app-shell page-shell">
       <DetailHeader
-        eyebrow="Validation Layer"
+        eyebrow="验证层"
         title={`回测 ${runId}`}
         backTo="/validation"
       />
@@ -38,16 +38,16 @@ export function BacktestDetail() {
       <section className="funding-metrics">
         <Metric label="状态" value={<StatusBadge value={run.data?.run_status} />} />
         <Metric label="策略" value={run.data?.strategy_id ?? "-"} />
-        <Metric label="Sharpe" value={formatNumber(metrics.sharpe, 3)} />
-        <Metric label="Profit Factor" value={formatNumber(metrics.profit_factor, 3)} />
-        <Metric label="Max Drawdown" value={formatPercent(metrics.max_drawdown)} />
-        <Metric label="Expectancy" value={formatNumber(metrics.expectancy, 4)} />
-        <Metric label="Deflated Sharpe" value={formatNumber(metrics.deflated_sharpe, 3)} />
+        <Metric label="夏普比率" value={formatNumber(metrics.sharpe, 3)} />
+        <Metric label="盈利因子" value={formatNumber(metrics.profit_factor, 3)} />
+        <Metric label="最大回撤" value={formatPercent(metrics.max_drawdown)} />
+        <Metric label="期望值" value={formatNumber(metrics.expectancy, 4)} />
+        <Metric label="修正夏普" value={formatNumber(metrics.deflated_sharpe, 3)} />
         <Metric label="创建时间" value={formatTime(run.data?.created_at)} />
       </section>
       <section className="records-grid">
-        <JsonPanel title="Eligibility" value={eligibility.data ?? { status: eligibility.isError ? "not_ready" : "pending" }} />
-        <JsonPanel title="Validation Report" value={report.data ?? {}} />
+        <JsonPanel title="入选资格" value={eligibility.data ?? { status: eligibility.isError ? "not_ready" : "pending" }} />
+        <JsonPanel title="验证报告" value={report.data ?? {}} />
       </section>
     </main>
   );

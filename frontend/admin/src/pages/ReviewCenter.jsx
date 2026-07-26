@@ -52,7 +52,7 @@ export function ReviewCenter() {
   return (
     <main className="app-shell page-shell">
       <header className="page-header">
-        <p className="eyebrow">Review Layer</p>
+        <p className="eyebrow">复盘层</p>
         <h1>复盘中心</h1>
       </header>
       <section className="form-row">
@@ -68,7 +68,7 @@ export function ReviewCenter() {
           render={(item) => (
             <>
               <strong>{item.report_date ?? item.review_report_id}</strong>
-              <span>{item.report_status ?? "-"} / {asArray(item.failure_patterns).length} failure patterns</span>
+              <span>{item.report_status ?? "-"} / {asArray(item.failure_patterns).length} 个失败模式</span>
             </>
           )}
         />
@@ -111,8 +111,8 @@ export function ReviewCenter() {
           empty="暂无情报因子记录"
           render={(item) => (
             <>
-              <strong>{item.direction ?? "neutral"} / 权重 {item.vote_weight}</strong>
-              <span>{item.active_event_cooldown ? "event cooldown" : item.should_participate ? "participating" : "watching"}</span>
+              <strong>{item.direction === "long" ? "多" : item.direction === "short" ? "空" : item.direction === "neutral" ? "中性" : item.direction ?? "中性"} / 权重 {item.vote_weight}</strong>
+              <span>{item.active_event_cooldown ? "事件冷却中" : item.should_participate ? "投票参与中" : "观察中"}</span>
             </>
           )}
         />

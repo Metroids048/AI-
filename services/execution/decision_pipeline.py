@@ -23,6 +23,7 @@ from services.strategy_library import (
 )
 from services.strategy_library.ensemble import SignalEnsembleService
 from services.strategy_library.meta_label_model import extract_features
+from services.strategy_library.regime import MarketRegime, RegimeRouter, RegimeWeight
 from services.strategy_library.technical import (
     calculate_atr,
     classify_volatility_regime,
@@ -186,6 +187,18 @@ class DecisionPipeline:
             if mtf_ma_signal is not None:
                 signals = [*signals, mtf_ma_signal]
 
+        regime, regime_weight = self._resolve_regime(strategy=strategy, symbol=symbol, timeframe=timeframe, frame=frame)
+        volatility = {
+            **volatility,
+            "market_regime": regime.value,
+            "regime_weights": {
+                "trend_pullback": regime_weight.trend_pullback,
+                "breakout": regime_weight.breakout,
+                "range_mean_reversion": regime_weight.range_mean_reversion,
+                "momentum_continuation": regime_weight.momentum_continuation,
+            },
+        }
+
         multi_timeframe = self._multi_timeframe_confirmation(
             strategy=strategy,
             symbol=symbol,
@@ -212,7 +225,8 @@ class DecisionPipeline:
                     _candidate_from_signal(signal, bars) for signal in [*signals, *confirmation_direction_signals]
                 ],
                 fusion_method=str(strategy.rules.entry_rules.get("fusion_method", "weighted_vote")),
-            )
+            ),
+            regime=regime,
         )
         if self.execution_repo is not None:
             ensemble = self.execution_repo.create_signal_ensemble(ensemble)
@@ -412,6 +426,29 @@ class DecisionPipeline:
         if len(frames) < 2:
             return None
         return generate_multi_timeframe_ma_signal(frames, symbol=symbol)
+
+    def _resolve_regime(
+        self,
+        *,
+        strategy: StrategyContract,
+        symbol: str,
+        timeframe: str,
+        frame: pd.DataFrame,
+    ) -> tuple[MarketRegime, RegimeWeight]:
+        """Identify the current market regime from the strategy's own configured
+        state timeframe (falling back to the entry timeframe's own frame), so this
+        adds no new configuration surface beyond what direction/entry timeframe
+        resolution already uses.
+        """
+        state_timeframe = strategy.rules.entry_rules.get("state_timeframe")
+        regime_frame = frame
+        if state_timeframe and str(state_timeframe) != timeframe:
+            state_frame = _bars_to_frame(
+                self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=str(state_timeframe), limit=240)
+            )
+            if not state_frame.empty:
+                regime_frame = state_frame
+        return RegimeRouter().identify_regime(regime_frame)
 
     def _multi_timeframe_confirmation(
         self,

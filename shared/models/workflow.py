@@ -543,12 +543,15 @@ class PositionManagementStatus(StrEnum):
     MANAGED_STRATEGY = "MANAGED_STRATEGY"
     UNMANAGED_EXTERNAL_POSITION = "UNMANAGED_EXTERNAL_POSITION"
     CLOSED = "CLOSED"
+    RECONCILED_GHOST = "RECONCILED_GHOST"  # Position exists in DB but not on exchange
+    PAPER_SIMULATION_ONLY = "PAPER_SIMULATION_ONLY"  # Local paper-only fill; never matched against exchange
 
 
 class ProtectionRecordStatus(StrEnum):
     ACTIVE = "ACTIVE"
     INVALID_PROTECTION_GEOMETRY = "INVALID_PROTECTION_GEOMETRY"
     INACTIVE = "INACTIVE"
+    CANCELLED_GHOST_POSITION = "CANCELLED_GHOST_POSITION"  # Protection cancelled due to ghost position cleanup
 
 
 class PositionRecord(PlatformModel):
@@ -593,6 +596,7 @@ class PositionSnapshot(PlatformModel):
     position_record_id: str | None = None
     hedge_group_id: str | None = None  # Identifies positions that are part of a delta-neutral hedge
     is_hedge_leg: bool = False  # True if this is the hedge leg (e.g., spot in a carry trade)
+    management_status: str | None = None  # Populated by reconcile; MANAGED_STRATEGY or UNMANAGED_EXTERNAL_POSITION
 
 
 class ReviewReport(PlatformModel):

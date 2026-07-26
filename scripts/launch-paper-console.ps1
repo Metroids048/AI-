@@ -217,6 +217,7 @@ function Ensure-Runtime {
     }
     $env:POSTGRES_URL = $SqliteUrl
     $env:VITE_API_BASE_URL = "http://127.0.0.1:$ApiPort"
+    $env:VITE_ADMIN_API_TOKEN = "dev-admin-token"
     $env:CORS_ALLOWED_ORIGINS = "http://127.0.0.1:$FrontendPort,http://localhost:$FrontendPort"
     $env:APP_ENV = "development"
     $env:BINANCE_USE_TESTNET = "true"

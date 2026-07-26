@@ -43,6 +43,8 @@ class MarketDataHeartbeatService:
                 freshness["risk_event_id"] = active_for_symbol[0].risk_event_id
                 freshness["duplicate_event_suppressed"] = True
             else:
+                # 数据陈旧事件应该在6小时后自动过期
+                expires_at = now + timedelta(hours=6)
                 event = self.data_repo.store_risk_event(
                     RiskEvent(
                         event_type=RiskEventType.DATA_STALE,
@@ -52,6 +54,7 @@ class MarketDataHeartbeatService:
                         affected_scope=[symbol],
                         recommended_action="pause_strategy",
                         occurred_at=now,
+                        expires_at=expires_at,
                     )
                 )
                 freshness["risk_event_id"] = event.risk_event_id

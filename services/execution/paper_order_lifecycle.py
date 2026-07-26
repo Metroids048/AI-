@@ -89,7 +89,13 @@ class PaperOrderLifecycleService:
         paper_run_id: str,
         order: OrderExecution,
         cycle_time: datetime,
+        execution_mode: str = "binance_simulation_first",
     ) -> PositionSnapshot:
+        # Paper-only local fills must NOT be tracked as MANAGED_STRATEGY — they are
+        # never submitted to the exchange so reconciliation would always flag them as
+        # ghost positions.  Use PAPER_SIMULATION_ONLY so the exchange-reconcile loop
+        # skips them entirely while still allowing the paper P&L tracker to work.
+        is_paper_only = execution_mode == "paper_only"
         exchange_fill_confirmed = bool(order.entry_context.get("exchange_fill_confirmed"))
         reference_price = Decimal(
             str(
@@ -122,7 +128,11 @@ class PaperOrderLifecycleService:
                 order_origin=order.order_origin,
                 strategy_id=order.strategy_id,
                 run_id=paper_run_id,
-                management_status=PositionManagementStatus.MANAGED_STRATEGY,
+                management_status=(
+                    PositionManagementStatus.PAPER_SIMULATION_ONLY
+                    if is_paper_only
+                    else PositionManagementStatus.MANAGED_STRATEGY
+                ),
             )
         )
         record_id = position_record.position_record_id

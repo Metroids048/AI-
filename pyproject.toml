@@ -77,6 +77,9 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
 
 [tool.ruff.lint.per-file-ignores]
 "apps/api/routers/*.py" = ["B008"]
+# Ops/diagnostic one-off scripts: keep them commitable without blocking product code.
+# Still linted for hard errors (F821 etc.); style noise is ignored.
+"scripts/*.py" = ["E402", "E501", "E702", "E722", "F841", "B007", "SIM115"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["shared", "services", "apps"]

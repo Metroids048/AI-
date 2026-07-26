@@ -29,11 +29,22 @@ export function ModeBanner({ status, account }) {
 }
 
 export function BinanceSyncHero({ account }) {
+  const defaultUrl = "https://testnet.binancefuture.com/en/futures/BTCUSDT";
+  const webUrl = account?.web_ui_url || defaultUrl;
+  const linkNote = (
+    <p className="binance-sync-hero-note">
+      对账入口（非主网）：
+      <a href={webUrl} target="_blank" rel="noreferrer">币安模拟盘网页</a>
+      。请勿用 futures.binance.com 主网对比（主网订单不同步）。
+    </p>
+  );
+
   if (!account) {
     return (
       <section className="binance-sync-hero loading">
         <strong>币安模拟账户探测已暂停</strong>
         <span>本地工作台不会自动重试受限交易所接口，验收操作会先执行一次显式预检。</span>
+        {linkNote}
       </section>
     );
   }
@@ -43,13 +54,14 @@ export function BinanceSyncHero({ account }) {
       <section className="binance-sync-hero error">
         <strong>{issue.title}</strong>
         <span>{issue.detail}</span>
+        {linkNote}
       </section>
     );
   }
   const latest = asArray(account.recent_orders)[0];
   const positions = asArray(account.positions).filter((row) => Math.abs(Number(row.quantity) || 0) > 0);
   const syncedLabel = account.synced_at ? formatTime(account.synced_at) : "刚刚";
-  const webUrl = account.web_ui_url || "https://testnet.binancefuture.com/en/futures/BTCUSDT";
+  const connectedUrl = account.web_ui_url || defaultUrl;
   const backendLabel = account.api_backend === "testnet-fallback"
     ? "Testnet（demo 回退）"
     : account.api_backend === "testnet"
@@ -72,7 +84,7 @@ export function BinanceSyncHero({ account }) {
       </div>
       <p className="binance-sync-hero-note">
         请用
-        <a href={webUrl} target="_blank" rel="noreferrer">模拟盘网页</a>
+        <a href={connectedUrl} target="_blank" rel="noreferrer">模拟盘网页</a>
         对账；<strong>不要</strong>用 futures.binance.com 主网对比（主网订单不会同步）。
         镜像开启后自动单会先打到同一模拟账户。
       </p>
@@ -363,7 +375,7 @@ export function TradingTicket({ symbol, timeframe, mode, manualContext, latestPo
 
   return (
     <section className="exchange-panel trading-ticket">
-      <PanelTitle title="下单" meta={mode === "testnet" ? "Testnet" : "Paper"} />
+      <PanelTitle title="下单" meta={mode === "testnet" ? "模拟盘" : "本地"} />
       <div className="ticket-type-tabs">
         {["market", "limit"].map((item) => (
           <button key={item} type="button" className={orderType === item ? "active" : ""} onClick={() => setOrderType(item)}>

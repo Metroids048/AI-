@@ -60,7 +60,7 @@ export function deskPositionsFromAccount(account) {
       margin_usdt: position.margin_usdt,
       leverage: position.leverage,
       unrealized_pnl: position.unrealized_pnl,
-      snapshot_time: syncedAt,
+      snapshot_time: position.open_time ?? position.created_at ?? position.update_time ?? syncedAt,
       source: "binance_exchange",
     }));
 }
@@ -125,7 +125,14 @@ export function PaperConsole() {
   const deskPositions = useMemo(() => {
     const fromExchange = deskPositionsFromAccount(data.testnetAccount);
     if (fromExchange) return fromExchange;
-    return data.overview?.positions ?? [];
+    return (data.overview?.positions ?? []).map((pos) => {
+      const qty = Math.abs(Number(pos.quantity) || 0);
+      const markPrice = Number(pos.mark_price || pos.entry_price || 0);
+      const notional = pos.notional_usdt ?? (qty * markPrice > 0 ? qty * markPrice : null);
+      const leverage = pos.leverage ?? null;
+      const margin = pos.margin_usdt ?? (notional && leverage ? notional / leverage : null);
+      return { ...pos, notional_usdt: notional, margin_usdt: margin, leverage };
+    });
   }, [data.testnetAccount, data.overview?.positions]);
   const deskOrders = useMemo(() => {
     const fromExchange = deskOrdersFromAccount(data.testnetAccount);
@@ -308,7 +315,7 @@ export function PaperConsole() {
         { id: "orders", label: "订单", count: deskOrders.length, content: <OrdersTable orders={deskOrders} onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })} /> },
         { id: "account", label: "币安账户", content: <><BinanceSyncHero account={data.testnetAccount} /><TestnetAccountPanel account={data.testnetAccount} /></> },
         { id: "automation", label: "自动交易", content: <><ModeBanner status={data.tradingStatus} account={data.testnetAccount} /><div className="workspace-panel-grid"><RuntimeControlPanel streamStatus={data.streamStatus} tradingStatus={data.tradingStatus} mirrorToGateway={mirrorToGateway} onMirrorToggle={(enabled) => handleAction("toggleGatewayMirror", { enabled })} onRunCycle={() => handleAction("runAllCycles")} /><AutoSettingsPanel paperRunId={autoPaperRunId} autoSettings={autoSettings} onSave={(payload) => handleAction("saveAutoSettings", payload)} /><Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={data.tradingStatus} /><RejectionFunnelPanel summary={data.decisionTrace?.rejection_summary} /></div></> },
-        { id: "carry", label: "Carry", content: <div className="workspace-panel-grid"><FundingPanel signal={data.fundingSignal} onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })} /><ExecutionAcceptancePanel fundingSignal={data.fundingSignal} onRunAcceptance={() => handleAction("testnetAcceptance")} onRunCarry={() => handleAction("carryExecution")} /></div> },
+        { id: "carry", label: "套利", content: <div className="workspace-panel-grid"><FundingPanel signal={data.fundingSignal} onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })} /><ExecutionAcceptancePanel fundingSignal={data.fundingSignal} onRunAcceptance={() => handleAction("testnetAcceptance")} onRunCarry={() => handleAction("carryExecution")} /></div> },
         { id: "decision", label: "决策链", content: <div className="workspace-panel-grid"><DecisionDebugPanel decisionTrace={data.decisionTrace} /><MarketIntelligencePanel signal={data.intelligenceSignal} /></div> },
         { id: "risk-data", label: "风险与数据", content: <div className="workspace-panel-grid"><MessageSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} riskEvents={data.overview?.risk_events} /><DataSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} /><OrderSyncPanel orderSync={data.orderSync} /></div> },
       ]} />

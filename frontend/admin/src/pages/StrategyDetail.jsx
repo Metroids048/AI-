@@ -60,7 +60,7 @@ export function StrategyDetail() {
 
   return (
     <main className="app-shell page-shell">
-      <DetailHeader eyebrow="Strategy Layer" title={data.strategy_key ?? strategyId} backTo="/strategies" />
+      <DetailHeader eyebrow="策略层" title={data.strategy_key ?? strategyId} backTo="/strategies" />
       <ActionMessage message={actionMessage} />
       {strategy.isError ? <div className="action-line">加载失败：{strategy.error.message}</div> : null}
       <section className="funding-metrics">
@@ -87,10 +87,10 @@ export function StrategyDetail() {
         <table>
           <thead>
             <tr>
-              <th>Version</th>
-              <th>Label</th>
-              <th>Summary</th>
-              <th>Created</th>
+              <th>版本 ID</th>
+              <th>版本标签</th>
+              <th>变更摘要</th>
+              <th>创建时间</th>
             </tr>
           </thead>
           <tbody>

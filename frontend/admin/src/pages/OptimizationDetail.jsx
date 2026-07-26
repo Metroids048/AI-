@@ -17,7 +17,7 @@ export function OptimizationDetail() {
   return (
     <main className="app-shell page-shell">
       <DetailHeader
-        eyebrow="Validation Layer"
+        eyebrow="验证层"
         title={`优化 ${runId}`}
         backTo="/validation"
       />
@@ -29,7 +29,7 @@ export function OptimizationDetail() {
         <Metric label="版本" value={run.data?.version_id ?? "-"} />
         <Metric label="创建时间" value={formatTime(run.data?.created_at)} />
       </section>
-      <JsonPanel title="Best Candidate Summary" value={run.data?.best_candidate_summary ?? {}} />
+      <JsonPanel title="最优候选参数" value={run.data?.best_candidate_summary ?? {}} />
     </main>
   );
 }
