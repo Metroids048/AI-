@@ -29,7 +29,29 @@ from pathlib import Path
 from typing import Any
 
 RULE_BLOCK_NAMES = ("entry_rules", "exit_rules", "stoploss_rules", "takeprofit_rules", "position_rules")
-CURRENT_SCHEMA_REVISION = "0012"
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _resolve_head_revision() -> str:
+    """Return the Alembic head revision declared under migrations/versions.
+
+    Derived rather than hardcoded: this value must track whatever
+    ``scripts/prepare_database.py`` upgrades to (``head``). A literal copy of the
+    revision id silently rots the first time a migration is added — revision 0013
+    shipped while this constant still said "0012", so this script reported schema
+    drift against correctly-migrated databases.
+    """
+
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    config = Config(str(REPO_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(REPO_ROOT / "migrations"))
+    return ScriptDirectory.from_config(config).get_current_head() or ""
+
+
+CURRENT_SCHEMA_REVISION = _resolve_head_revision()
 
 # Bootstrap functions register several strategy_key -> rules-dict pairs. Keep
 # this table in sync with services/execution/bootstrap.py's *_KEY / *_RULES

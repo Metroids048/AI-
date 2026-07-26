@@ -198,8 +198,8 @@ def test_trading_status_treats_btc_eth_execution_scope_as_complete(api_client, d
     from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_scope_hash
     from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY
     from services.execution.runtime_state import ExternalSchedulerState
-    from services.strategy_library import AgentTaskRepository, PaperRunRepository
-    from shared.models import AgentTask, PaperRun
+    from services.strategy_library import AgentTaskRepository, ConfigSnapshotRepository, PaperRunRepository
+    from shared.models import AgentTask, ConfigSnapshot, PaperRun
 
     monkeypatch.setattr(settings, "binance_api_key", "key")
     monkeypatch.setattr(settings, "binance_api_secret", "secret")
@@ -233,7 +233,7 @@ def test_trading_status_treats_btc_eth_execution_scope_as_complete(api_client, d
         )
     )
 
-    PaperRunRepository(db_session).create_paper_run(
+    armed_run = PaperRunRepository(db_session).create_paper_run(
         PaperRun(
             strategy_id="technical-strategy",
             symbol_scope=list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
@@ -248,6 +248,21 @@ def test_trading_status_treats_btc_eth_execution_scope_as_complete(api_client, d
             },
             paper_status="running",
         )
+    )
+    # execution_ready requires a genuinely armed run: directional_run_is_armed()
+    # also gates on the immutable active ConfigSnapshot, not just the PaperRun's
+    # own execution_profile (AGENTS.md invariant 12).
+    ConfigSnapshotRepository(db_session).create_snapshot(
+        ConfigSnapshot.create(
+            paper_run_id=armed_run.paper_run_id or "",
+            config={
+                "execution_profile": armed_run.execution_profile,
+                "strategy_rules": {"entry_rules": {"candidate_id": "trend_momentum_v1"}},
+            },
+            created_by="test",
+            effective_cycle_id="baseline",
+        ),
+        base_config_hash=None,
     )
 
     response = api_client.get("/api/v1/execution/trading-status")

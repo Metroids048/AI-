@@ -1,5 +1,32 @@
 from __future__ import annotations
 
+import functools
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolate_asset_root(tmp_path, monkeypatch):
+    """Keep asset ingestion out of the working tree.
+
+    ``OpenSourceStrategyLibrary`` defaults ``asset_root`` to the real
+    ``research_source/open_source_strategy_library/assets`` directory, so these
+    tests used to rewrite the tracked ``asset_manifest.json`` (new timestamps)
+    on every run. That left ``git status`` dirty after a plain ``pytest`` and
+    collides with pre-commit's stash/restore cycle once the hook runs tests.
+
+    Both construction sites resolve the class from their own module globals, so
+    patching the symbol in each is enough to redirect writes to tmp_path.
+    """
+
+    from apps.api.routers import research_sources as research_sources_router
+    from research_source.open_source_strategy_library import OpenSourceStrategyLibrary
+    from services.agents import service as agents_service
+
+    isolated = functools.partial(OpenSourceStrategyLibrary, asset_root=tmp_path / "assets")
+    monkeypatch.setattr(research_sources_router, "OpenSourceStrategyLibrary", isolated)
+    monkeypatch.setattr(agents_service, "OpenSourceStrategyLibrary", isolated)
+
 
 def test_research_source_api_imports_and_extracts_strategy_ideas(api_client) -> None:
     list_resp = api_client.get("/api/v1/research-sources")

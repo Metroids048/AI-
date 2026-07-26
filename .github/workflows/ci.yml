@@ -29,7 +29,13 @@ jobs:
           python -m pip install pip-audit
           pip-audit --progress-spinner off
       - name: Pytest
-        run: pytest -q -m "not integration"
+        run: pytest -q -m "not integration" --junit-xml=.pytest-report.xml
+      - name: Verify CURRENT_STATE.md verification block is current
+        # Regenerated from the JUnit report above, so the documented count is
+        # always a real number from a real run rather than a hand-typed claim.
+        run: python scripts/refresh_current_state.py --junit-xml .pytest-report.xml --check
+      - name: Verify per-tool skill copies have not drifted
+        run: python scripts/sync_skill_copies.py --check
       - name: Verify active manifest evidence
         run: python scripts/verify_current_state_evidence.py
       - uses: actions/setup-node@v4

@@ -28,3 +28,30 @@ repos:
         additional_dependencies: [pydantic>=2.8]
         pass_filenames: false
         args: [--config-file=pyproject.toml]
+
+  # Local hooks. These close the gap that let a red suite reach main: until now
+  # pre-commit ran lint/format/type only, so "looks fine locally" was possible
+  # with failing tests, and CI was the first thing to notice.
+  - repo: local
+    hooks:
+      # Runs the name-matched test subset when trading-critical code is staged.
+      # Deliberately scoped to services/execution, services/validation,
+      # services/strategy_library and apps/api/routers instead of the whole
+      # suite: a ~75s full run on every commit gets bypassed, and a bypassed
+      # gate is worth nothing.
+      - id: targeted-trading-tests
+        name: pytest subset for trading-critical changes
+        entry: python scripts/precommit_targeted_tests.py
+        language: system
+        pass_filenames: true
+        files: ^(services/(execution|validation|strategy_library)/|apps/api/routers/).*\.py$
+
+      # The three per-tool verify-work skill copies must stay byte-identical to
+      # the canonical .agents/ source. Editing one and forgetting the others is
+      # how they silently diverge.
+      - id: verify-work-skill-sync
+        name: verify-work skill copies match canonical source
+        entry: python scripts/sync_skill_copies.py --check
+        language: system
+        pass_filenames: false
+        files: ^\.(agents|claude|cursor)/skills/verify-work/SKILL\.md$

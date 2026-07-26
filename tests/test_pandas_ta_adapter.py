@@ -9,8 +9,18 @@ import pytest
 from services.strategy_library.technical.pandas_ta_adapter import (
     generate_pandas_ta_signal,
     list_available_indicators,
+    ta,
 )
 from shared.models import TradeSide, TradeSignal
+
+# pandas-ta lives in the optional `quant` extra and is not installed by CI's
+# `pip install -e ".[dev]"`. Tests that actually invoke an indicator must skip
+# when it is absent instead of hard-failing with ImportError; the adapter's
+# registry-only surface (list_available_indicators) still runs unguarded.
+requires_pandas_ta = pytest.mark.skipif(
+    ta is None,
+    reason="pandas-ta not installed (optional `quant` extra)",
+)
 
 
 def make_sample_ohlcv(length: int = 100, trend: str = "flat") -> pd.DataFrame:
@@ -58,6 +68,7 @@ def test_list_available_indicators():
     assert "hma" in indicators
 
 
+@requires_pandas_ta
 def test_unknown_indicator_raises_error():
     """测试未知指标名称抛出错误。"""
     frame = make_sample_ohlcv()
@@ -65,6 +76,7 @@ def test_unknown_indicator_raises_error():
         generate_pandas_ta_signal(name="unknown_indicator", symbol="BTC/USDT", frame=frame)
 
 
+@requires_pandas_ta
 def test_insufficient_data_returns_none():
     """测试数据不足返回None。"""
     frame = make_sample_ohlcv(length=5)  # 少于min_periods
@@ -72,6 +84,7 @@ def test_insufficient_data_returns_none():
     assert signal is None
 
 
+@requires_pandas_ta
 def test_supertrend_signal_format():
     """测试SuperTrend信号格式正确。"""
     frame = make_sample_ohlcv(length=100, trend="up")
@@ -88,6 +101,7 @@ def test_supertrend_signal_format():
         assert signal.signal_time is not None
 
 
+@requires_pandas_ta
 def test_stoch_rsi_signal_format():
     """测试Stochastic RSI信号格式正确。"""
     frame = make_sample_ohlcv(length=100)
@@ -102,6 +116,7 @@ def test_stoch_rsi_signal_format():
         assert 0.0 <= signal.confidence <= 1.0
 
 
+@requires_pandas_ta
 def test_hma_signal_format():
     """测试Hull MA信号格式正确。"""
     frame = make_sample_ohlcv(length=100)
@@ -115,6 +130,7 @@ def test_hma_signal_format():
         assert signal.reason in ["hma_bullish_cross", "hma_bearish_cross"]
 
 
+@requires_pandas_ta
 def test_mfi_signal_format():
     """测试Money Flow Index信号格式正确。"""
     frame = make_sample_ohlcv(length=100)
@@ -128,6 +144,7 @@ def test_mfi_signal_format():
         assert signal.reason in ["mfi_oversold_recovery", "mfi_overbought_rejection"]
 
 
+@requires_pandas_ta
 def test_obv_signal_format():
     """测试OBV信号格式正确。"""
     frame = make_sample_ohlcv(length=100)
@@ -141,6 +158,7 @@ def test_obv_signal_format():
         assert signal.reason in ["obv_accumulation_divergence", "obv_distribution_divergence"]
 
 
+@requires_pandas_ta
 def test_all_indicators_callable():
     """测试所有注册的指标都可调用且不崩溃。"""
     frame = make_sample_ohlcv(length=100)
@@ -158,12 +176,9 @@ def test_all_indicators_callable():
             assert 0.0 <= signal.confidence <= 1.0
 
 
-@pytest.mark.skipif(
-    True,  # 总是跳过这个测试，因为pandas_ta可能还未安装
-    reason="pandas_ta may not be installed yet",
-)
+@requires_pandas_ta
 def test_pandas_ta_import():
-    """测试pandas_ta是否已安装（可选测试）。"""
+    """pandas_ta 已安装时，确认它确实可导入（可选依赖存在才运行）。"""
     import pandas_ta as ta  # noqa: F401
 
     assert ta is not None

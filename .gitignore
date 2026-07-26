@@ -58,3 +58,9 @@ infra/freqtrade/config/*.json
 .codebase-memory/
 .playwright-mcp/
 .workbuddy/
+
+# Hook + verification transients. The JUnit report is an input to
+# scripts/refresh_current_state.py, and .claude/state/ is per-turn hook
+# bookkeeping; neither is a project artifact.
+/.pytest-report.xml
+.claude/state/
