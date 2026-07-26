@@ -1,5 +1,11 @@
 # Project Memory
 
+## Pre-commit unblock for scripts (2026-07-26)
+
+- Commit `ca88e24` ("6") pushed after fixing mypy/ruff in `account_equity.py` / `tasks.py` / `cross_sectional_replay.py` and adding ADR-077 `scripts/*.py` per-file-ignores for style noise.
+- If `ruff-format` fails a commit: it auto-fixed files — run `git add -A` then `git commit` again (do not `--no-verify`). Then `git push`.
+- Accidental empty file `=` must not be committed (removed in this push).
+
 ## ULTRA-AGGRESSIVE Paper testing configuration v2 deployed (2026-07-15)
 
 - **Context**: After initial 46% threshold optimization produced insufficient order flow, user explicitly requested further loosening: "风险可以在提升...日亏损到20%...以尽可能多地找到符合买卖点，拿到交易数据为主" (Risk can be increased further, daily loss to 20%, prioritize finding as many trade opportunities as possible and getting data). User made clear this is **Paper/Testnet simulation environment** where order generation and data collection are the core goals.

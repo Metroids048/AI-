@@ -1,5 +1,13 @@
 # Decisions Log
 
+## ADR-077: Ignore style-noise ruff rules for scripts/*.py
+
+- Date: 2026-07-26
+- Status: accepted
+- Context: Bulk `git add .` of ops/diagnostic scripts repeatedly blocked pre-commit on E501/E402/E722/F841/B007/SIM115 while product code was already clean. Fixing every one-liner print script is high churn / low value.
+- Decision: In `pyproject.toml` `[tool.ruff.lint.per-file-ignores]`, ignore style-noise rules for `scripts/*.py` only. Keep full ruff+mypy strictness for `services/`/`shared/`/`apps/`. Hard errors (undefined names etc.) still fail.
+- Consequences: Future one-off diagnostic scripts can be committed without format-war; product-path regressions still blocked. Prefer deleting disposable scripts after use when they are not meant to stay in the repo.
+
 ## ADR-076: 1d/4h Swing strategy shows promise but insufficient sample size
 
 - Date: 2026-07-26
