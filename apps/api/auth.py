@@ -29,10 +29,13 @@ def _extract_bearer_token(request: Request) -> str | None:
 
 
 def _default_token_used_outside_local_env() -> bool:
-    return (
-        settings.app_env.lower() not in LOCAL_ENVIRONMENTS
-        and settings.admin_api_token == DEFAULT_ADMIN_TOKEN
-    )
+    return settings.app_env.lower() not in LOCAL_ENVIRONMENTS and settings.admin_api_token == DEFAULT_ADMIN_TOKEN
+
+
+def websocket_token_is_valid(token: str) -> bool:
+    if _default_token_used_outside_local_env():
+        return False
+    return bool(token) and secrets.compare_digest(token, settings.admin_api_token)
 
 
 async def admin_token_middleware(request: Request, call_next):

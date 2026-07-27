@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -11,6 +11,7 @@ import pandas as pd
 
 from services.agents import AgentTaskService, build_configured_llm_runtime
 from services.data import DataRepository
+from services.data.binance import TIMEFRAME_TO_SECONDS
 from services.data.market_intelligence import MarketIntelligenceService
 from services.execution.net_edge import meta_label_edge_stats
 from services.execution.signal_edge_stats import load_active_edge_stats, strategy_rules_hash
@@ -92,6 +93,31 @@ _SIGNAL_ALIASES = {
 }
 
 
+def closed_bars_for_decision(
+    bars: list[OHLCVBar],
+    *,
+    timeframe: str,
+    decision_time: datetime,
+) -> list[OHLCVBar]:
+    """Remove REST candles that have not closed by the decision timestamp."""
+
+    duration_seconds = TIMEFRAME_TO_SECONDS.get(timeframe)
+    if duration_seconds is None:
+        raise ValueError(f"unsupported decision timeframe: {timeframe}")
+    cutoff = decision_time if decision_time.tzinfo is not None else decision_time.replace(tzinfo=UTC)
+    duration = timedelta(seconds=duration_seconds)
+    return [bar for bar in bars if bar.timestamp + duration <= cutoff]
+
+
+def _bar_close_time(bar: OHLCVBar | None, *, timeframe: str) -> datetime | None:
+    if bar is None:
+        return None
+    duration_seconds = TIMEFRAME_TO_SECONDS.get(timeframe)
+    if duration_seconds is None:
+        raise ValueError(f"unsupported decision timeframe: {timeframe}")
+    return bar.timestamp + timedelta(seconds=duration_seconds)
+
+
 @dataclass(frozen=True)
 class DecisionPipelineResult:
     direction: TradeSide | None
@@ -139,9 +165,18 @@ class DecisionPipeline:
         timeframe: str,
         enable_decision_veto: bool = True,
         relaxed_signals: bool = False,
+        cycle_id: str | None = None,
+        decision_id: str | None = None,
+        decision_time: datetime | None = None,
     ) -> DecisionPipelineResult:
-        bars = self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=timeframe, limit=240)
+        closed_at = decision_time or datetime.now(UTC)
+        bars = closed_bars_for_decision(
+            self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=timeframe, limit=240),
+            timeframe=timeframe,
+            decision_time=closed_at,
+        )
         latest = bars[-1] if bars else None
+        latest_close_time = _bar_close_time(latest, timeframe=timeframe)
         reference_price = Decimal("0") if latest is None else latest.close
         frame = _bars_to_frame(bars)
         volatility: dict[str, Any] = (
@@ -160,6 +195,7 @@ class DecisionPipeline:
                 ensemble=None,
                 atr=atr,
                 volatility={**volatility, "signal_count": 0},
+                bar_time=latest_close_time,
             )
         market_intelligence_signal = None
         strategy_allows_market_intelligence = bool(strategy.rules.entry_rules.get("market_intelligence_enabled", True))
@@ -183,11 +219,23 @@ class DecisionPipeline:
                 ]
 
         if "mtf_ma" in enabled_signals:
-            mtf_ma_signal = self._mtf_ma_signal(strategy=strategy, symbol=symbol, timeframe=timeframe, frame=frame)
+            mtf_ma_signal = self._mtf_ma_signal(
+                strategy=strategy,
+                symbol=symbol,
+                timeframe=timeframe,
+                frame=frame,
+                decision_time=closed_at,
+            )
             if mtf_ma_signal is not None:
                 signals = [*signals, mtf_ma_signal]
 
-        regime, regime_weight = self._resolve_regime(strategy=strategy, symbol=symbol, timeframe=timeframe, frame=frame)
+        regime, regime_weight = self._resolve_regime(
+            strategy=strategy,
+            symbol=symbol,
+            timeframe=timeframe,
+            frame=frame,
+            decision_time=closed_at,
+        )
         volatility = {
             **volatility,
             "market_regime": regime.value,
@@ -205,6 +253,7 @@ class DecisionPipeline:
             timeframe=timeframe,
             main_signals=signals,
             enabled_signals=enabled_signals,
+            decision_time=closed_at,
         )
         if not multi_timeframe["passed"] and not relaxed_signals:
             return self._skipped(
@@ -215,6 +264,7 @@ class DecisionPipeline:
                 ensemble=None,
                 atr=atr,
                 volatility={**volatility, "multi_timeframe": multi_timeframe},
+                bar_time=latest_close_time,
             )
         volatility = {**volatility, "multi_timeframe": multi_timeframe}
         confirmation_direction_signals = list(multi_timeframe.get("direction_signals", []))
@@ -239,23 +289,25 @@ class DecisionPipeline:
                 ensemble=ensemble,
                 atr=atr,
                 volatility=volatility,
+                bar_time=latest_close_time,
             )
 
         training_samples = _meta_label_samples(bars, direction=ensemble.fused_direction)
         model_features = None
         if latest is not None:
+            assert latest_close_time is not None
             model_features = extract_features(
                 bars=bars,
                 direction_vote_count=len(ensemble.raw_votes),
                 entry_vote_count=sum(1 for vote in ensemble.raw_votes if vote.direction == ensemble.fused_direction),
                 ensemble_confidence=ensemble.fused_confidence or 0.0,
                 funding_rate_bps=_latest_funding_bps(self.data_repo, symbol=symbol),
-                signal_time=latest.timestamp,
+                signal_time=latest_close_time,
             )
         meta_label = self.ensemble_service.create_meta_label(
             MetaLabelRequest(
                 ensemble_id=ensemble.ensemble_id,
-                signal_time=latest.timestamp if latest else None,
+                signal_time=latest_close_time,
                 training_samples=training_samples,
                 min_win_rate=float(strategy.rules.entry_rules.get("meta_label_min_win_rate", 0.45)),
                 strategy_key=strategy.strategy_key,
@@ -283,6 +335,7 @@ class DecisionPipeline:
                 meta_label=meta_label,
                 atr=atr,
                 volatility=volatility,
+                bar_time=latest_close_time,
             )
 
         veto_result = self._run_decision_veto(
@@ -294,6 +347,8 @@ class DecisionPipeline:
             meta_label=meta_label,
             volatility=volatility,
             enable_decision_veto=enable_decision_veto,
+            cycle_id=cycle_id,
+            decision_id=decision_id,
         )
         fee_bps, slippage_bps = _fee_slippage_bps(strategy=strategy, symbol=symbol)
         edge_stats = _edge_stats_for_gate(
@@ -337,7 +392,7 @@ class DecisionPipeline:
             should_trade=not (veto_result is not None and veto_result.veto),
             reason="llm_veto" if veto_result is not None and veto_result.veto else "ensemble_meta_label_passed",
             reference_price=reference_price,
-            bar_time=latest.timestamp if latest else None,
+            bar_time=latest_close_time,
             signals=signals,
             ensemble=ensemble,
             meta_label=meta_label,
@@ -401,6 +456,7 @@ class DecisionPipeline:
         symbol: str,
         timeframe: str,
         frame: pd.DataFrame,
+        decision_time: datetime | None = None,
     ) -> TradeSignal | None:
         """Build the multi-timeframe frame set from the strategy's own configured
         state/confirmation timeframes (rather than introducing new config) and
@@ -409,17 +465,26 @@ class DecisionPipeline:
         if frame.empty:
             return None
         frames: dict[str, pd.DataFrame] = {timeframe: frame}
+        closed_at = decision_time or datetime.now(UTC)
         state_timeframe = strategy.rules.entry_rules.get("state_timeframe")
         if state_timeframe and str(state_timeframe) != timeframe:
             state_frame = _bars_to_frame(
-                self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=str(state_timeframe), limit=240)
+                closed_bars_for_decision(
+                    self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=str(state_timeframe), limit=240),
+                    timeframe=str(state_timeframe),
+                    decision_time=closed_at,
+                )
             )
             if not state_frame.empty:
                 frames[str(state_timeframe)] = state_frame
         confirm_timeframe = _confirmation_timeframe(strategy=strategy, entry_timeframe=timeframe)
         if confirm_timeframe != timeframe and confirm_timeframe not in frames:
             confirm_frame = _bars_to_frame(
-                self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=confirm_timeframe, limit=240)
+                closed_bars_for_decision(
+                    self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=confirm_timeframe, limit=240),
+                    timeframe=confirm_timeframe,
+                    decision_time=closed_at,
+                )
             )
             if not confirm_frame.empty:
                 frames[confirm_timeframe] = confirm_frame
@@ -434,6 +499,7 @@ class DecisionPipeline:
         symbol: str,
         timeframe: str,
         frame: pd.DataFrame,
+        decision_time: datetime | None = None,
     ) -> tuple[MarketRegime, RegimeWeight]:
         """Identify the current market regime from the strategy's own configured
         state timeframe (falling back to the entry timeframe's own frame), so this
@@ -444,7 +510,11 @@ class DecisionPipeline:
         regime_frame = frame
         if state_timeframe and str(state_timeframe) != timeframe:
             state_frame = _bars_to_frame(
-                self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=str(state_timeframe), limit=240)
+                closed_bars_for_decision(
+                    self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=str(state_timeframe), limit=240),
+                    timeframe=str(state_timeframe),
+                    decision_time=decision_time or datetime.now(UTC),
+                )
             )
             if not state_frame.empty:
                 regime_frame = state_frame
@@ -458,6 +528,7 @@ class DecisionPipeline:
         timeframe: str,
         main_signals: list[TradeSignal],
         enabled_signals: set[str] | frozenset[str],
+        decision_time: datetime | None = None,
     ) -> dict[str, Any]:
         del enabled_signals
         main_direction = _dominant_signal_direction(main_signals)
@@ -466,8 +537,13 @@ class DecisionPipeline:
         state_timeframe = entry_rules.get("state_timeframe")
         state_signals: list[TradeSignal] = []
         state_direction: TradeSide | None = None
+        closed_at = decision_time or datetime.now(UTC)
         if state_timeframe and str(state_timeframe) != timeframe:
-            state_bars = self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=str(state_timeframe), limit=240)
+            state_bars = closed_bars_for_decision(
+                self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=str(state_timeframe), limit=240),
+                timeframe=str(state_timeframe),
+                decision_time=closed_at,
+            )
             state_signals = self._technical_signals(
                 frame=_bars_to_frame(state_bars),
                 symbol=symbol,
@@ -479,7 +555,11 @@ class DecisionPipeline:
         confirm_signals: list[TradeSignal] = []
         confirm_direction: TradeSide | None = None
         if confirm_timeframe != timeframe:
-            confirm_bars = self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=confirm_timeframe, limit=240)
+            confirm_bars = closed_bars_for_decision(
+                self.data_repo.list_ohlcv_bars(symbol=symbol, timeframe=confirm_timeframe, limit=240),
+                timeframe=confirm_timeframe,
+                decision_time=closed_at,
+            )
             confirm_signals = self._technical_signals(
                 frame=_bars_to_frame(confirm_bars),
                 symbol=symbol,
@@ -579,6 +659,8 @@ class DecisionPipeline:
         meta_label: MetaLabel,
         volatility: dict[str, Any],
         enable_decision_veto: bool,
+        cycle_id: str | None,
+        decision_id: str | None,
     ) -> DecisionVetoResult | None:
         if not enable_decision_veto:
             return DecisionVetoResult(
@@ -641,6 +723,8 @@ class DecisionPipeline:
                 task_type="pre_execution_veto_llm",
                 input_ref=f"signal_ensemble:{ensemble.ensemble_id}",
                 input_payload={
+                    "cycle_id": cycle_id,
+                    "decision_id": decision_id,
                     "strategy": {
                         "strategy_id": strategy.strategy_id,
                         "core_thesis": strategy.core_thesis,
@@ -715,6 +799,7 @@ class DecisionPipeline:
         atr: float | None,
         volatility: dict[str, Any],
         meta_label: MetaLabel | None = None,
+        bar_time: datetime | None = None,
     ) -> DecisionPipelineResult:
         # CRITICAL FIX: Use conservative default instead of 0.0 to prevent sizing collapse
         # When pipeline skips a signal (insufficient data, veto, etc.), we should NOT
@@ -726,7 +811,7 @@ class DecisionPipeline:
             should_trade=False,
             reason=reason,
             reference_price=reference_price,
-            bar_time=latest.timestamp if latest else None,
+            bar_time=bar_time if bar_time is not None else (latest.timestamp if latest else None),
             signals=signals,
             ensemble=ensemble,
             meta_label=meta_label,
@@ -933,7 +1018,7 @@ def _edge_stats_for_gate(
 
 def _meta_label_samples(bars: list[OHLCVBar], *, direction: TradeSide) -> list[MetaLabelSample]:
     samples: list[MetaLabelSample] = []
-    closed_history = bars[:-1]
+    closed_history = bars
     for previous, current in zip(closed_history[-48:-1], closed_history[-47:], strict=False):
         previous_close = float(previous.close)
         current_close = float(current.close)

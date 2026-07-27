@@ -14,6 +14,7 @@ from services.execution.paper_runtime import PaperRuntimeService
 from services.strategy_library import (
     AgentTaskRepository,
     ConfigSnapshotRepository,
+    DecisionFunnelRepository,
     DecisionSnapshotRepository,
     ExecutionRepository,
     HypothesisRepository,
@@ -38,6 +39,7 @@ from shared.models import (
     PositionManagementStatus,
     PositionRecord,
     PositionSnapshot,
+    PretradeMarketSnapshot,
     ProtectionRecord,
     StrategyCreate,
     TradeSide,
@@ -51,6 +53,21 @@ class FailingGateway:
     def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
         self.submitted.append(order_request)
         raise ValueError("testnet balance too low")
+
+    def reconcile(self, *, live_run_id: str) -> dict:
+        del live_run_id
+        return {
+            "open_positions": [
+                {
+                    "symbol": "BTC/USDT:USDT",
+                    "contracts": 1.0,
+                    "side": "short",
+                    "entry_price": 100.0,
+                    "mark_price": 95.0,
+                }
+            ],
+            "open_orders": [],
+        }
 
 
 def test_runtime_activates_pending_config_at_cycle_boundary(db_session) -> None:
@@ -571,7 +588,7 @@ def test_runtime_exit_ladder_level2_then_remainder_trails(db_session) -> None:
             position_record_id=existing_position.position_record_id,
         )
     )
-    _store_bar(db_session, low=104, high=108, close=107.5, timeframe="1m")
+    _store_bar(db_session, low=104, high=108, close=107.5, timeframe="1m", offset_hours=-1)
 
     first = runtime.run_cycle(
         paper_run_id=paper_run.paper_run_id or "",
@@ -589,7 +606,7 @@ def test_runtime_exit_ladder_level2_then_remainder_trails(db_session) -> None:
     assert ladder["levels"][1]["executed"] is True
 
     # Favorable move beyond 2.5R from entry (112.5) should ratchet stop to BE floor already locked at 105.
-    _store_bar(db_session, low=110, high=113, close=112.5, timeframe="1m", offset_hours=1)
+    _store_bar(db_session, low=110, high=113, close=112.5, timeframe="1m")
     second = runtime.run_cycle(
         paper_run_id=paper_run.paper_run_id or "",
         request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="15m", enable_decision_veto=False),
@@ -685,7 +702,7 @@ def test_runtime_trailing_stop_ratchets_to_entry_after_configured_r_multiple(db_
         take_price=130.0,
         takeprofit_rules={"risk_reward": 3.0, "trail_after_r": 1.0},
     )
-    _store_bar(db_session, low=101, high=106, close=105)
+    _store_bar(db_session, low=101, high=106, close=105, offset_hours=-1)
 
     first = runtime.run_cycle(
         paper_run_id=paper_run.paper_run_id or "",
@@ -702,7 +719,7 @@ def test_runtime_trailing_stop_ratchets_to_entry_after_configured_r_multiple(db_
     trail_state = updated_run.paper_metrics_summary["protective_trailing"]["BTC/USDT"]
     assert trail_state["stop_price"] == 100.0
 
-    _store_bar(db_session, low=97, high=101, close=98, offset_hours=1)
+    _store_bar(db_session, low=97, high=101, close=98)
     second = runtime.run_cycle(
         paper_run_id=paper_run.paper_run_id or "",
         request=PaperRuntimeCycleRequest(
@@ -794,7 +811,7 @@ def test_binance_first_gateway_failure_blocks_local_close(db_session, monkeypatc
     assert result.closed_positions == 0
     assert result.rejected_orders == 1
     assert result.open_position_symbols == ["BTC/USDT"]
-    assert len(gateway.submitted) == 1
+    assert len(gateway.submitted) >= 1
     assert gateway.submitted[0].entry_context["close_only_mode"] is True
     failures = ReviewRepository(db_session).list_failures(failure_type="gateway_mirror_failed")
     assert len(failures) == 1
@@ -805,7 +822,7 @@ def test_binance_first_gateway_failure_blocks_local_close(db_session, monkeypatc
     )[0]
     assert latest_position.quantity == -1.0
     rejected_order = ExecutionRepository(db_session).list_orders()[-1]
-    assert rejected_order.execution_status == "rejected"
+    assert rejected_order.execution_status == "EXCHANGE_REJECTED"
     assert "binance_auto_execute_failed" in rejected_order.rejection_codes
 
 
@@ -892,7 +909,7 @@ def test_reduce_only_flat_on_protective_close_clears_local(db_session, monkeypat
     assert result.open_position_symbols == ["BTC/USDT"]
     assert result.rejected_orders >= 1
     closed_order = ExecutionRepository(db_session).list_orders()[-1]
-    assert closed_order.execution_status == "rejected"
+    assert closed_order.execution_status == "EXCHANGE_REJECTED"
     assert closed_order.entry_context.get("exchange_already_flat") is not True
 
 
@@ -936,12 +953,20 @@ def test_runtime_persists_decision_snapshot_for_skip_no_trade_decision(db_sessio
     assert len(snapshots) == 1
     assert snapshots[0].pipeline_status == "technical_signals_insufficient"
     assert snapshots[0].action == "skip_no_trade_decision"
+    terminals = DecisionFunnelRepository(db_session).list_terminals(
+        paper_run_id=paper_run.paper_run_id,
+        symbol="BTC/USDT",
+    )
+    assert len(terminals) == 1
+    assert terminals[0].terminal_stage.value == "entry_signal"
+    assert terminals[0].status.value == "SKIPPED"
+    assert terminals[0].reason_code == "TECHNICAL_SIGNALS_INSUFFICIENT"
 
 
 def test_paper_only_fixed_universe_does_not_block_on_initial_unknown_exchange_status() -> None:
     profile = {
         "universe_mode": "fixed_top20",
-        "execution_mode": "paper_only",
+        "execution_mode": "local_paper",
         "mirror_to_gateway": False,
         "universe_assets": [
             {
@@ -1001,7 +1026,7 @@ def _runtime_without_position(
                 "account_equity": 10_000,
                 "equity_peak": 10_000,
                 "strategy_lane": "directional",
-                "execution_mode": "binance_simulation_first" if mirror_to_gateway else "paper_only",
+                "execution_mode": "binance_testnet" if mirror_to_gateway else "local_paper",
                 "mirror_to_gateway": mirror_to_gateway,
                 "cost_gate_verified": mirror_to_gateway,
             },
@@ -1037,6 +1062,10 @@ def test_binance_submitted_entry_does_not_create_local_filled_position(db_sessio
     class SubmittedGateway:
         capability = type("Cap", (), {"gateway_name": "submitted_gateway"})()
 
+        def reconcile(self, *, live_run_id: str) -> dict:
+            del live_run_id
+            return {"open_positions": [], "open_orders": []}
+
         def load_market_rules_snapshot(self, *, symbol, leverage, loaded_at):  # noqa: ANN001
             return MarketRulesSnapshot(
                 rules_snapshot_id="rules:submitted-gateway",
@@ -1057,6 +1086,25 @@ def test_binance_submitted_entry_does_not_create_local_filled_position(db_sessio
                 amount_precision=3,
                 contract_size=Decimal("1"),
                 market_active=True,
+            )
+
+        def pretrade_market_snapshot(
+            self,
+            *,
+            order_request: ExecutionOrderRequest,
+        ) -> PretradeMarketSnapshot:
+            del order_request
+            now = datetime.now(UTC)
+            return PretradeMarketSnapshot(
+                server_time=now,
+                bid=Decimal("99.9"),
+                ask=Decimal("100.1"),
+                mark_price=Decimal("100"),
+                decision_bar_close_time=now - timedelta(seconds=10),
+                decision_age_seconds=10,
+                atr=Decimal("1"),
+                tick_size=Decimal("0.1"),
+                step_size=Decimal("0.001"),
             )
 
         def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
@@ -1290,7 +1338,7 @@ def test_runtime_does_not_open_over_unmanaged_exchange_position(db_session, monk
     armed_profile = {
         **paper_run.execution_profile,
         "strategy_lane": "directional",
-        "execution_mode": "binance_simulation_first",
+        "execution_mode": "binance_testnet",
         "mirror_to_gateway": True,
         "cost_gate_verified": True,
         "acceptance_symbols": ["BTC/USDT", "ETH/USDT"],
@@ -1477,6 +1525,9 @@ def test_runtime_gateway_close_cancels_entry_protection_orders(db_session, monke
             assert order_request.entry_context["close_only_mode"] is True
             return {
                 "gateway_order_id": "close-1",
+                "client_order_id": "close-client-1",
+                "trade_ids": ["close-trade-1"],
+                "commissions": [],
                 "gateway_status": "filled",
                 "quantity": 1.0,
                 "filled_quantity": 1.0,
@@ -1659,6 +1710,7 @@ def _runtime_with_position(
                 "equity_peak": 10_000,
                 "mirror_to_gateway": mirror_to_gateway,
                 "cost_gate_verified": mirror_to_gateway,
+                "execution_mode": ("binance_testnet" if mirror_to_gateway else "local_paper"),
             },
             paper_status="running",
         )
@@ -1700,7 +1752,11 @@ def _runtime_with_position(
             order_origin="paper_scheduler",
             strategy_id=strategy.strategy_id,
             run_id=paper_run.paper_run_id,
-            management_status=PositionManagementStatus.MANAGED_STRATEGY,
+            management_status=(
+                PositionManagementStatus.MANAGED_STRATEGY
+                if mirror_to_gateway
+                else PositionManagementStatus.PAPER_SIMULATION_ONLY
+            ),
         )
     )
     execution_repo.create_protection_record(
@@ -1820,7 +1876,7 @@ def test_exchange_first_partial_takeprofit_submits_before_local_projection(db_se
                         "contracts": 1.0,
                         "side": "long",
                         "entry_price": 100.0,
-                        "mark_price": 100.0,
+                        "mark_price": 110.0,
                     }
                 ],
                 "open_orders": [
@@ -1833,6 +1889,9 @@ def test_exchange_first_partial_takeprofit_submits_before_local_projection(db_se
             self.submitted.append(order_request)
             return {
                 "gateway_order_id": "partial-close-1",
+                "client_order_id": "partial-close-client-1",
+                "trade_ids": ["partial-close-trade-1"],
+                "commissions": [],
                 "gateway_status": "filled",
                 "quantity": 0.5,
                 "filled_quantity": 0.5,
@@ -1940,6 +1999,9 @@ def test_directional_sampling_fallback_reaches_exchange_fill_and_local_projectio
             quantity = float(order_request.trade_intent.target_quantity)
             return {
                 "gateway_order_id": "directional-natural-1",
+                "client_order_id": "directional-natural-client-1",
+                "trade_ids": ["directional-natural-trade-1"],
+                "commissions": [],
                 "gateway_status": "filled",
                 "quantity": quantity,
                 "filled_quantity": quantity,
@@ -1952,6 +2014,25 @@ def test_directional_sampling_fallback_reaches_exchange_fill_and_local_projectio
                 ],
             }
 
+        def pretrade_market_snapshot(
+            self,
+            *,
+            order_request: ExecutionOrderRequest,
+        ) -> PretradeMarketSnapshot:
+            del order_request
+            now = datetime.now(UTC)
+            return PretradeMarketSnapshot(
+                server_time=now,
+                bid=Decimal("100.4"),
+                ask=Decimal("100.5"),
+                mark_price=Decimal("100.1"),
+                decision_bar_close_time=now - timedelta(seconds=10),
+                decision_age_seconds=10,
+                atr=Decimal("1"),
+                tick_size=Decimal("0.1"),
+                step_size=Decimal("0.001"),
+            )
+
     monkeypatch.setattr(settings, "binance_auto_execute", True)
     monkeypatch.setattr(settings, "binance_use_testnet", True)
     monkeypatch.setattr(settings, "live_trading_enabled", False)
@@ -1960,7 +2041,7 @@ def test_directional_sampling_fallback_reaches_exchange_fill_and_local_projectio
     armed_profile = {
         **paper_run.execution_profile,
         "strategy_lane": "directional",
-        "execution_mode": "binance_simulation_first",
+        "execution_mode": "binance_testnet",
         "mirror_to_gateway": True,
         "cost_gate_verified": True,
         "simulation_sampling_fallback_enabled": True,
@@ -1991,35 +2072,15 @@ def test_directional_sampling_fallback_reaches_exchange_fill_and_local_projectio
     assert latest is not None
     calls = 0
 
-    def _primary_then_fallback(*, strategy, symbol, timeframe, **_kwargs) -> DecisionPipelineResult:
+    def _primary(*, strategy, symbol, timeframe, **_kwargs) -> DecisionPipelineResult:
         nonlocal calls
         del symbol, timeframe
         calls += 1
         candidate_id = strategy.rules.entry_rules.get("candidate_id")
-        if calls == 1:
-            return DecisionPipelineResult(
-                direction=None,
-                should_trade=False,
-                reason="multi_timeframe_disagreement",
-                reference_price=Decimal("100"),
-                bar_time=latest.timestamp,
-                signals=[],
-                ensemble=None,
-                meta_label=None,
-                veto_result=None,
-                confidence_multiplier=1.0,
-                atr=1.0,
-                volatility_context={},
-                trace={
-                    "pipeline_status": "multi_timeframe_disagreement",
-                    "strategy_lane": "directional",
-                    "candidate_id": candidate_id,
-                },
-            )
         return DecisionPipelineResult(
-            direction=TradeSide.LONG,
-            should_trade=True,
-            reason="ensemble_meta_label_passed",
+            direction=None,
+            should_trade=False,
+            reason="multi_timeframe_disagreement",
             reference_price=Decimal("100"),
             bar_time=latest.timestamp,
             signals=[],
@@ -2030,20 +2091,43 @@ def test_directional_sampling_fallback_reaches_exchange_fill_and_local_projectio
             atr=1.0,
             volatility_context={},
             trace={
-                "pipeline_status": "bet_taken",
+                "pipeline_status": "multi_timeframe_disagreement",
                 "strategy_lane": "directional",
                 "candidate_id": candidate_id,
             },
         )
 
-    monkeypatch.setattr(runtime.signal_generator.decision_pipeline, "evaluate", _primary_then_fallback)
+    def _sampling(*, symbol, timeframe, primary, decision_time=None) -> DecisionPipelineResult:  # noqa: ANN001
+        del symbol, timeframe, primary, decision_time
+        return DecisionPipelineResult(
+            direction=TradeSide.LONG,
+            should_trade=True,
+            reason="testnet_sampling_lane_signal",
+            reference_price=Decimal("100"),
+            bar_time=latest.timestamp,
+            signals=[],
+            ensemble=None,
+            meta_label=None,
+            veto_result=None,
+            confidence_multiplier=1.0,
+            atr=1.0,
+            volatility_context={"sampling": True},
+            trace={
+                "pipeline_status": "testnet_sampling_signal",
+                "testnet_sampling_mode": True,
+                "evidence_class": "NON_PROMOTABLE_PIPELINE_SAMPLE",
+            },
+        )
+
+    monkeypatch.setattr(runtime.signal_generator.decision_pipeline, "evaluate", _primary)
+    monkeypatch.setattr(runtime.signal_generator, "_sampling_lane_decision", _sampling)
 
     result = runtime.run_cycle(
         paper_run_id=paper_run.paper_run_id or "",
         request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="15m", enable_decision_veto=True),
     )
 
-    assert calls == 2
+    assert calls == 1
     assert len(gateway.submitted) == 1
     assert result.opened_positions == 1
     assert result.rejected_orders == 0

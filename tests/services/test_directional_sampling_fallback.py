@@ -6,7 +6,11 @@ from decimal import Decimal
 import pytest
 
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_scope_hash
-from services.execution.decision_pipeline import DecisionPipeline, DecisionPipelineResult
+from services.execution.decision_pipeline import (
+    DecisionPipeline,
+    DecisionPipelineResult,
+    closed_bars_for_decision,
+)
 from services.execution.net_edge import net_edge_rejection_codes
 from services.execution.paper_signal import PaperSignalGenerator
 from services.strategy_library.candidates.registry import get_candidate
@@ -34,6 +38,22 @@ def _bar(timeframe: str) -> OHLCVBar:
         close=Decimal("100"),
         volume=Decimal("10"),
     )
+
+
+def test_decision_bars_exclude_the_still_open_rest_candle() -> None:
+    opened_at = datetime(2026, 7, 27, 10, 0, tzinfo=UTC)
+    bars = [
+        _bar("15m").model_copy(update={"timestamp": opened_at}),
+        _bar("15m").model_copy(update={"timestamp": opened_at + timedelta(minutes=15)}),
+    ]
+
+    closed = closed_bars_for_decision(
+        bars,
+        timeframe="15m",
+        decision_time=opened_at + timedelta(minutes=20),
+    )
+
+    assert [bar.timestamp for bar in closed] == [opened_at]
 
 
 class _TimeframeRepo:
@@ -78,7 +98,7 @@ def _decision(*, should_trade: bool, reason: str, candidate_id: str = "trend_mom
 def _armed_profile(**overrides):  # noqa: ANN202
     profile = {
         "strategy_lane": "directional",
-        "execution_mode": "binance_simulation_first",
+        "execution_mode": "binance_testnet",
         "mirror_to_gateway": True,
         "cost_gate_verified": True,
         "simulation_sampling_fallback_enabled": True,
@@ -165,15 +185,18 @@ def test_directional_testnet_run_uses_sampling_fallback_after_primary_starvation
     def evaluate(**kwargs):  # noqa: ANN202
         candidate_id = str(kwargs["strategy"].rules.entry_rules.get("candidate_id"))
         calls.append((candidate_id, kwargs["enable_decision_veto"]))
-        if candidate_id == "trend_momentum_v1":
-            return _decision(should_trade=False, reason="multi_timeframe_disagreement")
-        return _decision(
-            should_trade=True,
-            reason="ensemble_meta_label_passed",
-            candidate_id="operator_heuristic_v2_relaxed",
-        )
+        return _decision(should_trade=False, reason="multi_timeframe_disagreement")
 
     monkeypatch.setattr(generator.decision_pipeline, "evaluate", evaluate)
+    monkeypatch.setattr(
+        generator,
+        "_sampling_lane_decision",
+        lambda **_kwargs: _decision(
+            should_trade=True,
+            reason="testnet_sampling_lane_signal",
+            candidate_id="testnet_sampling_lane_v1",
+        ),
+    )
     run = PaperRun(
         paper_run_id="run-directional",
         strategy_id=strategy.strategy_id,
@@ -188,21 +211,22 @@ def test_directional_testnet_run_uses_sampling_fallback_after_primary_starvation
         paper_run=run,
     )
 
-    assert calls == [("trend_momentum_v1", True), ("operator_heuristic_v2_relaxed", False)]
+    assert calls == [("trend_momentum_v1", True)]
     assert result.should_trade is True
     assert result.trace["decision_variant"] == "simulation_sampling_fallback"
     assert result.trace["primary_candidate_id"] == "trend_momentum_v1"
     assert result.trace["primary_rejection_reason"] == "multi_timeframe_disagreement"
-    assert result.trace["candidate_id"] == "operator_heuristic_v2_relaxed"
+    assert result.trace["candidate_id"] == "testnet_sampling_lane_v1"
+    assert result.trace["evidence_class"] == "NON_PROMOTABLE_PIPELINE_SAMPLE"
     assert result.trace["testnet_sampling_mode"] is True
 
 
 @pytest.mark.parametrize(
     ("execution_mode", "use_testnet", "live_enabled"),
     [
-        ("paper_only", True, False),
-        ("binance_simulation_first", False, False),
-        ("binance_simulation_first", True, True),
+        ("local_paper", True, False),
+        ("binance_testnet", False, False),
+        ("binance_testnet", True, True),
     ],
 )
 def test_sampling_fallback_never_runs_outside_safe_testnet(
@@ -232,8 +256,8 @@ def test_sampling_fallback_never_runs_outside_safe_testnet(
         strategy_id=strategy.strategy_id,
         execution_profile=_armed_profile(
             execution_mode=execution_mode,
-            mirror_to_gateway=execution_mode == "binance_simulation_first",
-            cost_gate_verified=execution_mode == "binance_simulation_first",
+            mirror_to_gateway=execution_mode == "binance_testnet",
+            cost_gate_verified=execution_mode == "binance_testnet",
         ),
     )
 
@@ -276,6 +300,27 @@ def test_sampling_fallback_rejects_mismatched_acceptance_scope(monkeypatch) -> N
     assert PaperSignalGenerator._sampling_fallback_allowed(paper_run=run, primary=primary, symbol="BTC/USDT") is False
 
 
+def test_sampling_fallback_exposes_stable_ineligibility_reason(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "binance_use_testnet", True)
+    monkeypatch.setattr(settings, "live_trading_enabled", False)
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
+    primary = _decision(should_trade=False, reason="technical_signals_insufficient")
+    run = PaperRun(
+        paper_run_id="run-directional",
+        strategy_id="strategy-primary",
+        execution_profile=_armed_profile(cost_gate_verified=False),
+    )
+
+    assert (
+        PaperSignalGenerator._sampling_fallback_ineligibility_reason(
+            paper_run=run,
+            primary=primary,
+            symbol="BTC/USDT",
+        )
+        == "SAMPLING_COST_GATE_NOT_VERIFIED"
+    )
+
+
 def test_sampling_fallback_is_separated_from_primary_strategy_performance(monkeypatch) -> None:
     monkeypatch.setattr(settings, "binance_use_testnet", True)
     monkeypatch.setattr(settings, "live_trading_enabled", False)
@@ -288,15 +333,23 @@ def test_sampling_fallback_is_separated_from_primary_strategy_performance(monkey
         rules=StrategyRules(**get_candidate("trend_momentum_v1").get_config()),
     )
     generator = PaperSignalGenerator(data_repo=_TimeframeRepo())
-    decisions = iter(
-        [
-            _decision(should_trade=False, reason="multi_timeframe_disagreement"),
-            _decision(
-                should_trade=True, reason="ensemble_meta_label_passed", candidate_id="operator_heuristic_v2_relaxed"
-            ),
-        ]
+    monkeypatch.setattr(
+        generator.decision_pipeline,
+        "evaluate",
+        lambda **_kwargs: _decision(
+            should_trade=False,
+            reason="multi_timeframe_disagreement",
+        ),
     )
-    monkeypatch.setattr(generator.decision_pipeline, "evaluate", lambda **_kwargs: next(decisions))
+    monkeypatch.setattr(
+        generator,
+        "_sampling_lane_decision",
+        lambda **_kwargs: _decision(
+            should_trade=True,
+            reason="testnet_sampling_lane_signal",
+            candidate_id="testnet_sampling_lane_v1",
+        ),
+    )
     run = PaperRun(
         paper_run_id="run-directional",
         strategy_id=strategy.strategy_id,
@@ -381,12 +434,60 @@ class _SyntheticTrendRepo:
         bars = self.frames.get(timeframe, [])
         return bars[-1] if bars else None
 
+
+class _SamplingBandRepo:
+    def list_ohlcv_bars(self, *, symbol: str, timeframe: str, limit: int):  # noqa: ANN201
+        del symbol
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        price = 100.0
+        bars: list[OHLCVBar] = []
+        increments = [0.32, -0.20] * 58 + [0.15, 0.18, 0.20, 0.22]
+        for index, increment in enumerate(increments):
+            open_price = price
+            price += increment
+            bars.append(
+                OHLCVBar(
+                    symbol="BTC/USDT",
+                    exchange="binance",
+                    timeframe=timeframe,
+                    timestamp=start + timedelta(minutes=15 * index),
+                    open=Decimal(str(open_price)),
+                    high=Decimal(str(max(open_price, price) + 0.2)),
+                    low=Decimal(str(min(open_price, price) - 0.2)),
+                    close=Decimal(str(price)),
+                    volume=Decimal("100"),
+                )
+            )
+        return bars[-limit:]
+
+
+def test_sampling_lane_uses_locked_ema_macd_rsi_atr_rule() -> None:
+    generator = PaperSignalGenerator(data_repo=_SamplingBandRepo())
+
+    result = generator._sampling_lane_decision(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        primary=_decision(
+            should_trade=False,
+            reason="technical_signals_insufficient",
+        ),
+    )
+
+    assert result.should_trade is True
+    assert result.direction is TradeSide.LONG
+    assert result.trace["evidence_class"] == "NON_PROMOTABLE_PIPELINE_SAMPLE"
+    metrics = result.trace["sampling_metrics"]
+    assert metrics["close"] > metrics["ema50"]
+    assert metrics["macd_histogram"] > 0
+    assert 50 <= metrics["rsi14"] <= 72
+    assert metrics["atr14"] > 0
+
     def get_latest_market_extras(self, *, symbol: str):  # noqa: ANN201
         del symbol
         return None
 
 
-def test_real_indicator_pipeline_uses_relaxed_fallback_when_one_higher_timeframe_disagrees(monkeypatch) -> None:
+def test_real_indicator_sampling_rejects_when_sampling_rsi_band_is_not_met(monkeypatch) -> None:
     monkeypatch.setattr(settings, "binance_use_testnet", True)
     monkeypatch.setattr(settings, "live_trading_enabled", False)
     monkeypatch.setattr(settings, "binance_auto_execute", True)
@@ -413,12 +514,9 @@ def test_real_indicator_pipeline_uses_relaxed_fallback_when_one_higher_timeframe
         paper_run=run,
     )
 
-    assert result.should_trade is True
-    assert result.direction is TradeSide.LONG
-    assert result.trace["decision_variant"] == "simulation_sampling_fallback"
-    assert result.trace["primary_rejection_reason"] == "multi_timeframe_disagreement"
-    assert result.trace["candidate_id"] == "operator_heuristic_v2_relaxed"
-    mtf = result.volatility_context["multi_timeframe"]
-    assert mtf["state_direction"] == "short"
-    assert mtf["confirm_direction"] == "long"
-    assert mtf["matching_higher_timeframe_count"] == 1
+    assert result.should_trade is False
+    assert result.trace["sampling_fallback_attempted"] is True
+    assert result.trace["sampling_fallback_rejection_reason"] in {
+        "SAMPLING_RULES_NOT_ALIGNED",
+        "SAMPLING_INDICATORS_UNAVAILABLE",
+    }

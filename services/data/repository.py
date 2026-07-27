@@ -243,6 +243,24 @@ class DataRepository:
         bars = self.list_ohlcv_bars(symbol=symbol, timeframe=timeframe, limit=1)
         return bars[-1] if bars else None
 
+    def get_latest_closed_ohlcv_bar(
+        self,
+        *,
+        symbol: str,
+        timeframe: str,
+        reference_time: datetime,
+    ) -> OHLCVBar | None:
+        """Return the newest candle whose close is at or before ``reference_time``."""
+
+        latest_closed_open = reference_time - _timeframe_to_delta(timeframe)
+        bars = self.list_ohlcv_bars(
+            symbol=symbol,
+            timeframe=timeframe,
+            end_at=latest_closed_open,
+            limit=1,
+        )
+        return bars[-1] if bars else None
+
     def store_market_extras(self, extras: Iterable[MarketExtras | dict]) -> int:
         rows = []
         for item in extras:

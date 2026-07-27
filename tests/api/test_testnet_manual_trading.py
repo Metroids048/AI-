@@ -240,7 +240,7 @@ def test_trading_status_treats_btc_eth_execution_scope_as_complete(api_client, d
             candidate_symbols=list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
             execution_profile={
                 "auto_paper_runtime_key": AUTO_PAPER_TECHNICAL_KEY,
-                "execution_mode": "binance_simulation_first",
+                "execution_mode": "binance_testnet",
                 "mirror_to_gateway": True,
                 "cost_gate_verified": True,
                 "acceptance_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
@@ -329,7 +329,7 @@ def test_trading_status_blocks_when_acceptance_exists_but_directional_run_is_not
             candidate_symbols=list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
             execution_profile={
                 "auto_paper_runtime_key": AUTO_PAPER_TECHNICAL_KEY,
-                "execution_mode": "paper_only",
+                "execution_mode": "local_paper",
                 "mirror_to_gateway": False,
                 "cost_gate_verified": False,
             },

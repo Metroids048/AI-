@@ -153,8 +153,8 @@ def test_bootstrap_creates_carry_and_directional_runs(db_session, monkeypatch) -
     assert technical_run.execution_profile.get("strategy_lane") == "directional"
     assert carry_run.execution_profile.get("auto_schedule_enabled") is False
     assert technical_run.execution_profile.get("auto_schedule_enabled") is True
-    assert carry_run.execution_profile.get("execution_mode") == "paper_only"
-    assert technical_run.execution_profile.get("execution_mode") == "binance_simulation_first"
+    assert carry_run.execution_profile.get("execution_mode") == "local_paper"
+    assert technical_run.execution_profile.get("execution_mode") == "binance_testnet"
     assert carry_run.execution_profile.get("mirror_to_gateway") is False
     assert technical_run.execution_profile.get("mirror_to_gateway") is True
     assert carry_run.execution_profile.get("cost_gate_verified") is False
@@ -182,7 +182,7 @@ def test_signal_observation_run_is_automatically_scheduled_but_cannot_mirror_to_
     assert paper_run is not None
     assert paper_run.execution_profile.get("strategy_lane") == "signal_observation"
     assert paper_run.execution_profile.get("auto_schedule_enabled") is True
-    assert paper_run.execution_profile.get("execution_mode") == "paper_only"
+    assert paper_run.execution_profile.get("execution_mode") == "local_paper"
     assert paper_run.execution_profile.get("mirror_to_gateway") is False
     assert paper_run.candidate_symbols == list(AUTO_PAPER_RESEARCH_SYMBOLS)
     assert paper_run.execution_profile["asset_risk_tiers"]["core"]["leverage"] == 40.0
@@ -201,7 +201,7 @@ def test_signal_observation_bootstrap_clears_mistaken_simulation_authorization(d
         paper_run_id,
         execution_profile={
             **paper_run.execution_profile,
-            "execution_mode": "binance_simulation_first",
+            "execution_mode": "binance_testnet",
             "mirror_to_gateway": True,
             "cost_gate_verified": True,
             "testnet_acceptance_verified_at": "2026-07-17T00:00:00+00:00",
@@ -213,7 +213,7 @@ def test_signal_observation_bootstrap_clears_mistaken_simulation_authorization(d
     assert bootstrap_signal_observation_strategy() == paper_run_id
     refreshed = repo.get_paper_run(paper_run_id)
     assert refreshed is not None
-    assert refreshed.execution_profile["execution_mode"] == "paper_only"
+    assert refreshed.execution_profile["execution_mode"] == "local_paper"
     assert refreshed.execution_profile["mirror_to_gateway"] is False
     assert refreshed.execution_profile["cost_gate_verified"] is False
     assert "testnet_acceptance_verified_at" not in refreshed.execution_profile
@@ -284,7 +284,7 @@ def test_bootstrap_preserves_verified_directional_simulation_authorization(db_se
         run_id,
         execution_profile={
             **run.execution_profile,
-            "execution_mode": "binance_simulation_first",
+            "execution_mode": "binance_testnet",
             "mirror_to_gateway": True,
             "cost_gate_verified": True,
             "testnet_acceptance_verified_at": "2026-07-12T00:00:00+00:00",
@@ -297,7 +297,7 @@ def test_bootstrap_preserves_verified_directional_simulation_authorization(db_se
     assert refreshed is not None
     assert refreshed.execution_profile.get("cost_gate_verified") is True
     assert refreshed.execution_profile.get("mirror_to_gateway") is True
-    assert refreshed.execution_profile.get("execution_mode") == "binance_simulation_first"
+    assert refreshed.execution_profile.get("execution_mode") == "binance_testnet"
     assert refreshed.execution_profile.get("testnet_acceptance_verified_at") == "2026-07-12T00:00:00+00:00"
     assert refreshed.execution_profile.get("max_symbols") == 2
 
@@ -328,7 +328,7 @@ def test_bootstrap_rearms_stale_directional_run_from_existing_exact_acceptance(d
         run_id,
         execution_profile={
             **run.execution_profile,
-            "execution_mode": "paper_only",
+            "execution_mode": "local_paper",
             "mirror_to_gateway": False,
             "cost_gate_verified": False,
         },
@@ -353,7 +353,7 @@ def test_bootstrap_rearms_stale_directional_run_from_existing_exact_acceptance(d
 
     refreshed = repo.get_paper_run(run_id)
     assert refreshed is not None
-    assert refreshed.execution_profile["execution_mode"] == "binance_simulation_first"
+    assert refreshed.execution_profile["execution_mode"] == "binance_testnet"
     assert refreshed.execution_profile["mirror_to_gateway"] is True
     assert refreshed.execution_profile["cost_gate_verified"] is True
     assert refreshed.execution_profile["acceptance_symbols"] == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)

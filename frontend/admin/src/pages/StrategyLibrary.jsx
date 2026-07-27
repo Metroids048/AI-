@@ -22,7 +22,7 @@ export function StrategyLibrary() {
   const [actionMessage, setActionMessage] = useState("");
   const [showIdeaForm, setShowIdeaForm] = useState(false);
   const [ideaForm, setIdeaForm] = useState({ title: "", source: "manual_note", symbol: "BTC/USDT", hypothesis_summary: "", rationale: "" });
-  const playbook = useQuery({ queryKey: ["strategy-playbook"], queryFn: () => request("/api/v1/strategy-library/playbook"), staleTime: 60000, retry: 1 });
+  const playbook = useQuery({ queryKey: ["strategy-playbook"], queryFn: () => request("/api/v1/strategy-library/playbook"), staleTime: 60000, retry: false });
   const strategies = useQuery({ queryKey: ["strategies"], queryFn: () => request("/api/v1/strategies"), staleTime: 15000 });
   const drafts = useQuery({ queryKey: ["strategy-drafts"], queryFn: () => request("/api/v1/strategies/drafts"), staleTime: 15000 });
   const ideas = useQuery({ queryKey: ["strategy-ideas"], queryFn: () => request("/api/v1/strategies/ideas"), staleTime: 15000 });

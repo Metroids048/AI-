@@ -1,7 +1,8 @@
 param(
     [int]$ApiPort = 8016,
     [int]$FrontendPort = 5173,
-    [string]$DatabasePath = ".local_paper_console.db"
+    [string]$DatabasePath = ".local_paper_console.db",
+    [bool]$OpenBrowser = $true
 )
 
 # One-click launcher - same pattern as 辅助面试/scripts/launch-experience.ps1
@@ -269,8 +270,10 @@ if ($apiReady -and $frontendReady -and (Test-ProjectListener $ApiPort) -and (Tes
     Save-ListenerPid $ApiPort $ApiPidFile
     Save-ListenerPid $FrontendPort $FrontendPidFile
     Write-Step "frontend: $FrontendUrl"
-    Write-Step "opening browser"
-    [void](Open-Frontend $FrontendUrl)
+    if ($OpenBrowser) {
+        Write-Step "opening browser"
+        [void](Open-Frontend $FrontendUrl)
+    }
     exit 0
 }
 
@@ -338,8 +341,10 @@ if ($apiReady -and $frontendReady) {
     Write-Step "services ready"
     Write-Step "frontend: $FrontendUrl"
     Write-Step "API: http://127.0.0.1:$ApiPort"
-    Write-Step "opening browser"
-    [void](Open-Frontend $FrontendUrl)
+    if ($OpenBrowser) {
+        Write-Step "opening browser"
+        [void](Open-Frontend $FrontendUrl)
+    }
     exit 0
 }
 

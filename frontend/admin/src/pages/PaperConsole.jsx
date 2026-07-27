@@ -5,6 +5,7 @@ import { request } from "../api/client";
 import { AppShell } from "../components/Common";
 import { KlinePanel, MarketHeader } from "../components/MarketPanels";
 import { ExecutionAcceptancePanel, TradingRecordsWorkspace } from "../components/TradingRecordsWorkspace";
+import { RuntimeTruthPanel } from "../components/RuntimeTruthPanel";
 import {
   AutoSettingsPanel,
   DecisionDebugPanel,
@@ -30,6 +31,7 @@ import {
   TradingTicket,
 } from "../components/TradingConsolePanels";
 import { useConsoleData } from "../hooks/useConsoleData";
+import { useRuntimeTruth } from "../hooks/useRuntimeTruth";
 
 const DEFAULT_SYMBOL = "BTC/USDT";
 const DEFAULT_PERP = "BTC/USDT:USDT";
@@ -112,6 +114,7 @@ export function PaperConsole() {
   const timeframe = searchParams.get("timeframe") || DEFAULT_TIMEFRAME;
   const [actionMessage, setActionMessage] = useState("");
   const data = useConsoleData(symbol, perpSymbol, timeframe);
+  const runtimeTruth = useRuntimeTruth(symbol);
   const mode = "paper";
   const latestPaperRun = useMemo(
     () => (Array.isArray(data.overview?.paper_runs) ? data.overview.paper_runs.at(-1) : null),
@@ -191,7 +194,7 @@ export function PaperConsole() {
           method: "PATCH",
           body: JSON.stringify({
             mirror_to_gateway: Boolean(payload.enabled),
-            execution_mode: payload.enabled ? "binance_simulation_first" : "paper_only",
+            execution_mode: payload.enabled ? "binance_testnet" : "local_paper",
           }),
         });
         setActionMessage(payload.enabled ? "Testnet 镜像下单已开启。" : "Testnet 镜像下单已关闭。");
@@ -277,6 +280,7 @@ export function PaperConsole() {
         onTimeframeChange={(nextTimeframe) => updateSelection({ timeframe: nextTimeframe })}
       />
       <BinanceSyncHero account={data.testnetAccount} />
+      <RuntimeTruthPanel runtime={runtimeTruth} symbol={symbol} />
       <ExchangePositionHint
         positions={deskPositions}
         selectedSymbol={symbol}

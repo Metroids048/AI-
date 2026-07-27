@@ -29,6 +29,7 @@ from apps.api.routers import (
     review,
     risk,
     runs,
+    runtime,
     strategies,
     strategy_library,
     system,
@@ -140,6 +141,7 @@ for router in (
     system.router,
     notifications.router,
     research_sources.router,
+    runtime.router,
 ):
     app.include_router(router, prefix="/api/v1")
 

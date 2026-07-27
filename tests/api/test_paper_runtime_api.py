@@ -284,7 +284,7 @@ def test_paper_run_auto_settings_updates_profile_and_strategy_rules(api_client, 
     response = api_client.patch(
         f"/api/v1/execution/paper-runs/{paper_run_id}/auto-settings",
         json={
-            "execution_mode": "binance_simulation_first",
+            "execution_mode": "binance_testnet",
             "max_leverage": 5,
             "risk_per_trade": 0.01,
             "order_notional_usdt": 120,
@@ -305,7 +305,7 @@ def test_paper_run_auto_settings_updates_profile_and_strategy_rules(api_client, 
 
     assert response.status_code == 200
     profile = response.json()["execution_profile"]
-    assert profile["execution_mode"] == "binance_simulation_first"
+    assert profile["execution_mode"] == "binance_testnet"
     assert profile["mirror_to_gateway"] is True
     assert profile["max_open_positions"] == 5
     stored_profile = RiskProfileRepository(db_session).get_profile("auto-settings-risk")
@@ -388,7 +388,7 @@ def test_order_sync_reconciles_non_btc_orders_across_fixed_top20(api_client, db_
 
 def test_paper_runtime_auto_cycle_closes_position_on_opposite_signal(api_client, db_session) -> None:
     _, paper_run_id = _create_validated_paper_run(api_client, db_session)
-    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=80)
+    start_at = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=81)
     _store_trend_bars(
         db_session,
         symbol="BTC/USDT",
@@ -407,7 +407,7 @@ def test_paper_runtime_auto_cycle_closes_position_on_opposite_signal(api_client,
         db_session,
         symbol="BTC/USDT",
         closes=_trend_closes(start=Decimal("70000"), step=Decimal("-150")),
-        start_at=datetime.now(UTC).replace(microsecond=0) + timedelta(hours=1),
+        start_at=start_at + timedelta(hours=1),
     )
 
     second_cycle = api_client.post(
@@ -418,7 +418,7 @@ def test_paper_runtime_auto_cycle_closes_position_on_opposite_signal(api_client,
     assert second_cycle.status_code == 200
     body = second_cycle.json()
     assert body["opened_positions"] == 0
-    assert body["closed_positions"] == 1
+    assert body["closed_positions"] == 1, body
     assert body["open_position_symbols"] == []
     assert body["actions"][0]["action"] == "close_long"
 

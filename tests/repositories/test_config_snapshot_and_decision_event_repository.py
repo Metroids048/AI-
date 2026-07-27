@@ -68,6 +68,57 @@ def test_config_snapshot_rejects_stale_base_hash(db_session) -> None:
         )
 
 
+def test_existing_non_active_snapshot_can_be_restaged_for_next_cycle(db_session) -> None:
+    run = _create_paper_run(db_session)
+    repo = ConfigSnapshotRepository(db_session)
+    initial = repo.create_snapshot(
+        ConfigSnapshot.create(
+            paper_run_id=run.paper_run_id,
+            config={"execution_profile": {"execution_mode": "local_paper"}},
+            created_by="bootstrap",
+            effective_cycle_id="cycle-1",
+        ),
+        base_config_hash=None,
+    )
+    desired = repo.create_snapshot(
+        ConfigSnapshot.create(
+            paper_run_id=run.paper_run_id,
+            config={"execution_profile": {"execution_mode": "binance_testnet"}},
+            created_by="operator",
+            effective_cycle_id="NEXT_CYCLE",
+            previous_snapshot_id=initial.config_snapshot_id,
+        ),
+        base_config_hash=initial.config_hash,
+    )
+    repo.activate_pending(run.paper_run_id, cycle_id="cycle-2")
+    legacy = repo.create_snapshot(
+        ConfigSnapshot.create(
+            paper_run_id=run.paper_run_id,
+            config={"execution_profile": {"execution_mode": "binance_simulation_first"}},
+            created_by="legacy-compat",
+            effective_cycle_id="NEXT_CYCLE",
+            previous_snapshot_id=desired.config_snapshot_id,
+        ),
+        base_config_hash=desired.config_hash,
+    )
+    repo.activate_pending(run.paper_run_id, cycle_id="cycle-3")
+
+    restaged = repo.create_snapshot(
+        ConfigSnapshot.create(
+            paper_run_id=run.paper_run_id,
+            config=desired.config,
+            created_by="bootstrap-recovery",
+            effective_cycle_id="NEXT_CYCLE",
+            previous_snapshot_id=legacy.config_snapshot_id,
+        ),
+        base_config_hash=legacy.config_hash,
+    )
+
+    assert restaged.config_snapshot_id == desired.config_snapshot_id
+    assert repo.get_active(run.paper_run_id).config_snapshot_id == legacy.config_snapshot_id
+    assert repo.get_pending(run.paper_run_id).config_snapshot_id == desired.config_snapshot_id
+
+
 def test_decision_events_are_append_only_and_open_decision_is_idempotent(db_session) -> None:
     run = _create_paper_run(db_session)
     repo = DecisionEventRepository(db_session)

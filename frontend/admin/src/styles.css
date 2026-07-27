@@ -1643,3 +1643,118 @@ td {
     min-height: 470px;
   }
 }
+.runtime-truth-panel {
+  margin: 16px 0;
+  padding: 18px;
+  border: 1px solid #263449;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #0d1522 0%, #101c2b 100%);
+}
+
+.runtime-truth-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.runtime-truth-heading h2,
+.runtime-truth-grid h3 {
+  margin: 0;
+}
+
+.runtime-truth-heading .eyebrow {
+  margin: 0 0 4px;
+  color: #69a7ff;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.truth-stream {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #243247;
+  color: #bac8db;
+  font-size: 12px;
+}
+
+.truth-stream.live {
+  background: #123d31;
+  color: #67ddb1;
+}
+
+.truth-blocker,
+.truth-unavailable {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.truth-blocker {
+  border: 1px solid #8d3041;
+  background: #351923;
+  color: #ff9cac;
+}
+
+.truth-unavailable {
+  border: 1px solid #6f5c2b;
+  background: #2c2617;
+  color: #f2cf73;
+}
+
+.runtime-truth-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.runtime-truth-grid article {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid #26364c;
+  border-radius: 10px;
+  background: #0c1420;
+}
+
+.runtime-truth-grid article strong,
+.runtime-truth-grid article p,
+.runtime-truth-grid article small,
+.truth-meta {
+  display: block;
+  margin-top: 7px;
+}
+
+.runtime-truth-grid article p,
+.truth-meta,
+.truth-last-success,
+.empty-copy {
+  color: #91a3ba;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.truth-meta.unavailable {
+  color: #f2cf73;
+}
+
+.truth-last-success {
+  margin: 12px 0 0;
+}
+
+@media (max-width: 1000px) {
+  .runtime-truth-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .runtime-truth-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-truth-heading {
+    align-items: center;
+  }
+}

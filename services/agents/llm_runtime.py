@@ -86,6 +86,12 @@ class AnthropicStructuredLLMRuntime:
             "provider": "anthropic",
             "model": self.model,
             "prompt_version": prompt["prompt_version"],
+            "usage": {
+                "prompt_tokens": int((body.get("usage") or {}).get("input_tokens") or 0),
+                "completion_tokens": int((body.get("usage") or {}).get("output_tokens") or 0),
+                "total_tokens": int((body.get("usage") or {}).get("input_tokens") or 0)
+                + int((body.get("usage") or {}).get("output_tokens") or 0),
+            },
             "raw_output": raw_output,
         }
 
@@ -167,6 +173,11 @@ class OpenAICompatibleStructuredLLMRuntime:
             "provider": self.provider_label,
             "model": self.model,
             "prompt_version": prompt["prompt_version"],
+            "usage": {
+                "prompt_tokens": int((body.get("usage") or {}).get("prompt_tokens") or 0),
+                "completion_tokens": int((body.get("usage") or {}).get("completion_tokens") or 0),
+                "total_tokens": int((body.get("usage") or {}).get("total_tokens") or 0),
+            },
             "raw_output": raw_output,
         }
 

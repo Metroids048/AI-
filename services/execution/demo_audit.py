@@ -191,7 +191,7 @@ class BinanceDemoAuditService:
             armed_mature = profile.get("auto_paper_runtime_key") == "auto_paper_mature_templates" and (
                 profile.get("cost_gate_verified")
                 or profile.get("mirror_to_gateway")
-                or profile.get("execution_mode") == "binance_simulation_first"
+                or profile.get("execution_mode") == "binance_testnet"
             )
             has_open = any(
                 abs(float(item.quantity)) > 0

@@ -559,3 +559,11 @@
 - The local scheduler on port `8016` is running against the SQLite console database. The carry, directional, and swing automatic runs scan the fixed Top10 and are armed as `binance_simulation_first`; deterministic validation, stop-loss, risk, and cost gates still decide whether any individual signal can submit.
 - Binance Mock Trading is the execution proof target. The configured `demo` mode can fall back to `https://testnet.binancefuture.com` when `demo-fapi` is unreachable; this fallback is the same simulation account whose order ids appear in the Binance Demo Trading UI. Mainnet remains disabled.
 - External verification uses the isolated `link_verification` run only. It is excluded from strategy-performance evidence, must be paused after an E2E test, and its account must be flattened. `scripts/verify_config.py` now requires a persisted automatic `gateway_order_id`, successful Binance simulated-account reconciliation, and `LIVE_TRADING_ENABLED=false` before returning GREEN.
+
+## Exchange-First Runtime Truth Baseline (2026-07-27)
+
+- Runtime execution mode is explicit: `local_paper` or `binance_testnet`. Legacy Paper names are compatibility labels, not proof of exchange execution.
+- A Binance Testnet managed position requires an exchange order, immutable fill receipt, trade IDs, position group, and confirmed fill quantity/average price. Local Paper positions are kept out of Binance reconciliation comparisons.
+- Entry reconciliation is typed and fail-closed. Its three-failure kill switch persists in `PaperRun.paper_metrics_summary`; a healthy snapshot cannot clear it while any exchange order remains `EXCHANGE_UNKNOWN`.
+- Current local schema head is Alembic `0015`. Runtime Truth is available under `/api/v1/runtime/*` with authenticated WebSocket events and explicit source/time/freshness/unavailable states.
+- The 2026-07-27 authorized Testnet cleanup left Binance BTC/ETH positions and open orders at zero. Historical local-only BTC/ETH projections were retained as `RECONCILED_GHOST`; they are not current positions. P0.3 remains incomplete until the ordinary Scheduler produces a real receipt-backed entry, exchange protection IDs, and a normal reduce-risk exit ending at `0 == 0`.

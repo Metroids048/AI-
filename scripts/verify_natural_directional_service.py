@@ -221,7 +221,7 @@ def _build_runtime(db_url: str):  # noqa: ANN201
     profile = {
         "auto_paper_runtime_key": "auto_paper_mature_templates",
         "strategy_lane": "directional",
-        "execution_mode": "binance_simulation_first",
+        "execution_mode": "binance_testnet",
         "mirror_to_gateway": True,
         "cost_gate_verified": True,
         "simulation_sampling_fallback_enabled": True,

@@ -104,3 +104,23 @@ def test_freshness_uses_closed_candle_time_not_open_time(db_session) -> None:
     assert freshness["latest_open_time"] == opened_at
     assert freshness["latest_close_time"] == opened_at + timedelta(minutes=15)
     assert freshness["delay_seconds"] == 5.0
+
+
+def test_latest_closed_bar_excludes_the_current_open_candle(db_session) -> None:
+    repo = DataRepository(db_session)
+    opened_at = datetime(2026, 7, 27, 10, 0, tzinfo=UTC)
+    repo.store_ohlcv_bars(
+        [
+            _bar("BTC/USDT", opened_at, "65000", timeframe="15m"),
+            _bar("BTC/USDT", opened_at + timedelta(minutes=15), "65100", timeframe="15m"),
+        ]
+    )
+
+    latest = repo.get_latest_closed_ohlcv_bar(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        reference_time=opened_at + timedelta(minutes=20),
+    )
+
+    assert latest is not None
+    assert latest.timestamp == opened_at

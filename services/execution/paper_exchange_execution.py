@@ -7,13 +7,23 @@ reduce-only close twice before it reaches Binance.
 
 from __future__ import annotations
 
-from contextlib import suppress
+import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from services.data.universe import exchange_to_platform_symbol
 from services.execution.execution_events import record_execution_event
+from services.execution.execution_truth import (
+    ExchangeFillReceipt,
+    ExchangeOrderRecord,
+    ExchangeOrderState,
+    ExecutionMode,
+    ReconciliationStatus,
+    binance_client_order_id,
+    close_quantity,
+    validate_pretrade_snapshot,
+)
 from services.execution.paper_order_lifecycle import protection_geometry_valid
 from services.execution.scheduler_coordination import validate_fence
 from services.strategy_library import DecisionEventRepository, ExecutionRepository, ReviewRepository
@@ -49,6 +59,18 @@ def _is_reduce_only_already_flat(exc: BaseException) -> bool:
     return "-2022" in text or "reduceonly order is rejected" in text
 
 
+def _receipt_event_time(value: object) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+        except ValueError:
+            pass
+    return datetime.now(UTC)
+
+
 class PaperExchangeExecutionService:
     """Build gateway-safe orders and execute exchange interactions for paper runs."""
 
@@ -63,6 +85,8 @@ class PaperExchangeExecutionService:
         self.gateway = gateway
         self.review_repo = review_repo
         self._session_managed_position_ids: set[str] = set()
+        self._consecutive_reconciliation_failures = 0
+        self._entry_kill_switch_active = False
 
     def register_session_managed_position(self, position_record_id: str | None) -> None:
         if position_record_id:
@@ -81,10 +105,28 @@ class PaperExchangeExecutionService:
             reference_price = float(
                 context.get("reference_price") or position.mark_price or position.entry_price or reference_price
             )
-        if close_only and position is not None:
+        if close_only:
             context_qty = float(context.get("quantity") or 0.0)
-            quantity = context_qty if context_qty > 0 else abs(position.quantity)
-            direction = position.side
+            authoritative_quantity = Decimal(
+                str(
+                    context.get("authoritative_position_quantity")
+                    or (abs(position.quantity) if position is not None else 0)
+                )
+            )
+            if authoritative_quantity <= 0:
+                raise ValueError("authoritative exchange position quantity is required for reduce-risk exit")
+            step_size = Decimal(str(context.get("step_size") or context.get("amount_step") or "0.00000001"))
+            result = close_quantity(
+                requested_quantity=Decimal(str(context_qty)) if context_qty > 0 else None,
+                authoritative_quantity=authoritative_quantity,
+                step_size=step_size,
+                reference_price=Decimal(str(reference_price)),
+                min_notional=Decimal(str(context.get("min_notional_usdt") or "0")),
+            )
+            quantity = float(result.quantity)
+            context["authoritative_position_quantity"] = float(result.authoritative_quantity)
+            context["dust_remains"] = result.dust_remains
+            direction = position.side if position is not None else order_request.direction
         else:
             quantity = float(context.get("quantity") or 0)
             requested_notional = float(context.get("requested_notional") or 0.0)
@@ -488,7 +530,7 @@ class PaperExchangeExecutionService:
                 if any_record is not None
                 else None
             )
-            reference_price = float(exchange_position.get("mark_price") or exchange_position.get("entry_price") or 0.0)
+            reference_price = float(exchange_position.get("entry_price") or exchange_position.get("mark_price") or 0.0)
             if (
                 candidate_protection is not None
                 and candidate_protection.status is ProtectionRecordStatus.ACTIVE
@@ -593,7 +635,7 @@ class PaperExchangeExecutionService:
             else:
                 failure_reason = "missing_entry_protection_plan"
             if callable(submit):
-                side = (
+                position_side = (
                     TradeSide.SHORT if str(exchange_position.get("side") or "").lower() == "short" else TradeSide.LONG
                 )
                 try:
@@ -602,7 +644,7 @@ class PaperExchangeExecutionService:
                         order_request=ExecutionOrderRequest(
                             strategy_id=paper_run.strategy_id,
                             symbol=symbol,
-                            direction=side,
+                            direction=position_side,
                             entry_context={
                                 "order_type": "market",
                                 "quantity": quantity,
@@ -616,7 +658,7 @@ class PaperExchangeExecutionService:
                         PaperRuntimeAction(
                             symbol=symbol,
                             action="reconcile_close_unprotected_position",
-                            direction=side,
+                            direction=position_side,
                             close_only=True,
                             reason=f"protection rearm failed: {failure_reason}",
                             decision_trace={"gateway_result": result},
@@ -627,27 +669,53 @@ class PaperExchangeExecutionService:
                         PaperRuntimeAction(
                             symbol=symbol,
                             action="reconcile_protection_failure",
-                            direction=side,
+                            direction=position_side,
                             close_only=True,
                             reason=f"protection rearm failed: {failure_reason}; emergency close failed: {exc}",
                         )
                     )
         return actions
 
-    def _rearm_exchange_protections(self, *, paper_run: PaperRun, symbol: str) -> None:
+    def _rearm_exchange_protections(
+        self,
+        *,
+        paper_run: PaperRun,
+        symbol: str,
+    ) -> dict[str, Any]:
         """Restore stop/target brackets after a close attempt fails while still open."""
         gateway = self.gateway
         if gateway is None:
-            return
-        with suppress(Exception):
+            return {"status": "PROTECTION_FAILED", "error": "exchange_gateway_unavailable"}
+        try:
             snapshot = gateway.reconcile(live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}:rearm")
             positions = self._exchange_positions(snapshot)
             if symbol in self._exchange_position_symbols(positions):
-                self.ensure_exchange_protections(
+                actions = self.ensure_exchange_protections(
                     paper_run=paper_run,
                     snapshot=snapshot,
                     exchange_positions=positions,
                 )
+                failures = [action for action in actions if action.action == "reconcile_protection_failure"]
+                return {
+                    "status": "PROTECTION_FAILED" if failures else "PROTECTED",
+                    "actions": [action.model_dump(mode="json") for action in actions],
+                    "error": failures[0].reason if failures else None,
+                }
+            return {"status": "EXCHANGE_POSITION_FLAT", "actions": []}
+        except Exception as exc:
+            if self.execution_repo is not None:
+                managed = self.execution_repo.find_managed_position_record_for_run(
+                    run_id=paper_run.paper_run_id or "",
+                    symbol=symbol,
+                )
+                if managed is not None:
+                    protection = self.execution_repo.get_latest_protection_record(managed.position_record_id or "")
+                    if protection is not None:
+                        self.execution_repo.update_protection_record(
+                            protection.protection_record_id or "",
+                            status=ProtectionRecordStatus.PROTECTION_FAILED,
+                        )
+            return {"status": "PROTECTION_FAILED", "error": str(exc)}
 
     def reconcile_local_positions_with_exchange(
         self,
@@ -662,18 +730,21 @@ class PaperExchangeExecutionService:
         cycle_time: datetime,
         close_position_fn: Any,
     ) -> dict[str, Any]:
-        empty: dict[str, Any] = {
-            "actions": [],
-            "closed": 0,
-            "net_pnl": 0.0,
-            "gross_pnl": 0.0,
-            "fee_cost": 0.0,
-            "slippage_cost": 0.0,
-            "entry_blocked_symbols": [],
-        }
+        metrics = dict(paper_run.paper_metrics_summary)
+        self._consecutive_reconciliation_failures = max(
+            self._consecutive_reconciliation_failures,
+            int(metrics.get("reconciliation_consecutive_failures", 0)),
+        )
+        self._entry_kill_switch_active = self._entry_kill_switch_active or bool(
+            metrics.get("entry_kill_switch_active", False)
+        )
         gateway = self.gateway
         if gateway is None:
-            return empty
+            return self._unavailable_reconciliation_result(
+                paper_run=paper_run,
+                cycle_time=cycle_time,
+                error="exchange gateway is unavailable",
+            )
         try:
             snapshot = gateway.reconcile(live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}")
         except Exception as exc:  # noqa: BLE001
@@ -690,9 +761,17 @@ class PaperExchangeExecutionService:
                         recommended_change="Inspect Binance simulation connectivity before trusting local positions.",
                     )
                 )
-            return empty
+            return self._unavailable_reconciliation_result(
+                paper_run=paper_run,
+                cycle_time=cycle_time,
+                error=str(exc),
+            )
         if "open_positions" not in snapshot:
-            return empty
+            return self._unavailable_reconciliation_result(
+                paper_run=paper_run,
+                cycle_time=cycle_time,
+                error="exchange reconciliation snapshot omitted open_positions",
+            )
         exchange_positions = self._exchange_positions(snapshot)
         ambiguous_symbols = self._ambiguous_hedge_symbols(exchange_positions)
         entry_blocked_symbols = set(ambiguous_symbols)
@@ -703,7 +782,11 @@ class PaperExchangeExecutionService:
                     live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}:confirm"
                 )
             except Exception:  # noqa: BLE001 - retain local state when confirmation is unavailable
-                return empty
+                return self._unavailable_reconciliation_result(
+                    paper_run=paper_run,
+                    cycle_time=cycle_time,
+                    error="exchange reconciliation confirmation failed",
+                )
             confirmed_positions = self._exchange_positions(confirmation)
             for symbol in missing_symbols:
                 for position_key, item in confirmed_positions.items():
@@ -725,6 +808,44 @@ class PaperExchangeExecutionService:
                 )
             )
         allowed_symbols = set(paper_run.candidate_symbols)
+        exchange_symbols = self._exchange_position_symbols(exchange_positions)
+        if self.execution_repo is not None:
+            for stale_record in self.execution_repo.list_position_records(limit=1000):
+                if (
+                    stale_record.exchange_account != self._exchange_account()
+                    or stale_record.symbol not in allowed_symbols
+                    or stale_record.symbol in exchange_symbols
+                    or stale_record.management_status
+                    not in {
+                        PositionManagementStatus.UNMANAGED_EXTERNAL_POSITION,
+                        PositionManagementStatus.LEGACY_UNVERIFIED,
+                        PositionManagementStatus.RECONCILIATION_REQUIRED,
+                    }
+                ):
+                    continue
+                self.execution_repo.update_position_record(
+                    stale_record.position_record_id or "",
+                    management_status=PositionManagementStatus.RECONCILED_GHOST,
+                )
+                protection = self.execution_repo.get_latest_protection_record(stale_record.position_record_id or "")
+                if protection is not None:
+                    self.execution_repo.update_protection_record(
+                        protection.protection_record_id or "",
+                        status=ProtectionRecordStatus.CANCELLED_GHOST_POSITION,
+                    )
+                actions.append(
+                    PaperRuntimeAction(
+                        symbol=stale_record.symbol,
+                        action="reconcile_local_ghost_quarantined",
+                        direction=stale_record.position_side,
+                        close_only=True,
+                        reason="authoritative exchange snapshot confirms the local-only position is flat",
+                        decision_trace={
+                            "reason_code": PositionManagementStatus.RECONCILED_GHOST.value,
+                            "position_record_id": stale_record.position_record_id,
+                        },
+                    )
+                )
         for position_key, item in list(exchange_positions.items()):
             symbol = self._exchange_position_symbol(position_key, item)
             if symbol in ambiguous_symbols:
@@ -742,14 +863,14 @@ class PaperExchangeExecutionService:
             active_positions.pop(symbol, None)
             entry_blocked_symbols.add(symbol)
             if self.execution_repo is not None and local_position.position_record_id is not None:
-                stale_record = self.execution_repo.get_position_record(local_position.position_record_id)
-                if stale_record is not None:
+                identity_record = self.execution_repo.get_position_record(local_position.position_record_id)
+                if identity_record is not None:
                     self.execution_repo.update_position_record(
-                        stale_record.position_record_id or "",
+                        identity_record.position_record_id or "",
                         management_status=PositionManagementStatus.CLOSED,
                     )
                     stale_protection = self.execution_repo.get_latest_protection_record(
-                        stale_record.position_record_id or ""
+                        identity_record.position_record_id or ""
                     )
                     if stale_protection is not None:
                         self.execution_repo.update_protection_record(
@@ -942,7 +1063,23 @@ class PaperExchangeExecutionService:
                     },
                 )
             )
+        unresolved_exchange_orders = []
+        if self.execution_repo is not None:
+            unresolved_exchange_orders = [
+                order
+                for order in self.execution_repo.list_exchange_orders(limit=500)
+                if order.state is ExchangeOrderState.EXCHANGE_UNKNOWN
+            ]
+        degraded = str(snapshot.get("reconciliation_status") or "ok").lower() not in {"ok", "healthy"} or bool(
+            unresolved_exchange_orders
+        )
+        if degraded:
+            entry_blocked_symbols.update(paper_run.candidate_symbols)
+        else:
+            self._consecutive_reconciliation_failures = 0
+            self._entry_kill_switch_active = False
         return {
+            "status": (ReconciliationStatus.DEGRADED.value if degraded else ReconciliationStatus.HEALTHY.value),
             "actions": actions,
             "closed": closed,
             "net_pnl": net_pnl,
@@ -950,6 +1087,36 @@ class PaperExchangeExecutionService:
             "fee_cost": fee_cost,
             "slippage_cost": slippage_cost,
             "entry_blocked_symbols": sorted(entry_blocked_symbols),
+            "error": "; ".join(str(note) for note in snapshot.get("notes", []) if "failed" in str(note)) or None,
+            "snapshot_time": cycle_time,
+            "consecutive_failures": self._consecutive_reconciliation_failures,
+            "entry_kill_switch_active": self._entry_kill_switch_active,
+            "unresolved_exchange_order_ids": [order.exchange_order_record_id for order in unresolved_exchange_orders],
+        }
+
+    def _unavailable_reconciliation_result(
+        self,
+        *,
+        paper_run: PaperRun,
+        cycle_time: datetime,
+        error: str,
+    ) -> dict[str, Any]:
+        self._consecutive_reconciliation_failures += 1
+        if self._consecutive_reconciliation_failures >= 3:
+            self._entry_kill_switch_active = True
+        return {
+            "status": ReconciliationStatus.UNAVAILABLE.value,
+            "actions": [],
+            "closed": 0,
+            "net_pnl": 0.0,
+            "gross_pnl": 0.0,
+            "fee_cost": 0.0,
+            "slippage_cost": 0.0,
+            "entry_blocked_symbols": sorted(set(paper_run.candidate_symbols)),
+            "error": error,
+            "snapshot_time": cycle_time,
+            "consecutive_failures": self._consecutive_reconciliation_failures,
+            "entry_kill_switch_active": self._entry_kill_switch_active,
         }
 
     def ensure_binance_execution(
@@ -963,7 +1130,29 @@ class PaperExchangeExecutionService:
     ) -> OrderExecution:
         gateway = self.gateway
         if gateway is None:
-            return order
+            update = {
+                "execution_status": "EXCHANGE_UNKNOWN",
+                "gateway_status": "EXCHANGE_UNAVAILABLE",
+                "rejection_reason": "exchange gateway is unavailable",
+                "rejection_codes": [*order.rejection_codes, "exchange_unavailable"],
+                "entry_context": {
+                    **order.entry_context,
+                    "exchange_fill_confirmed": False,
+                },
+                "lifecycle_history": [
+                    *order.lifecycle_history,
+                    {
+                        "at": datetime.now(UTC).isoformat(),
+                        "status": "EXCHANGE_UNKNOWN",
+                        "event": "exchange_gateway_unavailable",
+                    },
+                ],
+            }
+            if self.execution_repo is None:
+                return order.model_copy(update=update)
+            return self.execution_repo.update_order(order.order_execution_id or "", **update) or order
+        strict_testnet = str(paper_run.execution_profile.get("execution_mode")) == ExecutionMode.BINANCE_TESTNET.value
+        exchange_order_record: ExchangeOrderRecord | None = None
         pre_close_cleanup: dict[str, list[str]] = {"cancelled": [], "failed": []}
         try:
             if order_request.cycle_source == "runtime_scheduler" and (
@@ -985,7 +1174,106 @@ class PaperExchangeExecutionService:
                 )
                 if pre_close_cleanup["failed"]:
                     raise ValueError("gateway_protection_cancel_unconfirmed: " + ",".join(pre_close_cleanup["failed"]))
+            live_run_id = f"paper-testnet:{paper_run.paper_run_id or 'unknown'}"
+            if strict_testnet and not order_request.idempotency_key:
+                order_request = order_request.model_copy(
+                    update={"idempotency_key": order.order_execution_id or str(uuid.uuid4())}
+                )
+            if strict_testnet and order.close_only_mode:
+                authoritative_snapshot = gateway.reconcile(
+                    live_run_id=(
+                        f"paper-testnet:{paper_run.paper_run_id or 'unknown'}:"
+                        f"pre-close:{order.order_execution_id or 'unknown'}"
+                    )
+                )
+                authoritative_positions = self._exchange_positions(authoritative_snapshot)
+                authoritative_item = next(
+                    (
+                        item
+                        for key, item in authoritative_positions.items()
+                        if self._exchange_position_symbol(key, item) == order.symbol
+                    ),
+                    None,
+                )
+                if authoritative_item is None:
+                    raise ValueError("reduce_only_order_rejected_position_is_flat")
+                authoritative_quantity = abs(float(authoritative_item.get("contracts") or 0.0))
+                if authoritative_quantity <= 0:
+                    raise ValueError("reduce_only_order_rejected_position_is_flat")
+                order_request = order_request.model_copy(
+                    update={
+                        "entry_context": {
+                            **order_request.entry_context,
+                            "authoritative_position_quantity": authoritative_quantity,
+                            "authoritative_position_side": str(authoritative_item.get("side") or "").lower(),
+                            "reference_price": float(
+                                authoritative_item.get("mark_price")
+                                or order_request.entry_context.get("reference_price")
+                                or 0
+                            ),
+                        }
+                    }
+                )
             mirror_request = self.gateway_order_request(order_request=order_request, position=position)
+            if strict_testnet and not order.close_only_mode:
+                snapshot_provider = getattr(gateway, "pretrade_market_snapshot", None)
+                if not callable(snapshot_provider):
+                    raise ValueError("PRETRADE_MARKET_SNAPSHOT_UNAVAILABLE")
+                pretrade_snapshot = snapshot_provider(order_request=mirror_request)
+                decision_reference = Decimal(
+                    str(
+                        mirror_request.entry_context.get("reference_price")
+                        or mirror_request.entry_context.get("limit_price")
+                        or "0"
+                    )
+                )
+                if decision_reference <= 0:
+                    raise ValueError("PRETRADE_DECISION_REFERENCE_UNAVAILABLE")
+                drift = validate_pretrade_snapshot(
+                    pretrade_snapshot,
+                    decision_reference=decision_reference,
+                )
+                mirror_request = mirror_request.model_copy(
+                    update={
+                        "entry_context": {
+                            **mirror_request.entry_context,
+                            "gateway_reference_price": str(pretrade_snapshot.mark_price),
+                            "pretrade_market_snapshot": pretrade_snapshot.model_dump(mode="json"),
+                            "pretrade_price_drift": str(drift),
+                            "step_size": str(pretrade_snapshot.step_size),
+                        }
+                    }
+                )
+            if strict_testnet:
+                if self.execution_repo is None:
+                    raise ValueError("exchange truth repository is required for Binance Testnet")
+                client_order_id = binance_client_order_id(
+                    live_run_id=live_run_id,
+                    idempotency_key=mirror_request.idempotency_key or "",
+                )
+                quantity = Decimal(str(mirror_request.entry_context.get("quantity") or "0"))
+                side: Literal["buy", "sell"] = (
+                    "sell"
+                    if mirror_request.direction is TradeSide.LONG and order.close_only_mode
+                    else "buy"
+                    if mirror_request.direction is TradeSide.LONG
+                    else "buy"
+                    if order.close_only_mode
+                    else "sell"
+                )
+                exchange_order_record = self.execution_repo.create_exchange_order(
+                    ExchangeOrderRecord(
+                        local_order_execution_id=order.order_execution_id or "",
+                        exchange_account=self._exchange_account(),
+                        execution_mode=ExecutionMode.BINANCE_TESTNET,
+                        client_order_id=client_order_id,
+                        symbol=order.symbol,
+                        side=side,
+                        reduce_only=order.close_only_mode,
+                        state=ExchangeOrderState.EXCHANGE_SUBMITTING,
+                        requested_quantity=quantity,
+                    )
+                )
             event_repo = (
                 DecisionEventRepository(self.execution_repo.session) if self.execution_repo is not None else None
             )
@@ -1001,9 +1289,26 @@ class PaperExchangeExecutionService:
                 if position_record is not None and position_record.entry_order_id is not None:
                     event_identity = self.execution_repo.get_order(position_record.entry_order_id) or order
             gateway_result = gateway.submit_order(
-                live_run_id=f"paper-testnet:{paper_run.paper_run_id or 'unknown'}",
+                live_run_id=live_run_id,
                 order_request=mirror_request,
             )
+            if exchange_order_record is not None and self.execution_repo is not None:
+                acknowledged_state = (
+                    ExchangeOrderState.FILLED
+                    if str(gateway_result.get("gateway_status") or "").lower() in {"filled", "closed"}
+                    else ExchangeOrderState.PARTIALLY_FILLED
+                    if str(gateway_result.get("gateway_status") or "").lower() == "partially_filled"
+                    else ExchangeOrderState.EXCHANGE_ACKNOWLEDGED
+                )
+                exchange_order_record = (
+                    self.execution_repo.update_exchange_order(
+                        exchange_order_record.exchange_order_record_id or "",
+                        exchange_order_id=gateway_result.get("gateway_order_id"),
+                        state=acknowledged_state,
+                        acknowledged_at=datetime.now(UTC),
+                    )
+                    or exchange_order_record
+                )
             if self.execution_repo is not None:
                 event_repo = DecisionEventRepository(self.execution_repo.session)
                 event_payload = {
@@ -1080,6 +1385,23 @@ class PaperExchangeExecutionService:
                 if not refreshed:
                     raise ValueError("gateway_protection_refresh_failed")
         except Exception as exc:  # noqa: BLE001
+            emergency_close_failed = "emergency_close_failed" in str(exc)
+            if emergency_close_failed:
+                self._entry_kill_switch_active = True
+            uncertain = isinstance(exc, TimeoutError | ConnectionError) or any(
+                marker in str(exc).lower() for marker in ("timeout", "timed out", "connection reset", "network")
+            )
+            if exchange_order_record is not None and self.execution_repo is not None:
+                self.execution_repo.update_exchange_order(
+                    exchange_order_record.exchange_order_record_id or "",
+                    state=(
+                        ExchangeOrderState.EMERGENCY_CLOSE_PENDING
+                        if emergency_close_failed
+                        else ExchangeOrderState.EXCHANGE_UNKNOWN
+                        if uncertain
+                        else ExchangeOrderState.EXCHANGE_REJECTED
+                    ),
+                )
             # Exchange already flat: ReduceOnly rejects. Treat as reconcile success so
             # local ghosts cannot retry forever and block new directional opens.
             if (
@@ -1126,21 +1448,39 @@ class PaperExchangeExecutionService:
                 paper_run=paper_run,
                 symbol=order.symbol,
             ):
-                self._rearm_exchange_protections(paper_run=paper_run, symbol=order.symbol)
+                rearm_result = self._rearm_exchange_protections(
+                    paper_run=paper_run,
+                    symbol=order.symbol,
+                )
+            else:
+                rearm_result = None
             self._record_gateway_mirror_failure(paper_run=paper_run, order=order, exc=exc)
             if self.execution_repo is None:
                 return order
             return (
                 self.execution_repo.update_order(
                     order.order_execution_id or "",
-                    execution_status="rejected",
+                    execution_status=(
+                        ExchangeOrderState.EMERGENCY_CLOSE_PENDING.value
+                        if emergency_close_failed
+                        else ExchangeOrderState.EXCHANGE_UNKNOWN.value
+                        if uncertain
+                        else ExchangeOrderState.EXCHANGE_REJECTED.value
+                    ),
                     rejection_reason=f"binance_auto_execute_failed: {exc}",
                     rejection_codes=[*order.rejection_codes, "binance_auto_execute_failed"],
-                    gateway_status="gateway_failed",
+                    gateway_status=(
+                        ExchangeOrderState.EMERGENCY_CLOSE_PENDING.value
+                        if emergency_close_failed
+                        else ExchangeOrderState.EXCHANGE_UNKNOWN.value
+                        if uncertain
+                        else ExchangeOrderState.EXCHANGE_REJECTED.value
+                    ),
                     entry_context={
                         **order.entry_context,
                         "pre_close_cancelled_protection_order_ids": pre_close_cleanup["cancelled"],
                         "pre_close_failed_protection_order_ids": pre_close_cleanup["failed"],
+                        "protection_rearm": rearm_result,
                     },
                     lifecycle_history=[
                         *order.lifecycle_history,
@@ -1161,9 +1501,106 @@ class PaperExchangeExecutionService:
             and gateway_result.get("filled_quantity")
             and gateway_result.get("average_fill_price")
         )
+        receipt_id: str | None = None
+        position_group_id: str | None = None
+        receipt_persistence_error: str | None = None
+        post_close_authoritative_quantity: float | None = None
+        post_close_verification_error: str | None = None
+        if strict_testnet and exchange_fill_confirmed:
+            trade_ids = [str(item) for item in gateway_result.get("trade_ids") or [] if str(item)]
+            client_order_id = str(gateway_result.get("client_order_id") or "").strip()
+            exchange_order_id = str(gateway_result.get("gateway_order_id") or "").strip()
+            if (
+                trade_ids
+                and client_order_id
+                and exchange_order_id
+                and exchange_order_record is not None
+                and self.execution_repo is not None
+            ):
+                receipt_id = str(uuid.uuid4())
+                try:
+                    receipt = self.execution_repo.create_exchange_fill_receipt(
+                        exchange_order_record_id=exchange_order_record.exchange_order_record_id or "",
+                        receipt=ExchangeFillReceipt(
+                            receipt_id=receipt_id,
+                            exchange_account=self._exchange_account(),
+                            exchange_order_id=exchange_order_id,
+                            client_order_id=client_order_id,
+                            trade_ids=trade_ids,
+                            symbol=order.symbol,
+                            side=exchange_order_record.side,
+                            reduce_only=order.close_only_mode,
+                            filled_quantity=Decimal(str(gateway_result["filled_quantity"])),
+                            average_fill_price=Decimal(str(gateway_result["average_fill_price"])),
+                            commissions=gateway_result.get("commissions") or [],
+                            event_time=_receipt_event_time(gateway_result.get("fill_timestamp")),
+                        ),
+                    )
+                    receipt_id = receipt.receipt_id
+                    position_group_id = (
+                        order.decision_id or order.cycle_id or order.order_execution_id or receipt.receipt_id
+                    )
+                except Exception as exc:  # noqa: BLE001 - exchange fill stays authoritative but unprojected
+                    receipt_id = None
+                    receipt_persistence_error = str(exc)
+                    exchange_fill_confirmed = False
+                    self.execution_repo.update_exchange_order(
+                        exchange_order_record.exchange_order_record_id or "",
+                        state=ExchangeOrderState.EXCHANGE_UNKNOWN,
+                    )
+            else:
+                exchange_fill_confirmed = False
         gateway_name = str(getattr(gateway.capability, "gateway_name", ""))
         requires_authoritative_fill = gateway_name == "binance_usdt_perpetual"
-        if gateway_status in {"filled", "closed"} and (exchange_fill_confirmed or not requires_authoritative_fill):
+        if strict_testnet and requires_authoritative_fill and order.close_only_mode and exchange_fill_confirmed:
+            try:
+                post_close_snapshot = gateway.reconcile(
+                    live_run_id=(
+                        f"paper-testnet:{paper_run.paper_run_id or 'unknown'}:"
+                        f"post-close:{order.order_execution_id or 'unknown'}"
+                    )
+                )
+                post_close_positions = self._exchange_positions(post_close_snapshot)
+                post_close_item = next(
+                    (
+                        item
+                        for key, item in post_close_positions.items()
+                        if self._exchange_position_symbol(key, item) == order.symbol
+                    ),
+                    None,
+                )
+                post_close_authoritative_quantity = abs(float((post_close_item or {}).get("contracts") or 0.0))
+            except Exception as exc:  # noqa: BLE001 - an unverified close must remain fail-closed
+                post_close_verification_error = str(exc)
+                if exchange_order_record is not None and self.execution_repo is not None:
+                    self.execution_repo.update_exchange_order(
+                        exchange_order_record.exchange_order_record_id or "",
+                        state=ExchangeOrderState.EXCHANGE_UNKNOWN,
+                    )
+        dust_remains = bool(post_close_authoritative_quantity is not None and post_close_authoritative_quantity > 1e-12)
+        if dust_remains and exchange_order_record is not None and self.execution_repo is not None:
+            self.execution_repo.update_exchange_order(
+                exchange_order_record.exchange_order_record_id or "",
+                state=ExchangeOrderState.DUST_REMAINS,
+            )
+        if receipt_persistence_error is not None:
+            execution_status = ExchangeOrderState.EXCHANGE_UNKNOWN.value
+            rejection_reason = f"exchange_fill_receipt_persistence_failed: {receipt_persistence_error}"
+            rejection_codes = [
+                *order.rejection_codes,
+                "exchange_fill_receipt_persistence_failed",
+            ]
+        elif post_close_verification_error is not None:
+            execution_status = ExchangeOrderState.EXCHANGE_UNKNOWN.value
+            rejection_reason = f"post_close_reconciliation_unavailable: {post_close_verification_error}"
+            rejection_codes = [*order.rejection_codes, "post_close_reconciliation_unavailable"]
+        elif dust_remains:
+            execution_status = ExchangeOrderState.DUST_REMAINS.value
+            rejection_reason = (
+                f"authoritative exchange position remains after reduce-risk fill: {post_close_authoritative_quantity}"
+            )
+            rejection_codes = [*order.rejection_codes, "dust_remains"]
+        elif gateway_status in {"filled", "closed"} and (exchange_fill_confirmed or not requires_authoritative_fill):
             execution_status = "accepted"
             rejection_reason = None
             rejection_codes = order.rejection_codes
@@ -1187,8 +1624,10 @@ class PaperExchangeExecutionService:
                 execution_status=execution_status,
                 rejection_reason=rejection_reason,
                 rejection_codes=rejection_codes,
+                stoploss_plan=gateway_result.get("stoploss_plan") or order.stoploss_plan,
+                takeprofit_plan=gateway_result.get("takeprofit_plan") or order.takeprofit_plan,
                 entry_context={
-                    **order.entry_context,
+                    **mirror_request.entry_context,
                     "quantity": gateway_result.get("filled_quantity")
                     or gateway_result.get("quantity", order.entry_context.get("quantity")),
                     "exchange_requested_quantity": gateway_result.get("quantity"),
@@ -1197,6 +1636,17 @@ class PaperExchangeExecutionService:
                     "exchange_fill_timestamp": gateway_result.get("fill_timestamp"),
                     "exchange_fill_source": gateway_result.get("fill_source"),
                     "exchange_fill_confirmed": exchange_fill_confirmed,
+                    "receipt_persistence_error": receipt_persistence_error,
+                    "post_close_authoritative_quantity": post_close_authoritative_quantity,
+                    "post_close_verification_error": post_close_verification_error,
+                    "dust_remains": dust_remains,
+                    "entry_fill_receipt_id": receipt_id,
+                    "position_group_id": position_group_id,
+                    "execution_mode": (
+                        ExecutionMode.BINANCE_TESTNET.value
+                        if strict_testnet
+                        else order.entry_context.get("execution_mode")
+                    ),
                     "event_persistence_error": event_payload.get("event_persistence_error")
                     if self.execution_repo is not None
                     else None,

@@ -12,6 +12,7 @@ from pydantic import Field, model_validator
 from .backtest import BacktestReport, GateDecision
 from .base import PlatformModel
 from .enums import Exchange, OrderType, TradeSide
+from .execution_truth import ExecutionMode
 from .signal import DecisionVetoResult
 from .trading import MarketRulesSnapshot, TradeIntent
 
@@ -117,6 +118,7 @@ class PaperRunStatusUpdate(PlatformModel):
 class PaperRunStepRequest(PlatformModel):
     symbol: str | None = None
     timeframe: str = "1h"
+    decision_time: datetime | None = None
     perp_symbol: str | None = None
     enable_decision_veto: bool = True
     idempotency_key: str | None = None
@@ -152,7 +154,7 @@ class AssetRiskTierSettings(PlatformModel):
 class AutoTradingSettings(PlatformModel):
     """Typed operator-editable automatic trading controls for a PaperRun."""
 
-    execution_mode: str = Field(default="binance_simulation_first", pattern="^(paper_only|binance_simulation_first)$")
+    execution_mode: ExecutionMode = ExecutionMode.BINANCE_TESTNET
     max_leverage: float = Field(default=10.0, ge=1, le=125)
     risk_per_trade: float = Field(default=0.01, ge=0, le=0.10)
     order_notional_usdt: float | None = Field(default=None, gt=0)
@@ -545,10 +547,15 @@ class PositionManagementStatus(StrEnum):
     CLOSED = "CLOSED"
     RECONCILED_GHOST = "RECONCILED_GHOST"  # Position exists in DB but not on exchange
     PAPER_SIMULATION_ONLY = "PAPER_SIMULATION_ONLY"  # Local paper-only fill; never matched against exchange
+    LEGACY_UNVERIFIED = "LEGACY_UNVERIFIED"
+    RECONCILIATION_REQUIRED = "RECONCILIATION_REQUIRED"
 
 
 class ProtectionRecordStatus(StrEnum):
     ACTIVE = "ACTIVE"
+    PENDING_EXCHANGE_CONFIRMATION = "PENDING_EXCHANGE_CONFIRMATION"
+    PROTECTION_FAILED = "PROTECTION_FAILED"
+    EMERGENCY_CLOSE_PENDING = "EMERGENCY_CLOSE_PENDING"
     INVALID_PROTECTION_GEOMETRY = "INVALID_PROTECTION_GEOMETRY"
     INACTIVE = "INACTIVE"
     CANCELLED_GHOST_POSITION = "CANCELLED_GHOST_POSITION"  # Protection cancelled due to ghost position cleanup
@@ -561,6 +568,9 @@ class PositionRecord(PlatformModel):
     position_side: TradeSide
     entry_order_id: str | None = None
     entry_fill_id: str | None = None
+    entry_fill_receipt_id: str | None = None
+    position_group_id: str | None = None
+    execution_mode: ExecutionMode | None = None
     opened_at: datetime
     quantity: float = Field(gt=0)
     order_origin: str
@@ -576,6 +586,8 @@ class ProtectionRecord(PlatformModel):
     position_record_id: str
     stop_price: float | None = Field(default=None, gt=0)
     take_profit_price: float | None = Field(default=None, gt=0)
+    stop_exchange_order_id: str | None = None
+    take_profit_exchange_order_id: str | None = None
     protection_source: str
     status: ProtectionRecordStatus = ProtectionRecordStatus.ACTIVE
     created_at: datetime | None = None

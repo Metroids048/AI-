@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import uuid
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 from services.data import DataRepository
+from services.data.binance import TIMEFRAME_TO_SECONDS
 from services.data.service import DEFAULT_BINANCE_TOP20
 from services.execution.account_equity import resolve_manual_position_pnl, sync_paper_account_equity
 from services.execution.cross_sectional import CrossSectionalRankEntry, compute_funding_rank_snapshot
 from services.execution.decision_engine import DecisionEngine
 from services.execution.execution_events import record_execution_event
+from services.execution.execution_truth import ExecutionMode, SimulatedFill
 from services.execution.exit_ladder import (
     ExitLadderState,
     apply_level_fill,
@@ -42,8 +45,10 @@ from services.execution.scheduler_coordination import validate_fence
 from services.strategy_library import (
     ConfigSnapshotRepository,
     DecisionEventRepository,
+    DecisionFunnelRepository,
     DecisionSnapshotRepository,
     ExecutionRepository,
+    LlmInvocationRepository,
     PaperRunRepository,
     ReviewRepository,
     StrategyRepository,
@@ -52,10 +57,15 @@ from shared.config import settings
 from shared.models import (
     ConfigSnapshot,
     DecisionEventType,
+    DecisionFunnelStage,
+    DecisionFunnelStatus,
+    DecisionFunnelTerminal,
     DecisionSnapshot,
     ExchangeSide,
     ExecutionOrderRequest,
     FailureRecord,
+    LlmInvocation,
+    LlmInvocationStage,
     MarketRegime,
     OHLCVBar,
     OrderExecution,
@@ -65,6 +75,7 @@ from shared.models import (
     PaperRuntimeCycleRequest,
     PaperRuntimeCycleResult,
     PortfolioDecision,
+    PositionManagementStatus,
     PositionSide,
     PositionSnapshot,
     ProtectionPolicy,
@@ -75,6 +86,84 @@ from shared.models import (
     TradeAction,
     TradeSide,
 )
+
+
+def _stable_decision_id(cycle_key: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, cycle_key))
+
+
+def _candle_close_time(bar: OHLCVBar, timeframe: str) -> datetime:
+    duration_seconds = TIMEFRAME_TO_SECONDS.get(timeframe)
+    if duration_seconds is None:
+        raise ValueError(f"unsupported runtime timeframe: {timeframe}")
+    return bar.timestamp + timedelta(seconds=duration_seconds)
+
+
+def _cycle_bar_time(cycle_key: str) -> datetime | None:
+    parts = cycle_key.split(":", 3)
+    if len(parts) != 4:
+        return None
+    try:
+        parsed = datetime.fromisoformat(parts[3].replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _funnel_terminal_for_action(
+    action: PaperRuntimeAction,
+) -> tuple[DecisionFunnelStage, DecisionFunnelStatus, str]:
+    reason = str(
+        action.decision_trace.get("reason_code")
+        or action.decision_trace.get("pipeline_status")
+        or action.reason
+        or action.action
+    )
+    normalized = reason.lower()
+    if action.action.startswith("open_"):
+        return (
+            DecisionFunnelStage.PROTECTION_CONFIRMED,
+            DecisionFunnelStatus.PASSED,
+            "PROTECTION_CONFIRMED",
+        )
+    if action.action == "pending_gateway_fill":
+        return (
+            DecisionFunnelStage.EXCHANGE_SUBMITTED,
+            DecisionFunnelStatus.SKIPPED,
+            "EXCHANGE_FILL_PENDING",
+        )
+    if "unmanaged" in normalized or "reconcil" in normalized:
+        return (
+            DecisionFunnelStage.RECONCILIATION_HEALTHY,
+            DecisionFunnelStatus.REJECTED,
+            reason.upper(),
+        )
+    if "multi_timeframe" in normalized or "regime" in normalized:
+        return (
+            DecisionFunnelStage.REGIME_CONFIRMED,
+            DecisionFunnelStatus.SKIPPED,
+            reason.upper(),
+        )
+    if "signal" in normalized or action.action.startswith("skip_no_trade"):
+        return (
+            DecisionFunnelStage.ENTRY_SIGNAL,
+            DecisionFunnelStatus.SKIPPED,
+            reason.upper(),
+        )
+    if action.action == "rejected":
+        stage = (
+            DecisionFunnelStage.PRICE_DRIFT_PASSED
+            if "pretrade" in normalized or "drift" in normalized
+            else DecisionFunnelStage.RISK_APPROVED
+        )
+        return stage, DecisionFunnelStatus.REJECTED, reason.upper()
+    if action.action.startswith(("close_", "hold_", "exit_", "stoploss_", "takeprofit_", "time_exit_")):
+        return (
+            DecisionFunnelStage.ENTRY_SIGNAL,
+            DecisionFunnelStatus.SKIPPED,
+            "POSITION_MANAGEMENT_ONLY",
+        )
+    return DecisionFunnelStage.ENTRY_SIGNAL, DecisionFunnelStatus.SKIPPED, reason.upper()
 
 
 class PaperCycleOrchestrator:
@@ -126,6 +215,8 @@ class PaperCycleOrchestrator:
         paper_run = self.paper_repo.get_paper_run(paper_run_id) or paper_run
         strategy = self._require_strategy(paper_run.strategy_id)
         active_config = config_repo.get_active(paper_run_id)
+        funnel_repo = DecisionFunnelRepository(self.execution_repo.session)
+        llm_invocation_repo = LlmInvocationRepository(self.execution_repo.session)
         if active_config is not None:
             execution_profile = active_config.config.get("execution_profile")
             if isinstance(execution_profile, dict):
@@ -137,13 +228,19 @@ class PaperCycleOrchestrator:
             run_type="paper",
             run_id=paper_run_id,
         )
+        execution_mode = str(paper_run.execution_profile.get("execution_mode", "local_paper"))
+        expected_management_status = (
+            PositionManagementStatus.PAPER_SIMULATION_ONLY
+            if execution_mode == "local_paper"
+            else PositionManagementStatus.MANAGED_STRATEGY
+        )
         active_positions = {
             position.symbol: position
             for position in current_positions
             if position.position_record_id is not None
             and (
                 (record := self.execution_repo.get_position_record(position.position_record_id)) is not None
-                and record.management_status.value == "MANAGED_STRATEGY"
+                and record.management_status is expected_management_status
             )
         }
         scanned_symbols = self._select_symbols(paper_run=paper_run, request=request)
@@ -207,6 +304,12 @@ class PaperCycleOrchestrator:
 
         actions.extend(self._expire_pending_limit_entries(paper_run=paper_run, cycle_time=cycle_time))
         entry_blocked_symbols: set[str] = set()
+        reconcile_result: dict[str, Any] = {
+            "status": "not_applicable",
+            "error": None,
+            "consecutive_failures": 0,
+            "entry_kill_switch_active": False,
+        }
 
         if self._gateway_mirror_armed(paper_run):
             reconcile_result = self.exchange_execution.reconcile_local_positions_with_exchange(
@@ -327,8 +430,16 @@ class PaperCycleOrchestrator:
                     )
                 )
                 continue
-            latest_bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=runtime_timeframe)
-            protection_bar = self.data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe="1m")
+            latest_bar = self.data_repo.get_latest_closed_ohlcv_bar(
+                symbol=symbol,
+                timeframe=runtime_timeframe,
+                reference_time=cycle_time,
+            )
+            protection_bar = self.data_repo.get_latest_closed_ohlcv_bar(
+                symbol=symbol,
+                timeframe="1m",
+                reference_time=cycle_time,
+            )
             if current_position is not None and protection_bar is not None:
                 metrics["exit_ladder"] = exit_ladder_metrics
                 ladder = self._ensure_exit_ladder(
@@ -759,6 +870,20 @@ class PaperCycleOrchestrator:
                             )
                             continue
             if latest_bar is None:
+                unavailable_key = f"{paper_run_id}:{symbol}:{runtime_timeframe}:{cycle_time.isoformat()}"
+                funnel_repo.upsert_terminal(
+                    DecisionFunnelTerminal(
+                        paper_run_id=paper_run_id,
+                        cycle_id=unavailable_key,
+                        decision_id=_stable_decision_id(unavailable_key),
+                        symbol=symbol,
+                        timeframe=runtime_timeframe,
+                        bar_time=cycle_time,
+                        terminal_stage=DecisionFunnelStage.DATA_AVAILABLE,
+                        status=DecisionFunnelStatus.SKIPPED,
+                        reason_code="MARKET_DATA_UNAVAILABLE",
+                    )
+                )
                 skipped_symbols += 1
                 actions.append(
                     PaperRuntimeAction(
@@ -768,7 +893,8 @@ class PaperCycleOrchestrator:
                     )
                 )
                 continue
-            cycle_key = f"{paper_run_id}:{symbol}:{runtime_timeframe}:{latest_bar.timestamp.isoformat()}"
+            decision_bar_close_time = _candle_close_time(latest_bar, runtime_timeframe)
+            cycle_key = f"{paper_run_id}:{symbol}:{runtime_timeframe}:{decision_bar_close_time.isoformat()}"
             # Entry evaluation is idempotent per closed entry candle. Existing
             # exposure must still pass through protective management on every
             # scheduler cycle, otherwise a duplicated entry candle can defer a
@@ -817,6 +943,7 @@ class PaperCycleOrchestrator:
                 request=PaperRunStepRequest(
                     symbol=symbol,
                     timeframe=runtime_timeframe,
+                    decision_time=cycle_time,
                     idempotency_key=cycle_key,
                     enable_decision_veto=enable_veto,
                     cross_sectional_rank=(
@@ -834,6 +961,13 @@ class PaperCycleOrchestrator:
             )
             base_order = base_order.model_copy(
                 update={
+                    "entry_context": {
+                        **base_order.entry_context,
+                        "entry_enabled": bool(paper_run.execution_profile.get("entry_enabled", True)),
+                        "entry_disabled_reason": paper_run.execution_profile.get("entry_disabled_reason"),
+                        "decision_bar_close_time": decision_bar_close_time.isoformat(),
+                        "execution_mode": execution_mode,
+                    },
                     "order_origin": "live_scheduler",
                     "run_mode": request.run_mode,
                     "deployment_sha": request.deployment_sha,
@@ -1164,8 +1298,34 @@ class PaperCycleOrchestrator:
                 cycle_id=cycle_key,
                 active_config=active_config,
                 reference_price=Decimal(str(reference_price)),
-                decision_candle_close_time=latest_bar.timestamp,
+                decision_candle_close_time=decision_bar_close_time,
             )
+            funnel_event_repo = DecisionEventRepository(self.execution_repo.session)
+            if base_order.trade_intent is not None:
+                for stage in (
+                    DecisionFunnelStage.DATA_AVAILABLE,
+                    DecisionFunnelStage.DATA_FRESH,
+                    DecisionFunnelStage.REGIME_CONFIRMED,
+                    DecisionFunnelStage.ENTRY_SIGNAL,
+                    DecisionFunnelStage.CANDIDATE_CREATED,
+                    DecisionFunnelStage.META_LABEL_PASSED,
+                    DecisionFunnelStage.MANIFEST_ELIGIBLE,
+                    DecisionFunnelStage.RECONCILIATION_HEALTHY,
+                ):
+                    persisted = record_execution_event(
+                        repository=funnel_event_repo,
+                        event_type=DecisionEventType.FUNNEL_STAGE,
+                        paper_run=paper_run,
+                        request=base_order,
+                        reason_code=f"{stage.value.upper()}_PASSED",
+                        payload={
+                            "stage": stage.value,
+                            "status": DecisionFunnelStatus.PASSED.value,
+                            "decision_trace": decision_trace,
+                        },
+                    )
+                    if persisted is None:
+                        raise RuntimeError(f"decision funnel persistence failed at {stage.value}")
             if self.context_builder is not None and self._should_execute_on_binance(paper_run):
                 try:
                     base_order = self.context_builder.build(
@@ -1224,6 +1384,27 @@ class PaperCycleOrchestrator:
                 reason_code="candidate_accepted",
                 payload={"order_execution_id": order.order_execution_id},
             )
+            for stage in (
+                DecisionFunnelStage.RISK_APPROVED,
+                DecisionFunnelStage.AI_REVIEWED,
+            ):
+                if base_order.trade_intent is None:
+                    break
+                if (
+                    record_execution_event(
+                        repository=funnel_event_repo,
+                        event_type=DecisionEventType.FUNNEL_STAGE,
+                        paper_run=paper_run,
+                        request=base_order,
+                        reason_code=f"{stage.value.upper()}_PASSED",
+                        payload={
+                            "stage": stage.value,
+                            "status": DecisionFunnelStatus.PASSED.value,
+                        },
+                    )
+                    is None
+                ):
+                    raise RuntimeError(f"decision funnel persistence failed at {stage.value}")
 
             if self._should_execute_on_binance(paper_run, order=order):
                 order = self.exchange_execution.ensure_binance_execution(
@@ -1346,7 +1527,7 @@ class PaperCycleOrchestrator:
                 paper_run_id=paper_run_id,
                 order=order,
                 cycle_time=cycle_time,
-                execution_mode=str(paper_run.execution_profile.get("execution_mode", "binance_simulation_first")),
+                execution_mode=str(paper_run.execution_profile.get("execution_mode", "local_paper")),
             )
             # Open hedge position if hedge order was successfully filled
             if hedge_order is not None and hedge_order.execution_status == "accepted":
@@ -1354,7 +1535,7 @@ class PaperCycleOrchestrator:
                     paper_run_id=paper_run_id,
                     order=hedge_order,
                     cycle_time=cycle_time,
-                    execution_mode=str(paper_run.execution_profile.get("execution_mode", "binance_simulation_first")),
+                    execution_mode=str(paper_run.execution_profile.get("execution_mode", "local_paper")),
                 )
                 # Mark both positions as part of a hedge group
                 hedge_group_id = f"hedge_{order.order_execution_id}"
@@ -1439,6 +1620,10 @@ class PaperCycleOrchestrator:
             "exit_ladder": exit_ladder_metrics,
             "exchange_missing_position_counts": reconcile_missing_counts,
             "unmanaged_external_symbols": sorted(entry_blocked_symbols),
+            "reconciliation_status": reconcile_result["status"],
+            "reconciliation_error": reconcile_result.get("error"),
+            "reconciliation_consecutive_failures": int(reconcile_result.get("consecutive_failures", 0)),
+            "entry_kill_switch_active": bool(reconcile_result.get("entry_kill_switch_active", False)),
             "last_cycle_actions": [action.model_dump(mode="json") for action in actions],
             "last_cycle_decisions": [
                 {
@@ -1460,9 +1645,52 @@ class PaperCycleOrchestrator:
         # confirmation_unavailable_fail_closed, etc.) that never reach
         # gatekeeper.submit_order() and therefore never create an OrderExecution row.
         for action in actions:
-            if not action.decision_trace:
-                continue
-            with suppress(Exception):
+            action_key = action.idempotency_key
+            if action_key:
+                bar_time = _cycle_bar_time(action_key) or cycle_time
+                stage, status, reason_code = _funnel_terminal_for_action(action)
+                funnel_repo.upsert_terminal(
+                    DecisionFunnelTerminal(
+                        paper_run_id=paper_run_id,
+                        cycle_id=action_key,
+                        decision_id=_stable_decision_id(action_key),
+                        symbol=action.symbol,
+                        timeframe=runtime_timeframe,
+                        bar_time=bar_time,
+                        terminal_stage=stage,
+                        status=status,
+                        reason_code=reason_code,
+                        details={
+                            "action": action.action,
+                            "reason": action.reason,
+                            "decision_trace": action.decision_trace,
+                        },
+                    )
+                )
+                if not llm_invocation_repo.exists_for_cycle(action_key):
+                    lane = str(paper_run.execution_profile.get("strategy_lane", "directional"))
+                    if lane in {"carry", "cross_sectional_carry"}:
+                        skip_reason = "LANE_EXCLUDES_AI"
+                    elif not request.enable_decision_veto:
+                        skip_reason = "DECISION_VETO_DISABLED"
+                    elif not bool(paper_run.execution_profile.get("llm_veto_enabled", True)):
+                        skip_reason = "PROFILE_VETO_DISABLED"
+                    elif action.action.startswith("skip_"):
+                        skip_reason = "NO_DETERMINISTIC_CANDIDATE"
+                    else:
+                        skip_reason = "AI_ADVISORY_NOT_CALLED"
+                    llm_invocation_repo.create_invocation(
+                        LlmInvocation(
+                            cycle_id=action_key,
+                            decision_id=_stable_decision_id(action_key),
+                            symbol=action.symbol,
+                            called=False,
+                            skip_reason=skip_reason,
+                            stage=LlmInvocationStage.TRADE_REVIEW,
+                            status="skipped",
+                        )
+                    )
+            if action.decision_trace:
                 self.decision_snapshot_repo.create_snapshot(
                     DecisionSnapshot(
                         paper_run_id=paper_run_id,
@@ -1657,6 +1885,8 @@ class PaperCycleOrchestrator:
                     "requested_notional": quantity * close_price,
                     "quantity": quantity,
                     "reduce_only": True,
+                    "authoritative_position_quantity": abs(current_position.quantity),
+                    "authoritative_position_side": current_position.side.value,
                     # Exits always favor fill-certainty over price improvement, same as the
                     # manual close_position() path — a resting limit exit could miss a stop.
                     "order_type": "market",
@@ -1669,11 +1899,11 @@ class PaperCycleOrchestrator:
         )
 
     def _gateway_mirror_armed(self, paper_run: PaperRun) -> bool:
-        execution_mode = str(paper_run.execution_profile.get("execution_mode", "paper_only"))
+        execution_mode = str(paper_run.execution_profile.get("execution_mode", "local_paper"))
         legacy_mirror_enabled = bool(paper_run.execution_profile.get("mirror_to_gateway", False))
         return (
             self.gateway is not None
-            and (execution_mode == "binance_simulation_first" or legacy_mirror_enabled)
+            and (execution_mode == "binance_testnet" or legacy_mirror_enabled)
             and bool(paper_run.execution_profile.get("cost_gate_verified", False))
         )
 
@@ -1712,7 +1942,12 @@ class PaperCycleOrchestrator:
         if position.position_record_id is None:
             return None
         record = self.execution_repo.get_position_record(position.position_record_id)
-        if record is None or record.management_status.value != "MANAGED_STRATEGY":
+        expected_statuses = (
+            {"PAPER_SIMULATION_ONLY"}
+            if paper_run.execution_profile.get("execution_mode", "local_paper") == "local_paper"
+            else {"MANAGED_STRATEGY", "LEGACY_UNVERIFIED"}
+        )
+        if record is None or record.management_status.value not in expected_statuses:
             return None
         protection = self.execution_repo.get_latest_protection_record(position.position_record_id)
         if protection is None or protection.status.value != "ACTIVE":
@@ -1764,7 +1999,12 @@ class PaperCycleOrchestrator:
                 status="INVALID_PROTECTION_GEOMETRY",
             )
             return None
-        if record.management_status.value != "MANAGED_STRATEGY" or protection.status.value != "ACTIVE":
+        expected_statuses = (
+            {"PAPER_SIMULATION_ONLY"}
+            if paper_run.execution_profile.get("execution_mode", "local_paper") == "local_paper"
+            else {"MANAGED_STRATEGY", "LEGACY_UNVERIFIED"}
+        )
+        if record.management_status.value not in expected_statuses or protection.status.value != "ACTIVE":
             return None
         original_stop = stop_price
         trail_after_r = _float_or_none(strategy.rules.takeprofit_rules.get("trail_after_r"))
@@ -1919,10 +2159,10 @@ class PaperCycleOrchestrator:
         )
 
     def _should_execute_on_binance(self, paper_run: PaperRun, *, order: OrderExecution | None = None) -> bool:
-        execution_mode = str(paper_run.execution_profile.get("execution_mode", "paper_only"))
+        execution_mode = str(paper_run.execution_profile.get("execution_mode", "local_paper"))
         legacy_mirror_enabled = bool(paper_run.execution_profile.get("mirror_to_gateway", False))
         enabled = (
-            (execution_mode == "binance_simulation_first" or legacy_mirror_enabled)
+            (execution_mode == "binance_testnet" or legacy_mirror_enabled)
             and bool(paper_run.execution_profile.get("cost_gate_verified", False))
             and settings.binance_auto_execute
             and settings.binance_use_testnet
@@ -1944,8 +2184,8 @@ class PaperCycleOrchestrator:
             and estimated_net_edge_bps >= minimum_net_edge_bps
         )
 
-    @staticmethod
     def _should_time_exit(
+        self,
         *,
         strategy: StrategyContract,
         position: PositionSnapshot,
@@ -1953,6 +2193,23 @@ class PaperCycleOrchestrator:
         bar: OHLCVBar,
         cycle_time: datetime,
     ) -> bool:
+        if position.position_record_id is not None:
+            record = self.execution_repo.get_position_record(position.position_record_id)
+            entry = (
+                self.execution_repo.get_order(record.entry_order_id)
+                if record is not None and record.entry_order_id is not None
+                else None
+            )
+            sampling_bars = (
+                int(entry.entry_context.get("sampling_max_hold_bars") or 0)
+                if entry is not None and bool(entry.entry_context.get("testnet_sampling_mode"))
+                else 0
+            )
+            if sampling_bars > 0:
+                snapshot_time = position.snapshot_time
+                if snapshot_time.tzinfo is None:
+                    snapshot_time = snapshot_time.replace(tzinfo=UTC)
+                return cycle_time - snapshot_time >= timedelta(minutes=15 * sampling_bars)
         exit_rules = strategy.rules.exit_rules
         hours = _float_or_none(exit_rules.get("time_exit_hours"))
         min_r = _float_or_none(exit_rules.get("time_exit_min_r"))
@@ -2078,7 +2335,28 @@ class PaperCycleOrchestrator:
         )
 
     def _fill_order(self, *, order: OrderExecution, cycle_time: datetime) -> OrderExecution:
-        return self.order_lifecycle.fill_order(order=order, cycle_time=cycle_time)
+        simulated_fill: SimulatedFill | None = None
+        if order.entry_context.get("execution_mode") == ExecutionMode.LOCAL_PAPER.value:
+            quantity = Decimal(str(order.entry_context.get("quantity") or "0"))
+            reference_price = Decimal(
+                str(order.entry_context.get("reference_price") or order.entry_context.get("limit_price") or "0")
+            )
+            if quantity <= 0:
+                requested_notional = Decimal(str(order.entry_context.get("requested_notional") or "0"))
+                quantity = requested_notional / reference_price if reference_price > 0 else Decimal("0")
+            simulated_fill = SimulatedFill(
+                simulated_fill_id=f"sim-{order.order_execution_id}",
+                symbol=order.symbol,
+                side=("sell" if order.direction is TradeSide.SHORT else "buy"),
+                filled_quantity=quantity,
+                average_fill_price=reference_price,
+                event_time=cycle_time,
+            )
+        return self.order_lifecycle.fill_order(
+            order=order,
+            cycle_time=cycle_time,
+            simulated_fill=simulated_fill,
+        )
 
     def _open_position(
         self,
@@ -2086,7 +2364,7 @@ class PaperCycleOrchestrator:
         paper_run_id: str,
         order: OrderExecution,
         cycle_time: datetime,
-        execution_mode: str = "binance_simulation_first",
+        execution_mode: str = "local_paper",
     ) -> PositionSnapshot:
         position = self.order_lifecycle.open_position(
             paper_run_id=paper_run_id,
@@ -2097,7 +2375,7 @@ class PaperCycleOrchestrator:
         # Only register for exchange-reconcile tracking when this is a real exchange fill.
         # paper_only local fills use PAPER_SIMULATION_ONLY status and must NOT enter the
         # MANAGED_STRATEGY reconcile path that compares against live exchange positions.
-        if execution_mode != "paper_only":
+        if execution_mode != "local_paper":
             self.exchange_execution.register_session_managed_position(position.position_record_id)
         return position
 
@@ -2253,7 +2531,7 @@ def _fixed_universe_skip_reason(paper_run: PaperRun, symbol: str) -> str | None:
             return None
         if (
             status == "unknown"
-            and paper_run.execution_profile.get("execution_mode", "paper_only") == "paper_only"
+            and paper_run.execution_profile.get("execution_mode", "local_paper") == "local_paper"
             and not paper_run.execution_profile.get("mirror_to_gateway", False)
         ):
             # The fixed local universe is Paper-only here. Do not waste the first

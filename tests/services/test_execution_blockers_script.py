@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from scripts.check_execution_blockers import _check_db_blockers
+from scripts.check_execution_blockers import _check_db_blockers, _check_scheduler_blockers
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_scope_hash
 from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY
 
@@ -60,7 +61,7 @@ def test_db_blockers_rejects_verified_acceptance_when_directional_run_is_paper_o
         database,
         execution_profile={
             "auto_paper_runtime_key": AUTO_PAPER_TECHNICAL_KEY,
-            "execution_mode": "paper_only",
+            "execution_mode": "local_paper",
             "mirror_to_gateway": False,
             "cost_gate_verified": False,
         },
@@ -79,7 +80,7 @@ def test_db_blockers_accepts_exact_scope_armed_directional_run(tmp_path: Path) -
         database,
         execution_profile={
             "auto_paper_runtime_key": AUTO_PAPER_TECHNICAL_KEY,
-            "execution_mode": "binance_simulation_first",
+            "execution_mode": "binance_testnet",
             "mirror_to_gateway": True,
             "cost_gate_verified": True,
             "acceptance_symbols": symbols,
@@ -99,7 +100,7 @@ def test_db_blockers_reports_unmanaged_external_position_from_latest_directional
         database,
         execution_profile={
             "auto_paper_runtime_key": AUTO_PAPER_TECHNICAL_KEY,
-            "execution_mode": "binance_simulation_first",
+            "execution_mode": "binance_testnet",
             "mirror_to_gateway": True,
             "cost_gate_verified": True,
             "acceptance_symbols": symbols,
@@ -111,3 +112,17 @@ def test_db_blockers_reports_unmanaged_external_position_from_latest_directional
     blockers = _check_db_blockers(database)
 
     assert "unmanaged_external_position" in blockers
+
+
+def test_stale_scheduler_heartbeat_is_offline_even_when_state_says_running() -> None:
+    now = datetime(2026, 7, 27, 3, 0, tzinfo=UTC)
+    blockers = _check_scheduler_blockers(
+        {
+            "running": True,
+            "heartbeat_at": (now - timedelta(seconds=121)).isoformat(),
+            "heartbeat_interval_seconds": 30,
+        },
+        now=now,
+    )
+
+    assert blockers == ["scheduler_heartbeat_stale"]

@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
 from services.data.universe import FIXED_TOP20_SYMBOLS, platform_to_exchange_symbol
+from services.execution.execution_truth import binance_client_order_id
 from services.execution.order_context import build_gateway_market_rules
 from services.execution.order_normalizer import OrderNormalizer
 from shared.binance_network import binance_ccxt_config
 from shared.config import settings
-from shared.models import ExchangeAccountSnapshot, ExchangeGatewayCapability, ExecutionOrderRequest, TradeSide
+from shared.models import (
+    ExchangeAccountSnapshot,
+    ExchangeGatewayCapability,
+    ExecutionOrderRequest,
+    PretradeMarketSnapshot,
+    TradeSide,
+)
 from shared.models.execution_runtime import (
     BinanceTestnetAccountStatus,
     BinanceTestnetOrderView,
@@ -76,12 +82,14 @@ def _resolve_gateway_quantity(*, client: Any, symbol: str, order_request: Execut
 
 
 def _binance_client_order_id(*, live_run_id: str, idempotency_key: str) -> str:
-    digest = hashlib.sha256(f"{live_run_id}:{idempotency_key}".encode()).hexdigest()
-    return f"aq-{digest[:33]}"
+    return binance_client_order_id(
+        live_run_id=live_run_id,
+        idempotency_key=idempotency_key,
+    )
 
 
 def _order_id(payload: dict[str, Any]) -> str:
-    return str(payload.get("id") or payload.get("orderId") or "")
+    return str(payload.get("id") or payload.get("orderId") or payload.get("algoId") or "")
 
 
 def _positive_float(value: Any) -> float | None:
@@ -139,6 +147,61 @@ def _fill_timestamp(payload: dict[str, Any]) -> str | None:
     return datetime.fromtimestamp(timestamp, tz=UTC).isoformat()
 
 
+def _client_order_id(payload: dict[str, Any]) -> str | None:
+    info = _payload_info(payload)
+    raw = (
+        payload.get("clientOrderId")
+        or payload.get("client_order_id")
+        or info.get("clientOrderId")
+        or info.get("origClientOrderId")
+    )
+    parsed = str(raw).strip() if raw is not None else ""
+    return parsed or None
+
+
+def _fill_trade_details(
+    *,
+    client: Any,
+    symbol: str,
+    exchange_order_id: str,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    trades: list[dict[str, Any]] = []
+    raw_method = getattr(client, "fapiPrivateGetUserTrades", None)
+    if callable(raw_method):
+        try:
+            payload = raw_method(
+                {
+                    "symbol": _binance_market_id(symbol),
+                    "orderId": exchange_order_id,
+                }
+            )
+            trades = [item for item in payload or [] if isinstance(item, dict)]
+        except Exception:  # noqa: BLE001 - CCXT fallback below
+            trades = []
+    if not trades:
+        fetch_my_trades = getattr(client, "fetch_my_trades", None)
+        if callable(fetch_my_trades):
+            try:
+                payload = fetch_my_trades(symbol, None, None, {"orderId": exchange_order_id})
+                trades = [item for item in payload or [] if isinstance(item, dict)]
+            except Exception:  # noqa: BLE001 - order remains unprojectable without trade identity
+                trades = []
+    trade_ids: list[str] = []
+    commissions: list[dict[str, Any]] = []
+    for trade in trades:
+        info = _payload_info(trade)
+        trade_id = str(trade.get("id") or info.get("id") or "").strip()
+        if trade_id and trade_id not in trade_ids:
+            trade_ids.append(trade_id)
+        fee_payload = trade.get("fee")
+        fee = fee_payload if isinstance(fee_payload, dict) else {}
+        asset = str(fee.get("currency") or info.get("commissionAsset") or "").strip()
+        amount = _positive_float(fee.get("cost") or info.get("commission"))
+        if asset and amount is not None:
+            commissions.append({"asset": asset, "amount": str(amount)})
+    return trade_ids, commissions
+
+
 def _hydrate_filled_order(*, client: Any, symbol: str, payload: dict[str, Any]) -> tuple[dict[str, Any], str]:
     if _average_fill_price(payload) is not None and _filled_quantity(payload) is not None:
         return payload, "create_order"
@@ -163,6 +226,16 @@ def _gateway_order_side(*, direction: str, close_only: bool) -> str:
     if direction == "long":
         return "sell" if close_only else "buy"
     return "buy" if close_only else "sell"
+
+
+def _hedge_mode_enabled(client: Any) -> bool:
+    method = getattr(client, "fapiPrivateGetPositionSideDual", None)
+    if not callable(method):
+        return False
+    payload = method({})
+    if not isinstance(payload, dict):
+        return False
+    return str(payload.get("dualSidePosition")).strip().lower() == "true"
 
 
 def _validate_protection_prices(order_request: ExecutionOrderRequest) -> None:
@@ -204,6 +277,42 @@ def _validate_protection_prices(order_request: ExecutionOrderRequest) -> None:
                 f"protection_price_too_far: {label} {price} differs from reference "
                 f"{reference_price} by more than {settings.gateway_protection_max_distance_bps} bps"
             )
+
+
+def _reprice_protection_from_fill(
+    order_request: ExecutionOrderRequest,
+    *,
+    average_fill_price: float,
+) -> ExecutionOrderRequest:
+    reference = _positive_float(
+        order_request.entry_context.get("reference_price")
+        or order_request.entry_context.get("gateway_reference_price")
+        or order_request.entry_context.get("limit_price")
+    )
+    if reference is None:
+        raise ValueError("protection repricing requires decision reference price")
+    direction = order_request.direction
+    stop = _positive_float(order_request.stoploss_plan.get("price"))
+    take = _positive_float(order_request.takeprofit_plan.get("price"))
+    stop_distance = abs(reference - stop) if stop is not None else None
+    take_distance = abs(take - reference) if take is not None else None
+    if direction is TradeSide.LONG:
+        repriced_stop = average_fill_price - stop_distance if stop_distance is not None else None
+        repriced_take = average_fill_price + take_distance if take_distance is not None else None
+    else:
+        repriced_stop = average_fill_price + stop_distance if stop_distance is not None else None
+        repriced_take = average_fill_price - take_distance if take_distance is not None else None
+    return order_request.model_copy(
+        update={
+            "entry_context": {
+                **order_request.entry_context,
+                "protection_basis": "exchange_average_fill_price",
+                "protection_fill_price": average_fill_price,
+            },
+            "stoploss_plan": {"price": repriced_stop} if repriced_stop is not None else {},
+            "takeprofit_plan": {"price": repriced_take} if repriced_take is not None else {},
+        }
+    )
 
 
 @dataclass
@@ -427,6 +536,86 @@ class BinanceUsdtPerpetualGateway:
                 pass
         self.client.cancel_order(gateway_order_id, _normalize_binance_symbol(symbol))
 
+    def pretrade_market_snapshot(
+        self,
+        *,
+        order_request: ExecutionOrderRequest,
+    ) -> PretradeMarketSnapshot:
+        exchange_symbol = _normalize_binance_symbol(order_request.symbol)
+        market_id = _binance_market_id(exchange_symbol)
+        ticker = self.client.fetch_ticker(exchange_symbol)
+        info = _payload_info(ticker)
+        bid = _positive_float(ticker.get("bid") or info.get("bidPrice"))
+        ask = _positive_float(ticker.get("ask") or info.get("askPrice"))
+        mark = _positive_float(ticker.get("mark") or info.get("markPrice"))
+        exchange_times: list[float] = []
+
+        if bid is None or ask is None:
+            fetch_book = getattr(self.client, "fapiPublicGetTickerBookTicker", None)
+            book = fetch_book({"symbol": market_id}) if callable(fetch_book) else {}
+            if isinstance(book, dict):
+                bid = bid or _positive_float(book.get("bidPrice") or book.get("bid"))
+                ask = ask or _positive_float(book.get("askPrice") or book.get("ask"))
+                book_time = book.get("time") or book.get("timestamp")
+                if book_time is not None:
+                    with contextlib.suppress(TypeError, ValueError):
+                        exchange_times.append(float(book_time))
+
+        if mark is None:
+            fetch_mark = getattr(self.client, "fapiPublicGetPremiumIndex", None)
+            premium = fetch_mark({"symbol": market_id}) if callable(fetch_mark) else {}
+            if isinstance(premium, dict):
+                mark = _positive_float(premium.get("markPrice") or premium.get("mark"))
+                premium_time = premium.get("time") or premium.get("timestamp")
+                if premium_time is not None:
+                    with contextlib.suppress(TypeError, ValueError):
+                        exchange_times.append(float(premium_time))
+
+        if bid is None or ask is None or mark is None:
+            raise ValueError("PRETRADE_MARKET_SNAPSHOT_UNAVAILABLE")
+        server_raw = max(exchange_times) if exchange_times else None
+        if server_raw is None:
+            fetch_time = getattr(self.client, "fetch_time", None)
+            server_raw = fetch_time() if callable(fetch_time) else ticker.get("timestamp")
+        if server_raw is None:
+            raise ValueError("PRETRADE_SERVER_TIME_UNAVAILABLE")
+        server_timestamp = float(server_raw)
+        if server_timestamp > 10_000_000_000:
+            server_timestamp /= 1000
+        server_time = datetime.fromtimestamp(server_timestamp, tz=UTC)
+        decision_time = (
+            order_request.trade_intent.signal_candle_close_time
+            if order_request.trade_intent is not None
+            else order_request.entry_context.get("decision_bar_close_time")
+        )
+        if isinstance(decision_time, str):
+            decision_time = datetime.fromisoformat(decision_time.replace("Z", "+00:00"))
+        if not isinstance(decision_time, datetime):
+            raise ValueError("PRETRADE_DECISION_TIME_UNAVAILABLE")
+        if decision_time.tzinfo is None:
+            decision_time = decision_time.replace(tzinfo=UTC)
+        atr = _positive_float(order_request.entry_context.get("atr") or order_request.entry_context.get("atr_14"))
+        if atr is None:
+            raise ValueError("PRETRADE_ATR_UNAVAILABLE")
+        rules = order_request.market_rules_snapshot
+        if rules is None:
+            rules = self.load_market_rules_snapshot(
+                symbol=order_request.symbol,
+                leverage=Decimal(str(order_request.entry_context.get("requested_leverage") or 1)),
+                loaded_at=server_time,
+            )
+        return PretradeMarketSnapshot(
+            server_time=server_time,
+            bid=Decimal(str(bid)),
+            ask=Decimal(str(ask)),
+            mark_price=Decimal(str(mark)),
+            decision_bar_close_time=decision_time,
+            decision_age_seconds=max((server_time - decision_time).total_seconds(), 0.0),
+            atr=Decimal(str(atr)),
+            tick_size=rules.tick_size,
+            step_size=rules.step_size,
+        )
+
     def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict[str, Any]:
         normalized_order = None
         if order_request.trade_intent is not None:
@@ -460,9 +649,17 @@ class BinanceUsdtPerpetualGateway:
             direction = str(order_request.direction).lower()
             side = _gateway_order_side(direction=direction, close_only=close_only)
         order_type = str(order_request.entry_context.get("order_type") or settings.execution_default_order_type)
-        params: dict[str, Any] = {
-            "positionSide": normalized_order.position_side if normalized_order is not None else "BOTH"
-        }
+        hedge_mode = (
+            normalized_order is not None and normalized_order.rules_snapshot.position_mode == "HEDGE"
+        ) or _hedge_mode_enabled(self.client)
+        requested_position_side = (
+            normalized_order.position_side
+            if normalized_order is not None
+            else str(
+                order_request.entry_context.get("authoritative_position_side") or order_request.direction.value
+            ).upper()
+        )
+        params: dict[str, Any] = {"positionSide": requested_position_side if hedge_mode else "BOTH"}
         if normalized_order is not None:
             params["newClientOrderId"] = normalized_order.client_order_id
         elif order_request.idempotency_key:
@@ -470,8 +667,9 @@ class BinanceUsdtPerpetualGateway:
                 live_run_id=live_run_id,
                 idempotency_key=order_request.idempotency_key,
             )
-        if (normalized_order is not None and normalized_order.reduce_only is True) or (
-            normalized_order is None and close_only
+        if not hedge_mode and (
+            (normalized_order is not None and normalized_order.reduce_only is True)
+            or (normalized_order is None and close_only)
         ):
             params["reduceOnly"] = True
         _validate_protection_prices(order_request)
@@ -503,28 +701,76 @@ class BinanceUsdtPerpetualGateway:
         average_fill_price = _average_fill_price(created)
         filled_quantity = _filled_quantity(created)
         fill_timestamp = _fill_timestamp(created)
+        exchange_order_id = _order_id(created)
+        client_order_id = _client_order_id(created) or params.get("newClientOrderId")
+        trade_ids: list[str] = []
+        commissions: list[dict[str, Any]] = []
+        if gateway_status in {"filled", "closed"} and exchange_order_id:
+            trade_ids, commissions = _fill_trade_details(
+                client=self.client,
+                symbol=symbol,
+                exchange_order_id=exchange_order_id,
+            )
         protection_refs: list[dict[str, Any]] = []
+        protection_request = order_request
         # A resting limit entry has no position to protect yet.  Submitting
         # ReduceOnly brackets before its fill reserves close capacity and makes
         # a later emergency close fail with Binance -2022.
-        if not close_only and gateway_status in {"filled", "closed"}:
-            try:
-                protection_refs = self._submit_protection_algo_orders(
-                    order_request=order_request,
-                    side=side,
-                    quantity=quantity,
-                )
-            except Exception as exc:
-                compensation = self._compensate_unprotected_entry(
-                    created=created,
-                    symbol=symbol,
-                    entry_side=side,
-                    quantity=quantity,
-                )
-                raise ValueError(f"protection_order_submit_failed: {exc}; compensation={compensation}") from exc
+        expected_protections = int("price" in order_request.stoploss_plan) + int(
+            "price" in order_request.takeprofit_plan
+        )
+        if not close_only and gateway_status in {"filled", "closed"} and expected_protections:
+            if average_fill_price is None:
+                raise ValueError("protection_order_submit_requires_average_fill_price")
+            protection_request = _reprice_protection_from_fill(
+                order_request,
+                average_fill_price=average_fill_price,
+            )
+            protection_errors: list[str] = []
+            for attempt in (1, 2):
+                try:
+                    attempt_request = protection_request.model_copy(
+                        update={
+                            "entry_context": {
+                                **protection_request.entry_context,
+                                "protection_attempt": attempt,
+                            }
+                        }
+                    )
+                    protection_refs = self._submit_protection_algo_orders(
+                        order_request=attempt_request,
+                        side=side,
+                        quantity=quantity,
+                    )
+                    confirmed_protections = [ref for ref in protection_refs if _order_id(ref)]
+                    if len(confirmed_protections) != expected_protections:
+                        raise ValueError(
+                            "protection_order_ids_missing: "
+                            f"expected={expected_protections}, confirmed={len(confirmed_protections)}"
+                        )
+                    break
+                except Exception as exc:  # noqa: BLE001 - exactly one bounded retry
+                    protection_errors.append(f"attempt_{attempt}:{exc}")
+                    protection_refs = []
+            if not protection_refs:
+                protection_error = "; ".join(protection_errors)
+                try:
+                    compensation = self._compensate_unprotected_entry(
+                        created=created,
+                        symbol=symbol,
+                        entry_side=side,
+                        quantity=quantity,
+                    )
+                except Exception as emergency_exc:
+                    raise ValueError(
+                        f"protection_order_submit_failed: {protection_error}; emergency_close_failed:{emergency_exc}"
+                    ) from emergency_exc
+                else:
+                    raise ValueError(f"protection_order_submit_failed: {protection_error}; compensation={compensation}")
         return {
             "live_run_id": live_run_id,
-            "gateway_order_id": _order_id(created),
+            "gateway_order_id": exchange_order_id,
+            "client_order_id": client_order_id,
             "gateway_status": gateway_status,
             "symbol": order_request.symbol,
             "quantity": quantity,
@@ -532,9 +778,21 @@ class BinanceUsdtPerpetualGateway:
             "average_fill_price": average_fill_price,
             "fill_timestamp": fill_timestamp,
             "fill_source": fill_source,
+            "trade_ids": trade_ids,
+            "commissions": commissions,
             "requested_notional": float(order_request.entry_context.get("requested_notional") or 0.0),
             "reduce_only": close_only,
             "protection_order_refs": protection_refs,
+            "stoploss_plan": (
+                protection_request.stoploss_plan
+                if not close_only and gateway_status in {"filled", "closed"} and expected_protections
+                else order_request.stoploss_plan
+            ),
+            "takeprofit_plan": (
+                protection_request.takeprofit_plan
+                if not close_only and gateway_status in {"filled", "closed"} and expected_protections
+                else order_request.takeprofit_plan
+            ),
         }
 
     def cancel_order(self, *, gateway_order_id: str) -> dict[str, Any]:
@@ -686,6 +944,19 @@ class BinanceUsdtPerpetualGateway:
         close_side = "SELL" if side == "buy" else "BUY"
         refs: list[dict[str, Any] | None] = []
         symbol = _binance_market_id(_normalize_binance_symbol(order_request.symbol))
+        hedge_mode = bool(
+            order_request.market_rules_snapshot is not None
+            and str(order_request.market_rules_snapshot.position_mode).upper() in {"HEDGE", "HEDGE_MODE"}
+        )
+        position_side = "LONG" if side == "buy" else "SHORT"
+        attempt = int(order_request.entry_context.get("protection_attempt") or 1)
+        base_client_id = binance_client_order_id(
+            live_run_id="protection",
+            idempotency_key=f"{order_request.idempotency_key or order_request.symbol}:{attempt}",
+        )
+        close_params: dict[str, Any] = (
+            {"positionSide": position_side} if hedge_mode else {"positionSide": "BOTH", "reduceOnly": True}
+        )
         if "price" in order_request.stoploss_plan:
             trigger_price = self._protection_trigger_price(
                 order_request.symbol,
@@ -702,7 +973,8 @@ class BinanceUsdtPerpetualGateway:
                             "type": "STOP_MARKET",
                             "quantity": quantity,
                             "triggerPrice": trigger_price,
-                            "reduceOnly": "true",
+                            "clientAlgoId": f"{base_client_id[:31]}-s",
+                            **close_params,
                         },
                     ),
                     "protection_order_kind": "algo",
@@ -721,7 +993,10 @@ class BinanceUsdtPerpetualGateway:
                         close_side.lower(),
                         quantity,
                         target_price,
-                        {"positionSide": "BOTH", "reduceOnly": True},
+                        {
+                            **close_params,
+                            "newClientOrderId": f"{base_client_id[:31]}-t",
+                        },
                     ),
                     "protection_order_kind": "regular_limit",
                 }

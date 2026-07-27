@@ -128,7 +128,7 @@ def main() -> int:
 
         # === 检查3: directional_run_not_armed ===
         is_armed = bool(
-            execution_mode == "binance_simulation_first"
+            execution_mode == "binance_testnet"
             and profile.get("mirror_to_gateway") is True
             and profile.get("cost_gate_verified") is True
         )
@@ -136,7 +136,7 @@ def main() -> int:
             print(f"  {GREEN}OK:{RESET} directional_run is armed (binance_simulation_first)")
         else:
             print(f"  {YELLOW}注意:{RESET} directional_run NOT armed (mode={execution_mode})")
-            if execution_mode == "paper_only":
+            if execution_mode == "local_paper":
                 issues_found.append("directional_run_not_armed (paper_only mode)")
 
     conn.close()

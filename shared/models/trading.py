@@ -92,6 +92,7 @@ class BlockCode(StrEnum):
 
 
 class DecisionEventType(StrEnum):
+    FUNNEL_STAGE = "funnel_stage"
     DATA_VALIDATED = "DATA_VALIDATED"
     STRATEGY_SIGNAL = "STRATEGY_SIGNAL"
     PORTFOLIO_DECISION = "PORTFOLIO_DECISION"

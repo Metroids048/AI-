@@ -32,7 +32,7 @@ def arm_validated_directional_run(
             continue
         profile = {
             **run.execution_profile,
-            "execution_mode": "binance_simulation_first",
+            "execution_mode": "binance_testnet",
             "mirror_to_gateway": True,
             "cost_gate_verified": True,
             "testnet_acceptance_verified_at": verified,
@@ -86,13 +86,13 @@ def directional_run_is_armed(
         active_profile = active_config.get("execution_profile")
         strategy_rules = active_config.get("strategy_rules")
         return bool(
-            profile.get("execution_mode") == "binance_simulation_first"
+            profile.get("execution_mode") == "binance_testnet"
             and profile.get("mirror_to_gateway") is True
             and profile.get("cost_gate_verified") is True
             and list(profile.get("acceptance_symbols") or []) == expected_symbols
             and profile.get("acceptance_scope_hash") == expected_scope_hash
             and isinstance(active_profile, dict)
-            and active_profile.get("execution_mode") == "binance_simulation_first"
+            and active_profile.get("execution_mode") == "binance_testnet"
             and active_profile.get("mirror_to_gateway") is True
             and active_profile.get("cost_gate_verified") is True
             and list(active_profile.get("acceptance_symbols") or []) == expected_symbols

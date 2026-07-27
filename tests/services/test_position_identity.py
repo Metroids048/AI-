@@ -73,6 +73,78 @@ class FilledNormalizedGateway(ReconcileGateway):
         }
 
 
+class FlatGateway(ReconcileGateway):
+    api_backend = "testnet-fallback"
+
+    def reconcile(self, *, live_run_id: str) -> dict:
+        del live_run_id
+        return {
+            "open_positions": [],
+            "open_orders": [],
+            "reconciliation_status": "healthy",
+        }
+
+
+def test_exchange_flat_quarantines_stale_unmanaged_projection(db_session) -> None:
+    repo = ExecutionRepository(db_session)
+    record = repo.create_position_record(
+        PositionRecord(
+            exchange_account="binance:usdt_perpetual:testnet-fallback",
+            symbol="BTC/USDT",
+            position_side=TradeSide.LONG,
+            opened_at=datetime(2026, 7, 23, tzinfo=UTC),
+            quantity=0.01,
+            order_origin="external_reconciliation",
+            run_id="paper-run-btc",
+            management_status=PositionManagementStatus.UNMANAGED_EXTERNAL_POSITION,
+        )
+    )
+    protection = repo.create_protection_record(
+        ProtectionRecord(
+            position_record_id=record.position_record_id or "",
+            stop_price=59_000,
+            take_profit_price=62_000,
+            protection_source="legacy_evidence",
+        )
+    )
+
+    result = PaperExchangeExecutionService(
+        execution_repo=repo,
+        gateway=FlatGateway(),
+    ).reconcile_local_positions_with_exchange(
+        paper_run=PaperRun(
+            paper_run_id="paper-run-btc",
+            strategy_id="strategy-btc",
+            candidate_symbols=["BTC/USDT"],
+            paper_status="running",
+        ),
+        strategy=StrategyContract.model_construct(strategy_id="strategy-btc"),
+        paper_run_id="paper-run-btc",
+        active_positions={},
+        exit_ladder_metrics={},
+        protective_trailing={},
+        reconcile_missing_counts={},
+        cycle_time=datetime(2026, 7, 23, 1, tzinfo=UTC),
+        close_position_fn=lambda **kwargs: (_ for _ in ()).throw(AssertionError("must not close")),
+    )
+
+    refreshed = repo.get_position_record(record.position_record_id or "")
+    refreshed_protection = repo.get_latest_protection_record(protection.position_record_id)
+    assert refreshed is not None
+    assert refreshed.management_status is PositionManagementStatus.RECONCILED_GHOST
+    assert refreshed_protection is not None
+    assert refreshed_protection.status is ProtectionRecordStatus.CANCELLED_GHOST_POSITION
+    assert (
+        repo.find_open_position_record(
+            exchange_account=record.exchange_account,
+            symbol=record.symbol,
+            position_side=record.position_side,
+        )
+        is None
+    )
+    assert any(action.action == "reconcile_local_ghost_quarantined" for action in result["actions"])
+
+
 def test_eth_external_short_does_not_inherit_invalid_historical_stop(db_session) -> None:
     repo = ExecutionRepository(db_session)
     record = repo.create_position_record(
@@ -405,7 +477,7 @@ def test_stale_scheduler_token_cannot_reach_gateway_submit(db_session) -> None:
         position=None,
     )
 
-    assert result.execution_status == "rejected"
+    assert result.execution_status == "EXCHANGE_REJECTED"
     assert "lease_lost/fenced" in (result.rejection_reason or "")
     assert gateway.submitted == []
 

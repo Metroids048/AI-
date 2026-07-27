@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+
+import pandas as pd
 
 from services.data import DataRepository
 from services.data.market import MarketQueryService
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_scope_hash
 from services.execution.account_equity import resolve_manual_position_pnl, resolve_paper_account_equity
-from services.execution.decision_pipeline import DecisionPipeline, DecisionPipelineResult
+from services.execution.decision_pipeline import (
+    DecisionPipeline,
+    DecisionPipelineResult,
+    closed_bars_for_decision,
+)
 from services.execution.gateway import configured_gateways
 from services.strategy_library import (
     AgentTaskRepository,
@@ -20,7 +26,7 @@ from services.strategy_library import (
     ReviewRepository,
     StrategyRepository,
 )
-from services.strategy_library.candidates.registry import get_candidate
+from services.strategy_library.technical.volatility_regime import calculate_atr
 from shared.config import settings
 from shared.models import (
     DecisionVetoResult,
@@ -99,6 +105,19 @@ class PaperSignalGenerator:
             strategy=strategy,
             atr=decision.atr,
         )
+        sampling_mode = bool(decision.trace.get("testnet_sampling_mode"))
+        if sampling_mode and decision.atr is not None and decision.atr > 0:
+            stop_distance = max(
+                Decimal(str(decision.atr)) * Decimal("1.2"),
+                reference_price * Decimal("0.0035"),
+            )
+            take_distance = stop_distance * Decimal("1.5")
+            if direction is TradeSide.LONG:
+                stoploss = reference_price - stop_distance
+                takeprofit = reference_price + take_distance
+            else:
+                stoploss = reference_price + stop_distance
+                takeprofit = reference_price - take_distance
         order_type = str(
             decision.trace.get("order_type_override")
             or strategy.rules.entry_rules.get("order_type", settings.execution_default_order_type)
@@ -108,7 +127,15 @@ class PaperSignalGenerator:
             direction=direction,
             order_type=order_type,
         )
-        requested_leverage = self._requested_leverage(strategy=strategy, paper_run=paper_run, symbol=symbol)
+        requested_leverage = (
+            1.0
+            if sampling_mode
+            else self._requested_leverage(
+                strategy=strategy,
+                paper_run=paper_run,
+                symbol=symbol,
+            )
+        )
         requested_notional = self._requested_notional(
             strategy=strategy,
             paper_run=paper_run,
@@ -118,6 +145,19 @@ class PaperSignalGenerator:
             reference_price=reference_price,
             stoploss_price=stoploss,
         )
+        if sampling_mode:
+            account_equity, _ = resolve_paper_account_equity(
+                paper_run=paper_run,
+                execution_repo=self.execution_repo,
+            )
+            sampling_cap = max(
+                5.0,
+                min(
+                    float(paper_run.execution_profile.get("sampling_max_notional_usdt") or 20.0),
+                    account_equity * 0.002,
+                ),
+            )
+            requested_notional = min(requested_notional, sampling_cap)
         risk_state = self._build_risk_state(
             paper_run=paper_run,
             strategy=strategy,
@@ -155,6 +195,7 @@ class PaperSignalGenerator:
                 "paper_signal_source": "paper_signal_generator",
                 "paper_strategy_source": strategy.source,
                 "reference_price": str(reference_price),
+                "atr": decision.atr,
                 "order_type": order_type,
                 "limit_price": limit_price,
                 "entry_limit_expiry_at": (
@@ -164,6 +205,8 @@ class PaperSignalGenerator:
                 ),
                 "requested_notional": requested_notional,
                 "requested_leverage": requested_leverage,
+                "evidence_class": decision.trace.get("evidence_class"),
+                "sampling_max_hold_bars": 4 if sampling_mode else None,
                 "estimated_round_trip_cost_bps": self._round_trip_cost_bps(strategy=strategy, symbol=symbol),
                 "runtime_config_version": paper_run.execution_profile.get("runtime_config_version"),
                 "max_portfolio_initial_risk_fraction": float(
@@ -265,6 +308,9 @@ class PaperSignalGenerator:
             timeframe=timeframe,
             enable_decision_veto=request.enable_decision_veto,
             relaxed_signals=settings.paper_runtime_relaxed_signals or is_signal_observation,
+            cycle_id=request.idempotency_key,
+            decision_id=request.idempotency_key,
+            decision_time=request.decision_time,
         )
         if is_signal_observation:
             return replace(
@@ -275,40 +321,24 @@ class PaperSignalGenerator:
                     "edge_stats_source": "raw_bar_proxy_non_authoritative",
                 },
             )
-        if self._sampling_fallback_allowed(paper_run=paper_run, primary=decision, symbol=symbol):
-            fallback_config = get_candidate("operator_heuristic_v2_relaxed").get_config()
-            # Entry selection changes only for Testnet sampling.  Existing
-            # position, leverage and all exit/protection settings stay owned by
-            # the armed runtime's active strategy configuration.
-            fallback_config["exit_rules"] = strategy.rules.exit_rules
-            fallback_config["stoploss_rules"] = strategy.rules.stoploss_rules
-            fallback_config["takeprofit_rules"] = strategy.rules.takeprofit_rules
-            fallback_config["position_rules"] = strategy.rules.position_rules
-            fallback_entry = dict(fallback_config["entry_rules"])
-            fallback_entry.update(
-                {
-                    "simulation_sampling_mode": True,
-                    "market_intelligence_enabled": False,
-                    # Natural Testnet sampling must produce an exchange fill rather
-                    # than a resting limit order that leaves the strategy chain
-                    # unproven for another full observation window.
-                    "order_type": "market",
-                }
+        sampling_ineligibility = self._sampling_fallback_ineligibility_reason(
+            paper_run=paper_run,
+            primary=decision,
+            symbol=symbol,
+        )
+        if (
+            paper_run is not None
+            and sampling_ineligibility is None
+            and self._sampling_rate_limit_allows(
+                paper_run=paper_run,
+                symbol=symbol,
             )
-            fallback_config["entry_rules"] = fallback_entry
-            fallback_strategy = strategy.model_copy(
-                update={
-                    "strategy_key": "auto_paper_testnet_sampling",
-                    "source": "testnet_sampling_fallback",
-                    "rules": type(strategy.rules)(**fallback_config),
-                }
-            )
-            fallback = self.decision_pipeline.evaluate(
-                strategy=fallback_strategy,
+        ):
+            fallback = self._sampling_lane_decision(
                 symbol=symbol,
                 timeframe=timeframe,
-                enable_decision_veto=False,
-                relaxed_signals=False,
+                primary=decision,
+                decision_time=request.decision_time,
             )
             if fallback.should_trade:
                 return replace(
@@ -320,49 +350,272 @@ class PaperSignalGenerator:
                         "testnet_sampling_mode": True,
                         "primary_candidate_id": strategy.rules.entry_rules.get("candidate_id"),
                         "primary_rejection_reason": decision.reason,
-                        "candidate_id": "operator_heuristic_v2_relaxed",
+                        "candidate_id": "testnet_sampling_lane_v1",
+                        "evidence_class": "NON_PROMOTABLE_PIPELINE_SAMPLE",
                         "order_type_override": "market",
                     },
                 )
             return replace(
                 decision,
                 trace={
-                    **decision.trace,
+                    **fallback.trace,
                     "sampling_fallback_attempted": True,
-                    "sampling_fallback_rejection_reason": fallback.reason,
+                    "sampling_fallback_rejection_reason": fallback.trace.get(
+                        "sampling_fallback_rejection_reason",
+                        fallback.reason,
+                    ),
                 },
             )
-        return decision
-
-    @staticmethod
-    def _sampling_fallback_allowed(*, paper_run: PaperRun | None, primary: DecisionPipelineResult, symbol: str) -> bool:
-        if paper_run is None or primary.should_trade:
-            return False
-        profile = paper_run.execution_profile
-        expected_symbols = list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
-        if symbol not in AUTO_SIMULATION_EXECUTION_SYMBOLS:
-            return False
-        if list(profile.get("acceptance_symbols") or []) != expected_symbols:
-            return False
-        if profile.get("acceptance_scope_hash") != execution_scope_hash(expected_symbols):
-            return False
-        return bool(
-            profile.get("strategy_lane") == "directional"
-            and profile.get("simulation_sampling_fallback_enabled", False)
-            and profile.get("execution_mode") == "binance_simulation_first"
-            and profile.get("mirror_to_gateway") is True
-            and profile.get("cost_gate_verified") is True
-            and settings.binance_use_testnet
-            and settings.binance_auto_execute
-            and not settings.live_trading_enabled
-            and primary.reason
+        if (
+            paper_run is not None
+            and paper_run.execution_profile.get("strategy_lane") == "directional"
+            and paper_run.execution_profile.get("simulation_sampling_fallback_enabled", False)
+            and decision.reason
             in {
                 "technical_signals_insufficient",
                 "multi_timeframe_disagreement",
                 "ensemble_discarded",
                 "meta_label_bet_skipped",
             }
+        ):
+            return replace(
+                decision,
+                trace={
+                    **decision.trace,
+                    "sampling_fallback_attempted": False,
+                    "sampling_fallback_rejection_reason": (sampling_ineligibility or "SAMPLING_RATE_LIMITED"),
+                },
+            )
+        return decision
+
+    def _sampling_lane_decision(
+        self,
+        *,
+        symbol: str,
+        timeframe: str,
+        primary: DecisionPipelineResult,
+        decision_time: datetime | None = None,
+    ) -> DecisionPipelineResult:
+        rejection_trace = {
+            **primary.trace,
+            "sampling_fallback_attempted": True,
+        }
+        if timeframe != "15m":
+            return replace(
+                primary,
+                trace={
+                    **rejection_trace,
+                    "sampling_fallback_rejection_reason": "SAMPLING_REQUIRES_CLOSED_15M_BAR",
+                },
+            )
+        bars = closed_bars_for_decision(
+            self.data_repo.list_ohlcv_bars(
+                symbol=symbol,
+                timeframe="15m",
+                limit=120,
+            ),
+            timeframe="15m",
+            decision_time=decision_time or datetime.now(UTC),
         )
+        if len(bars) < 52:
+            return replace(
+                primary,
+                trace={
+                    **rejection_trace,
+                    "sampling_fallback_rejection_reason": "SAMPLING_INDICATORS_UNAVAILABLE",
+                },
+            )
+        frame = pd.DataFrame(
+            [
+                {
+                    "open": float(bar.open),
+                    "high": float(bar.high),
+                    "low": float(bar.low),
+                    "close": float(bar.close),
+                    "volume": float(bar.volume),
+                }
+                for bar in bars
+            ],
+            index=pd.DatetimeIndex([bar.timestamp for bar in bars]),
+        )
+        close = frame["close"]
+        ema50 = float(close.ewm(span=50, adjust=False).mean().iloc[-1])
+        macd_line = (
+            close.ewm(span=12, adjust=False).mean()
+            - close.ewm(
+                span=26,
+                adjust=False,
+            ).mean()
+        )
+        macd_histogram = float((macd_line - macd_line.ewm(span=9, adjust=False).mean()).iloc[-1])
+        delta = close.diff()
+        average_gain = (
+            delta.clip(lower=0)
+            .ewm(
+                alpha=1 / 14,
+                adjust=False,
+                min_periods=14,
+            )
+            .mean()
+        )
+        average_loss = (
+            (-delta.clip(upper=0))
+            .ewm(
+                alpha=1 / 14,
+                adjust=False,
+                min_periods=14,
+            )
+            .mean()
+        )
+        relative_strength = average_gain / average_loss.replace(0, float("nan"))
+        rsi = float((100 - (100 / (1 + relative_strength))).iloc[-1])
+        atr = calculate_atr(frame, period=14)
+        latest_close = float(close.iloc[-1])
+        metrics = {
+            "close": latest_close,
+            "ema50": ema50,
+            "macd_histogram": macd_histogram,
+            "rsi14": rsi,
+            "atr14": atr,
+            "evaluated_at": datetime.now(UTC).isoformat(),
+        }
+        direction: TradeSide | None = None
+        if latest_close > ema50 and macd_histogram > 0 and 50 <= rsi <= 72 and atr is not None and atr > 0:
+            direction = TradeSide.LONG
+        elif latest_close < ema50 and macd_histogram < 0 and 28 <= rsi <= 50 and atr is not None and atr > 0:
+            direction = TradeSide.SHORT
+        if direction is None:
+            return replace(
+                primary,
+                trace={
+                    **rejection_trace,
+                    "sampling_fallback_rejection_reason": "SAMPLING_RULES_NOT_ALIGNED",
+                    "sampling_metrics": metrics,
+                },
+            )
+        return DecisionPipelineResult(
+            direction=direction,
+            should_trade=True,
+            reason="testnet_sampling_lane_signal",
+            reference_price=Decimal(str(latest_close)),
+            bar_time=bars[-1].timestamp,
+            signals=[],
+            ensemble=None,
+            meta_label=None,
+            veto_result=None,
+            confidence_multiplier=1.0,
+            atr=atr,
+            volatility_context={"sampling": True},
+            trace={
+                "pipeline_status": "testnet_sampling_signal",
+                "testnet_sampling_mode": True,
+                "evidence_class": "NON_PROMOTABLE_PIPELINE_SAMPLE",
+                "sampling_metrics": metrics,
+            },
+        )
+
+    @staticmethod
+    def _sampling_fallback_allowed(
+        *,
+        paper_run: PaperRun | None,
+        primary: DecisionPipelineResult,
+        symbol: str,
+    ) -> bool:
+        return (
+            PaperSignalGenerator._sampling_fallback_ineligibility_reason(
+                paper_run=paper_run,
+                primary=primary,
+                symbol=symbol,
+            )
+            is None
+        )
+
+    @staticmethod
+    def _sampling_fallback_ineligibility_reason(
+        *,
+        paper_run: PaperRun | None,
+        primary: DecisionPipelineResult,
+        symbol: str,
+    ) -> str | None:
+        if paper_run is None:
+            return "SAMPLING_PAPER_RUN_MISSING"
+        if primary.should_trade:
+            return "SAMPLING_PRIMARY_CANDIDATE_AVAILABLE"
+        profile = paper_run.execution_profile
+        expected_symbols = list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+        if symbol not in AUTO_SIMULATION_EXECUTION_SYMBOLS:
+            return "SAMPLING_SYMBOL_NOT_ALLOWED"
+        if list(profile.get("acceptance_symbols") or []) != expected_symbols:
+            return "SAMPLING_SCOPE_SYMBOLS_MISMATCH"
+        if profile.get("acceptance_scope_hash") != execution_scope_hash(expected_symbols):
+            return "SAMPLING_SCOPE_HASH_MISMATCH"
+        if profile.get("strategy_lane") != "directional":
+            return "SAMPLING_LANE_NOT_DIRECTIONAL"
+        if not profile.get("simulation_sampling_fallback_enabled", False):
+            return "SAMPLING_DISABLED"
+        if profile.get("execution_mode") != "binance_testnet":
+            return "SAMPLING_EXECUTION_MODE_NOT_TESTNET"
+        if profile.get("mirror_to_gateway") is not True:
+            return "SAMPLING_GATEWAY_NOT_ARMED"
+        if profile.get("cost_gate_verified") is not True:
+            return "SAMPLING_COST_GATE_NOT_VERIFIED"
+        if not settings.binance_use_testnet:
+            return "SAMPLING_TESTNET_DISABLED"
+        if not settings.binance_auto_execute:
+            return "SAMPLING_AUTO_EXECUTE_DISABLED"
+        if settings.live_trading_enabled:
+            return "SAMPLING_MAINNET_ENABLED"
+        if primary.reason not in {
+            "technical_signals_insufficient",
+            "multi_timeframe_disagreement",
+            "ensemble_discarded",
+            "meta_label_bet_skipped",
+        }:
+            return "SAMPLING_PRIMARY_REASON_NOT_ELIGIBLE"
+        return None
+
+    def _sampling_rate_limit_allows(
+        self,
+        *,
+        paper_run: PaperRun,
+        symbol: str,
+    ) -> bool:
+        if self.execution_repo is None:
+            return True
+        now = datetime.now(UTC)
+        sampling_orders = [
+            order
+            for order in self.execution_repo.list_orders()
+            if order.paper_run_id == paper_run.paper_run_id
+            and order.symbol == symbol
+            and bool(order.entry_context.get("testnet_sampling_mode"))
+            and not order.close_only_mode
+            and order.execution_status not in {"rejected", "PRETRADE_REJECTED", "EXCHANGE_REJECTED"}
+        ]
+        today_count = sum(
+            1
+            for order in sampling_orders
+            if order.created_at is not None
+            and (
+                order.created_at.replace(tzinfo=UTC)
+                if order.created_at.tzinfo is None
+                else order.created_at.astimezone(UTC)
+            ).date()
+            == now.date()
+        )
+        if today_count >= 4:
+            return False
+        latest_created = max(
+            (
+                order.created_at.replace(tzinfo=UTC)
+                if order.created_at is not None and order.created_at.tzinfo is None
+                else order.created_at.astimezone(UTC)
+                for order in sampling_orders
+                if order.created_at is not None
+            ),
+            default=None,
+        )
+        return latest_created is None or now - latest_created >= timedelta(minutes=60)
 
     def _link_verification_decision(
         self,

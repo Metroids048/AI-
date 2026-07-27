@@ -328,6 +328,30 @@ def test_heartbeat_refreshes_fresh_secondary_when_a_new_timeframe_window_started
     ) == ["1m"]
 
 
+def test_heartbeat_prioritizes_new_decision_window_over_secondary_rotation() -> None:
+    from types import SimpleNamespace
+
+    from services.data.tasks import _heartbeat_timeframes_to_refresh
+
+    class PreviousDecisionWindow:
+        def check_freshness(self, **_kwargs):
+            return {"is_fresh": True}
+
+        def get_latest_ohlcv_bar(self, *, timeframe: str, **_kwargs):
+            if timeframe == "15m":
+                return SimpleNamespace(timestamp=datetime(2026, 7, 27, 9, 45, tzinfo=UTC))
+            return SimpleNamespace(timestamp=datetime(2026, 7, 27, 10, 0, tzinfo=UTC))
+
+    assert _heartbeat_timeframes_to_refresh(
+        data_repo=PreviousDecisionWindow(),
+        symbol="BTC/USDT",
+        primary_timeframe="1m",
+        secondary_timeframe="1h",
+        decision_timeframe="15m",
+        now=datetime(2026, 7, 27, 10, 0, 10, tzinfo=UTC),
+    ) == ["1m", "15m"]
+
+
 def test_market_data_heartbeat_stops_after_binance_rate_limit(monkeypatch) -> None:
     from services.data import binance as binance_module
     from services.data.service import DEFAULT_BINANCE_TOP20

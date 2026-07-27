@@ -25,6 +25,27 @@ from .scheduler_coordination import SchedulerCoordinator
 Runner = Callable[[], Any]
 
 
+def _aligned_run_delay_seconds(
+    *,
+    now: datetime,
+    interval_seconds: float,
+    offset_seconds: float,
+) -> float:
+    """Delay until the next UTC interval boundary plus a bounded exchange-data offset."""
+
+    if interval_seconds <= 0:
+        return 0.01
+    if interval_seconds < 60:
+        return interval_seconds
+    bounded_offset = min(max(offset_seconds, 0.0), max(interval_seconds - 0.001, 0.0))
+    timestamp = now.astimezone(UTC).timestamp()
+    slot_start = int(timestamp / interval_seconds) * interval_seconds
+    target = slot_start + bounded_offset
+    if target <= timestamp:
+        target += interval_seconds
+    return max(target - timestamp, 0.01)
+
+
 def _preload_celery_task_api() -> None:
     """Initialize Celery's lazy task exports before worker threads import task modules."""
     from celery import shared_task
@@ -97,6 +118,7 @@ class RuntimeScheduler:
         scheduler_instance_id: str | None = None,
     ) -> None:
         self.paper_cycle_seconds = float(paper_cycle_seconds or settings.paper_runtime_cycle_seconds)
+        self.paper_cycle_offset_seconds = float(settings.paper_runtime_cycle_offset_seconds)
         self.heartbeat_seconds = float(heartbeat_seconds or settings.market_data_heartbeat_seconds)
         self.notification_seconds = float(notification_seconds or settings.notification_dispatch_seconds)
         self.news_poll_seconds = float(news_poll_seconds)
@@ -152,6 +174,8 @@ class RuntimeScheduler:
                     records_auto_cycle=True,
                     run_immediately=False,
                     coordinated=True,
+                    align_to_interval=True,
+                    interval_offset_seconds=self.paper_cycle_offset_seconds,
                 )
             ),
             asyncio.create_task(
@@ -251,11 +275,22 @@ class RuntimeScheduler:
         affects_scheduler_health: bool = True,
         run_immediately: bool = True,
         coordinated: bool = False,
+        align_to_interval: bool = False,
+        interval_offset_seconds: float = 0.0,
     ) -> None:
         assert self._stop_event is not None
         if not run_immediately:
+            initial_wait = (
+                _aligned_run_delay_seconds(
+                    now=datetime.now(UTC),
+                    interval_seconds=interval_seconds,
+                    offset_seconds=interval_offset_seconds,
+                )
+                if align_to_interval
+                else max(interval_seconds, 0.01)
+            )
             with suppress(TimeoutError):
-                await asyncio.wait_for(self._stop_event.wait(), timeout=max(interval_seconds, 0.01))
+                await asyncio.wait_for(self._stop_event.wait(), timeout=initial_wait)
         while not self._stop_event.is_set():
             started = datetime.now(UTC)
             if records_auto_cycle:
@@ -282,7 +317,16 @@ class RuntimeScheduler:
                 self.status.last_auto_cycle_at = datetime.now(UTC)
                 self._next_cycle_at = self.status.last_auto_cycle_at
             retry_after_seconds = float(result.get("retry_after_seconds", 0)) if isinstance(result, dict) else 0.0
-            wait_seconds = max(interval_seconds, retry_after_seconds, 0.01)
+            scheduled_wait = (
+                _aligned_run_delay_seconds(
+                    now=datetime.now(UTC),
+                    interval_seconds=interval_seconds,
+                    offset_seconds=interval_offset_seconds,
+                )
+                if align_to_interval
+                else interval_seconds
+            )
+            wait_seconds = max(scheduled_wait, retry_after_seconds, 0.01)
             with suppress(TimeoutError):
                 await asyncio.wait_for(self._stop_event.wait(), timeout=wait_seconds)
             if records_auto_cycle and self._next_cycle_at is not None:

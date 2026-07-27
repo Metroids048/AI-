@@ -20,7 +20,7 @@ def test_authorization_stages_next_cycle_snapshot_when_active_config_exists(db_s
             paper_status="running",
             execution_profile={
                 "auto_paper_runtime_key": AUTO_PAPER_TECHNICAL_KEY,
-                "execution_mode": "paper_only",
+                "execution_mode": "local_paper",
                 "mirror_to_gateway": False,
                 "risk_profile_id": "paper-risk",
             },
@@ -47,9 +47,9 @@ def test_authorization_stages_next_cycle_snapshot_when_active_config_exists(db_s
     pending = config_repo.get_pending(run.paper_run_id or "")
     assert active is not None
     assert active.config_hash == baseline.config_hash
-    assert active.config["execution_profile"]["execution_mode"] == "paper_only"
+    assert active.config["execution_profile"]["execution_mode"] == "local_paper"
     assert pending is not None
-    assert pending.config["execution_profile"]["execution_mode"] == "binance_simulation_first"
+    assert pending.config["execution_profile"]["execution_mode"] == "binance_testnet"
     assert pending.config["execution_profile"]["mirror_to_gateway"] is True
     assert pending.config["strategy_rules"] == baseline.config["strategy_rules"]
 
@@ -84,7 +84,7 @@ def test_directional_run_is_not_armed_without_active_config_snapshot(db_session)
             paper_status="running",
             execution_profile={
                 "auto_paper_runtime_key": AUTO_PAPER_TECHNICAL_KEY,
-                "execution_mode": "binance_simulation_first",
+                "execution_mode": "binance_testnet",
                 "mirror_to_gateway": True,
                 "cost_gate_verified": True,
                 "acceptance_symbols": ["BTC/USDT", "ETH/USDT"],
@@ -105,7 +105,7 @@ def test_directional_run_is_armed_with_exact_scope_active_snapshot(db_session) -
             paper_status="running",
             execution_profile={
                 "auto_paper_runtime_key": AUTO_PAPER_TECHNICAL_KEY,
-                "execution_mode": "binance_simulation_first",
+                "execution_mode": "binance_testnet",
                 "mirror_to_gateway": True,
                 "cost_gate_verified": True,
                 "acceptance_symbols": ["BTC/USDT", "ETH/USDT"],

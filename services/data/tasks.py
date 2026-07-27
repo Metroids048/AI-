@@ -14,6 +14,7 @@ from services.data.macro_calendar import MacroCalendarService
 from services.data.news import NewsIngestionService
 from services.data.repository import DataRepository
 from services.data.social import SocialIngestionService
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.database import get_session_factory
 from services.strategy_library import AgentTaskRepository, IngestionRepository, ReviewRepository, StrategyRepository
 from shared.models import IngestionJob
@@ -150,6 +151,7 @@ def _heartbeat_timeframes_to_refresh(
     symbol: str,
     primary_timeframe: str,
     secondary_timeframe: str | None,
+    decision_timeframe: str | None = None,
     now: datetime | None = None,
 ) -> list[str]:
     """Refresh the primary feed every cycle and one due higher frame per cycle.
@@ -161,25 +163,25 @@ def _heartbeat_timeframes_to_refresh(
 
     due = [primary_timeframe]
     reference_time = now or datetime.now(UTC)
-    if secondary_timeframe is None or secondary_timeframe == primary_timeframe:
-        return due
-    freshness = data_repo.check_freshness(
-        symbol=symbol,
-        timeframe=secondary_timeframe,
-        reference_time=reference_time,
-        max_delay=timedelta(seconds=_HEARTBEAT_MAX_AGE_SECONDS[secondary_timeframe]),
-    )
-    latest_bar = data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=secondary_timeframe)
-    window_seconds = _TIMEFRAME_WINDOW_SECONDS[secondary_timeframe]
-    window_start = datetime.fromtimestamp(
-        int(reference_time.timestamp() // window_seconds) * window_seconds,
-        tz=UTC,
-    )
-    latest_at = latest_bar.timestamp if latest_bar is not None else None
-    if latest_at is not None and latest_at.tzinfo is None:
-        latest_at = latest_at.replace(tzinfo=UTC)
-    if not freshness["is_fresh"] or latest_at is None or latest_at < window_start:
-        due.append(secondary_timeframe)
+    candidates = [decision_timeframe, secondary_timeframe]
+    for candidate in dict.fromkeys(item for item in candidates if item and item != primary_timeframe):
+        freshness = data_repo.check_freshness(
+            symbol=symbol,
+            timeframe=candidate,
+            reference_time=reference_time,
+            max_delay=timedelta(seconds=_HEARTBEAT_MAX_AGE_SECONDS[candidate]),
+        )
+        latest_bar = data_repo.get_latest_ohlcv_bar(symbol=symbol, timeframe=candidate)
+        window_seconds = _TIMEFRAME_WINDOW_SECONDS[candidate]
+        window_start = datetime.fromtimestamp(
+            int(reference_time.timestamp() // window_seconds) * window_seconds,
+            tz=UTC,
+        )
+        latest_at = latest_bar.timestamp if latest_bar is not None else None
+        if latest_at is not None and latest_at.tzinfo is None:
+            latest_at = latest_at.replace(tzinfo=UTC)
+        if not freshness["is_fresh"] or latest_at is None or latest_at < window_start:
+            due.append(candidate)
     return due
 
 
@@ -222,6 +224,7 @@ def market_data_heartbeat(symbols: list[str] | None = None, timeframe: str = "1m
                 symbol=symbol,
                 primary_timeframe=timeframe,
                 secondary_timeframe=secondary_timeframe,
+                decision_timeframe="15m" if symbol in AUTO_SIMULATION_EXECUTION_SYMBOLS else None,
             ):
                 try:
                     bars = client.fetch_recent_usdm_ohlcv(symbol=symbol, timeframe=tf, limit=60)

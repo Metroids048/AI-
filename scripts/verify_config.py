@@ -263,15 +263,15 @@ def main() -> int:
             profile = _json_object(row["execution_profile"])
             if row["strategy_key"] == "auto_paper_mature_templates":
                 simulation_profiles_ok = simulation_profiles_ok and (
-                    profile.get("execution_mode") == "paper_only" and not bool(profile.get("mirror_to_gateway"))
+                    profile.get("execution_mode") == "local_paper" and not bool(profile.get("mirror_to_gateway"))
                 )
             else:
                 mode = profile.get("execution_mode")
                 mirror = bool(profile.get("mirror_to_gateway"))
                 simulation_profiles_ok = simulation_profiles_ok and (
-                    (mode == "paper_only" and not mirror)
+                    (mode == "local_paper" and not mirror)
                     or (
-                        mode == "binance_simulation_first"
+                        mode == "binance_testnet"
                         and mirror
                         and bool(profile.get("cost_gate_verified"))
                         and profile.get("acceptance_symbols") == expected_symbols

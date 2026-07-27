@@ -28,7 +28,7 @@ def _armed_run() -> PaperRun:
         strategy_id="strategy-1",
         gate_decision_ref="backtest-1",
         execution_profile={
-            "execution_mode": "binance_simulation_first",
+            "execution_mode": "binance_testnet",
             "mirror_to_gateway": True,
             "cost_gate_verified": True,
             "strategy_lane": "directional",

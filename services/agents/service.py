@@ -2,20 +2,30 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import time
 import uuid
 from collections.abc import Callable
 
 from research_source.open_source_strategy_library import OpenSourceStrategyExtractor, OpenSourceStrategyLibrary
 from research_source.worldquant_adapter import LocalAlphaScanner
 from services.agents.llm_runtime import StructuredLLMRuntime, UnavailableLLMRuntime
-from services.strategy_library import AgentTaskRepository, ReviewRepository, StrategyRepository
+from services.strategy_library import (
+    AgentTaskRepository,
+    LlmInvocationRepository,
+    ReviewRepository,
+    StrategyRepository,
+)
 from shared.config import settings
 from shared.models import (
     AgentTask,
     AgentTaskRequest,
     DecisionVetoResult,
     FailureRecord,
+    LlmInvocation,
+    LlmInvocationStage,
     RiskLevel,
     StrategyDraft,
     StrategyIdea,
@@ -50,9 +60,7 @@ class AgentTaskService:
         self._executors: dict[tuple[str, str], Callable[[AgentTask], dict]] = {}
         self._register_default_executors()
 
-    def register_executor(
-        self, agent_type: str, task_type: str, handler: Callable[[AgentTask], dict]
-    ) -> None:
+    def register_executor(self, agent_type: str, task_type: str, handler: Callable[[AgentTask], dict]) -> None:
         """Register a new agent-task executor (hot-pluggable).
 
         This is the extension point for Coding/Backtest/Optimization/Risk agents
@@ -64,9 +72,9 @@ class AgentTaskService:
     def _register_default_executors(self) -> None:
         self._executors[("research_agent", "scan_local_alpha")] = self._handle_scan_local_alpha
         self._executors[("research_agent", "import_open_source_sources")] = self._handle_import_open_source
-        self._executors[
-            ("research_agent", "extract_open_source_strategy_ideas")
-        ] = self._handle_extract_open_source_ideas
+        self._executors[("research_agent", "extract_open_source_strategy_ideas")] = (
+            self._handle_extract_open_source_ideas
+        )
         self._executors[("strategy_agent", "materialize_seed_strategy_drafts")] = self._handle_materialize_drafts
         self._executors[("decision_veto_agent", "pre_execution_veto")] = self._handle_deterministic_veto
         self._executors[("review_agent", "summarize_failures")] = self._handle_summarize_failures
@@ -90,7 +98,37 @@ class AgentTaskService:
                 attempt_history=[],
             )
         )
+        started_at = time.perf_counter()
         output_payload = self._execute(task)
+        latency_ms = max(0, int((time.perf_counter() - started_at) * 1000))
+        if task.task_type in {"pre_execution_veto_llm", "market_review_llm"}:
+            provider_trace = output_payload.get("provider_trace") or {}
+            usage = output_payload.get("usage") or {}
+            serialized_input = json.dumps(task.input_payload, sort_keys=True, default=str)
+            serialized_output = json.dumps(output_payload, sort_keys=True, default=str)
+            LlmInvocationRepository(self.agent_repo.session).create_invocation(
+                LlmInvocation(
+                    cycle_id=str(task.input_payload.get("cycle_id") or "") or None,
+                    decision_id=str(task.input_payload.get("decision_id") or "") or None,
+                    symbol=str(task.input_payload.get("symbol") or "") or None,
+                    called=True,
+                    provider=provider_trace.get("provider"),
+                    model=provider_trace.get("model"),
+                    stage=(
+                        LlmInvocationStage.MARKET_REVIEW
+                        if task.task_type == "market_review_llm"
+                        else LlmInvocationStage.TRADE_REVIEW
+                    ),
+                    status=str(output_payload.get("schema_validation_status") or "unknown"),
+                    input_hash=hashlib.sha256(serialized_input.encode()).hexdigest(),
+                    output_hash=hashlib.sha256(serialized_output.encode()).hexdigest(),
+                    latency_ms=latency_ms,
+                    prompt_tokens=int(usage.get("prompt_tokens") or 0),
+                    completion_tokens=int(usage.get("completion_tokens") or 0),
+                    total_tokens=int(usage.get("total_tokens") or 0),
+                    error=output_payload.get("message"),
+                )
+            )
         completed = output_payload.get("completed", output_payload.get("executor_registered", True))
         task_status = output_payload.get("task_status", "completed" if completed else "failed")
         return (
@@ -308,6 +346,7 @@ class AgentTaskService:
             "message": None if is_valid else "llm structured output failed schema validation",
             "schema_validation_status": "passed" if is_valid else "failed",
             "provider_trace": provider_trace,
+            "usage": result.get("usage") or {},
             "attempt_history": [
                 {
                     "status": "passed" if is_valid else "schema_failed",
@@ -340,6 +379,7 @@ class AgentTaskService:
                 "executor_name": "llm_decision_veto",
                 "schema_validation_status": "passed",
                 "provider_trace": provider_trace,
+                "usage": result.get("usage") or {},
                 "attempt_history": [{"status": "passed", **provider_trace}],
                 "veto_result": raw_output,
                 "output_ref": f"decision_veto:{task.agent_task_id}",

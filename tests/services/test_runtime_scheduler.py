@@ -12,6 +12,7 @@ from services.execution.runtime_state import (
 )
 from services.execution.scheduler import (
     RuntimeScheduler,
+    _aligned_run_delay_seconds,
     _default_exchange_info_refresh_runner,
     _preload_celery_task_api,
 )
@@ -28,6 +29,19 @@ def _raise_runtime_error(message: str) -> None:
 
 def test_scheduler_preloads_celery_task_api_before_starting_threads() -> None:
     _preload_celery_task_api()
+
+
+def test_paper_cycle_alignment_stays_inside_pretrade_decision_age_window() -> None:
+    now = datetime(2026, 7, 27, 10, 1, 46, tzinfo=UTC)
+
+    delay = _aligned_run_delay_seconds(
+        now=now,
+        interval_seconds=300,
+        offset_seconds=45,
+    )
+
+    assert delay == pytest.approx(239)
+    assert now + timedelta(seconds=delay) == datetime(2026, 7, 27, 10, 5, 45, tzinfo=UTC)
 
 
 def test_exchange_info_ready_uses_configured_fixed_universe_size(monkeypatch) -> None:

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
+from services.execution.execution_truth import ExecutionMode, SimulatedFill, resolve_execution_mode
 from services.strategy_library import ExecutionRepository
 from shared.models import (
     OrderExecution,
@@ -62,20 +63,45 @@ class PaperOrderLifecycleService:
     def __init__(self, *, execution_repo: ExecutionRepository) -> None:
         self.execution_repo = execution_repo
 
-    def fill_order(self, *, order: OrderExecution, cycle_time: datetime) -> OrderExecution:
+    def fill_order(
+        self,
+        *,
+        order: OrderExecution,
+        cycle_time: datetime,
+        simulated_fill: SimulatedFill | None = None,
+    ) -> OrderExecution:
+        requested_mode = order.entry_context.get("execution_mode")
+        if requested_mode == ExecutionMode.BINANCE_TESTNET.value and not bool(
+            order.entry_context.get("exchange_fill_confirmed")
+        ):
+            raise ValueError("Binance Testnet order cannot be filled without authoritative exchange fill receipt")
+        if requested_mode == ExecutionMode.LOCAL_PAPER.value and simulated_fill is None:
+            raise ValueError("LOCAL_PAPER requires an explicit SimulatedFill")
         gateway_name = order.gateway_name or "paper_runtime"
+        exchange_confirmed = bool(order.entry_context.get("exchange_fill_confirmed"))
+        entry_context = dict(order.entry_context)
+        if simulated_fill is not None:
+            entry_context.update(
+                {
+                    "simulated_fill_id": simulated_fill.simulated_fill_id,
+                    "quantity": str(simulated_fill.filled_quantity),
+                    "reference_price": str(simulated_fill.average_fill_price),
+                    "fill_source": "SimulatedFill",
+                }
+            )
         return (
             self.execution_repo.update_order(
                 order.order_execution_id or "",
-                execution_status="filled",
+                execution_status="FILLED" if exchange_confirmed else "filled",
                 gateway_name=gateway_name,
+                entry_context=entry_context,
                 gateway_status=order.gateway_status or "filled",
                 lifecycle_history=[
                     *order.lifecycle_history,
                     {
                         "at": cycle_time.isoformat(),
-                        "status": "filled",
-                        "event": "paper_runtime_fill",
+                        "status": "FILLED" if exchange_confirmed else "filled",
+                        "event": "exchange_fill_confirmed" if exchange_confirmed else "paper_runtime_fill",
                     },
                 ],
                 last_gateway_update_at=cycle_time,
@@ -89,14 +115,30 @@ class PaperOrderLifecycleService:
         paper_run_id: str,
         order: OrderExecution,
         cycle_time: datetime,
-        execution_mode: str = "binance_simulation_first",
+        execution_mode: str = "local_paper",
     ) -> PositionSnapshot:
         # Paper-only local fills must NOT be tracked as MANAGED_STRATEGY — they are
         # never submitted to the exchange so reconciliation would always flag them as
         # ghost positions.  Use PAPER_SIMULATION_ONLY so the exchange-reconcile loop
         # skips them entirely while still allowing the paper P&L tracker to work.
-        is_paper_only = execution_mode == "paper_only"
+        strict_mode = execution_mode in {mode.value for mode in ExecutionMode}
+        resolved_mode = resolve_execution_mode(execution_mode, migration=not strict_mode)
+        is_paper_only = resolved_mode is ExecutionMode.LOCAL_PAPER
         exchange_fill_confirmed = bool(order.entry_context.get("exchange_fill_confirmed"))
+        receipt_id = _non_empty_str(order.entry_context.get("entry_fill_receipt_id"))
+        position_group_id = _non_empty_str(order.entry_context.get("position_group_id"))
+        if (
+            resolved_mode is ExecutionMode.BINANCE_TESTNET
+            and strict_mode
+            and (
+                not exchange_fill_confirmed
+                or not order.gateway_order_id
+                or not receipt_id
+                or not position_group_id
+                or self.execution_repo.get_exchange_fill_receipt(receipt_id) is None
+            )
+        ):
+            raise ValueError("Binance Testnet position projection requires authoritative exchange fill receipt")
         reference_price = Decimal(
             str(
                 order.entry_context.get("exchange_average_fill_price")
@@ -123,6 +165,9 @@ class PaperOrderLifecycleService:
                 position_side=order.direction,
                 entry_order_id=order.order_execution_id,
                 entry_fill_id=order.gateway_order_id,
+                entry_fill_receipt_id=receipt_id,
+                position_group_id=position_group_id,
+                execution_mode=resolved_mode if strict_mode else None,
                 opened_at=cycle_time,
                 quantity=abs(quantity),
                 order_origin=order.order_origin,
@@ -147,16 +192,27 @@ class PaperOrderLifecycleService:
             stop_price=stop_price,
             take_price=take_price,
         )
+        stop_exchange_order_id, take_profit_exchange_order_id = _protection_exchange_ids(
+            order.entry_context.get("protection_order_refs")
+        )
+        exchange_protection_confirmed = bool(stop_exchange_order_id and take_profit_exchange_order_id)
         self.execution_repo.create_protection_record(
             ProtectionRecord(
                 position_record_id=record_id,
                 stop_price=stop_price,
                 take_profit_price=take_price,
+                stop_exchange_order_id=stop_exchange_order_id,
+                take_profit_exchange_order_id=take_profit_exchange_order_id,
                 protection_source="strategy_entry",
                 status=(
                     ProtectionRecordStatus.ACTIVE
                     if geometry_valid
-                    else ProtectionRecordStatus.INVALID_PROTECTION_GEOMETRY
+                    and (resolved_mode is ExecutionMode.LOCAL_PAPER or not strict_mode or exchange_protection_confirmed)
+                    else (
+                        ProtectionRecordStatus.PENDING_EXCHANGE_CONFIRMATION
+                        if geometry_valid and resolved_mode is ExecutionMode.BINANCE_TESTNET
+                        else ProtectionRecordStatus.INVALID_PROTECTION_GEOMETRY
+                    )
                 ),
             )
         )
@@ -291,6 +347,32 @@ def _positive_float(value: object) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed is not None and parsed > 0 else None
+
+
+def _non_empty_str(value: object) -> str | None:
+    parsed = str(value).strip() if value is not None else ""
+    return parsed or None
+
+
+def _protection_exchange_ids(value: object) -> tuple[str | None, str | None]:
+    if not isinstance(value, list):
+        return None, None
+    stop_id: str | None = None
+    take_id: str | None = None
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        order_id = _non_empty_str(item.get("gateway_order_id") or item.get("algoId") or item.get("id"))
+        kind = str(
+            item.get("kind") or item.get("type") or item.get("orderType") or item.get("protection_order_kind") or ""
+        ).lower()
+        if not order_id:
+            continue
+        if "stop" in kind or "algo" in kind:
+            stop_id = stop_id or order_id
+        elif "take" in kind or "limit" in kind:
+            take_id = take_id or order_id
+    return stop_id, take_id
 
 
 def protection_geometry_valid(

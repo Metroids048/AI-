@@ -999,7 +999,7 @@ def update_paper_run_auto_settings(
     updated_profile = {
         **run.execution_profile,
         **settings_payload,
-        "mirror_to_gateway": body.execution_mode == "binance_simulation_first",
+        "mirror_to_gateway": body.execution_mode.value == "binance_testnet",
         "auto_settings_updated_at": datetime.now(UTC).isoformat(),
     }
     updated_metrics = {**run.paper_metrics_summary, "auto_settings_history": history}

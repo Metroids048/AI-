@@ -26,6 +26,7 @@ from services.strategy_library import (
 )
 from shared.models import (
     BacktestRun,
+    ExecutionMode,
     GateDecision,
     OrderExecution,
     PaperRun,
@@ -286,6 +287,7 @@ class TestRankDropoutClose:
                 candidate_symbols=candidate_symbols,
                 execution_profile={
                     "strategy_lane": "cross_sectional_carry",
+                    "execution_mode": "local_paper",
                     "account_equity": 10_000,
                     "equity_peak": 10_000,
                     "max_symbols": len(candidate_symbols),
@@ -317,7 +319,13 @@ class TestRankDropoutClose:
                 execution_status="filled",
                 stoploss_present=True,
                 close_only_mode=False,
-                entry_context={"reference_price": "100", "requested_notional": 100, "quantity": 1, "timeframe": "1h"},
+                entry_context={
+                    "execution_mode": "local_paper",
+                    "reference_price": "100",
+                    "requested_notional": 100,
+                    "quantity": 1,
+                    "timeframe": "1h",
+                },
                 stoploss_plan={"price": 400.0},
                 takeprofit_plan={},
                 validation_backtest_run_id=backtest.backtest_run_id,
@@ -336,7 +344,8 @@ class TestRankDropoutClose:
                 order_origin="paper_scheduler",
                 strategy_id=strategy.strategy_id,
                 run_id=paper_run.paper_run_id,
-                management_status=PositionManagementStatus.MANAGED_STRATEGY,
+                management_status=PositionManagementStatus.PAPER_SIMULATION_ONLY,
+                execution_mode=ExecutionMode.LOCAL_PAPER,
             )
         )
         execution_repo.create_protection_record(

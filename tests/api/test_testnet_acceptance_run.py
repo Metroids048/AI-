@@ -136,7 +136,7 @@ def test_execution_scope_acceptance_arms_only_validated_directional_run(api_clie
             strategy_id="technical-strategy",
             execution_profile={
                 "auto_paper_runtime_key": AUTO_PAPER_TECHNICAL_KEY,
-                "execution_mode": "paper_only",
+                "execution_mode": "local_paper",
                 "mirror_to_gateway": False,
                 "cost_gate_verified": False,
             },
@@ -148,7 +148,7 @@ def test_execution_scope_acceptance_arms_only_validated_directional_run(api_clie
             strategy_id="observation-strategy",
             execution_profile={
                 "auto_paper_runtime_key": SIGNAL_OBSERVATION_RUNTIME_KEY,
-                "execution_mode": "paper_only",
+                "execution_mode": "local_paper",
                 "mirror_to_gateway": False,
                 "cost_gate_verified": False,
             },
@@ -171,19 +171,19 @@ def test_execution_scope_acceptance_arms_only_validated_directional_run(api_clie
     assert technical is not None
     assert observation is not None
     assert technical.execution_profile["cost_gate_verified"] is True
-    assert technical.execution_profile["execution_mode"] == "binance_simulation_first"
+    assert technical.execution_profile["execution_mode"] == "binance_testnet"
     assert technical.execution_profile["mirror_to_gateway"] is True
     assert technical.execution_profile["acceptance_symbols"] == symbols
     assert technical.execution_profile["acceptance_scope_hash"]
     assert observation.execution_profile["cost_gate_verified"] is False
-    assert observation.execution_profile["execution_mode"] == "paper_only"
+    assert observation.execution_profile["execution_mode"] == "local_paper"
     assert observation.execution_profile["mirror_to_gateway"] is False
 
     from services.strategy_library import ConfigSnapshotRepository
 
     active = ConfigSnapshotRepository(db_session).get_active(technical.paper_run_id or "")
     assert active is not None
-    assert active.config["execution_profile"]["execution_mode"] == "binance_simulation_first"
+    assert active.config["execution_profile"]["execution_mode"] == "binance_testnet"
 
 
 def test_binance_testnet_account_probe_persists_a_local_balance_snapshot(api_client, db_session, monkeypatch) -> None:

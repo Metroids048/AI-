@@ -7,7 +7,7 @@ import re
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal, cast
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -21,17 +21,26 @@ from shared.models import (
     ConfigSnapshot,
     DecisionEvent,
     DecisionEventType,
+    DecisionFunnelStage,
+    DecisionFunnelStatus,
+    DecisionFunnelTerminal,
     DecisionMemoryEntry,
     DecisionSnapshot,
     EnsembleStatus,
     Exchange,
     ExchangeAccountSnapshot,
+    ExchangeFillReceipt,
+    ExchangeOrderRecord,
+    ExchangeOrderState,
+    ExecutionMode,
     ExecutionRiskState,
     FailureRecord,
     GateDecision,
     HypothesisRecord,
     IngestionJob,
     LiveRun,
+    LlmInvocation,
+    LlmInvocationStage,
     Market,
     MetaLabel,
     NotificationOutboxItem,
@@ -433,6 +442,49 @@ def _decision_event_from_orm(row: models.DecisionEvent) -> DecisionEvent:
     )
 
 
+def _decision_funnel_terminal_from_orm(
+    row: models.DecisionFunnelTerminal,
+) -> DecisionFunnelTerminal:
+    return DecisionFunnelTerminal(
+        terminal_id=row.terminal_id,
+        paper_run_id=row.paper_run_id,
+        cycle_id=row.cycle_id,
+        decision_id=row.decision_id,
+        symbol=row.symbol,
+        timeframe=row.timeframe,
+        bar_time=_ensure_utc(row.bar_time) or _utcnow(),
+        terminal_stage=DecisionFunnelStage(row.terminal_stage),
+        status=DecisionFunnelStatus(row.status),
+        reason_code=row.reason_code,
+        details=row.details or {},
+        created_at=_ensure_utc(row.created_at),
+        updated_at=_ensure_utc(row.updated_at),
+    )
+
+
+def _llm_invocation_from_orm(row: models.LlmInvocation) -> LlmInvocation:
+    return LlmInvocation(
+        invocation_id=row.invocation_id,
+        cycle_id=row.cycle_id,
+        decision_id=row.decision_id,
+        symbol=row.symbol,
+        called=row.called,
+        skip_reason=row.skip_reason,
+        provider=row.provider,
+        model=row.model,
+        stage=LlmInvocationStage(row.stage),
+        status=row.status,
+        input_hash=row.input_hash,
+        output_hash=row.output_hash,
+        latency_ms=row.latency_ms,
+        prompt_tokens=row.prompt_tokens,
+        completion_tokens=row.completion_tokens,
+        total_tokens=row.total_tokens,
+        error=row.error,
+        created_at=_ensure_utc(row.created_at),
+    )
+
+
 def _failure_record_from_orm(row: models.FailureRecord) -> FailureRecord:
     return FailureRecord(
         failure_record_id=row.failure_record_id,
@@ -581,6 +633,9 @@ def _position_record_from_orm(row: models.PositionRecord) -> PositionRecord:
         position_side=TradeSide(row.position_side),
         entry_order_id=row.entry_order_id,
         entry_fill_id=row.entry_fill_id,
+        entry_fill_receipt_id=row.entry_fill_receipt_id,
+        position_group_id=row.position_group_id,
+        execution_mode=ExecutionMode(row.execution_mode) if row.execution_mode else None,
         opened_at=_ensure_utc(row.opened_at) or _utcnow(),
         quantity=row.quantity,
         order_origin=row.order_origin,
@@ -598,11 +653,64 @@ def _protection_record_from_orm(row: models.ProtectionRecord) -> ProtectionRecor
         position_record_id=row.position_record_id,
         stop_price=row.stop_price,
         take_profit_price=row.take_profit_price,
+        stop_exchange_order_id=row.stop_exchange_order_id,
+        take_profit_exchange_order_id=row.take_profit_exchange_order_id,
         protection_source=row.protection_source,
         status=ProtectionRecordStatus(row.status),
         created_at=_ensure_utc(row.created_at),
         updated_at=_ensure_utc(row.updated_at),
     )
+
+
+def _exchange_order_from_orm(row: models.ExchangeOrderRecord) -> ExchangeOrderRecord:
+    return ExchangeOrderRecord(
+        exchange_order_record_id=row.exchange_order_record_id,
+        local_order_execution_id=row.local_order_execution_id,
+        exchange_account=row.exchange_account,
+        execution_mode=ExecutionMode(row.execution_mode),
+        client_order_id=row.client_order_id,
+        exchange_order_id=row.exchange_order_id,
+        symbol=row.symbol,
+        side=cast(Literal["buy", "sell"], row.side),
+        reduce_only=row.reduce_only,
+        state=ExchangeOrderState(row.state),
+        requested_quantity=Decimal(row.requested_quantity),
+        acknowledged_at=_ensure_utc(row.acknowledged_at),
+        created_at=_ensure_utc(row.created_at),
+        updated_at=_ensure_utc(row.updated_at),
+    )
+
+
+def _exchange_fill_receipt_from_orm(row: models.ExchangeFillReceipt) -> ExchangeFillReceipt:
+    return ExchangeFillReceipt(
+        receipt_id=row.receipt_id,
+        exchange_account=row.exchange_account,
+        exchange_order_id=row.exchange_order_id,
+        client_order_id=row.client_order_id,
+        trade_ids=list(row.trade_ids or []),
+        symbol=row.symbol,
+        side=cast(Literal["buy", "sell"], row.side),
+        reduce_only=row.reduce_only,
+        filled_quantity=Decimal(row.cumulative_filled_quantity),
+        projected_quantity=Decimal(row.projected_quantity),
+        average_fill_price=Decimal(row.average_fill_price),
+        commissions=list(row.commissions or []),
+        event_time=_ensure_utc(row.event_time) or _utcnow(),
+    )
+
+
+def _validate_fill_receipt_replay(
+    persisted: ExchangeFillReceipt,
+    replay: ExchangeFillReceipt,
+) -> None:
+    if (
+        persisted.client_order_id != replay.client_order_id
+        or persisted.symbol != replay.symbol
+        or persisted.side != replay.side
+        or persisted.reduce_only != replay.reduce_only
+        or set(persisted.trade_ids) != set(replay.trade_ids)
+    ):
+        raise ValueError("exchange fill receipt replay does not match the persisted immutable revision")
 
 
 def _account_snapshot_from_orm(row: models.ExchangeAccountSnapshot) -> ExchangeAccountSnapshot:
@@ -1147,6 +1255,10 @@ class ConfigSnapshotRepository:
             .one_or_none()
         )
         if existing is not None:
+            if existing.config_snapshot_id != run.active_config_snapshot_id:
+                run.pending_config_snapshot_id = existing.config_snapshot_id
+                run.pending_config_hash = existing.config_hash
+                self.session.commit()
             return _config_snapshot_from_orm(existing)
 
         row = models.TradingConfigSnapshot(
@@ -1527,6 +1639,130 @@ class DecisionEventRepository:
         return [_decision_event_from_orm(row) for row in query.all()]
 
 
+class DecisionFunnelRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def upsert_terminal(
+        self,
+        terminal: DecisionFunnelTerminal,
+    ) -> DecisionFunnelTerminal:
+        row = (
+            self.session.query(models.DecisionFunnelTerminal)
+            .filter(
+                models.DecisionFunnelTerminal.paper_run_id == terminal.paper_run_id,
+                models.DecisionFunnelTerminal.symbol == terminal.symbol,
+                models.DecisionFunnelTerminal.timeframe == terminal.timeframe,
+                models.DecisionFunnelTerminal.bar_time == terminal.bar_time,
+            )
+            .one_or_none()
+        )
+        if row is None:
+            row = models.DecisionFunnelTerminal(
+                terminal_id=terminal.terminal_id or str(uuid.uuid4()),
+                paper_run_id=terminal.paper_run_id,
+                cycle_id=terminal.cycle_id,
+                decision_id=terminal.decision_id,
+                symbol=terminal.symbol,
+                timeframe=terminal.timeframe,
+                bar_time=terminal.bar_time,
+                terminal_stage=terminal.terminal_stage.value,
+                status=terminal.status.value,
+                reason_code=terminal.reason_code,
+                details=_jsonable(terminal.details),
+            )
+            self.session.add(row)
+        else:
+            row.cycle_id = terminal.cycle_id
+            row.decision_id = terminal.decision_id
+            row.terminal_stage = terminal.terminal_stage.value
+            row.status = terminal.status.value
+            row.reason_code = terminal.reason_code
+            row.details = _jsonable(terminal.details)
+            row.updated_at = _utcnow()
+        self.session.commit()
+        self.session.refresh(row)
+        return _decision_funnel_terminal_from_orm(row)
+
+    def list_terminals(
+        self,
+        *,
+        paper_run_id: str | None = None,
+        symbol: str | None = None,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> list[DecisionFunnelTerminal]:
+        query = self.session.query(models.DecisionFunnelTerminal)
+        if paper_run_id is not None:
+            query = query.filter(models.DecisionFunnelTerminal.paper_run_id == paper_run_id)
+        if symbol is not None:
+            query = query.filter(models.DecisionFunnelTerminal.symbol == symbol)
+        if since is not None:
+            query = query.filter(models.DecisionFunnelTerminal.bar_time >= since)
+        rows = (
+            query.order_by(
+                models.DecisionFunnelTerminal.bar_time.desc(),
+                models.DecisionFunnelTerminal.symbol,
+            )
+            .limit(limit)
+            .all()
+        )
+        return [_decision_funnel_terminal_from_orm(row) for row in rows]
+
+
+class LlmInvocationRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create_invocation(self, invocation: LlmInvocation) -> LlmInvocation:
+        row = models.LlmInvocation(
+            invocation_id=invocation.invocation_id or str(uuid.uuid4()),
+            cycle_id=invocation.cycle_id,
+            decision_id=invocation.decision_id,
+            symbol=invocation.symbol,
+            called=invocation.called,
+            skip_reason=invocation.skip_reason,
+            provider=invocation.provider,
+            model=invocation.model,
+            stage=invocation.stage.value,
+            status=invocation.status,
+            input_hash=invocation.input_hash,
+            output_hash=invocation.output_hash,
+            latency_ms=invocation.latency_ms,
+            prompt_tokens=invocation.prompt_tokens,
+            completion_tokens=invocation.completion_tokens,
+            total_tokens=invocation.total_tokens,
+            error=invocation.error,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _llm_invocation_from_orm(row)
+
+    def list_invocations(
+        self,
+        *,
+        symbol: str | None = None,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> list[LlmInvocation]:
+        query = self.session.query(models.LlmInvocation)
+        if symbol is not None:
+            query = query.filter(models.LlmInvocation.symbol == symbol)
+        if since is not None:
+            query = query.filter(models.LlmInvocation.created_at >= since)
+        rows = query.order_by(models.LlmInvocation.created_at.desc()).limit(limit).all()
+        return [_llm_invocation_from_orm(row) for row in rows]
+
+    def exists_for_cycle(self, cycle_id: str) -> bool:
+        return (
+            self.session.query(models.LlmInvocation.invocation_id)
+            .filter(models.LlmInvocation.cycle_id == cycle_id)
+            .first()
+            is not None
+        )
+
+
 class ReviewRepository:
     def __init__(self, session: Session):
         self.session = session
@@ -1859,6 +2095,25 @@ class ExecutionRepository:
         return _order_execution_from_orm(row)
 
     def create_position_record(self, record: PositionRecord) -> PositionRecord:
+        if (
+            record.management_status is PositionManagementStatus.MANAGED_STRATEGY
+            and record.execution_mode is ExecutionMode.BINANCE_TESTNET
+            and (not record.entry_fill_receipt_id or not record.entry_order_id or not record.position_group_id)
+        ):
+            raise ValueError("managed Binance Testnet position requires entry order, fill receipt, and position group")
+        if record.management_status is PositionManagementStatus.MANAGED_STRATEGY:
+            existing = (
+                self.session.query(models.PositionRecord)
+                .filter(
+                    models.PositionRecord.exchange_account == record.exchange_account,
+                    models.PositionRecord.symbol == record.symbol,
+                    models.PositionRecord.position_side == str(record.position_side),
+                    models.PositionRecord.management_status == PositionManagementStatus.MANAGED_STRATEGY.value,
+                )
+                .one_or_none()
+            )
+            if existing is not None:
+                raise ValueError("an open managed position already exists for account, symbol, and side")
         row = models.PositionRecord(
             position_record_id=record.position_record_id or str(uuid.uuid4()),
             exchange_account=record.exchange_account,
@@ -1866,6 +2121,9 @@ class ExecutionRepository:
             position_side=str(record.position_side),
             entry_order_id=record.entry_order_id,
             entry_fill_id=record.entry_fill_id,
+            entry_fill_receipt_id=record.entry_fill_receipt_id,
+            position_group_id=record.position_group_id,
+            execution_mode=record.execution_mode.value if record.execution_mode else None,
             opened_at=record.opened_at,
             quantity=record.quantity,
             order_origin=record.order_origin,
@@ -1895,7 +2153,12 @@ class ExecutionRepository:
             models.PositionRecord.exchange_account == exchange_account,
             models.PositionRecord.symbol == symbol,
             models.PositionRecord.position_side == str(position_side),
-            models.PositionRecord.management_status != PositionManagementStatus.CLOSED.value,
+            models.PositionRecord.management_status.notin_(
+                {
+                    PositionManagementStatus.CLOSED.value,
+                    PositionManagementStatus.RECONCILED_GHOST.value,
+                }
+            ),
         )
         if run_id is not None:
             query = query.filter(models.PositionRecord.run_id == run_id)
@@ -1949,11 +2212,19 @@ class ExecutionRepository:
         return _position_record_from_orm(row)
 
     def create_protection_record(self, record: ProtectionRecord) -> ProtectionRecord:
+        if record.status is ProtectionRecordStatus.ACTIVE and (
+            not record.stop_exchange_order_id or not record.take_profit_exchange_order_id
+        ):
+            position = self.get_position_record(record.position_record_id)
+            if position is not None and position.execution_mode is ExecutionMode.BINANCE_TESTNET:
+                raise ValueError("active Binance Testnet protection requires Stop and TP exchange order IDs")
         row = models.ProtectionRecord(
             protection_record_id=record.protection_record_id or str(uuid.uuid4()),
             position_record_id=record.position_record_id,
             stop_price=record.stop_price,
             take_profit_price=record.take_profit_price,
+            stop_exchange_order_id=record.stop_exchange_order_id,
+            take_profit_exchange_order_id=record.take_profit_exchange_order_id,
             protection_source=record.protection_source,
             status=record.status.value,
         )
@@ -1961,6 +2232,158 @@ class ExecutionRepository:
         self.session.commit()
         self.session.refresh(row)
         return _protection_record_from_orm(row)
+
+    def create_exchange_order(self, order: ExchangeOrderRecord) -> ExchangeOrderRecord:
+        row = models.ExchangeOrderRecord(
+            exchange_order_record_id=order.exchange_order_record_id or str(uuid.uuid4()),
+            local_order_execution_id=order.local_order_execution_id,
+            exchange_account=order.exchange_account,
+            execution_mode=order.execution_mode.value,
+            client_order_id=order.client_order_id,
+            exchange_order_id=order.exchange_order_id,
+            symbol=order.symbol,
+            side=order.side,
+            reduce_only=order.reduce_only,
+            state=order.state.value,
+            requested_quantity=order.requested_quantity,
+            acknowledged_at=order.acknowledged_at,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _exchange_order_from_orm(row)
+
+    def get_exchange_order(self, exchange_order_record_id: str) -> ExchangeOrderRecord | None:
+        row = self.session.get(models.ExchangeOrderRecord, exchange_order_record_id)
+        return _exchange_order_from_orm(row) if row else None
+
+    def list_exchange_orders(
+        self,
+        *,
+        symbol: str | None = None,
+        limit: int = 100,
+    ) -> list[ExchangeOrderRecord]:
+        query = self.session.query(models.ExchangeOrderRecord)
+        if symbol is not None:
+            query = query.filter(models.ExchangeOrderRecord.symbol == symbol)
+        rows = query.order_by(models.ExchangeOrderRecord.created_at.desc()).limit(limit).all()
+        return [_exchange_order_from_orm(row) for row in rows]
+
+    def update_exchange_order(
+        self,
+        exchange_order_record_id: str,
+        **fields,
+    ) -> ExchangeOrderRecord | None:
+        row = self.session.get(models.ExchangeOrderRecord, exchange_order_record_id)
+        if row is None:
+            return None
+        for key, value in fields.items():
+            setattr(row, key, value.value if hasattr(value, "value") else value)
+        self.session.commit()
+        self.session.refresh(row)
+        return _exchange_order_from_orm(row)
+
+    def create_exchange_fill_receipt(
+        self,
+        *,
+        exchange_order_record_id: str,
+        receipt: ExchangeFillReceipt,
+    ) -> ExchangeFillReceipt:
+        order = self.session.get(models.ExchangeOrderRecord, exchange_order_record_id)
+        if order is None:
+            raise ValueError("exchange order does not exist")
+        existing = (
+            self.session.query(models.ExchangeFillReceipt)
+            .filter(
+                models.ExchangeFillReceipt.exchange_account == receipt.exchange_account,
+                models.ExchangeFillReceipt.exchange_order_id == receipt.exchange_order_id,
+                models.ExchangeFillReceipt.cumulative_filled_quantity == receipt.filled_quantity,
+            )
+            .one_or_none()
+        )
+        if existing is not None:
+            replay = _exchange_fill_receipt_from_orm(existing)
+            _validate_fill_receipt_replay(replay, receipt)
+            return replay
+        row = models.ExchangeFillReceipt(
+            receipt_id=receipt.receipt_id,
+            exchange_order_record_id=exchange_order_record_id,
+            exchange_account=receipt.exchange_account,
+            exchange_order_id=receipt.exchange_order_id,
+            client_order_id=receipt.client_order_id,
+            trade_ids=receipt.trade_ids,
+            symbol=receipt.symbol,
+            side=receipt.side,
+            reduce_only=receipt.reduce_only,
+            cumulative_filled_quantity=receipt.filled_quantity,
+            projected_quantity=receipt.projected_quantity,
+            average_fill_price=receipt.average_fill_price,
+            commissions=_jsonable(receipt.commissions),
+            event_time=receipt.event_time,
+        )
+        self.session.add(row)
+        for trade_id in receipt.trade_ids:
+            self.session.add(
+                models.ExchangeTradeIdentity(
+                    receipt_id=receipt.receipt_id,
+                    exchange_account=receipt.exchange_account,
+                    trade_id=trade_id,
+                )
+            )
+        try:
+            self.session.commit()
+        except IntegrityError as exc:
+            self.session.rollback()
+            existing = (
+                self.session.query(models.ExchangeFillReceipt)
+                .filter(
+                    models.ExchangeFillReceipt.exchange_account == receipt.exchange_account,
+                    models.ExchangeFillReceipt.exchange_order_id == receipt.exchange_order_id,
+                    models.ExchangeFillReceipt.cumulative_filled_quantity == receipt.filled_quantity,
+                )
+                .one_or_none()
+            )
+            if existing is None:
+                raise ValueError("exchange fill receipt conflicts with an existing trade identity") from exc
+            replay = _exchange_fill_receipt_from_orm(existing)
+            _validate_fill_receipt_replay(replay, receipt)
+            return replay
+        self.session.refresh(row)
+        return _exchange_fill_receipt_from_orm(row)
+
+    def get_exchange_fill_receipt(self, receipt_id: str) -> ExchangeFillReceipt | None:
+        row = self.session.get(models.ExchangeFillReceipt, receipt_id)
+        return _exchange_fill_receipt_from_orm(row) if row else None
+
+    def list_exchange_fill_receipts(
+        self,
+        *,
+        symbol: str | None = None,
+        limit: int = 100,
+    ) -> list[ExchangeFillReceipt]:
+        query = self.session.query(models.ExchangeFillReceipt)
+        if symbol is not None:
+            query = query.filter(models.ExchangeFillReceipt.symbol == symbol)
+        rows = query.order_by(models.ExchangeFillReceipt.event_time.desc()).limit(limit).all()
+        return [_exchange_fill_receipt_from_orm(row) for row in rows]
+
+    def list_position_records(self, *, limit: int = 100) -> list[PositionRecord]:
+        rows = (
+            self.session.query(models.PositionRecord)
+            .order_by(models.PositionRecord.updated_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [_position_record_from_orm(row) for row in rows]
+
+    def list_protection_records(self, *, limit: int = 100) -> list[ProtectionRecord]:
+        rows = (
+            self.session.query(models.ProtectionRecord)
+            .order_by(models.ProtectionRecord.updated_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [_protection_record_from_orm(row) for row in rows]
 
     def get_latest_protection_record(self, position_record_id: str) -> ProtectionRecord | None:
         row = (

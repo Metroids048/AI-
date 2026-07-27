@@ -1,7 +1,8 @@
 param(
     [int]$ApiPort = 8000,
     [int]$FrontendPort = 5173,
-    [string]$DatabasePath = ".local_paper_console.db"
+    [string]$DatabasePath = ".local_paper_console.db",
+    [bool]$OpenBrowser = $true
 )
 
 # Compatibility entrypoint for older shortcuts. The implementation lives in
@@ -9,5 +10,6 @@ param(
 & (Join-Path $PSScriptRoot "launch-paper-console.ps1") `
     -ApiPort $ApiPort `
     -FrontendPort $FrontendPort `
-    -DatabasePath $DatabasePath
+    -DatabasePath $DatabasePath `
+    -OpenBrowser $OpenBrowser
 exit $LASTEXITCODE

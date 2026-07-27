@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     runtime_scheduler_mode: str = "inprocess"
     runtime_scheduler_autostart: bool = True
     paper_runtime_cycle_seconds: int = 300
+    paper_runtime_cycle_offset_seconds: int = 45
     paper_runtime_enable_decision_veto: bool = True
     # Local dev: bypass multi-timeframe + meta-label filters so Paper cycles can open test positions.
     paper_runtime_relaxed_signals: bool = False
@@ -59,6 +60,9 @@ class Settings(BaseSettings):
     # never book-aware. Set to "market" to restore unconditional market-order fills.
     execution_default_order_type: str = "limit"
     execution_limit_slippage_bps: float = 5.0
+    pretrade_max_decision_age_seconds: int = 75
+    pretrade_min_price_drift_bps: float = 20.0
+    pretrade_atr_drift_fraction: float = 0.25
     market_data_heartbeat_seconds: int = 60
     market_data_stale_seconds: int = 120
     # Gatekeeper order-freshness threshold (previously hardcoded to 2h).

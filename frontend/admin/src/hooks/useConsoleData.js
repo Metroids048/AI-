@@ -308,7 +308,13 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     return () => {
       cancelled = true;
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
-      if (socket) socket.close();
+      if (socket?.readyState === WebSocket.CONNECTING) {
+        socket.onopen = () => socket.close();
+        socket.onerror = null;
+        socket.onclose = null;
+      } else if (socket?.readyState === WebSocket.OPEN) {
+        socket.close();
+      }
     };
   }, [symbol, perpSymbol, timeframe, state.error]);
 

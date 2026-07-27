@@ -449,6 +449,59 @@ def test_gatekeeper_rejects_missing_portfolio_correlation_for_new_order_but_not_
     assert "portfolio_correlation_unavailable" not in closing.rejection_codes
 
 
+def test_reduce_risk_exit_bypasses_entry_only_gates(db_session) -> None:
+    gatekeeper, strategy_id, _ = _seed_gatekeeper_context(db_session)
+    gatekeeper.kill_switch.activate("entry halt")
+    try:
+        closing = gatekeeper.validate_reduce_risk_exit(
+            _order_request(
+                strategy_id,
+                "",
+                validation_backtest_run_id=None,
+                veto_result=DecisionVetoResult(veto=True, veto_reason="must not block exit"),
+                risk_state=None,
+                stoploss_plan={},
+                entry_context={
+                    "timeframe": "1h",
+                    "close_only_mode": True,
+                    "reduce_only": True,
+                    "quantity": 0.005,
+                    "authoritative_position_quantity": 0.01,
+                    "authoritative_position_side": "long",
+                },
+            )
+        )
+    finally:
+        gatekeeper.kill_switch.deactivate()
+
+    assert closing.execution_status == "PRETRADE_APPROVED"
+    assert closing.rejection_codes == []
+
+
+def test_reduce_risk_exit_rejects_quantity_above_exchange_position(db_session) -> None:
+    gatekeeper, strategy_id, _ = _seed_gatekeeper_context(db_session)
+
+    closing = gatekeeper.validate_reduce_risk_exit(
+        _order_request(
+            strategy_id,
+            "",
+            validation_backtest_run_id=None,
+            risk_state=None,
+            stoploss_plan={},
+            entry_context={
+                "close_only_mode": True,
+                "reduce_only": True,
+                "quantity": 0.02,
+                "authoritative_position_quantity": 0.01,
+                "authoritative_position_side": "long",
+            },
+        )
+    )
+
+    assert closing.execution_status == "PRETRADE_REJECTED"
+    assert "reduce_quantity_exceeds_exchange_position" in closing.rejection_codes
+
+
 def test_portfolio_return_correlation_requires_full_60_bar_window() -> None:
     assert close_returns([100.0] * 60) is None
     left = [100.0 + index for index in range(61)]

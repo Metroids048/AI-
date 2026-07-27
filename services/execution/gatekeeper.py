@@ -35,6 +35,16 @@ def _freshness_delay() -> timedelta:
     return timedelta(seconds=settings.execution_freshness_delay_seconds)
 
 
+def _positive_number(value: object) -> float | None:
+    if not isinstance(value, str | int | float):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
 class ExecutionGatekeeperService:
     """Apply validation, risk-event, veto, and stoploss gates before execution."""
 
@@ -97,7 +107,20 @@ class ExecutionGatekeeperService:
         return self.paper_repo.create_paper_run(prepared)
 
     def submit_order(self, request: ExecutionOrderRequest) -> OrderExecution:
+        """Compatibility entry point while callers migrate to explicit gate APIs."""
+        if bool(request.entry_context.get("close_only_mode", False)):
+            result = self.validate_reduce_risk_exit(request)
+            compatibility_status = "accepted" if result.execution_status == "PRETRADE_APPROVED" else "rejected"
+            return self.execution_repo.update_order(
+                result.order_execution_id or "",
+                execution_status=compatibility_status,
+            ) or result.model_copy(update={"execution_status": compatibility_status})
+        return self.validate_entry(request)
+
+    def validate_entry(self, request: ExecutionOrderRequest) -> OrderExecution:
         rejection_reasons: list[str] = []
+        if request.entry_context.get("entry_enabled") is False:
+            rejection_reasons.append("manifest_entry_disabled")
         # Kill switch — global trading halt. When triggered, ALL new orders are
         # rejected immediately regardless of validation/risk state.
         if self.kill_switch.is_triggered():
@@ -194,6 +217,84 @@ class ExecutionGatekeeperService:
             meta_label_id=request.meta_label_id,
             veto_result=(request.veto_result.model_dump(mode="json") if request.veto_result is not None else {}),
             evaluated_risk_state=risk_state,
+        )
+        created, was_created = self.execution_repo.create_order_once(order)
+        if not was_created:
+            return created.model_copy(
+                update={
+                    "execution_status": "duplicate_skipped",
+                    "rejection_reason": "duplicate_candle_intent",
+                    "rejection_codes": ["duplicate_candle_intent"],
+                }
+            )
+        if rejection_reasons:
+            self._record_rejection(created)
+        return created
+
+    def validate_reduce_risk_exit(self, request: ExecutionOrderRequest) -> OrderExecution:
+        """Authorize only an idempotent order proven to reduce exchange risk."""
+        context = dict(request.entry_context)
+        rejection_reasons: list[str] = []
+        if not bool(context.get("close_only_mode")) or not bool(context.get("reduce_only")):
+            rejection_reasons.append("reduce_risk_semantics_required")
+        quantity = _positive_number(context.get("quantity"))
+        authoritative_quantity = _positive_number(context.get("authoritative_position_quantity"))
+        authoritative_side = str(context.get("authoritative_position_side") or "").lower()
+        if authoritative_quantity is None:
+            rejection_reasons.append("authoritative_exchange_position_required")
+        elif quantity is None:
+            rejection_reasons.append("reduce_quantity_required")
+        elif quantity > authoritative_quantity:
+            rejection_reasons.append("reduce_quantity_exceeds_exchange_position")
+        if authoritative_side not in {"long", "short"}:
+            rejection_reasons.append("authoritative_position_side_required")
+        elif request.direction.value != authoritative_side:
+            rejection_reasons.append("reduce_direction_mismatch")
+        if request.cycle_source == "runtime_scheduler" and (
+            request.scheduler_instance_id is None or request.fencing_token is None
+        ):
+            rejection_reasons.append("scheduler_fence_required")
+        if context.get("exchange_available") is False:
+            rejection_reasons.append("exchange_unavailable")
+
+        order = OrderExecution(
+            order_execution_id=str(uuid.uuid4()),
+            strategy_id=request.strategy_id,
+            version_id=request.version_id,
+            symbol=request.symbol,
+            direction=request.direction,
+            execution_status=("PRETRADE_REJECTED" if rejection_reasons else "PRETRADE_APPROVED"),
+            intent_id=request.trade_intent.intent_id if request.trade_intent is not None else None,
+            cycle_id=request.trade_intent.cycle_id if request.trade_intent is not None else None,
+            decision_id=request.trade_intent.decision_id if request.trade_intent is not None else None,
+            config_snapshot_id=(request.trade_intent.config_snapshot_id if request.trade_intent is not None else None),
+            config_hash=request.trade_intent.config_hash if request.trade_intent is not None else None,
+            intent_type=request.trade_intent.action.value if request.trade_intent is not None else "REDUCE",
+            timeframe=str(context.get("timeframe", "1h")),
+            signal_candle_close_time=(
+                request.trade_intent.signal_candle_close_time if request.trade_intent is not None else None
+            ),
+            order_origin=request.order_origin,
+            run_mode=request.run_mode,
+            test_run_id=request.test_run_id,
+            deployment_sha=request.deployment_sha,
+            scheduler_instance_id=request.scheduler_instance_id,
+            process_id=request.process_id,
+            worker_id=request.worker_id,
+            container_id=request.container_id,
+            cycle_source=request.cycle_source,
+            scheduled_for=request.scheduled_for,
+            stoploss_present=False,
+            close_only_mode=True,
+            rejection_reason=";".join(rejection_reasons) if rejection_reasons else None,
+            rejection_codes=rejection_reasons,
+            entry_context=context,
+            stoploss_plan={},
+            takeprofit_plan={},
+            risk_profile_ref=request.risk_profile_id,
+            paper_run_id=request.paper_run_id,
+            live_run_id=request.live_run_id,
+            evaluated_risk_state=request.risk_state,
         )
         created, was_created = self.execution_repo.create_order_once(order)
         if not was_created:

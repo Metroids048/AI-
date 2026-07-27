@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -101,6 +101,67 @@ class StubCcxtClient:
 def test_binance_gateway_normalizes_platform_contract_aliases() -> None:
     assert _normalize_binance_symbol("BTC/USDT") == "BTC/USDT:USDT"
     assert _normalize_binance_symbol("PEPE/USDT") == "1000PEPE/USDT:USDT"
+
+
+def test_pretrade_snapshot_uses_usdm_book_and_mark_endpoints_when_ticker_is_incomplete() -> None:
+    class PretradeClient(StubCcxtClient):
+        def fapiPublicGetTickerBookTicker(self, payload):  # noqa: N802, ANN001
+            assert payload == {"symbol": "BTCUSDT"}
+            return {
+                "symbol": "BTCUSDT",
+                "bidPrice": "59999.50",
+                "askPrice": "60000.50",
+                "time": 1_785_142_400_000,
+            }
+
+        def fapiPublicGetPremiumIndex(self, payload):  # noqa: N802, ANN001
+            assert payload == {"symbol": "BTCUSDT"}
+            return {
+                "symbol": "BTCUSDT",
+                "markPrice": "60000.10",
+                "time": 1_785_142_400_100,
+            }
+
+    client = PretradeClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+    decision_time = datetime.fromtimestamp(1_785_142_390, tz=UTC)
+    snapshot = gateway.pretrade_market_snapshot(
+        order_request=ExecutionOrderRequest(
+            strategy_id="sampling-lane",
+            symbol="BTC/USDT",
+            direction=TradeSide.LONG,
+            entry_context={
+                "atr_14": "100",
+                "decision_bar_close_time": decision_time,
+            },
+            market_rules_snapshot=MarketRulesSnapshot(
+                rules_snapshot_id="rules-pretrade",
+                symbol="BTC/USDT:USDT",
+                market_status="TRADING",
+                position_mode="ONE_WAY",
+                margin_mode="CROSS",
+                leverage=Decimal("1"),
+                tick_size=Decimal("0.10"),
+                step_size=Decimal("0.001"),
+                min_quantity=Decimal("0.001"),
+                min_notional=Decimal("50"),
+                loaded_at=decision_time - timedelta(minutes=1),
+                exchange="binance",
+                market_type="swap",
+                exchange_symbol="BTC/USDT:USDT",
+                price_precision=1,
+                amount_precision=3,
+                contract_size=Decimal("1"),
+                market_active=True,
+            ),
+        )
+    )
+
+    assert snapshot.bid == Decimal("59999.5")
+    assert snapshot.ask == Decimal("60000.5")
+    assert snapshot.mark_price == Decimal("60000.1")
+    assert snapshot.server_time == datetime.fromtimestamp(1_785_142_400.1, tz=UTC)
+    assert snapshot.decision_age_seconds == pytest.approx(10.1)
 
 
 def test_binance_position_numeric_falls_back_to_raw_exchange_info() -> None:
@@ -271,7 +332,12 @@ def test_binance_gateway_closes_filled_entry_when_protection_submit_fails() -> N
                     "params": params,
                 }
             )
-            return {"id": f"order-{len(self.created_orders)}", "status": "closed"}
+            return {
+                "id": f"order-{len(self.created_orders)}",
+                "status": "closed",
+                "filled": amount,
+                "average": 60_050,
+            }
 
         def fapiPrivatePostAlgoOrder(self, payload):  # noqa: N802, ANN001
             raise RuntimeError("algo endpoint rejected protection")
@@ -303,7 +369,12 @@ def test_binance_gateway_arms_protection_only_after_a_confirmed_entry_fill() -> 
     class FilledClient(StubCcxtClient):
         def create_order(self, symbol, order_type, side, amount, price=None, params=None):  # noqa: ANN001
             self.created_orders.append({"symbol": symbol, "order_type": order_type, "side": side, "params": params})
-            return {"id": "filled-entry", "status": "closed"}
+            return {
+                "id": "filled-entry",
+                "status": "closed",
+                "filled": amount,
+                "average": 60_050,
+            }
 
     client = FilledClient()
     gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
@@ -342,7 +413,12 @@ def test_binance_gateway_exposes_acceptance_adapter_without_bypassing_submit_ord
                     "params": params,
                 }
             )
-            return {"id": f"binance-order-{len(self.created_orders)}", "status": "closed"}
+            return {
+                "id": f"binance-order-{len(self.created_orders)}",
+                "status": "closed",
+                "filled": amount,
+                "average": 60_050,
+            }
 
     client = EmptyAccountClient()
     gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
@@ -378,7 +454,7 @@ def test_binance_gateway_exposes_acceptance_adapter_without_bypassing_submit_ord
     assert opened["reduce_only"] is False
     assert client.algo_orders[0]["type"] == "STOP_MARKET"
     assert client.created_orders[1]["order_type"] == "limit"
-    assert client.created_orders[1]["price"] == 63_000
+    assert client.created_orders[1]["price"] == 63_050
     assert closed["reduce_only"] is True
     assert client.created_orders[2]["params"]["reduceOnly"] is True
     assert gateway.final_state() == {"open_orders": [], "open_positions": []}

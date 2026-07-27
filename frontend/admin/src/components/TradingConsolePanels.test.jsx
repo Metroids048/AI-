@@ -221,7 +221,7 @@ describe("Trading console panels", () => {
 
     expect(panel.getByText("已匹配：2")).toBeInTheDocument();
     expect(panel.getByText("本地未匹配：1")).toBeInTheDocument();
-    expect(panel.getByText("Binance 未匹配：1")).toBeInTheDocument();
+    expect(panel.getByText("交易所未匹配：1")).toBeInTheDocument();
   });
 
   it("shows an explicit unavailable state instead of implying REST polling", () => {

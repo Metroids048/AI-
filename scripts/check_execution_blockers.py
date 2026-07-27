@@ -65,9 +65,25 @@ def _load_scheduler_state() -> dict:
         return {}
 
 
-def _check_scheduler_blockers(state: dict) -> list[str]:
+def _check_scheduler_blockers(
+    state: dict,
+    *,
+    now: datetime | None = None,
+) -> list[str]:
     if not state.get("running"):
         return [state.get("reason") or "scheduler_offline"]
+    heartbeat_raw = state.get("heartbeat_at")
+    try:
+        heartbeat_at = datetime.fromisoformat(str(heartbeat_raw).replace("Z", "+00:00"))
+        if heartbeat_at.tzinfo is None:
+            heartbeat_at = heartbeat_at.replace(tzinfo=UTC)
+    except (TypeError, ValueError):
+        return ["scheduler_heartbeat_missing"]
+    heartbeat_period = float(state.get("heartbeat_interval_seconds") or settings.market_data_heartbeat_seconds)
+    max_age_seconds = max(2 * heartbeat_period, 120.0)
+    reference = now or datetime.now(UTC)
+    if (reference - heartbeat_at.astimezone(UTC)).total_seconds() > max_age_seconds:
+        return ["scheduler_heartbeat_stale"]
     return []
 
 
@@ -164,7 +180,7 @@ def _check_db_blockers(db_path: Path) -> list[str]:
                 if profile.get("auto_paper_runtime_key") != AUTO_PAPER_TECHNICAL_KEY:
                     continue
                 directional_run_armed = bool(
-                    profile.get("execution_mode") == "binance_simulation_first"
+                    profile.get("execution_mode") == "binance_testnet"
                     and profile.get("mirror_to_gateway") is True
                     and profile.get("cost_gate_verified") is True
                     and list(profile.get("acceptance_symbols") or []) == expected

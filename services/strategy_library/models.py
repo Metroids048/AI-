@@ -14,8 +14,23 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import JSON, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -514,6 +529,17 @@ class SchedulerCycle(Base):
 
 class PositionRecord(Base):
     __tablename__ = "position_records"
+    __table_args__ = (
+        Index(
+            "uq_open_managed_position_identity",
+            "exchange_account",
+            "symbol",
+            "position_side",
+            unique=True,
+            sqlite_where=text("management_status = 'MANAGED_STRATEGY'"),
+            postgresql_where=text("management_status = 'MANAGED_STRATEGY'"),
+        ),
+    )
 
     position_record_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
     exchange_account: Mapped[str] = mapped_column(String(120), index=True)
@@ -521,6 +547,17 @@ class PositionRecord(Base):
     position_side: Mapped[str] = mapped_column(String(20), index=True)
     entry_order_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     entry_fill_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    entry_fill_receipt_id: Mapped[str | None] = mapped_column(
+        ForeignKey(
+            "exchange_fill_receipts.receipt_id",
+            name="fk_position_records_entry_fill_receipt_id",
+            use_alter=True,
+        ),
+        nullable=True,
+        index=True,
+    )
+    position_group_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    execution_mode: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
     opened_at: Mapped[datetime] = mapped_column(index=True)
     quantity: Mapped[float] = mapped_column(Float)
     order_origin: Mapped[str] = mapped_column(String(50), index=True)
@@ -538,10 +575,86 @@ class ProtectionRecord(Base):
     position_record_id: Mapped[str] = mapped_column(ForeignKey("position_records.position_record_id"), index=True)
     stop_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     take_profit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stop_exchange_order_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    take_profit_exchange_order_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     protection_source: Mapped[str] = mapped_column(String(50))
     status: Mapped[str] = mapped_column(String(50), index=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class ExchangeOrderRecord(Base):
+    __tablename__ = "exchange_orders"
+    __table_args__ = (
+        UniqueConstraint("exchange_account", "client_order_id", name="uq_exchange_orders_account_client"),
+        UniqueConstraint("exchange_account", "exchange_order_id", name="uq_exchange_orders_account_order"),
+        CheckConstraint(
+            "execution_mode IN ('local_paper', 'binance_testnet')",
+            name="ck_exchange_orders_execution_mode",
+        ),
+    )
+
+    exchange_order_record_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    local_order_execution_id: Mapped[str] = mapped_column(
+        ForeignKey(
+            "order_executions.order_execution_id",
+            name="fk_exchange_orders_local_order_execution_id",
+            use_alter=True,
+        ),
+        index=True,
+    )
+    exchange_account: Mapped[str] = mapped_column(String(120), index=True)
+    execution_mode: Mapped[str] = mapped_column(String(30), index=True)
+    client_order_id: Mapped[str] = mapped_column(String(36))
+    exchange_order_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    symbol: Mapped[str] = mapped_column(String(30), index=True)
+    side: Mapped[str] = mapped_column(String(10))
+    reduce_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    state: Mapped[str] = mapped_column(String(40), index=True)
+    requested_quantity: Mapped[Decimal] = mapped_column(Numeric(30, 12))
+    acknowledged_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class ExchangeFillReceipt(Base):
+    __tablename__ = "exchange_fill_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "exchange_account",
+            "exchange_order_id",
+            "cumulative_filled_quantity",
+            name="uq_fill_receipt_cumulative_revision",
+        ),
+    )
+
+    receipt_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    exchange_order_record_id: Mapped[str] = mapped_column(
+        ForeignKey("exchange_orders.exchange_order_record_id"), index=True
+    )
+    exchange_account: Mapped[str] = mapped_column(String(120), index=True)
+    exchange_order_id: Mapped[str] = mapped_column(String(120), index=True)
+    client_order_id: Mapped[str] = mapped_column(String(36), index=True)
+    trade_ids: Mapped[list] = mapped_column(JSON, default=list)
+    symbol: Mapped[str] = mapped_column(String(30), index=True)
+    side: Mapped[str] = mapped_column(String(10))
+    reduce_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    cumulative_filled_quantity: Mapped[Decimal] = mapped_column(Numeric(30, 12))
+    projected_quantity: Mapped[Decimal] = mapped_column(Numeric(30, 12), default=0)
+    average_fill_price: Mapped[Decimal] = mapped_column(Numeric(30, 12))
+    commissions: Mapped[list] = mapped_column(JSON, default=list)
+    event_time: Mapped[datetime] = mapped_column(index=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class ExchangeTradeIdentity(Base):
+    __tablename__ = "exchange_trade_identities"
+    __table_args__ = (UniqueConstraint("exchange_account", "trade_id", name="uq_exchange_trade_account_id"),)
+
+    exchange_trade_identity_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    receipt_id: Mapped[str] = mapped_column(ForeignKey("exchange_fill_receipts.receipt_id"), index=True)
+    exchange_account: Mapped[str] = mapped_column(String(120), index=True)
+    trade_id: Mapped[str] = mapped_column(String(120))
 
 
 class PositionSnapshot(Base):
@@ -601,6 +714,56 @@ class DecisionEvent(Base):
     position_record_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     reason_code: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     decision_key: Mapped[str | None] = mapped_column(String(220), nullable=True, unique=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+
+
+class DecisionFunnelTerminal(Base):
+    __tablename__ = "decision_funnel_terminals"
+    __table_args__ = (
+        UniqueConstraint(
+            "paper_run_id",
+            "symbol",
+            "timeframe",
+            "bar_time",
+            name="uq_decision_funnel_terminal_bar",
+        ),
+    )
+
+    terminal_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    paper_run_id: Mapped[str] = mapped_column(ForeignKey("paper_runs.paper_run_id"), index=True)
+    cycle_id: Mapped[str] = mapped_column(String(120), index=True)
+    decision_id: Mapped[str] = mapped_column(String(120), index=True)
+    symbol: Mapped[str] = mapped_column(String(30), index=True)
+    timeframe: Mapped[str] = mapped_column(String(20), index=True)
+    bar_time: Mapped[datetime] = mapped_column(index=True)
+    terminal_stage: Mapped[str] = mapped_column(String(50), index=True)
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    reason_code: Mapped[str] = mapped_column(String(120), index=True)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+
+class LlmInvocation(Base):
+    __tablename__ = "llm_invocations"
+
+    invocation_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    cycle_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    decision_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    symbol: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    called: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    skip_reason: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    provider: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    model: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    stage: Mapped[str] = mapped_column(String(30), index=True)
+    status: Mapped[str] = mapped_column(String(40), index=True)
+    input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    output_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
 
 

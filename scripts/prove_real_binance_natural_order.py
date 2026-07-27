@@ -42,7 +42,7 @@ def _directional_run_ids(session) -> set[str]:  # noqa: ANN001
         for run in PaperRunRepository(session).list_paper_runs()
         if run.paper_status == "running"
         and run.execution_profile.get("auto_paper_runtime_key") == AUTO_PAPER_TECHNICAL_KEY
-        and run.execution_profile.get("execution_mode") == "binance_simulation_first"
+        and run.execution_profile.get("execution_mode") == "binance_testnet"
     }
 
 

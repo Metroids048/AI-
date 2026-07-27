@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from services.agents import AgentTaskService
-from services.strategy_library import AgentTaskRepository, ReviewRepository, StrategyRepository
+from services.strategy_library import (
+    AgentTaskRepository,
+    LlmInvocationRepository,
+    ReviewRepository,
+    StrategyRepository,
+)
 from shared.models import AgentTaskRequest, StrategyCreate
 
 
@@ -17,6 +22,21 @@ class InvalidSchemaLLM:
 class TimeoutLLM:
     def generate_structured(self, *, agent_type: str, task_type: str, payload: dict) -> dict:
         raise TimeoutError("llm timeout")
+
+
+class SuccessfulVetoLLM:
+    def generate_structured(self, *, agent_type: str, task_type: str, payload: dict) -> dict:
+        del agent_type, task_type, payload
+        return {
+            "provider": "stub",
+            "model": "stub-mini",
+            "usage": {
+                "prompt_tokens": 12,
+                "completion_tokens": 5,
+                "total_tokens": 17,
+            },
+            "raw_output": {"veto": False, "veto_reason": "advisory clear"},
+        }
 
 
 def test_llm_agent_fails_closed_on_schema_validation_error(db_session) -> None:
@@ -66,3 +86,39 @@ def test_decision_veto_agent_applies_safe_timeout_policy(db_session) -> None:
     assert task.task_status == "failed"
     assert task.output_payload["safe_veto_applied"] is True
     assert task.output_payload["veto_result"]["veto"] is True
+    invocation = LlmInvocationRepository(db_session).list_invocations(limit=1)[0]
+    assert invocation.called is True
+    assert invocation.status == "timeout"
+    assert invocation.error == "llm timeout"
+
+
+def test_llm_invocation_persists_provider_tokens_hashes_and_latency(db_session) -> None:
+    service = AgentTaskService(
+        agent_repo=AgentTaskRepository(db_session),
+        strategy_repo=StrategyRepository(db_session),
+        review_repo=ReviewRepository(db_session),
+        llm_runtime=SuccessfulVetoLLM(),
+    )
+
+    service.submit_task(
+        AgentTaskRequest(
+            agent_type="decision_veto_agent",
+            task_type="pre_execution_veto_llm",
+            input_payload={
+                "cycle_id": "cycle-1",
+                "decision_id": "decision-1",
+                "symbol": "BTC/USDT",
+            },
+        )
+    )
+
+    invocation = LlmInvocationRepository(db_session).list_invocations(limit=1)[0]
+    assert invocation.called is True
+    assert invocation.provider == "stub"
+    assert invocation.model == "stub-mini"
+    assert invocation.prompt_tokens == 12
+    assert invocation.completion_tokens == 5
+    assert invocation.total_tokens == 17
+    assert invocation.input_hash is not None
+    assert invocation.output_hash is not None
+    assert invocation.latency_ms is not None

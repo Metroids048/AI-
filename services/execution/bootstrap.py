@@ -9,6 +9,7 @@ from typing import Any
 
 from services.data.service import DEFAULT_BINANCE_TOP20
 from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS, fixed_top20_assets
+from services.execution.execution_truth import resolve_execution_mode
 from services.execution.risk_tiers import default_asset_risk_tiers, scale_asset_risk_tiers
 from shared.config import settings
 from shared.models.risk import (
@@ -144,8 +145,11 @@ def resolve_auto_paper_technical_evidence() -> tuple[dict[str, Any], tuple[str, 
         if not eligible:
             raise ValueError("manifest has no eligible research symbols")
         return config, eligible
-    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
-        return AUTO_PAPER_TECHNICAL_RULES, AUTO_PAPER_RESEARCH_SYMBOLS
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        disabled_rules = json.loads(json.dumps(AUTO_PAPER_TECHNICAL_RULES))
+        disabled_rules["entry_rules"]["manifest_entry_enabled"] = False
+        disabled_rules["entry_rules"]["manifest_error"] = str(exc)
+        return disabled_rules, ()
 
 
 # Medium-term swing trading preset: 1d direction + 4h entry, designed for lower
@@ -515,9 +519,9 @@ def _ensure_auto_paper_run(
             "strategy_lanes": strategy_lanes,
             "account_equity": 10_000,
             "equity_peak": 10_000,
-            "execution_mode": "paper_only"
+            "execution_mode": "local_paper"
             if force_paper_only or not default_mirror_to_gateway()
-            else "binance_simulation_first",
+            else "binance_testnet",
             "mirror_to_gateway": False if force_paper_only else default_mirror_to_gateway(),
             "auto_schedule_enabled": auto_schedule_enabled,
             "cost_gate_verified": False,
@@ -545,6 +549,8 @@ def _ensure_auto_paper_run(
             # to collect exchange-fill samples.  Mainnet and local-only Paper
             # paths can never use this fallback.
             "simulation_sampling_fallback_enabled": strategy_lane == "directional",
+            "entry_enabled": bool(rules["entry_rules"].get("manifest_entry_enabled", True)),
+            "entry_disabled_reason": rules["entry_rules"].get("manifest_error"),
         }
         if paper_run is None:
             paper_run = paper_repo.create_paper_run(
@@ -574,6 +580,11 @@ def _ensure_auto_paper_run(
             if preserve_testnet_authorization:
                 preserved_keys.extend(("acceptance_symbols", "acceptance_scope_hash"))
             preserved = {key: previous[key] for key in preserved_keys if key in previous}
+            if "execution_mode" in preserved:
+                preserved["execution_mode"] = resolve_execution_mode(
+                    str(preserved["execution_mode"]),
+                    migration=True,
+                ).value
             profile = {**previous, **execution_profile, **preserved}
             if force_paper_only and not preserve_testnet_authorization:
                 for key in ("testnet_acceptance_verified_at", "acceptance_symbols", "acceptance_scope_hash"):
@@ -646,7 +657,7 @@ def _rearm_directional_run_from_verified_acceptance(paper_run_id: str) -> bool:
             return False
         profile = paper_run.execution_profile
         already_armed = (
-            profile.get("execution_mode") == "binance_simulation_first"
+            profile.get("execution_mode") == "binance_testnet"
             and profile.get("mirror_to_gateway") is True
             and profile.get("cost_gate_verified") is True
             and list(profile.get("acceptance_symbols") or []) == symbols

@@ -44,7 +44,7 @@ def _entry_request() -> ExecutionOrderRequest:
 def _active_snapshot() -> ConfigSnapshot:
     return ConfigSnapshot.create(
         paper_run_id="paper-run-1",
-        config={"execution_profile": {"execution_mode": "paper_only"}},
+        config={"execution_profile": {"execution_mode": "local_paper"}},
         created_by="test",
         effective_cycle_id="seed",
     ).model_copy(update={"config_snapshot_id": "config-snapshot-1"})
