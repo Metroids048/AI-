@@ -97,8 +97,8 @@ class V2ExecutionIntent(Base):
             name="ck_v2_intent_execution_mode",
         ),
         CheckConstraint(
-            "state IN ('INTENT_CREATED', 'EXCHANGE_SUBMITTING', 'EXCHANGE_ACKNOWLEDGED', "
-            "'FILLED', 'REJECTED', 'CANCELLED', 'EXPIRED')",
+            "state IN ('INTENT_CREATED', 'EXCHANGE_SUBMITTING', 'EXCHANGE_UNKNOWN', "
+            "'EXCHANGE_ACKNOWLEDGED', 'FILLED', 'REJECTED', 'CANCELLED', 'EXPIRED')",
             name="ck_v2_intent_state",
         ),
     )

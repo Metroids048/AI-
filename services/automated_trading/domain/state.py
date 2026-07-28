@@ -28,6 +28,17 @@ _LEGAL_INTENT_TRANSITIONS: dict[V2IntentState, set[V2IntentState]] = {
         V2IntentState.FILLED,  # Fast fill before acknowledgment
         V2IntentState.REJECTED,
         V2IntentState.CANCELLED,
+        V2IntentState.EXCHANGE_UNKNOWN,  # Request sent, outcome undetermined
+    },
+    # Resolved only by Client Order ID lookup against the exchange. Every exit
+    # from here is an *observation* of what the exchange already did; there is no
+    # transition back to EXCHANGE_SUBMITTING because that would mean resubmitting.
+    V2IntentState.EXCHANGE_UNKNOWN: {
+        V2IntentState.EXCHANGE_ACKNOWLEDGED,
+        V2IntentState.FILLED,
+        V2IntentState.REJECTED,
+        V2IntentState.CANCELLED,
+        V2IntentState.EXPIRED,
     },
     V2IntentState.EXCHANGE_ACKNOWLEDGED: {
         V2IntentState.FILLED,

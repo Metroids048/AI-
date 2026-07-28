@@ -21,6 +21,9 @@ class V2IntentState(StrEnum):
 
     INTENT_CREATED: Strategy decision made, not yet submitted to exchange.
     EXCHANGE_SUBMITTING: Order submitted to exchange, awaiting acknowledgment.
+    EXCHANGE_UNKNOWN: Request left the process but the outcome is undetermined
+        (timeout / connection reset). Resolution is by Client Order ID lookup
+        only; resubmitting under a new Client Order ID is forbidden.
     EXCHANGE_ACKNOWLEDGED: Exchange confirmed receipt, order_id assigned.
     FILLED: Exchange confirmed fill (requires FillReceipt with trade_id).
     REJECTED: Exchange rejected the order.
@@ -30,6 +33,7 @@ class V2IntentState(StrEnum):
 
     INTENT_CREATED = "INTENT_CREATED"
     EXCHANGE_SUBMITTING = "EXCHANGE_SUBMITTING"
+    EXCHANGE_UNKNOWN = "EXCHANGE_UNKNOWN"
     EXCHANGE_ACKNOWLEDGED = "EXCHANGE_ACKNOWLEDGED"
     FILLED = "FILLED"
     REJECTED = "REJECTED"
