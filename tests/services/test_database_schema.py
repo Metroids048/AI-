@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import inspect, text
 
 
@@ -54,6 +55,81 @@ def test_incomplete_legacy_sqlite_schema_is_not_adopted(tmp_path) -> None:
 
         assert adopt_complete_legacy_sqlite_schema(database_url, head_revision="0006") is False
         assert inspect(engine).has_table("alembic_version") is False
+    finally:
+        get_engine(database_url).dispose()
+        reset_database_caches()
+
+
+def test_prepare_database_creates_v2_automated_trading_tables(tmp_path) -> None:
+    """Migration 0016 must create all V2 tables when upgrading to head."""
+    from scripts.prepare_database import prepare_database
+    from services.database import get_engine, reset_database_caches
+
+    database_url = f"sqlite:///{(tmp_path / 'v2_schema.db').as_posix()}"
+    try:
+        prepare_database(database_url)
+        inspector = inspect(get_engine(database_url))
+        expected_tables = {
+            "v2_execution_cycles",
+            "v2_execution_intents",
+            "v2_exchange_orders",
+            "v2_managed_positions",
+            "v2_protection_records",
+            "v2_execution_events",
+            "v2_reconciliation_snapshots",
+            "v2_execution_incidents",
+        }
+        assert expected_tables.issubset(set(inspector.get_table_names()))
+    finally:
+        get_engine(database_url).dispose()
+        reset_database_caches()
+
+
+def test_v2_managed_positions_enforces_one_open_position_per_symbol_direction_mode(
+    tmp_path,
+) -> None:
+    """Partial unique index must reject a second open position for the same key."""
+    from sqlalchemy.exc import IntegrityError
+
+    from scripts.prepare_database import prepare_database
+    from services.database import get_engine, reset_database_caches
+
+    database_url = f"sqlite:///{(tmp_path / 'v2_unique_position.db').as_posix()}"
+    try:
+        prepare_database(database_url)
+        engine = get_engine(database_url)
+        insert_sql = text(
+            """
+            INSERT INTO v2_managed_positions
+                (position_id, intent_id, order_record_id, symbol, direction,
+                 execution_mode, quantity, entry_price, entry_fee, state, projected_at)
+            VALUES (:position_id, :intent_id, :order_record_id, 'BTC/USDT', 'long',
+                    'BINANCE_TESTNET', 0.001, 65000.0, 0.65, 'POSITION_PROJECTED',
+                    CURRENT_TIMESTAMP)
+            """
+        )
+        with engine.begin() as connection:
+            connection.execute(
+                insert_sql,
+                {
+                    "position_id": "pos-a",
+                    "intent_id": "intent-a",
+                    "order_record_id": "order-a",
+                },
+            )
+
+        with (
+            pytest.raises(IntegrityError),
+            engine.begin() as connection,
+        ):
+            connection.execute(
+                insert_sql,
+                {
+                    "position_id": "pos-b",
+                    "intent_id": "intent-b",
+                    "order_record_id": "order-b",
+                },
+            )
     finally:
         get_engine(database_url).dispose()
         reset_database_caches()

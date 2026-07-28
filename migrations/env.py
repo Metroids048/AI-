@@ -10,12 +10,19 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+# Imported for its side effect of registering V2 tables on Base.metadata.
+import services.automated_trading.infrastructure.models  # noqa: F401,E402
 from services.strategy_library.models import Base
 
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: fileConfig's default silently disables any
+    # logger not listed in alembic.ini's [loggers] section. In-process callers
+    # like scripts/prepare_database.py run this after application logging is
+    # already configured, so the default would kill unrelated app loggers
+    # (e.g. services.execution.paper_signal) for the rest of the process.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Resolve DB URL at runtime (env wins over alembic.ini).
 db_url = os.getenv("POSTGRES_URL")

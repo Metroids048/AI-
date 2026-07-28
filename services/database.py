@@ -10,6 +10,10 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+# Imported for its side effect of registering V2 tables on Base.metadata —
+# required before create_relational_schema()/create_local_runtime_schema()
+# call Base.metadata.create_all().
+import services.automated_trading.infrastructure.models  # noqa: F401,E402
 from services.strategy_library.models import Base
 from shared.config import settings
 
@@ -75,9 +79,7 @@ def adopt_complete_legacy_sqlite_schema(url: str, *, head_revision: str) -> bool
             if current_revision:
                 return False
         else:
-            connection.execute(
-                text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)")
-            )
+            connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)"))
         connection.execute(
             text("INSERT INTO alembic_version (version_num) VALUES (:revision)"),
             {"revision": head_revision},
