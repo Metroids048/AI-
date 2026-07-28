@@ -405,9 +405,16 @@ def runtime_reconciliation(db: Session = Depends(get_db_session)) -> dict:
         for order in execution_repo.list_exchange_orders(limit=500)
         if order.state is ExchangeOrderState.EXCHANGE_UNKNOWN
     ]
-    if exchange.get("status") != "available":
+    exchange_status = str(exchange.get("status") or "")
+    exchange_has_snapshot = exchange.get("value") is not None
+    # Stale cached truth is degraded for ops UI, but must not invent a full BTC/ETH
+    # block when positions/orders were recently observed. Only hard-unavailable
+    # (no usable value) forces the full entry block in this projection endpoint.
+    if exchange_status == "unavailable" or (exchange_status != "available" and not exchange_has_snapshot):
         reconciliation_status = "unavailable"
         blocked_symbols = {"BTC/USDT", "ETH/USDT"}
+    elif exchange_status == "stale":
+        reconciliation_status = "degraded"
     elif active_kill_switch_runs:
         reconciliation_status = "degraded"
         blocked_symbols.update({"BTC/USDT", "ETH/USDT"})

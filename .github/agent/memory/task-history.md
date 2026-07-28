@@ -602,6 +602,13 @@
 - **External evidence**: Scheduler-created BTC automatic verification order `gateway_order_id=22004526655` was read back from Binance simulation. It created a `0.0015 BTC` long plus Binance reduce-only stop `1000000137072612` and take-profit `1000000137072614`; the isolated verification run was then paused and the simulation account was returned to zero positions and zero open orders.
 - **Verification**: `scripts/verify_config.py` -> `GREEN: 18/18 checks passed`, including external Binance order-id reconciliation and mainnet protection. Full `pytest -q` -> `432 passed, 4 skipped`; changed-file Ruff clean.
 
+## 2026-07-28 — P0→P3 acceptance audit + review fixes (watcher kept)
+
+- **Summary**: Left `_watch_p03_until_fill` running (PID tree 21596→30188). Ran full plan acceptance audit + independent code review. **Honest rollup: NOT all complete** — P0.3 hard gate still unmet (`exchange_orders=0`, `exchange_fill_receipts=0`); P3 remains LOCKED. Review findings closed in this pass: wire `validate_exchange_order_transition` into `ExecutionRepository.update_exchange_order`; `/runtime/reconciliation` no longer treats stale cached exchange truth as full BTC/ETH block; +2 illegal transition tests + stale-recon API test.
+- **Live**: Scheduler heartbeat fresh; recon `healthy`/blocked `[]`; latest funnel `08:00Z` `SAMPLING_RULES_NOT_ALIGNED`; Testnet 0/0.
+- **Verification**: targeted truth suites earlier `80 passed`; post-fix `16 passed` (state machine + runtime API); ruff/mypy on touched files clean; frontend `RuntimeTruthPanel.test.jsx` `1 passed`; P2 checklist `overall_pass=true`. Full `pytest -q` / `ruff check .` / frontend build / pre-commit all-files: **未跑本轮全量**.
+- **Incomplete**: Natural Entry→Fill→SL/TP→Exit IDs. Do not claim P0.3/P3 COMPLETE.
+
 ## 2026-07-28 — Advance remaining plan (P1/P2) while P0.3 watches
 
 - **Summary**: Kept a single `_watch_p03_until_fill` process. Landed P1 `MARKET_REVIEW` (hourly scheduler + Celery beat/route) and advisory `TRADE_REVIEW` (`bias/confidence/risk_flags/summary`, never blocks Entry). P2 Runtime Truth gained Data Freshness + Strategy Evidence on `/runtime/snapshot` and the panel; headless Playwright verify earlier → `logs/p2-runtime-truth-verify/checklist.json` overall_pass. Added `validate_exchange_order_transition` + illegal-transition tests. Cancelled orphan ETH Testnet TP `1000000148362162`; account clean 0/0.

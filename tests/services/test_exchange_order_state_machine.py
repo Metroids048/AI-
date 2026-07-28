@@ -32,3 +32,19 @@ def test_legal_protected_to_closed() -> None:
         ExchangeOrderState.PROTECTED,
         ExchangeOrderState.CLOSED,
     )
+
+
+def test_illegal_exchange_submitting_to_intent_created() -> None:
+    with pytest.raises(ValueError, match="illegal exchange order transition"):
+        validate_exchange_order_transition(
+            ExchangeOrderState.EXCHANGE_SUBMITTING,
+            ExchangeOrderState.INTENT_CREATED,
+        )
+
+
+def test_illegal_protected_to_filled() -> None:
+    with pytest.raises(ValueError, match="illegal exchange order transition"):
+        validate_exchange_order_transition(
+            ExchangeOrderState.PROTECTED,
+            ExchangeOrderState.FILLED,
+        )

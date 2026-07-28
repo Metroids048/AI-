@@ -2277,6 +2277,14 @@ class ExecutionRepository:
         row = self.session.get(models.ExchangeOrderRecord, exchange_order_record_id)
         if row is None:
             return None
+        if "state" in fields:
+            # Lazy import avoids strategy_library ↔ execution package cycles.
+            from services.execution.exchange_order_transitions import validate_exchange_order_transition
+
+            next_state = fields["state"]
+            if not isinstance(next_state, ExchangeOrderState):
+                next_state = ExchangeOrderState(next_state)
+            validate_exchange_order_transition(ExchangeOrderState(row.state), next_state)
         for key, value in fields.items():
             setattr(row, key, value.value if hasattr(value, "value") else value)
         self.session.commit()

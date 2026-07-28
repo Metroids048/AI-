@@ -1,0 +1,12 @@
+{
+  "project": "AI--main",
+  "time": "2026-07-28T11:50:07",
+  "dry_run": false,
+  "stats": {
+    "copied": 3,
+    "unchanged": 8,
+    "conflict": 1,
+    "skip": 0,
+    "project": "AI--main"
+  }
+}

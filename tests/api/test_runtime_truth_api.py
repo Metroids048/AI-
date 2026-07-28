@@ -204,6 +204,31 @@ def test_runtime_reconciliation_reports_persisted_kill_switch_and_unknown_order(
     ]
 
 
+def test_runtime_reconciliation_stale_cache_does_not_force_full_entry_block(
+    api_client,
+    monkeypatch,
+) -> None:
+    observed_at = datetime.now(UTC)
+    monkeypatch.setattr(
+        runtime,
+        "_exchange_truth",
+        lambda: {
+            "value": {"positions": [], "open_orders": []},
+            "source": "BINANCE_USDT_M_TESTNET",
+            "observed_at": observed_at.isoformat(),
+            "freshness": "stale",
+            "status": "stale",
+            "error": "exchange truth probe already in progress",
+        },
+    )
+
+    body = api_client.get("/api/v1/runtime/reconciliation").json()
+
+    assert body["status"] == "degraded"
+    assert body["entry_blocked_symbols"] == []
+    assert body["entry_kill_switch_active"] is False
+
+
 def test_runtime_llm_invocations_returns_persisted_skip_reason(
     api_client,
     db_session,
