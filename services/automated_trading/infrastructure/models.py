@@ -212,7 +212,8 @@ class V2ProtectionRecord(Base):
         ),
         CheckConstraint(
             "state IN ('PROTECTION_INTENT', 'PROTECTION_SUBMITTING', 'PROTECTION_ACTIVE', "
-            "'PROTECTION_TRIGGERED', 'PROTECTION_FILLED', 'PROTECTION_CANCELLED')",
+            "'PROTECTION_TRIGGERED', 'PROTECTION_FILLED', 'PROTECTION_CANCELLED', "
+            "'PROTECTION_FAILED', 'PROTECTION_UNKNOWN')",
             name="ck_v2_protection_state",
         ),
     )

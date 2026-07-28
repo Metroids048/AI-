@@ -67,6 +67,10 @@ class V2ProtectionState(StrEnum):
     PROTECTION_TRIGGERED: Exchange reports protection triggered.
     PROTECTION_FILLED: Protection fill confirmed (requires FillReceipt).
     PROTECTION_CANCELLED: Protection cancelled (position closed by other exit).
+    PROTECTION_FAILED: Submission failed after retry; escalation to emergency
+        reduce-only close is required. Never a resting state for a live position.
+    PROTECTION_UNKNOWN: Submission outcome undetermined (timeout). Resolved by
+        Client Order ID lookup, never by blind resubmission.
     """
 
     PROTECTION_INTENT = "PROTECTION_INTENT"
@@ -75,6 +79,8 @@ class V2ProtectionState(StrEnum):
     PROTECTION_TRIGGERED = "PROTECTION_TRIGGERED"
     PROTECTION_FILLED = "PROTECTION_FILLED"
     PROTECTION_CANCELLED = "PROTECTION_CANCELLED"
+    PROTECTION_FAILED = "PROTECTION_FAILED"
+    PROTECTION_UNKNOWN = "PROTECTION_UNKNOWN"
 
 
 class V2ExecutionMode(StrEnum):

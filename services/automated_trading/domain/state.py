@@ -80,6 +80,8 @@ _LEGAL_PROTECTION_TRANSITIONS: dict[V2ProtectionState, set[V2ProtectionState]] =
     V2ProtectionState.PROTECTION_SUBMITTING: {
         V2ProtectionState.PROTECTION_ACTIVE,
         V2ProtectionState.PROTECTION_CANCELLED,
+        V2ProtectionState.PROTECTION_FAILED,
+        V2ProtectionState.PROTECTION_UNKNOWN,
     },
     V2ProtectionState.PROTECTION_ACTIVE: {
         V2ProtectionState.PROTECTION_TRIGGERED,
@@ -87,6 +89,20 @@ _LEGAL_PROTECTION_TRANSITIONS: dict[V2ProtectionState, set[V2ProtectionState]] =
     },
     V2ProtectionState.PROTECTION_TRIGGERED: {
         V2ProtectionState.PROTECTION_FILLED,
+    },
+    # A failed protection attempt may be retried once under a new attempt number,
+    # or escalate to emergency close. It is never a resting state.
+    V2ProtectionState.PROTECTION_FAILED: {
+        V2ProtectionState.PROTECTION_SUBMITTING,
+        V2ProtectionState.PROTECTION_CANCELLED,
+    },
+    # Resolved by Client Order ID lookup: the order either exists at the exchange
+    # or it does not. No transition back to SUBMITTING (that would resubmit).
+    V2ProtectionState.PROTECTION_UNKNOWN: {
+        V2ProtectionState.PROTECTION_ACTIVE,
+        V2ProtectionState.PROTECTION_TRIGGERED,
+        V2ProtectionState.PROTECTION_CANCELLED,
+        V2ProtectionState.PROTECTION_FAILED,
     },
     V2ProtectionState.PROTECTION_FILLED: set(),  # Terminal state
     V2ProtectionState.PROTECTION_CANCELLED: set(),  # Terminal state
