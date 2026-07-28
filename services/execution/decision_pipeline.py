@@ -766,6 +766,18 @@ class DecisionPipeline:
                     source_ref=f"agent_task:{task.agent_task_id}",
                 )
             )
+        self._submit_advisory_trade_review(
+            service=service,
+            symbol=symbol,
+            timeframe=timeframe,
+            signals=signals,
+            ensemble=ensemble,
+            meta_label=meta_label,
+            volatility=volatility,
+            cycle_id=cycle_id,
+            decision_id=decision_id,
+            veto_task=task,
+        )
         payload = task.output_payload.get("veto_result", {})
         if not isinstance(payload, dict):
             return DecisionVetoResult(
@@ -787,6 +799,45 @@ class DecisionPipeline:
             checked_at=datetime.now(UTC),
             agent_task_ref=task.agent_task_id,
         )
+
+    def _submit_advisory_trade_review(
+        self,
+        *,
+        service: AgentTaskService,
+        symbol: str,
+        timeframe: str,
+        signals: list[TradeSignal],
+        ensemble: SignalEnsemble,
+        meta_label: MetaLabel,
+        volatility: dict[str, Any],
+        cycle_id: str | None,
+        decision_id: str | None,
+        veto_task: AgentTask,
+    ) -> None:
+        """Advisory TRADE_REVIEW only; failures must not affect veto or trading."""
+        try:
+            service.submit_task(
+                AgentTaskRequest(
+                    agent_type="review_agent",
+                    task_type="trade_review_llm",
+                    input_ref=f"signal_ensemble:{ensemble.ensemble_id}",
+                    input_payload={
+                        "cycle_id": cycle_id,
+                        "decision_id": decision_id,
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "technical_signals": [signal.model_dump(mode="json") for signal in signals],
+                        "ensemble": ensemble.model_dump(mode="json"),
+                        "meta_label": meta_label.model_dump(mode="json"),
+                        "veto_task_id": veto_task.agent_task_id,
+                        "veto_result": (veto_task.output_payload or {}).get("veto_result"),
+                        "market_context": {"volatility": volatility},
+                        "advisory_only": True,
+                    },
+                )
+            )
+        except Exception:
+            return
 
     @staticmethod
     def _skipped(

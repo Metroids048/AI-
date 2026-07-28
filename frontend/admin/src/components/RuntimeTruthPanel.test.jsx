@@ -28,6 +28,27 @@ describe("RuntimeTruthPanel", () => {
               source: "RUNTIME_SCHEDULER_HEARTBEAT",
               freshness: "stale",
             },
+            data_freshness: {
+              status: "available",
+              value: {
+                data_fresh: true,
+                exchange_info_ready: true,
+              },
+              source: "RUNTIME_SCHEDULER_HEARTBEAT",
+              freshness: "current",
+            },
+            strategy_evidence: {
+              status: "available",
+              value: {
+                strategy_lane: "directional",
+                acceptance_symbols: ["BTC/USDT", "ETH/USDT"],
+                simulation_sampling_fallback_enabled: true,
+                execution_mode: "binance_testnet",
+                evidence_class: "NON_PROMOTABLE_PIPELINE_SAMPLE",
+              },
+              source: "PAPER_RUN_REPOSITORY",
+              freshness: "current",
+            },
           },
           decisions: [
             {
@@ -63,5 +84,10 @@ describe("RuntimeTruthPanel", () => {
     expect(screen.getByText("Exchange Orders")).toBeTruthy();
     expect(screen.getByText("Mismatch / Reconciliation")).toBeTruthy();
     expect(screen.getByText("Protections")).toBeTruthy();
+    expect(screen.getByText("Data Freshness")).toBeTruthy();
+    expect(screen.getByText(/数据新鲜/)).toBeTruthy();
+    expect(screen.getByText("Strategy Evidence")).toBeTruthy();
+    expect(screen.getByText("directional")).toBeTruthy();
+    expect(screen.getByText(/NON_PROMOTABLE_PIPELINE_SAMPLE/)).toBeTruthy();
   });
 });

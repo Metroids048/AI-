@@ -602,6 +602,12 @@
 - **External evidence**: Scheduler-created BTC automatic verification order `gateway_order_id=22004526655` was read back from Binance simulation. It created a `0.0015 BTC` long plus Binance reduce-only stop `1000000137072612` and take-profit `1000000137072614`; the isolated verification run was then paused and the simulation account was returned to zero positions and zero open orders.
 - **Verification**: `scripts/verify_config.py` -> `GREEN: 18/18 checks passed`, including external Binance order-id reconciliation and mainnet protection. Full `pytest -q` -> `432 passed, 4 skipped`; changed-file Ruff clean.
 
+## 2026-07-28 — Advance remaining plan (P1/P2) while P0.3 watches
+
+- **Summary**: Kept a single `_watch_p03_until_fill` process. Landed P1 `MARKET_REVIEW` (hourly scheduler + Celery beat/route) and advisory `TRADE_REVIEW` (`bias/confidence/risk_flags/summary`, never blocks Entry). P2 Runtime Truth gained Data Freshness + Strategy Evidence on `/runtime/snapshot` and the panel; headless Playwright verify earlier → `logs/p2-runtime-truth-verify/checklist.json` overall_pass. Added `validate_exchange_order_transition` + illegal-transition tests. Cancelled orphan ETH Testnet TP `1000000148362162`; account clean 0/0.
+- **P0.3 root cause (unchanged)**: Current bars are mixed-regime (`close < ema50` and `macd_hist > 0`) so Sampling cannot fire without relaxing locked rules. Historical aligns on 7/27 were killed by Pretrade age≈706s / snapshot gaps (path since fixed).
+- **Incomplete**: Natural Entry→Exit IDs still absent → P3 locked. Do not claim P0.3 COMPLETE.
+
 ## 2026-07-28 — P0.3 close-out: tight Entry slot + latency (still signal-silent)
 
 - **Summary**: Split armed Binance Testnet cycles into a coordinated `tight_entry` slot (`run_all_paper_runtime_cycles`) and deferred observation to `paper_observation_cycle` (+90s offset) so observation cannot hold the Entry lease. Cycle offset 15→5s. Prefer refreshed `PaperRun.universe_assets` over stale active-snapshot `unknown`. Funnel terminals prefer `SAMPLING_RULES_NOT_ALIGNED` when sampling was attempted. Sampling sizing uses exchange min notional (prior WIP).
@@ -614,7 +620,7 @@
 - **Summary**: Found restart left `paper_runtime_cycle` lease/claims owned by dead PIDs → new scheduler `standby_not_leader` / `duplicate_slot_skipped`, missing the 04:15 bar. Added same-host dead-PID lease reclaim + claimed-slot reclaim in `scheduler_coordination.py`; launcher now runs `scripts/reclaim_stale_scheduler_locks.py` on scheduler stop. Funnel no longer overwrites first terminal with `skip_duplicate`. Runtime `/snapshot` exchange probe is non-blocking (8s timeout, stale cache, in-flight short-circuit) so UI is not wedged behind hung reconcile.
 - **Live evidence**: After reclaim, `04:30`/`04:45`/`05:00` directional cycles completed with durable funnel `SAMPLING_RULES_NOT_ALIGNED` (duplicate ticks no longer clobber). Scheduler healthy; `exchange_orders=0` / `fill_receipts=0` — MACD hist still >0 (BTC ~55–60) while RSI in short band. Snapshot auth probe returned `exchange.status=available` in ~1s after warm cache.
 - **Verification**: `test_dead_local_*` + funnel overwrite + `test_runtime_truth_api` (9 passed). Snapshot cold path may still hit Binance latency once; subsequent polls are cached.
-- **Incomplete**: P0.3 natural Entry→Exit IDs still absent (honest Sampling silence). P2 browser E2E blocked (Playwright MCP Bridge unavailable). P3 locked. Watcher `scripts/_watch_p03_until_fill.py` left running.
+- **Incomplete**: P0.3 natural Entry→Exit IDs still absent (honest Sampling silence). P2 browser later re-verified via headless Playwright (`logs/p2-runtime-truth-verify/`, overall_pass). P3 locked. Watcher `scripts/_watch_p03_until_fill.py` left running.
 
 ## 2026-07-28 — Resume P0.3: cycle latency + Testnet unmanaged flatten
 

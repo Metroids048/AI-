@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # Observation / local-paper auto-runs run on a separate lease after the Entry window.
     paper_observation_cycle_offset_seconds: int = 90
     paper_runtime_enable_decision_veto: bool = True
+    # Advisory MARKET_REVIEW cadence (P1). Never creates candidates or blocks hard exits.
+    market_review_seconds: int = 3600
+    market_review_enabled: bool = True
     # Local dev: bypass multi-timeframe + meta-label filters so Paper cycles can open test positions.
     paper_runtime_relaxed_signals: bool = False
     # Binance Simulation is the authoritative execution path for the automated BTC/ETH lane.

@@ -22,7 +22,7 @@ from services.strategy_library import (
     LlmInvocationRepository,
     PaperRunRepository,
 )
-from shared.models import RuntimeDatum
+from shared.models import PaperRun, RuntimeDatum
 from shared.models.execution_truth import ExchangeOrderState, ExecutionMode
 
 router = APIRouter(prefix="/runtime", tags=["runtime-truth"])
@@ -202,6 +202,49 @@ def _exchange_linked_positions(local_open: list) -> list:
     ]
 
 
+def _select_strategy_evidence_run(paper_runs: list[PaperRun]) -> PaperRun | None:
+    active_directional = [
+        run
+        for run in paper_runs
+        if run.execution_profile.get("strategy_lane") == "directional" and run.paper_status in {"running", "locked"}
+    ]
+    if not active_directional:
+        return None
+
+    def _rank(run: PaperRun) -> tuple[int, str]:
+        profile = run.execution_profile or {}
+        testnet_rank = 0 if str(profile.get("execution_mode") or "") == "binance_testnet" else 1
+        return (testnet_rank, run.paper_run_id or "")
+
+    return min(active_directional, key=_rank)
+
+
+def _strategy_evidence_datum(*, paper_runs: list[PaperRun], observed_at: datetime) -> dict:
+    paper_run = _select_strategy_evidence_run(paper_runs)
+    if paper_run is None:
+        return _datum(
+            value=None,
+            source="PAPER_RUN_REPOSITORY",
+            observed_at=observed_at,
+            status="unavailable",
+            error="no active directional paper run",
+        )
+    profile = paper_run.execution_profile or {}
+    sampling_enabled = bool(profile.get("simulation_sampling_fallback_enabled"))
+    return _datum(
+        value={
+            "paper_run_id": paper_run.paper_run_id,
+            "strategy_lane": profile.get("strategy_lane"),
+            "acceptance_symbols": profile.get("acceptance_symbols") or paper_run.candidate_symbols,
+            "simulation_sampling_fallback_enabled": sampling_enabled,
+            "execution_mode": profile.get("execution_mode"),
+            "evidence_class": "NON_PROMOTABLE_PIPELINE_SAMPLE" if sampling_enabled else None,
+        },
+        source="PAPER_RUN_REPOSITORY",
+        observed_at=observed_at,
+    )
+
+
 @router.get("/snapshot")
 def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
     observed_at = datetime.now(UTC)
@@ -217,6 +260,7 @@ def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
         observed_at=observed_at,
     )
     scheduler = load_external_scheduler_state(now=observed_at)
+    paper_runs = PaperRunRepository(db).list_paper_runs()
     return {
         "observed_at": observed_at.isoformat(),
         "exchange": exchange,
@@ -239,6 +283,19 @@ def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
             status="available" if scheduler.running else "unavailable",
             error=None if scheduler.running else scheduler.reason,
         ),
+        "data_freshness": _datum(
+            value={
+                "data_fresh": scheduler.data_fresh,
+                "exchange_info_ready": scheduler.exchange_info_ready,
+                "heartbeat_at": (scheduler.heartbeat_at.isoformat() if scheduler.heartbeat_at else None),
+                "running": scheduler.running,
+            },
+            source="RUNTIME_SCHEDULER_HEARTBEAT",
+            observed_at=scheduler.heartbeat_at,
+            status="available" if scheduler.running else "unavailable",
+            error=None if scheduler.running else scheduler.reason,
+        ),
+        "strategy_evidence": _strategy_evidence_datum(paper_runs=paper_runs, observed_at=observed_at),
         "protections": _datum(
             value=[item.model_dump(mode="json") for item in execution_repo.list_protection_records(limit=200)],
             source="LOCAL_SQL_PROJECTION",

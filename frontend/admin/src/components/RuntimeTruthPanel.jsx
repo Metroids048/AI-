@@ -26,6 +26,11 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
   const exchange = snapshot?.exchange;
   const localProjection = snapshot?.local_projection;
   const scheduler = snapshot?.scheduler;
+  const dataFreshness = snapshot?.data_freshness;
+  const strategyEvidence = snapshot?.strategy_evidence;
+  const schedulerValue = scheduler?.value ?? scheduler;
+  const dataFreshnessValue = dataFreshness?.value ?? schedulerValue;
+  const strategyEvidenceValue = strategyEvidence?.value;
   const positions = runtime.positions;
   const exchangeOrders = Array.isArray(runtime.exchangeOrders) ? runtime.exchangeOrders : [];
   const reconciliation = runtime.reconciliation;
@@ -142,6 +147,43 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
           <strong>{scheduler?.status === "available" ? "运行中" : "离线"}</strong>
           <p>{scheduler?.error || "心跳正常"}</p>
           <DatumMeta datum={scheduler} />
+        </article>
+        <article>
+          <h3>Data Freshness</h3>
+          {dataFreshness?.status === "available" || scheduler?.status === "available" ? (
+            <>
+              <strong>
+                数据{dataFreshnessValue?.data_fresh ? "新鲜" : "陈旧"} / 交易所信息
+                {dataFreshnessValue?.exchange_info_ready ? "就绪" : "未就绪"}
+              </strong>
+              <DatumMeta datum={dataFreshness ?? scheduler} />
+            </>
+          ) : (
+            <p className="empty-copy">未接通 / 数据不可用</p>
+          )}
+        </article>
+        <article>
+          <h3>Strategy Evidence</h3>
+          {strategyEvidence?.status === "available" && strategyEvidenceValue ? (
+            <>
+              <strong>{strategyEvidenceValue.strategy_lane || "未知通道"}</strong>
+              <p>
+                标的：
+                {(strategyEvidenceValue.acceptance_symbols || []).join(", ") || "无"}
+              </p>
+              <p>
+                采样回退：
+                {strategyEvidenceValue.simulation_sampling_fallback_enabled ? "已启用" : "未启用"}
+              </p>
+              <p>执行模式：{strategyEvidenceValue.execution_mode || "未知"}</p>
+              {strategyEvidenceValue.evidence_class ? (
+                <small>证据类别：{strategyEvidenceValue.evidence_class}</small>
+              ) : null}
+              <DatumMeta datum={strategyEvidence} />
+            </>
+          ) : (
+            <p className="empty-copy">未接通 / 数据不可用</p>
+          )}
         </article>
         <article>
           <h3>AI 调用</h3>

@@ -105,6 +105,7 @@ class RuntimeScheduler:
         risk_sweep_seconds: float = 60.0,
         edge_stats_refresh_seconds: float = 7 * 24 * 60 * 60,
         daily_review_check_seconds: float = 60.0,
+        market_review_seconds: float | None = None,
         paper_cycle_runner: Runner | None = None,
         heartbeat_runner: Runner | None = None,
         news_poll_runner: Runner | None = None,
@@ -113,6 +114,7 @@ class RuntimeScheduler:
         risk_sweep_runner: Runner | None = None,
         edge_stats_refresh_runner: Runner | None = None,
         notification_runner: Runner | None = None,
+        market_review_runner: Runner | None = None,
         daily_review_runner: Callable[[str | None], Any] | None = None,
         coordinator: SchedulerCoordinator | None = None,
         scheduler_instance_id: str | None = None,
@@ -128,6 +130,9 @@ class RuntimeScheduler:
         self.risk_sweep_seconds = float(risk_sweep_seconds)
         self.edge_stats_refresh_seconds = float(edge_stats_refresh_seconds)
         self.daily_review_check_seconds = float(daily_review_check_seconds)
+        self.market_review_seconds = float(
+            market_review_seconds if market_review_seconds is not None else settings.market_review_seconds
+        )
         self.paper_cycle_runner = paper_cycle_runner or _default_paper_cycle_runner
         self.heartbeat_runner = heartbeat_runner or _default_heartbeat_runner
         self.news_poll_runner = news_poll_runner or _default_news_poll_runner
@@ -136,6 +141,7 @@ class RuntimeScheduler:
         self.risk_sweep_runner = risk_sweep_runner or _default_risk_sweep_runner
         self.edge_stats_refresh_runner = edge_stats_refresh_runner or _default_edge_stats_refresh_runner
         self.notification_runner = notification_runner or _default_notification_runner
+        self.market_review_runner = market_review_runner or _default_market_review_runner
         self.daily_review_runner = daily_review_runner or _default_daily_review_runner
         generated_instance_id = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
         self.scheduler_instance_id = scheduler_instance_id or generated_instance_id
@@ -255,6 +261,18 @@ class RuntimeScheduler:
             ),
             asyncio.create_task(self._run_daily_review_loop()),
         ]
+        if settings.market_review_enabled and self.market_review_seconds > 0:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._run_periodic(
+                        name="market_review",
+                        interval_seconds=self.market_review_seconds,
+                        runner=self.market_review_runner,
+                        affects_scheduler_health=False,
+                        run_immediately=True,
+                    )
+                )
+            )
         if settings.binance_live_ws_enabled:
             self._tasks.extend(self._live_collector_tasks())
 
@@ -636,6 +654,13 @@ def _default_observation_cycle_runner(provenance: dict[str, Any] | None = None) 
             **(provenance or {}),
         }
     )
+
+
+def _default_market_review_runner(provenance: dict[str, Any] | None = None) -> dict:
+    from services.execution.tasks import run_market_review
+
+    del provenance
+    return run_market_review.run()
 
 
 def _slot_start(observed_at: datetime, interval_seconds: float) -> datetime:

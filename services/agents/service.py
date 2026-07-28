@@ -101,7 +101,7 @@ class AgentTaskService:
         started_at = time.perf_counter()
         output_payload = self._execute(task)
         latency_ms = max(0, int((time.perf_counter() - started_at) * 1000))
-        if task.task_type in {"pre_execution_veto_llm", "market_review_llm"}:
+        if task.task_type in {"pre_execution_veto_llm", "market_review_llm", "trade_review_llm"}:
             provider_trace = output_payload.get("provider_trace") or {}
             usage = output_payload.get("usage") or {}
             serialized_input = json.dumps(task.input_payload, sort_keys=True, default=str)
@@ -158,6 +158,10 @@ class AgentTaskService:
             return self._execute_llm_classification(task)
         if task.agent_type == "decision_veto_agent" and task.task_type == "pre_execution_veto_llm":
             return self._execute_llm_veto(task)
+        if task.agent_type == "review_agent" and task.task_type == "market_review_llm":
+            return self._execute_llm_market_review(task)
+        if task.agent_type == "review_agent" and task.task_type == "trade_review_llm":
+            return self._execute_llm_trade_review(task)
         # Registry dispatch — O(1) lookup instead of an if/elif chain.
         handler = self._executors.get((task.agent_type, task.task_type))
         if handler is None:
@@ -358,6 +362,81 @@ class AgentTaskService:
             "output_ref": f"agent_task:{task.agent_task_id}",
         }
 
+    def _execute_llm_market_review(self, task: AgentTask) -> dict:
+        """Advisory MARKET_REVIEW: never creates candidates or blocks entry/exit."""
+        return self._execute_llm_advisory_review(task, output_key="market_review", executor_name="llm_market_review")
+
+    def _execute_llm_trade_review(self, task: AgentTask) -> dict:
+        """Advisory TRADE_REVIEW: never blocks entry/exit or changes veto decisions."""
+        return self._execute_llm_advisory_review(task, output_key="trade_review", executor_name="llm_trade_review")
+
+    def _execute_llm_advisory_review(self, task: AgentTask, *, output_key: str, executor_name: str) -> dict:
+        try:
+            result = self.llm_runtime.generate_structured(
+                agent_type=task.agent_type,
+                task_type=task.task_type,
+                payload=task.input_payload,
+            )
+            raw_output = result.get("raw_output", {})
+            advisory = _validate_advisory_review_output(raw_output)
+            provider_trace = {
+                "provider": result.get("provider", "unknown"),
+                "model": result.get("model", "unknown"),
+            }
+            return {
+                "executor_registered": True,
+                "completed": True,
+                "task_status": "completed",
+                "executor_name": executor_name,
+                "schema_validation_status": "passed",
+                "provider_trace": provider_trace,
+                "usage": result.get("usage") or {},
+                "attempt_history": [{"status": "passed", **provider_trace}],
+                output_key: advisory,
+                "output_ref": f"{output_key}:{task.agent_task_id}",
+            }
+        except TimeoutError as exc:
+            return {
+                "executor_registered": True,
+                "completed": False,
+                "task_status": "failed",
+                "executor_name": executor_name,
+                "message": str(exc),
+                "schema_validation_status": "timeout",
+                "provider_trace": {},
+                "attempt_history": [{"status": "timeout", "message": str(exc)}],
+                output_key: None,
+                "output_ref": f"{output_key}:{task.agent_task_id}",
+            }
+        except RuntimeError as exc:
+            logger.warning("llm %s runtime unavailable: %s", output_key, exc)
+            return {
+                "executor_registered": True,
+                "completed": False,
+                "task_status": "failed",
+                "executor_name": executor_name,
+                "message": str(exc),
+                "schema_validation_status": "provider_unavailable",
+                "provider_trace": {},
+                "attempt_history": [{"status": "provider_unavailable", "message": str(exc)}],
+                output_key: None,
+                "output_ref": f"{output_key}:{task.agent_task_id}",
+            }
+        except Exception as exc:
+            logger.warning("llm %s schema validation failed: %s", output_key, exc)
+            return {
+                "executor_registered": True,
+                "completed": False,
+                "task_status": "failed",
+                "executor_name": executor_name,
+                "message": str(exc),
+                "schema_validation_status": "failed",
+                "provider_trace": {},
+                "attempt_history": [{"status": "failed", "message": str(exc)}],
+                output_key: None,
+                "output_ref": f"{output_key}:{task.agent_task_id}",
+            }
+
     def _execute_llm_veto(self, task: AgentTask) -> dict:
         try:
             result = self.llm_runtime.generate_structured(
@@ -476,6 +555,28 @@ class AgentTaskService:
                 ),
             )
         )
+
+
+def _validate_advisory_review_output(raw_output: dict) -> dict:
+    bias = raw_output.get("bias")
+    confidence = raw_output.get("confidence")
+    summary = raw_output.get("summary")
+    risk_flags = raw_output.get("risk_flags")
+    if bias not in {"support", "neutral", "oppose"}:
+        raise ValueError("advisory review bias failed schema validation")
+    if not isinstance(confidence, (int, float)) or not 0 <= float(confidence) <= 1:
+        raise ValueError("advisory review confidence failed schema validation")
+    if not isinstance(summary, str):
+        raise ValueError("advisory review summary failed schema validation")
+    if not isinstance(risk_flags, list) or any(not isinstance(item, str) for item in risk_flags):
+        raise ValueError("advisory review risk_flags failed schema validation")
+    return {
+        "bias": bias,
+        "confidence": float(confidence),
+        "risk_flags": risk_flags,
+        "summary": summary,
+        "advisory_only": True,
+    }
 
 
 def _draft_from_open_source_idea(idea: StrategyIdea) -> StrategyDraft:

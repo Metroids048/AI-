@@ -336,6 +336,34 @@ def _build_prompt(*, agent_type: str, task_type: str, payload: dict[str, Any]) -
                 ensure_ascii=True,
             ),
         }
+    if task_type in {"market_review_llm", "trade_review_llm"}:
+        review_scope = (
+            "market-wide BTC/ETH USDT-M context"
+            if task_type == "market_review_llm"
+            else "a single candidate trade decision"
+        )
+        return {
+            "prompt_version": prompt_version,
+            "system": (
+                f"You are an advisory review agent for {review_scope}. "
+                "Do not create candidates, sizes, leverage, or absolute SL/TP. "
+                "Return JSON only with keys: bias, confidence, risk_flags, summary."
+            ),
+            "user": json.dumps(
+                {
+                    "agent_type": agent_type,
+                    "task_type": task_type,
+                    "payload": payload,
+                    "schema": {
+                        "bias": "support|neutral|oppose",
+                        "confidence": "number 0..1",
+                        "risk_flags": ["string"],
+                        "summary": "string",
+                    },
+                },
+                ensure_ascii=True,
+            ),
+        }
     raise ValueError(f"unsupported llm task: {agent_type}/{task_type}")
 
 

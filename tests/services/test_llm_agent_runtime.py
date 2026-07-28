@@ -122,3 +122,89 @@ def test_llm_invocation_persists_provider_tokens_hashes_and_latency(db_session) 
     assert invocation.input_hash is not None
     assert invocation.output_hash is not None
     assert invocation.latency_ms is not None
+
+
+class SuccessfulMarketReviewLLM:
+    def generate_structured(self, *, agent_type: str, task_type: str, payload: dict) -> dict:
+        del agent_type, task_type, payload
+        return {
+            "provider": "stub",
+            "model": "stub-mini",
+            "usage": {"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13},
+            "raw_output": {
+                "bias": "neutral",
+                "confidence": 0.4,
+                "risk_flags": ["low_liquidity"],
+                "summary": "range-bound BTC/ETH; advisory only",
+            },
+        }
+
+
+def test_market_review_agent_journals_advisory_result(db_session) -> None:
+    service = AgentTaskService(
+        agent_repo=AgentTaskRepository(db_session),
+        strategy_repo=StrategyRepository(db_session),
+        review_repo=ReviewRepository(db_session),
+        llm_runtime=SuccessfulMarketReviewLLM(),
+    )
+
+    task = service.submit_task(
+        AgentTaskRequest(
+            agent_type="review_agent",
+            task_type="market_review_llm",
+            input_payload={"symbols": ["BTC/USDT", "ETH/USDT"], "advisory_only": True},
+        )
+    )
+
+    assert task.task_status == "completed"
+    assert task.output_payload["market_review"]["bias"] == "neutral"
+    assert task.output_payload["market_review"]["advisory_only"] is True
+    invocation = LlmInvocationRepository(db_session).list_invocations(limit=1)[0]
+    assert invocation.stage.value == "MARKET_REVIEW"
+    assert invocation.called is True
+    assert invocation.status == "passed"
+
+
+class SuccessfulTradeReviewLLM:
+    def generate_structured(self, *, agent_type: str, task_type: str, payload: dict) -> dict:
+        del agent_type, task_type, payload
+        return {
+            "provider": "stub",
+            "model": "stub-mini",
+            "usage": {"prompt_tokens": 11, "completion_tokens": 6, "total_tokens": 17},
+            "raw_output": {
+                "bias": "support",
+                "confidence": 0.72,
+                "risk_flags": ["elevated_volatility"],
+                "summary": "candidate aligns with ensemble; advisory only",
+            },
+        }
+
+
+def test_trade_review_agent_journals_advisory_result(db_session) -> None:
+    service = AgentTaskService(
+        agent_repo=AgentTaskRepository(db_session),
+        strategy_repo=StrategyRepository(db_session),
+        review_repo=ReviewRepository(db_session),
+        llm_runtime=SuccessfulTradeReviewLLM(),
+    )
+
+    task = service.submit_task(
+        AgentTaskRequest(
+            agent_type="review_agent",
+            task_type="trade_review_llm",
+            input_payload={
+                "symbol": "BTC/USDT",
+                "timeframe": "1h",
+                "advisory_only": True,
+            },
+        )
+    )
+
+    assert task.task_status == "completed"
+    assert task.output_payload["trade_review"]["bias"] == "support"
+    assert task.output_payload["trade_review"]["advisory_only"] is True
+    invocation = LlmInvocationRepository(db_session).list_invocations(limit=1)[0]
+    assert invocation.stage.value == "TRADE_REVIEW"
+    assert invocation.called is True
+    assert invocation.status == "passed"

@@ -44,6 +44,7 @@ celery_app.conf.task_routes = {
     "services.execution.tasks.refresh_signal_edge_stats": {"queue": "ops_queue"},
     "services.notifications_tasks.dispatch_notification_outbox": {"queue": "ops_queue"},
     "services.review.tasks.generate_daily_review": {"queue": "ops_queue"},
+    "services.execution.tasks.run_market_review": {"queue": "ops_queue"},
 }
 celery_app.conf.timezone = "UTC"
 # Worker tuning (previously unconfigured → tasks could block workers
@@ -57,7 +58,7 @@ celery_app.conf.task_acks_late = True
 celery_app.conf.task_reject_on_worker_lost = True
 celery_app.conf.task_track_started = True
 celery_app.conf.result_expires = 86_400
-celery_app.conf.beat_schedule = {
+_beat_schedule = {
     "paper-runtime-cycle-every-5-minutes": {
         "task": "services.execution.tasks.run_all_paper_runtime_cycles",
         "schedule": float(settings.paper_runtime_cycle_seconds),
@@ -117,6 +118,12 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(hour=4, minute=0, day_of_week="sun"),
     },
 }
+if settings.market_review_enabled:
+    _beat_schedule["market-review-advisory"] = {
+        "task": "services.execution.tasks.run_market_review",
+        "schedule": float(settings.market_review_seconds),
+    }
+celery_app.conf.beat_schedule = _beat_schedule
 celery_app.autodiscover_tasks(
     [
         "services.data",

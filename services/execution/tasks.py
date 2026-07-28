@@ -29,6 +29,7 @@ from services.strategy_library import (
     StrategyRepository,
     ValidationRepository,
 )
+from shared.config import settings
 from shared.models import (
     NotificationOutboxItem,
     PaperRun,
@@ -137,6 +138,60 @@ def _paper_runtime_cycle_priority(run: PaperRun) -> tuple[int, int, str]:
     testnet_first = 0 if mode == "binance_testnet" and mirror else 1
     directional_first = 0 if lane == "directional" else 1
     return (testnet_first, directional_first, run.paper_run_id or "")
+
+
+@shared_task(name="services.execution.tasks.run_market_review", queue="ops_queue")
+def run_market_review() -> dict:
+    """Advisory MARKET_REVIEW every hour; never submits trades or blocks exits."""
+
+    from services.agents import AgentTaskService
+    from services.agents.llm_factory import build_configured_llm_runtime
+    from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
+    from shared.models import AgentTaskRequest
+
+    if not settings.market_review_enabled:
+        return {"called": False, "skip_reason": "MARKET_REVIEW_DISABLED"}
+
+    session = get_session_factory()()
+    try:
+        data_repo = DataRepository(session)
+        features: dict[str, dict] = {}
+        for symbol in AUTO_SIMULATION_EXECUTION_SYMBOLS:
+            bars_15m = data_repo.list_ohlcv_bars(symbol=symbol, timeframe="15m", limit=4)
+            bars_1h = data_repo.list_ohlcv_bars(symbol=symbol, timeframe="1h", limit=4)
+            bars_4h = data_repo.list_ohlcv_bars(symbol=symbol, timeframe="4h", limit=4)
+            features[symbol] = {
+                "tf_15m_closes": [float(bar.close) for bar in bars_15m[-3:]],
+                "tf_1h_closes": [float(bar.close) for bar in bars_1h[-3:]],
+                "tf_4h_closes": [float(bar.close) for bar in bars_4h[-3:]],
+            }
+        service = AgentTaskService(
+            agent_repo=AgentTaskRepository(session),
+            strategy_repo=StrategyRepository(session),
+            review_repo=ReviewRepository(session),
+            llm_runtime=build_configured_llm_runtime(),
+        )
+        task = service.submit_task(
+            AgentTaskRequest(
+                agent_type="review_agent",
+                task_type="market_review_llm",
+                input_payload={
+                    "cycle_id": f"market_review:{datetime.now(UTC).isoformat()}",
+                    "symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+                    "features": features,
+                    "advisory_only": True,
+                },
+            )
+        )
+        return {
+            "called": True,
+            "agent_task_id": task.agent_task_id,
+            "task_status": task.task_status,
+            "schema_validation_status": (task.output_payload or {}).get("schema_validation_status"),
+            "market_review": (task.output_payload or {}).get("market_review"),
+        }
+    finally:
+        session.close()
 
 
 @shared_task(name="services.execution.tasks.risk_profile_sweep", queue="ops_queue")
