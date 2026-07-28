@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # ---- Runtime scheduler ----
     runtime_scheduler_mode: str = "inprocess"
     runtime_scheduler_autostart: bool = True
+    # V2 automated trading engine activation: legacy, v2_shadow, v2_active
+    # - legacy: V2 disabled, Legacy Writer runs (if enabled)
+    # - v2_shadow: V2 creates decision records but never submits orders
+    # - v2_active: V2 is the sole writer to Binance Testnet (Legacy Writer disabled)
+    automated_trading_engine: str = "legacy"
     paper_runtime_cycle_seconds: int = 300
     # Start shortly after each aligned slot so BTC/ETH Entry can finish inside the
     # 75s pretrade age window measured from the closed 15m candle.
