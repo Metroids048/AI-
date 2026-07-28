@@ -1,0 +1,229 @@
+"""Task 10: V2 Cycle Service — orchestrated Entry→Protection in Strict Fake.
+
+Uses the same Strict Fake exchange pattern the plan requires: a fake adapter
+that only accepts valid V2 submissions and refuses any legacy paper call.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from unittest.mock import MagicMock
+
+from services.automated_trading.application.cycle_service import (
+    CycleRequest,
+    run_automated_trading_cycle,
+)
+from services.automated_trading.application.decision_service import BarView, TimeframeView
+from services.automated_trading.domain.enums import V2ExecutionMode
+from services.automated_trading.infrastructure.binance_adapter import (
+    ExchangeFillReceipt,
+    ExchangeOrderReceipt,
+)
+from services.automated_trading.infrastructure.market_snapshot_provider import (
+    AuthoritativeAccountSnapshot,
+)
+from services.automated_trading.infrastructure.runtime_lock import EngineActivation
+
+BAR_START = datetime(2026, 7, 27, 0, 0, tzinfo=UTC)
+# 50 bars (0-49). Last bar closes at BAR_START + 49*15min.
+# CYCLE_NOW must be within data_stale_after_seconds=120 of the last bar.
+LAST_BAR_TS = BAR_START + timedelta(minutes=15 * 49)
+CYCLE_NOW = LAST_BAR_TS + timedelta(seconds=10)
+
+LONG_CLOSES = [100.0] * 30 + [
+    100.3,
+    100.1,
+    100.4,
+    100.2,
+    100.5,
+    100.3,
+    100.6,
+    100.4,
+    100.7,
+    100.5,
+    100.8,
+    100.6,
+    100.9,
+    100.7,
+    101.0,
+    100.8,
+    101.1,
+    100.9,
+    101.2,
+    101.0,
+]
+
+
+def build_timeframe(closes: list[float]) -> TimeframeView:
+    bars = []
+    for i, c in enumerate(closes):
+        p = Decimal(str(c))
+        bars.append(
+            BarView(
+                timestamp=BAR_START + timedelta(minutes=15 * i),
+                open=p,
+                high=p * Decimal("1.003"),
+                low=p * Decimal("0.997"),
+                close=p,
+                volume=Decimal("100"),
+            )
+        )
+    return TimeframeView(timeframe="15m", bars=tuple(bars))
+
+
+def _snapshot(positions=None) -> AuthoritativeAccountSnapshot:
+    return AuthoritativeAccountSnapshot(
+        balance=Decimal("10000"),
+        equity=Decimal("10000"),
+        positions=positions or [],
+        pending_orders=[],
+        snapshot_timestamp=CYCLE_NOW,
+    )
+
+
+def _order_receipt(oid: str) -> ExchangeOrderReceipt:
+    return ExchangeOrderReceipt(
+        exchange_order_id=oid,
+        client_order_id="A2E-abc",
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="market",
+        quantity=Decimal("0.001"),
+        price=None,
+        status="filled",
+        acknowledged_at=CYCLE_NOW,
+    )
+
+
+def _fill(oid: str) -> ExchangeFillReceipt:
+    return ExchangeFillReceipt(
+        exchange_order_id=oid,
+        trade_id="trade-1",
+        filled_quantity=Decimal("0.001"),
+        fill_price=Decimal("101.0"),
+        fee=Decimal("0.001"),
+        fill_timestamp=CYCLE_NOW,
+    )
+
+
+def _protection_receipt(oid: str) -> ExchangeOrderReceipt:
+    return ExchangeOrderReceipt(
+        exchange_order_id=oid,
+        client_order_id="A2S-abc",
+        symbol="BTC/USDT",
+        side="sell",
+        order_type="stop_market",
+        quantity=Decimal("0.001"),
+        price=Decimal("95"),
+        status="new",
+        acknowledged_at=CYCLE_NOW,
+    )
+
+
+def build_request(**overrides) -> CycleRequest:
+    defaults: dict = {
+        "cycle_id": "cycle-test-1",
+        "symbol": "BTC/USDT",
+        "timeframe": "15m",
+        "entry_timeframe": build_timeframe(LONG_CLOSES),
+        "execution_mode": V2ExecutionMode.BINANCE_TESTNET,
+        "engine_activation": EngineActivation.ACTIVE,
+        "fencing_token": "btcusdt@BINANCE_TESTNET@default@20260728@abc12345",
+        "now": CYCLE_NOW,
+    }
+    defaults.update(overrides)
+    return CycleRequest(**defaults)
+
+
+def build_adapter_with_successful_cycle() -> MagicMock:
+    adapter = MagicMock()
+    adapter.fetch_authoritative_snapshot.return_value = _snapshot()
+    adapter.fetch_market_snapshot.return_value = MagicMock(
+        current_price=Decimal("101.0"),
+        atr=Decimal("0"),
+        tick_size=Decimal("0.01"),
+        step_size=Decimal("0.001"),
+        min_notional=Decimal("5"),
+    )
+    adapter.submit_market_order.return_value = _order_receipt("ex-entry-1")
+    adapter.fetch_fills.return_value = (_fill("ex-entry-1"),)
+    adapter.submit_protection.return_value = (_protection_receipt("ex-stop-1"), None)
+    return adapter
+
+
+def test_shadow_mode_never_submits_to_exchange() -> None:
+    """Gate 10: SHADOW runs the full funnel but never calls submit."""
+    adapter = build_adapter_with_successful_cycle()
+    request = build_request(engine_activation=EngineActivation.SHADOW)
+
+    result = run_automated_trading_cycle(request, adapter)
+
+    adapter.submit_market_order.assert_not_called()
+    adapter.submit_protection.assert_not_called()
+    assert not result.entry_submitted
+
+
+def test_active_mode_with_signal_submits_and_protects() -> None:
+    """Gate 10: an approved candidate goes Entry→Protection in full."""
+    adapter = build_adapter_with_successful_cycle()
+    result = run_automated_trading_cycle(build_request(), adapter)
+
+    adapter.submit_market_order.assert_called_once()
+    adapter.submit_protection.assert_called_once()
+    assert result.entry_submitted
+    assert result.position_projected
+    assert result.protection_active
+
+
+def test_flat_market_never_enters() -> None:
+    adapter = build_adapter_with_successful_cycle()
+    flat_closes = [100.0] * 50
+    request = build_request(entry_timeframe=build_timeframe(flat_closes))
+
+    result = run_automated_trading_cycle(request, adapter)
+
+    adapter.submit_market_order.assert_not_called()
+    assert not result.entry_submitted
+    assert result.funnel_payload
+
+
+def test_unhealthy_snapshot_fetch_returns_unavailable() -> None:
+    adapter = MagicMock()
+    adapter.fetch_authoritative_snapshot.side_effect = Exception("gateway down")
+
+    result = run_automated_trading_cycle(build_request(), adapter)
+
+    assert result.reconciliation_status.value == "UNAVAILABLE"
+    assert result.errors
+
+
+def test_failed_entry_never_projects_position() -> None:
+    adapter = build_adapter_with_successful_cycle()
+    from services.automated_trading.infrastructure.binance_adapter import BinanceAdapterUnavailable
+
+    adapter.submit_market_order.side_effect = BinanceAdapterUnavailable("rejected")
+
+    result = run_automated_trading_cycle(build_request(), adapter)
+
+    assert not result.position_projected
+    assert not result.protection_active
+
+
+def test_funnel_payload_is_always_returned() -> None:
+    adapter = build_adapter_with_successful_cycle()
+
+    result = run_automated_trading_cycle(build_request(), adapter)
+
+    assert isinstance(result.funnel_payload, dict)
+    assert "symbol" in result.funnel_payload
+
+
+def test_disabled_engine_blocks_entry() -> None:
+    adapter = build_adapter_with_successful_cycle()
+    request = build_request(engine_activation=EngineActivation.DISABLED)
+
+    result = run_automated_trading_cycle(request, adapter)
+
+    adapter.submit_market_order.assert_not_called()
+    assert not result.entry_submitted

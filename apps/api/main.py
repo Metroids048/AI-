@@ -17,6 +17,7 @@ from apps.api.auth import admin_token_middleware
 from apps.api.config import settings
 from apps.api.routers import (
     agents,
+    automated_trading,
     backtests,
     console,
     ensemble,
@@ -146,6 +147,7 @@ for router in (
     app.include_router(router, prefix="/api/v1")
 
 app.include_router(metrics.router)
+app.include_router(automated_trading.router)
 
 
 @app.get("/health")

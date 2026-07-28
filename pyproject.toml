@@ -66,6 +66,10 @@ include = ["apps*", "services*", "shared*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "testnet_contract: real Binance Testnet network test (Task 16). Skipped unless V2_TESTNET_CONTRACT_ENABLED=true.",
+    "natural_e2e: natural Scheduler end-to-end Testnet test (Task 17). Skipped unless V2_NATURAL_E2E_ENABLED=true.",
+]
 
 [tool.ruff]
 line-length = 120
