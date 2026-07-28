@@ -60,6 +60,36 @@ The automated directional trading lane has one authoritative execution source: *
 
 Completion evidence for automated execution must include a real Binance Simulation order ID and exchange fill/position evidence. Local rows, mock calls, acceptance orders, or a successful strategy decision alone are insufficient.
 
+## Automatic Trading V2 Rebuild
+
+**Status (2026-07-28):** V2 rebuild in progress (Task 0–18).
+
+**Legacy Pipeline Freeze:** The following files are **frozen** — no new business logic may be added:
+
+- `services/execution/paper_cycle_orchestrator.py`
+- `services/execution/paper_exchange_execution.py`
+- `services/execution/paper_order_lifecycle.py`
+- `services/execution/paper_signal.py`
+
+These files retain only:
+
+- Verified ghost position guards
+- Local Paper mode for offline research
+- Historical data read paths
+- Safe exit of legacy positions before cutover
+
+**New V2 Implementation:** `services/automated_trading/` (domain, application, infrastructure, observability layers).
+
+**Authoritative Design Source:** [docs/superpowers/plans/2026-07-27-automatic-trading-v2-final-rebuild-plan.md](docs/superpowers/plans/2026-07-27-automatic-trading-v2-final-rebuild-plan.md)
+
+**Architecture:** [docs/architecture/automated-trading-v2.md](docs/architecture/automated-trading-v2.md)
+
+**ADRs:**
+
+- [ADR-001: Single Writer](docs/adr/ADR-001-automated-trading-v2-single-writer.md)
+- [ADR-002: Exchange-First Receipts](docs/adr/ADR-002-exchange-first-receipts.md)
+- [ADR-003: Entry Exit Gate Separation](docs/adr/ADR-003-entry-exit-gate-separation.md)
+
 ## Automatic Trading Completion Loop
 
 The automatic trading system is not complete merely because code changed, tests

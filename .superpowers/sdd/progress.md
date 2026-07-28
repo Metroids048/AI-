@@ -1,3 +1,1 @@
-# Subagent-driven development ledger
-
-Task 1: in progress — automatic Paper OPEN intent + gatekeeper persistence
+Task 1: completed — automatic Paper OPEN intent + gatekeeper persistence completed in 5a2a688
