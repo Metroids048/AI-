@@ -12,7 +12,7 @@ from services.execution.decision_pipeline import (
     closed_bars_for_decision,
 )
 from services.execution.net_edge import net_edge_rejection_codes
-from services.execution.paper_signal import PaperSignalGenerator
+from services.execution.paper_signal import PaperSignalGenerator, _sampling_min_notional_usdt
 from services.strategy_library.candidates.registry import get_candidate
 from shared.config import settings
 from shared.models import (
@@ -107,6 +107,30 @@ def _armed_profile(**overrides):  # noqa: ANN202
     }
     profile.update(overrides)
     return profile
+
+
+def test_sampling_min_notional_uses_universe_asset_exchange_floor() -> None:
+    strategy = StrategyContract(
+        strategy_id="strategy-primary",
+        strategy_key="auto_paper_mature_templates",
+        source="candidate",
+        core_thesis="primary",
+        rules=StrategyRules(**get_candidate("trend_momentum_v1").get_config()),
+    )
+    run = PaperRun(
+        paper_run_id="run-directional",
+        strategy_id=strategy.strategy_id,
+        execution_profile=_armed_profile(
+            min_notional_usdt=20,
+            universe_assets=[
+                {"platform_symbol": "BTC/USDT", "min_notional": "50"},
+                {"platform_symbol": "ETH/USDT", "min_notional": "20"},
+            ],
+        ),
+    )
+
+    assert _sampling_min_notional_usdt(paper_run=run, strategy=strategy, symbol="BTC/USDT") == 50.0
+    assert _sampling_min_notional_usdt(paper_run=run, strategy=strategy, symbol="ETH/USDT") == 20.0
 
 
 def test_relaxed_candidate_accepts_entry_plus_one_higher_timeframe(monkeypatch) -> None:

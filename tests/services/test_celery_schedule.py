@@ -10,6 +10,10 @@ def test_celery_beat_schedule_contains_7x24_paper_loop_tasks() -> None:
         schedule["paper-runtime-cycle-every-5-minutes"]["task"]
         == "services.execution.tasks.run_all_paper_runtime_cycles"
     )
+    assert (
+        schedule["paper-observation-cycle-every-5-minutes"]["task"]
+        == "services.execution.tasks.run_observation_paper_runtime_cycles"
+    )
     assert schedule["market-data-heartbeat-every-minute"]["task"] == "services.data.tasks.market_data_heartbeat"
     assert schedule["risk-profile-sweep-every-minute"]["task"] == "services.execution.tasks.risk_profile_sweep"
     assert schedule["daily-review-generation"]["task"] == "services.review.tasks.generate_daily_review"

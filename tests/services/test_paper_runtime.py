@@ -9,6 +9,8 @@ from services.execution.paper_cycle_orchestrator import (
     PaperCycleOrchestrator,
     _estimated_transaction_cost,
     _fixed_universe_skip_reason,
+    _funnel_terminal_for_action,
+    _merge_runtime_execution_profile,
 )
 from services.execution.paper_runtime import PaperRuntimeService
 from services.strategy_library import (
@@ -983,6 +985,124 @@ def test_paper_only_fixed_universe_does_not_block_on_initial_unknown_exchange_st
     mirrored = paper_run.model_copy(update={"execution_profile": {**profile, "mirror_to_gateway": True}})
 
     assert _fixed_universe_skip_reason(mirrored, "BTC/USDT") == "exchangeInfo unavailable during bootstrap"
+
+
+def test_merge_runtime_profile_prefers_refreshed_universe_assets_over_stale_snapshot() -> None:
+    snapshot_profile = {
+        "execution_mode": "binance_testnet",
+        "mirror_to_gateway": True,
+        "universe_assets": [
+            {
+                "platform_symbol": "BTC/USDT",
+                "tradable_status": "unknown",
+                "reason": "exchangeInfo unavailable",
+            }
+        ],
+    }
+    run_profile = {
+        "execution_mode": "binance_testnet",
+        "mirror_to_gateway": True,
+        "universe_assets": [
+            {
+                "platform_symbol": "BTC/USDT",
+                "tradable_status": "trading",
+                "min_notional": "50",
+            }
+        ],
+    }
+    merged = _merge_runtime_execution_profile(
+        snapshot_profile=snapshot_profile,
+        run_profile=run_profile,
+    )
+    assert merged["universe_assets"][0]["tradable_status"] == "trading"
+    assert (
+        _fixed_universe_skip_reason(
+            PaperRun(strategy_id="x", execution_profile={**merged, "universe_mode": "fixed_top20"}),
+            "BTC/USDT",
+        )
+        is None
+    )
+
+
+def test_funnel_terminal_prefers_sampling_rejection_reason() -> None:
+    from shared.models import PaperRuntimeAction
+
+    stage, status, reason = _funnel_terminal_for_action(
+        PaperRuntimeAction(
+            symbol="ETH/USDT",
+            action="skip_no_trade_decision",
+            reason="multi_timeframe_disagreement",
+            decision_trace={
+                "pipeline_status": "multi_timeframe_disagreement",
+                "sampling_fallback_rejection_reason": "SAMPLING_RULES_NOT_ALIGNED",
+            },
+        )
+    )
+    assert stage.value == "entry_signal"
+    assert status.value == "SKIPPED"
+    assert reason == "SAMPLING_RULES_NOT_ALIGNED"
+
+
+def test_duplicate_entry_cycle_does_not_overwrite_funnel_terminal(
+    db_session,
+    monkeypatch,
+) -> None:
+    """Later scheduler ticks for the same closed bar must keep the first funnel terminal."""
+    runtime, paper_run = _runtime_without_position(db_session)
+    _store_bar(db_session, low=99, high=101, close=100)
+
+    def _forced_skip(*, strategy, symbol, timeframe, **_kwargs) -> DecisionPipelineResult:
+        return DecisionPipelineResult(
+            direction=None,
+            should_trade=False,
+            reason="multi_timeframe_disagreement",
+            reference_price=Decimal("100"),
+            bar_time=datetime.now(UTC),
+            signals=[],
+            ensemble=None,
+            meta_label=None,
+            veto_result=None,
+            confidence_multiplier=0.0,
+            atr=None,
+            volatility_context={},
+            trace={
+                "pipeline_status": "multi_timeframe_disagreement",
+                "sampling_fallback_attempted": True,
+                "sampling_fallback_rejection_reason": "SAMPLING_RULES_NOT_ALIGNED",
+            },
+        )
+
+    monkeypatch.setattr(
+        runtime.signal_generator.decision_pipeline,
+        "evaluate",
+        _forced_skip,
+    )
+
+    first = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
+    )
+    assert first.actions[0].action == "skip_no_trade_decision"
+    terminals = DecisionFunnelRepository(db_session).list_terminals(
+        paper_run_id=paper_run.paper_run_id,
+        symbol="BTC/USDT",
+    )
+    assert len(terminals) == 1
+    first_reason = terminals[0].reason_code
+    assert first_reason in {"SAMPLING_RULES_NOT_ALIGNED", "MULTI_TIMEFRAME_DISAGREEMENT"}
+
+    second = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
+    )
+    assert any(action.action == "skip_duplicate_cycle" for action in second.actions)
+    terminals_after = DecisionFunnelRepository(db_session).list_terminals(
+        paper_run_id=paper_run.paper_run_id,
+        symbol="BTC/USDT",
+    )
+    assert len(terminals_after) == 1
+    assert terminals_after[0].reason_code == first_reason
+    assert "ALREADY PROCESSED" not in (terminals_after[0].reason_code or "")
 
 
 def _runtime_without_position(

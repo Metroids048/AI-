@@ -46,7 +46,11 @@ class Settings(BaseSettings):
     runtime_scheduler_mode: str = "inprocess"
     runtime_scheduler_autostart: bool = True
     paper_runtime_cycle_seconds: int = 300
-    paper_runtime_cycle_offset_seconds: int = 45
+    # Start shortly after each aligned slot so BTC/ETH Entry can finish inside the
+    # 75s pretrade age window measured from the closed 15m candle.
+    paper_runtime_cycle_offset_seconds: int = 5
+    # Observation / local-paper auto-runs run on a separate lease after the Entry window.
+    paper_observation_cycle_offset_seconds: int = 90
     paper_runtime_enable_decision_veto: bool = True
     # Local dev: bypass multi-timeframe + meta-label filters so Paper cycles can open test positions.
     paper_runtime_relaxed_signals: bool = False

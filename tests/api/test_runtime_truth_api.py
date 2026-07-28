@@ -60,6 +60,24 @@ def test_runtime_exchange_truth_times_out_as_unavailable(monkeypatch) -> None:
     assert "exchange truth probe exceeded" in result["error"]
 
 
+def test_runtime_exchange_truth_returns_stale_when_probe_busy(monkeypatch) -> None:
+    observed_at = datetime.now(UTC)
+    cached = runtime._datum(
+        value={"positions": [], "open_orders": []},
+        source="BINANCE_USDT_M_TESTNET",
+        observed_at=observed_at,
+    )
+    monkeypatch.setattr(runtime, "_exchange_cache", (observed_at, cached))
+    monkeypatch.setattr(runtime, "_EXCHANGE_CACHE_SECONDS", 0.0)
+    assert runtime._exchange_probe_lock.acquire(blocking=False)
+    try:
+        result = runtime._exchange_truth()
+    finally:
+        runtime._exchange_probe_lock.release()
+    assert result["status"] == "stale"
+    assert result["value"] == {"positions": [], "open_orders": []}
+
+
 def test_runtime_snapshot_exposes_exchange_unavailable_without_zero_fallback(
     api_client,
     monkeypatch,

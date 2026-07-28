@@ -1,5 +1,12 @@
 # Project Memory
 
+## Testnet truth / P0.3 Entry-slot latency (2026-07-28)
+
+- Armed Testnet Entry runs only in coordinated lease `paper_runtime_cycle` (`slot=tight_entry`). Observation/local auto-runs use separate lease `paper_observation_cycle` at `paper_observation_cycle_offset_seconds=90`.
+- `paper_runtime_cycle_offset_seconds=5` so submit can finish inside `pretrade_max_decision_age_seconds=75` measured from closed 15m candle.
+- Active ConfigSnapshot can still carry `tradable_status=unknown` after `exchange_info_refresh` updated the PaperRun row; cycle load merges run-row trading assets via `_merge_runtime_execution_profile`.
+- P0.3 natural fill not yet observed: recent bars correctly end `SAMPLING_RULES_NOT_ALIGNED`. Do not relax RSI/EMA/MACD or net-edge to manufacture fills.
+
 ## Pre-commit unblock for scripts (2026-07-26)
 
 - Commit `ca88e24` ("6") pushed after fixing mypy/ruff in `account_equity.py` / `tasks.py` / `cross_sectional_replay.py` and adding ADR-077 `scripts/*.py` per-file-ignores for style noise.
@@ -560,10 +567,13 @@
 - Binance Mock Trading is the execution proof target. The configured `demo` mode can fall back to `https://testnet.binancefuture.com` when `demo-fapi` is unreachable; this fallback is the same simulation account whose order ids appear in the Binance Demo Trading UI. Mainnet remains disabled.
 - External verification uses the isolated `link_verification` run only. It is excluded from strategy-performance evidence, must be paused after an E2E test, and its account must be flattened. `scripts/verify_config.py` now requires a persisted automatic `gateway_order_id`, successful Binance simulated-account reconciliation, and `LIVE_TRADING_ENABLED=false` before returning GREEN.
 
-## Exchange-First Runtime Truth Baseline (2026-07-27)
+## Exchange-First Runtime Truth Baseline (2026-07-27, refreshed 2026-07-28)
 
 - Runtime execution mode is explicit: `local_paper` or `binance_testnet`. Legacy Paper names are compatibility labels, not proof of exchange execution.
 - A Binance Testnet managed position requires an exchange order, immutable fill receipt, trade IDs, position group, and confirmed fill quantity/average price. Local Paper positions are kept out of Binance reconciliation comparisons.
 - Entry reconciliation is typed and fail-closed. Its three-failure kill switch persists in `PaperRun.paper_metrics_summary`; a healthy snapshot cannot clear it while any exchange order remains `EXCHANGE_UNKNOWN`.
 - Current local schema head is Alembic `0015`. Runtime Truth is available under `/api/v1/runtime/*` with authenticated WebSocket events and explicit source/time/freshness/unavailable states.
-- The 2026-07-27 authorized Testnet cleanup left Binance BTC/ETH positions and open orders at zero. Historical local-only BTC/ETH projections were retained as `RECONCILED_GHOST`; they are not current positions. P0.3 remains incomplete until the ordinary Scheduler produces a real receipt-backed entry, exchange protection IDs, and a normal reduce-risk exit ending at `0 == 0`.
+- Cycle private-API load was reduced on 2026-07-28: `sync_paper_account_equity` no longer repeats `account_equity()` after a successful `sync_account`; `BinanceUsdtPerpetualGateway.reconcile` defaults to BTC/ETH open-order scans and filters positions/algo orders to that universe; hard-drawdown locking reuses the cycle reconcile snapshot.
+- 2026-07-28 authorized Testnet flatten closed unmanaged ETH short (`gateway_order_id=14774000974`); exchange BTC/ETH open positions and open orders are again `0`. Local unmanaged/ghost rows remain quarantined as `RECONCILED_GHOST` where applicable.
+- Observed after the latency fix: ordinary Scheduler evaluated closed 15m bar `2026-07-28T02:15:00Z` by `02:17:17Z` without `PRETRADE_DECISION_STALE` (prior failure was `age=706s`). Terminal reasons were `TECHNICAL_SIGNALS_INSUFFICIENT` / Sampling `SAMPLING_RULES_NOT_ALIGNED` — signal silence, not execution-path timeout.
+- **P0.3 remains incomplete** until a natural receipt-backed Entry → SL/TP exchange IDs → normal Reduce-risk Exit ends at local `0` == exchange `0`. P1/P2 promotion and P3 stay locked.

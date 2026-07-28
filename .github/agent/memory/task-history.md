@@ -602,6 +602,27 @@
 - **External evidence**: Scheduler-created BTC automatic verification order `gateway_order_id=22004526655` was read back from Binance simulation. It created a `0.0015 BTC` long plus Binance reduce-only stop `1000000137072612` and take-profit `1000000137072614`; the isolated verification run was then paused and the simulation account was returned to zero positions and zero open orders.
 - **Verification**: `scripts/verify_config.py` -> `GREEN: 18/18 checks passed`, including external Binance order-id reconciliation and mainnet protection. Full `pytest -q` -> `432 passed, 4 skipped`; changed-file Ruff clean.
 
+## 2026-07-28 — P0.3 close-out: tight Entry slot + latency (still signal-silent)
+
+- **Summary**: Split armed Binance Testnet cycles into a coordinated `tight_entry` slot (`run_all_paper_runtime_cycles`) and deferred observation to `paper_observation_cycle` (+90s offset) so observation cannot hold the Entry lease. Cycle offset 15→5s. Prefer refreshed `PaperRun.universe_assets` over stale active-snapshot `unknown`. Funnel terminals prefer `SAMPLING_RULES_NOT_ALIGNED` when sampling was attempted. Sampling sizing uses exchange min notional (prior WIP).
+- **Live evidence (UTC)**: Bar `03:15` cycle_time `03:15:27`, ETH sampling eval `03:16:01` (age≈61s <75s). Bar `03:30` cycle_time `03:30:27`, ETH eval `03:31:11` (age≈71s <75s). Both ended `SAMPLING_RULES_NOT_ALIGNED` (ETH RSI~28–29 but MACD histogram still >0). Testnet probe: `open_position_count=0`, `open_order_count=0`. `exchange_orders`/`exchange_fill_receipts` still 0 for natural directional.
+- **Verification**: Targeted auto_schedule/celery/universe-merge/funnel tests passed; touched ruff/mypy clean. Full `pytest -q -m "not integration"` → `693 passed, 10 skipped, 2 deselected, 1 failed` — failure is `test_market_live_public_rest_endpoints_return_binance_source` falling back to `persisted_market_data` (L2 public REST / env, unrelated to this diff).
+- **Incomplete**: P0.3 natural Entry→Fill→SL/TP→Exit still missing — engineering path is inside the pretrade window; remaining blocker is honest Sampling/primary silence. P3 locked. No commit created.
+
+## 2026-07-28 — Unblock natural cycle ops: lease/claim reclaim + funnel preserve + snapshot probe
+
+- **Summary**: Found restart left `paper_runtime_cycle` lease/claims owned by dead PIDs → new scheduler `standby_not_leader` / `duplicate_slot_skipped`, missing the 04:15 bar. Added same-host dead-PID lease reclaim + claimed-slot reclaim in `scheduler_coordination.py`; launcher now runs `scripts/reclaim_stale_scheduler_locks.py` on scheduler stop. Funnel no longer overwrites first terminal with `skip_duplicate`. Runtime `/snapshot` exchange probe is non-blocking (8s timeout, stale cache, in-flight short-circuit) so UI is not wedged behind hung reconcile.
+- **Live evidence**: After reclaim, `04:30`/`04:45`/`05:00` directional cycles completed with durable funnel `SAMPLING_RULES_NOT_ALIGNED` (duplicate ticks no longer clobber). Scheduler healthy; `exchange_orders=0` / `fill_receipts=0` — MACD hist still >0 (BTC ~55–60) while RSI in short band. Snapshot auth probe returned `exchange.status=available` in ~1s after warm cache.
+- **Verification**: `test_dead_local_*` + funnel overwrite + `test_runtime_truth_api` (9 passed). Snapshot cold path may still hit Binance latency once; subsequent polls are cached.
+- **Incomplete**: P0.3 natural Entry→Exit IDs still absent (honest Sampling silence). P2 browser E2E blocked (Playwright MCP Bridge unavailable). P3 locked. Watcher `scripts/_watch_p03_until_fill.py` left running.
+
+## 2026-07-28 — Resume P0.3: cycle latency + Testnet unmanaged flatten
+
+- **Summary**: Continued Codex checkpoint `8e94a6d` on `codex/testnet-truth-recovery`. Finished the uncommitted equity de-dupe (`sync_account` success → no immediate `account_equity()`), narrowed gateway `reconcile` private open-order scans to BTC/ETH by default, filtered positions/algo orders to that universe, and reused reconcile `open_positions` for hard-drawdown locking so the same cycle does not reconcile twice before signals.
+- **External evidence**: Authorized flatten of unmanaged ETH short `5.1` contracts → `gateway_order_id=14774000974` filled; subsequent USDT-M Testnet probe `open_position_count=0`, `open_order_count=0`. Ordinary Scheduler then evaluated closed bar `2026-07-28T02:15:00Z` by funnel `created_at=02:17:17Z` with terminal `TECHNICAL_SIGNALS_INSUFFICIENT` / Sampling `SAMPLING_RULES_NOT_ALIGNED` — no new `PRETRADE_DECISION_STALE` (prior was `age=706s`).
+- **Verification**: `tests/services/test_account_equity.py` + gateway scope/reconcile tests passed; touched-file `ruff check` All checks passed; `mypy` Success on 4 source files; full `pytest -q -m "not integration"` → `690 passed, 10 skipped, 2 deselected`.
+- **Incomplete**: P0.3 natural Entry→Fill→SL/TP→Exit receipt proof still missing (signal silence this window). P1/P2/P3 remain locked. No commit created.
+
 ## 2026-07-27 — Binance Testnet execution truth and Runtime Truth recovery
 
 - **Summary**: Implemented the P0 execution-truth foundation and the observability/sampling portions that can be verified without fabricating a natural trade. Testnet projection now requires an immutable exchange fill receipt; Local Paper uses a separate simulated-fill source. Reconciliation fails closed, persists its consecutive-failure Entry Kill Switch across restarts, and cannot clear while `EXCHANGE_UNKNOWN` orders remain. Reduce-risk exits use a dedicated gate and CloseOnly never rounds quantity up to minimum notional.

@@ -12,10 +12,16 @@ from shared.models import ExchangeAccountSnapshot, PaperRun
 
 
 class _StubGateway:
+    def __init__(self) -> None:
+        self.account_equity_calls = 0
+        self.sync_account_calls = 0
+
     def account_equity(self) -> float:
+        self.account_equity_calls += 1
         return 5_250.75
 
     def sync_account(self, *, live_run_id: str) -> ExchangeAccountSnapshot:
+        self.sync_account_calls += 1
         return ExchangeAccountSnapshot(
             live_run_id=live_run_id,
             exchange="binance",
@@ -61,6 +67,7 @@ def test_resolve_prefers_live_gateway_when_requested() -> None:
 
 def test_sync_writes_snapshot_and_metrics(db_session) -> None:
     repo = ExecutionRepository(db_session)
+    gateway = _StubGateway()
     paper_run = PaperRun(
         paper_run_id="paper-1",
         strategy_id="s1",
@@ -71,7 +78,7 @@ def test_sync_writes_snapshot_and_metrics(db_session) -> None:
         paper_run=paper_run,
         metrics=dict(paper_run.paper_metrics_summary),
         execution_repo=repo,
-        gateway=_StubGateway(),
+        gateway=gateway,
         prefer_exchange=True,
         paper_run_id="paper-1",
     )
@@ -80,6 +87,8 @@ def test_sync_writes_snapshot_and_metrics(db_session) -> None:
     snapshots = repo.list_account_snapshots()
     assert len(snapshots) == 1
     assert snapshots[0].wallet_balance == 5_250.75
+    assert gateway.sync_account_calls == 1
+    assert gateway.account_equity_calls == 0
 
 
 def test_bootstrap_seed_only_when_nothing_else_exists() -> None:

@@ -14,15 +14,32 @@ function DatumMeta({ datum }) {
   );
 }
 
+function listCount(items) {
+  return Array.isArray(items) ? items.length : 0;
+}
+
 export function RuntimeTruthPanel({ runtime, symbol }) {
   const snapshot = runtime.snapshot;
   const mismatch = snapshot?.mismatch;
   const decisions = Array.isArray(runtime.decisions) ? runtime.decisions : [];
   const terminal = decisions.find((item) => item.symbol === symbol) ?? decisions[0];
   const exchange = snapshot?.exchange;
+  const localProjection = snapshot?.local_projection;
   const scheduler = snapshot?.scheduler;
+  const positions = runtime.positions;
+  const exchangeOrders = Array.isArray(runtime.exchangeOrders) ? runtime.exchangeOrders : [];
+  const reconciliation = runtime.reconciliation;
+  const protections = snapshot?.protections?.value ?? snapshot?.protections ?? [];
   const mismatchActive = mismatch?.status === "available" && mismatch?.value?.consistent === false;
   const unavailable = exchange?.status !== "available";
+  const exchangePositionCount =
+    positions?.exchange?.status === "available"
+      ? listCount(positions.exchange.value?.positions ?? positions.exchange.value)
+      : null;
+  const localPositionCount =
+    positions?.local?.status === "available"
+      ? listCount(positions.local.value?.positions ?? positions.local.value)
+      : null;
 
   return (
     <section className="runtime-truth-panel" aria-labelledby="runtime-truth-title">
@@ -63,6 +80,62 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
           <h3>Binance Testnet</h3>
           <strong>{exchange?.status === "available" ? "已接通" : "未接通"}</strong>
           <DatumMeta datum={exchange} />
+        </article>
+        <article>
+          <h3>Local Projection</h3>
+          <strong>{localProjection?.status === "available" ? "已投影" : "未接通"}</strong>
+          <DatumMeta datum={localProjection} />
+        </article>
+        <article>
+          <h3>Positions</h3>
+          {positions ? (
+            <>
+              <strong>
+                交易所 {exchangePositionCount ?? "不可用"} / 本地 {localPositionCount ?? "不可用"}
+              </strong>
+              <DatumMeta datum={positions.exchange} />
+              <DatumMeta datum={positions.local} />
+            </>
+          ) : (
+            <p className="empty-copy">持仓数据不可用</p>
+          )}
+        </article>
+        <article>
+          <h3>Exchange Orders</h3>
+          <strong>{listCount(exchangeOrders)} 条</strong>
+          {exchangeOrders[0] ? (
+            <p>
+              最近：{exchangeOrders[0].symbol || "未知"} · {exchangeOrders[0].state || exchangeOrders[0].status || "无状态"}
+            </p>
+          ) : (
+            <p className="empty-copy">暂无交易所订单记录</p>
+          )}
+        </article>
+        <article>
+          <h3>Mismatch / Reconciliation</h3>
+          <strong>
+            {mismatch?.value?.consistent === true
+              ? "一致"
+              : mismatch?.value?.consistent === false
+                ? "不一致"
+                : reconciliation?.status || "不可用"}
+          </strong>
+          <p>
+            阻断标的：
+            {(reconciliation?.entry_blocked_symbols || []).join(", ") || "无"}
+          </p>
+          <DatumMeta datum={mismatch} />
+        </article>
+        <article>
+          <h3>Protections</h3>
+          <strong>{listCount(protections)} 条</strong>
+          {Array.isArray(protections) && protections[0] ? (
+            <p>
+              最近：{protections[0].symbol || "未知"} · {protections[0].status || "无状态"}
+            </p>
+          ) : (
+            <p className="empty-copy">暂无保护单记录</p>
+          )}
         </article>
         <article>
           <h3>Scheduler</h3>

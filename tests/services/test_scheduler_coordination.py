@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import create_engine
@@ -9,14 +10,14 @@ from services.execution.scheduler_coordination import SchedulerCoordinator, vali
 from services.strategy_library.models import Base
 
 
-def _coordinator(tmp_path, instance_id: str) -> SchedulerCoordinator:
+def _coordinator(tmp_path, instance_id: str, *, process_id: int | None = None) -> SchedulerCoordinator:
     engine = create_engine(f"sqlite:///{(tmp_path / 'coordination.db').as_posix()}")
     Base.metadata.create_all(engine)
     return SchedulerCoordinator(
         session_factory=sessionmaker(bind=engine, expire_on_commit=False),
         instance_id=instance_id,
         hostname="test-host",
-        process_id=123,
+        process_id=process_id if process_id is not None else os.getpid(),
     )
 
 
@@ -116,3 +117,45 @@ def test_two_instances_claim_each_of_96_accelerated_24h_slots_once(tmp_path) -> 
 
     assert accepted == 96
     assert len(first.list_cycles(job_name="paper_runtime_cycle")) == 96
+
+
+def test_dead_local_owner_lease_can_be_reclaimed_before_ttl(tmp_path, monkeypatch) -> None:
+    first = _coordinator(tmp_path, "scheduler-a", process_id=424242)
+    second = SchedulerCoordinator(
+        session_factory=first.session_factory,
+        instance_id="scheduler-b",
+        hostname="test-host",
+        process_id=os.getpid(),
+    )
+    now = datetime(2026, 7, 28, 4, 10, tzinfo=UTC)
+    assert first.acquire_or_renew_lease(now=now, ttl_seconds=900) is True
+    monkeypatch.setattr(
+        "services.execution.scheduler_coordination._local_pid_is_alive",
+        lambda pid: False,
+    )
+    assert second.acquire_or_renew_lease(now=now + timedelta(seconds=5), ttl_seconds=90) is True
+    assert second.fencing_token() == 2
+
+
+def test_dead_local_claimed_slot_can_be_reclaimed(tmp_path, monkeypatch) -> None:
+    first = _coordinator(tmp_path, "scheduler-a", process_id=424242)
+    second = SchedulerCoordinator(
+        session_factory=first.session_factory,
+        instance_id="scheduler-b",
+        hostname="test-host",
+        process_id=os.getpid(),
+    )
+    scheduled_for = datetime(2026, 7, 28, 4, 20, tzinfo=UTC)
+    claim = first.claim_cycle(job_name="paper_runtime_cycle", scheduled_for=scheduled_for)
+    assert claim.claimed is True
+    monkeypatch.setattr(
+        "services.execution.scheduler_coordination._local_pid_is_alive",
+        lambda pid: False,
+    )
+    reclaimed = second.claim_cycle(job_name="paper_runtime_cycle", scheduled_for=scheduled_for)
+    assert reclaimed.claimed is True
+    assert reclaimed.scheduler_cycle_id == claim.scheduler_cycle_id
+    cycles = second.list_cycles(job_name="paper_runtime_cycle")
+    assert len(cycles) == 1
+    assert cycles[0].scheduler_instance_id == "scheduler-b"
+    assert cycles[0].failure_reason == "reclaimed_from_dead_local_owner"

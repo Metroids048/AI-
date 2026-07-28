@@ -103,8 +103,18 @@ def test_binance_gateway_normalizes_platform_contract_aliases() -> None:
     assert _normalize_binance_symbol("PEPE/USDT") == "1000PEPE/USDT:USDT"
 
 
-def test_pretrade_snapshot_uses_usdm_book_and_mark_endpoints_when_ticker_is_incomplete() -> None:
+def test_pretrade_snapshot_uses_usdm_book_and_mark_endpoints_when_ticker_is_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class PretradeClient(StubCcxtClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.ticker_calls = 0
+
+        def fetch_ticker(self, symbol):  # noqa: ANN001
+            self.ticker_calls += 1
+            raise AssertionError("book+mark path must not fall back to incomplete ticker")
+
         def fapiPublicGetTickerBookTicker(self, payload):  # noqa: N802, ANN001
             assert payload == {"symbol": "BTCUSDT"}
             return {
@@ -122,6 +132,10 @@ def test_pretrade_snapshot_uses_usdm_book_and_mark_endpoints_when_ticker_is_inco
                 "time": 1_785_142_400_100,
             }
 
+    def _boom(url: str, *, timeout: float = 5):  # noqa: ANN001
+        raise TimeoutError(f"force ccxt fallback for {url} timeout={timeout}")
+
+    monkeypatch.setattr("services.execution.gateway.binance_urlopen_json", _boom)
     client = PretradeClient()
     gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
     decision_time = datetime.fromtimestamp(1_785_142_390, tz=UTC)
@@ -162,6 +176,126 @@ def test_pretrade_snapshot_uses_usdm_book_and_mark_endpoints_when_ticker_is_inco
     assert snapshot.mark_price == Decimal("60000.1")
     assert snapshot.server_time == datetime.fromtimestamp(1_785_142_400.1, tz=UTC)
     assert snapshot.decision_age_seconds == pytest.approx(10.1)
+    assert client.ticker_calls == 0
+
+
+def test_pretrade_snapshot_uses_direct_http_public_rest(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    def _http(url: str, *, timeout: float = 5):  # noqa: ANN001
+        del timeout
+        calls.append(url)
+        if "bookTicker" in url:
+            return {
+                "symbol": "BTCUSDT",
+                "bidPrice": "59999.50",
+                "askPrice": "60000.50",
+                "time": 1_785_142_400_000,
+            }
+        if "premiumIndex" in url:
+            return {
+                "symbol": "BTCUSDT",
+                "markPrice": "60000.10",
+                "time": 1_785_142_400_100,
+            }
+        raise AssertionError(url)
+
+    monkeypatch.setattr("services.execution.gateway.binance_urlopen_json", _http)
+    gateway = BinanceUsdtPerpetualGateway(client=StubCcxtClient(), use_testnet=True)
+    decision_time = datetime.fromtimestamp(1_785_142_390, tz=UTC)
+    snapshot = gateway.pretrade_market_snapshot(
+        order_request=ExecutionOrderRequest(
+            strategy_id="sampling-lane",
+            symbol="BTC/USDT",
+            direction=TradeSide.LONG,
+            entry_context={
+                "atr": "100",
+                "decision_bar_close_time": decision_time,
+            },
+            market_rules_snapshot=MarketRulesSnapshot(
+                rules_snapshot_id="rules-pretrade-http",
+                symbol="BTC/USDT:USDT",
+                market_status="TRADING",
+                position_mode="ONE_WAY",
+                margin_mode="CROSS",
+                leverage=Decimal("1"),
+                tick_size=Decimal("0.10"),
+                step_size=Decimal("0.001"),
+                min_quantity=Decimal("0.001"),
+                min_notional=Decimal("50"),
+                loaded_at=decision_time - timedelta(minutes=1),
+                exchange="binance",
+                market_type="swap",
+                exchange_symbol="BTC/USDT:USDT",
+                price_precision=1,
+                amount_precision=3,
+                contract_size=Decimal("1"),
+                market_active=True,
+            ),
+        )
+    )
+    assert snapshot.mark_price == Decimal("60000.1")
+    assert any("bookTicker" in url for url in calls)
+    assert any("premiumIndex" in url for url in calls)
+
+
+def test_pretrade_snapshot_falls_back_to_ticker_last_price_when_book_mark_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "services.execution.gateway.binance_urlopen_json",
+        lambda url, *, timeout=5: (_ for _ in ()).throw(TimeoutError(url)),
+    )
+
+    class LastPriceClient(StubCcxtClient):
+        def fapiPublicGetTickerBookTicker(self, payload):  # noqa: N802, ANN001
+            return {}
+
+        def fapiPublicGetPremiumIndex(self, payload):  # noqa: N802, ANN001
+            return {}
+
+        def fetch_ticker(self, symbol):  # noqa: ANN001
+            return {
+                "symbol": symbol,
+                "last": 60123.4,
+                "timestamp": 1_785_142_400_000,
+                "info": {"lastPrice": "60123.4", "closeTime": 1_785_142_400_000},
+            }
+
+    gateway = BinanceUsdtPerpetualGateway(client=LastPriceClient(), use_testnet=True)
+    decision_time = datetime.fromtimestamp(1_785_142_390, tz=UTC)
+    snapshot = gateway.pretrade_market_snapshot(
+        order_request=ExecutionOrderRequest(
+            strategy_id="sampling-lane",
+            symbol="BTC/USDT",
+            direction=TradeSide.LONG,
+            entry_context={
+                "atr": "100",
+                "decision_bar_close_time": decision_time.isoformat(),
+            },
+            market_rules_snapshot=MarketRulesSnapshot(
+                rules_snapshot_id="rules-pretrade-last",
+                symbol="BTC/USDT:USDT",
+                market_status="TRADING",
+                position_mode="ONE_WAY",
+                margin_mode="CROSS",
+                leverage=Decimal("1"),
+                tick_size=Decimal("0.10"),
+                step_size=Decimal("0.001"),
+                min_quantity=Decimal("0.001"),
+                min_notional=Decimal("50"),
+                loaded_at=decision_time - timedelta(minutes=1),
+                exchange="binance",
+                market_type="swap",
+                exchange_symbol="BTC/USDT:USDT",
+                price_precision=1,
+                amount_precision=3,
+                contract_size=Decimal("1"),
+                market_active=True,
+            ),
+        )
+    )
+    assert snapshot.bid == snapshot.ask == snapshot.mark_price == Decimal("60123.4")
 
 
 def test_binance_position_numeric_falls_back_to_raw_exchange_info() -> None:
@@ -658,6 +792,33 @@ def test_binance_gateway_reconcile_survives_open_orders_warning() -> None:
     assert snapshot["open_order_count"] == 0
     assert snapshot["reconciliation_status"] == "warning"
     assert any(note.startswith("open_orders_scan_failed:") for note in snapshot["notes"])
+
+
+def test_binance_gateway_reconcile_scopes_private_scans_to_execution_universe() -> None:
+    class ScopedClient(StubCcxtClient):
+        def fetch_positions(self):
+            return [
+                {"symbol": "BTC/USDT:USDT", "contracts": 0.01, "side": "long"},
+                {"symbol": "ETH/USDT:USDT", "contracts": 0.02, "side": "long"},
+                {"symbol": "SOL/USDT:USDT", "contracts": 1.0, "side": "long"},
+            ]
+
+        def fapiPrivateGetOpenAlgoOrders(self, payload):  # noqa: N802, ANN001
+            assert payload == {}
+            return [
+                {"algoId": "btc-sl", "symbol": "BTCUSDT", "status": "NEW"},
+                {"algoId": "sol-sl", "symbol": "SOLUSDT", "status": "NEW"},
+            ]
+
+    client = ScopedClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+    snapshot = gateway.reconcile(live_run_id="paper-testnet:scope")
+
+    assert client.open_order_symbols == ["BTC/USDT:USDT", "ETH/USDT:USDT"]
+    assert None not in client.open_order_symbols
+    assert {pos["symbol"] for pos in snapshot["open_positions"]} == {"BTC/USDT:USDT", "ETH/USDT:USDT"}
+    assert {str(order.get("symbol") or "") for order in snapshot["open_orders"]} == {"BTCUSDT"}
+    assert snapshot["open_order_count"] == 1
 
 
 def test_binance_gateway_returns_authoritative_fill_details_for_filled_entry() -> None:

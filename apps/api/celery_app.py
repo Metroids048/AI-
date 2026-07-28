@@ -37,6 +37,7 @@ celery_app.conf.task_routes = {
     "services.validation.tasks.enqueue_carry_backtest": {"queue": "backtest_queue"},
     "services.execution.tasks.enqueue_paper_run": {"queue": "paper_queue"},
     "services.execution.tasks.run_all_paper_runtime_cycles": {"queue": "paper_queue"},
+    "services.execution.tasks.run_observation_paper_runtime_cycles": {"queue": "paper_queue"},
     "services.execution.tasks.run_paper_runtime_cycle": {"queue": "paper_queue"},
     "services.execution.tasks.risk_profile_sweep": {"queue": "ops_queue"},
     "services.execution.tasks.refresh_volatility_asset_risk_tiers": {"queue": "ops_queue"},
@@ -59,6 +60,16 @@ celery_app.conf.result_expires = 86_400
 celery_app.conf.beat_schedule = {
     "paper-runtime-cycle-every-5-minutes": {
         "task": "services.execution.tasks.run_all_paper_runtime_cycles",
+        "schedule": float(settings.paper_runtime_cycle_seconds),
+        "kwargs": {
+            "request_payload": {
+                "timeframe": "1m",
+                "enable_decision_veto": settings.paper_runtime_enable_decision_veto,
+            }
+        },
+    },
+    "paper-observation-cycle-every-5-minutes": {
+        "task": "services.execution.tasks.run_observation_paper_runtime_cycles",
         "schedule": float(settings.paper_runtime_cycle_seconds),
         "kwargs": {
             "request_payload": {

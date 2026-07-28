@@ -59,5 +59,9 @@ describe("RuntimeTruthPanel", () => {
     expect(screen.getByText("原因：ONE_HOUR_REGIME_NOT_ALIGNED")).toBeTruthy();
     expect(screen.getByText(/交易所数据不可用：gateway timeout/)).toBeTruthy();
     expect(screen.getByText(/NO_DETERMINISTIC_CANDIDATE/)).toBeTruthy();
+    expect(screen.getByText("Positions")).toBeTruthy();
+    expect(screen.getByText("Exchange Orders")).toBeTruthy();
+    expect(screen.getByText("Mismatch / Reconciliation")).toBeTruthy();
+    expect(screen.getByText("Protections")).toBeTruthy();
   });
 });

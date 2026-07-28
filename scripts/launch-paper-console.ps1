@@ -136,6 +136,16 @@ function Stop-RecordedScheduler {
         }
     }
     Remove-Item -LiteralPath $SchedulerPidFile -Force -ErrorAction SilentlyContinue
+    # Expire same-host leases/claims owned by dead PIDs so the next launch is not
+    # stuck in standby_not_leader / duplicate_slot_skipped until TTL elapses.
+    try {
+        & $env:AGENT_PYTHON (Join-Path $Root "scripts\reclaim_stale_scheduler_locks.py") $DbPath | ForEach-Object {
+            Write-Step $_
+        }
+    }
+    catch {
+        Write-Step "warning: could not reclaim stale scheduler locks ($($_.Exception.Message))"
+    }
 }
 
 function Test-SchedulerHealthy {

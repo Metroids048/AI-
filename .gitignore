@@ -64,3 +64,11 @@ infra/freqtrade/config/*.json
 # bookkeeping; neither is a project artifact.
 /.pytest-report.xml
 .claude/state/
+
+# AI-KNOWLEDGE-MANAGED-START
+AI原始记录/
+项目知识库/会话记录/
+**/.env
+**/*.pem
+**/*.key
+# AI-KNOWLEDGE-MANAGED-END
