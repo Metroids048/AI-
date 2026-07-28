@@ -26,9 +26,10 @@ from shared.models import RuntimeDatum
 from shared.models.execution_truth import ExchangeOrderState, ExecutionMode
 
 router = APIRouter(prefix="/runtime", tags=["runtime-truth"])
-_EXCHANGE_CACHE_SECONDS = 5.0
-_EXCHANGE_TRUTH_TIMEOUT_SECONDS = 15.0
+_EXCHANGE_CACHE_SECONDS = 15.0
+_EXCHANGE_TRUTH_TIMEOUT_SECONDS = 8.0
 _exchange_cache_lock = Lock()
+_exchange_probe_lock = Lock()
 _exchange_cache: tuple[datetime, dict] | None = None
 _exchange_truth_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="runtime-exchange-truth")
 
@@ -41,7 +42,7 @@ def _datum(
     status: Literal["available", "stale", "unavailable"] = "available",
     error: str | None = None,
 ) -> dict:
-    freshness = "unavailable" if status == "unavailable" else "current"
+    freshness = "unavailable" if status == "unavailable" else ("stale" if status == "stale" else "current")
     return RuntimeDatum(
         value=value,
         source=source,
@@ -52,12 +53,40 @@ def _datum(
     ).model_dump(mode="json")
 
 
+def _cached_exchange_truth(*, allow_stale: bool) -> dict | None:
+    with _exchange_cache_lock:
+        if _exchange_cache is None:
+            return None
+        age = (datetime.now(UTC) - _exchange_cache[0]).total_seconds()
+        if age < _EXCHANGE_CACHE_SECONDS or allow_stale:
+            cached = dict(_exchange_cache[1])
+            if allow_stale and age >= _EXCHANGE_CACHE_SECONDS and cached.get("status") == "available":
+                cached["status"] = "stale"
+                cached["freshness"] = "stale"
+            return cached
+        return None
+
+
 def _exchange_truth() -> dict:
     global _exchange_cache
-    with _exchange_cache_lock:
+    fresh = _cached_exchange_truth(allow_stale=False)
+    if fresh is not None:
+        return fresh
+    # One probe at a time. Concurrent UI polls must not queue behind a hung
+    # Binance reconcile on the single worker thread.
+    if not _exchange_probe_lock.acquire(blocking=False):
+        stale = _cached_exchange_truth(allow_stale=True)
+        if stale is not None:
+            return stale
+        return _datum(
+            value=None,
+            source="BINANCE_USDT_M_TESTNET",
+            observed_at=datetime.now(UTC),
+            status="unavailable",
+            error="exchange truth probe already in progress",
+        )
+    try:
         observed_at = datetime.now(UTC)
-        if _exchange_cache is not None and (observed_at - _exchange_cache[0]).total_seconds() < _EXCHANGE_CACHE_SECONDS:
-            return _exchange_cache[1]
         try:
             gateway = configured_gateways()[0]
             future = _exchange_truth_executor.submit(
@@ -82,15 +111,26 @@ def _exchange_truth() -> dict:
                 observed_at=observed_at,
             )
         except Exception as exc:  # noqa: BLE001 - unavailable must be explicit
-            result = _datum(
-                value=None,
-                source="BINANCE_USDT_M_TESTNET",
-                observed_at=observed_at,
-                status="unavailable",
-                error=str(exc),
-            )
-        _exchange_cache = (datetime.now(UTC), result)
+            stale = _cached_exchange_truth(allow_stale=True)
+            if stale is not None and stale.get("value") is not None:
+                stale = dict(stale)
+                stale["status"] = "stale"
+                stale["freshness"] = "stale"
+                stale["error"] = str(exc)
+                result = stale
+            else:
+                result = _datum(
+                    value=None,
+                    source="BINANCE_USDT_M_TESTNET",
+                    observed_at=observed_at,
+                    status="unavailable",
+                    error=str(exc),
+                )
+        with _exchange_cache_lock:
+            _exchange_cache = (datetime.now(UTC), result)
         return result
+    finally:
+        _exchange_probe_lock.release()
 
 
 def _platform_symbol(value: object) -> str:

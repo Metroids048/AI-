@@ -1092,6 +1092,7 @@ class PaperExchangeExecutionService:
             "consecutive_failures": self._consecutive_reconciliation_failures,
             "entry_kill_switch_active": self._entry_kill_switch_active,
             "unresolved_exchange_order_ids": [order.exchange_order_record_id for order in unresolved_exchange_orders],
+            "open_positions": list(snapshot.get("open_positions") or []),
         }
 
     def _unavailable_reconciliation_result(
@@ -1117,6 +1118,7 @@ class PaperExchangeExecutionService:
             "snapshot_time": cycle_time,
             "consecutive_failures": self._consecutive_reconciliation_failures,
             "entry_kill_switch_active": self._entry_kill_switch_active,
+            "open_positions": [],
         }
 
     def ensure_binance_execution(

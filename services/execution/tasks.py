@@ -9,7 +9,11 @@ from celery import shared_task
 from services.data import DataRepository
 from services.database import get_session_factory
 from services.execution.account_equity import resolve_manual_position_pnl
-from services.execution.auto_schedule import is_auto_scheduled_paper_run
+from services.execution.auto_schedule import (
+    is_auto_scheduled_paper_run,
+    is_deferred_observation_paper_run,
+    is_tight_slot_paper_run,
+)
 from services.execution.gatekeeper import ExecutionGatekeeperService
 from services.execution.gateway import configured_gateways
 from services.execution.paper import PaperOrchestrationService
@@ -82,21 +86,57 @@ def run_paper_runtime_cycle(paper_run_id: str, request_payload: dict | None = No
 
 @shared_task(name="services.execution.tasks.run_all_paper_runtime_cycles", queue="paper_queue")
 def run_all_paper_runtime_cycles(request_payload: dict | None = None) -> dict:
-    """Run one cycle for every explicitly authorized automatic PaperRun."""
+    """Run the tight Entry slot: armed Binance Testnet runs only.
+
+    Local observation / non-armed auto-runs are deferred to
+    ``run_observation_paper_runtime_cycles`` so a long observation pass cannot
+    hold the coordinated lease past the next 15m candle's 75s pretrade window.
+    """
 
     session = get_session_factory()()
     try:
         paper_repo = PaperRunRepository(session)
-        runs = [run for run in paper_repo.list_paper_runs() if is_auto_scheduled_paper_run(run)]
+        runs = [run for run in paper_repo.list_paper_runs() if is_tight_slot_paper_run(run)]
+        runs.sort(key=_paper_runtime_cycle_priority)
         results = []
         for run in runs:
             if run.paper_run_id is None:
                 continue
             result = run_paper_runtime_cycle.run(run.paper_run_id, request_payload or {})
             results.append(result)
-        return {"paper_runs": len(runs), "results": results}
+        return {"paper_runs": len(runs), "slot": "tight_entry", "results": results}
     finally:
         session.close()
+
+
+@shared_task(name="services.execution.tasks.run_observation_paper_runtime_cycles", queue="paper_queue")
+def run_observation_paper_runtime_cycles(request_payload: dict | None = None) -> dict:
+    """Run deferred observation / local-paper auto-runs outside the Entry slot."""
+
+    session = get_session_factory()()
+    try:
+        paper_repo = PaperRunRepository(session)
+        runs = [run for run in paper_repo.list_paper_runs() if is_deferred_observation_paper_run(run)]
+        runs.sort(key=_paper_runtime_cycle_priority)
+        results = []
+        for run in runs:
+            if run.paper_run_id is None:
+                continue
+            result = run_paper_runtime_cycle.run(run.paper_run_id, request_payload or {})
+            results.append(result)
+        return {"paper_runs": len(runs), "slot": "observation", "results": results}
+    finally:
+        session.close()
+
+
+def _paper_runtime_cycle_priority(run: PaperRun) -> tuple[int, int, str]:
+    profile = run.execution_profile or {}
+    mode = str(profile.get("execution_mode") or "")
+    mirror = bool(profile.get("mirror_to_gateway"))
+    lane = str(profile.get("strategy_lane") or "")
+    testnet_first = 0 if mode == "binance_testnet" and mirror else 1
+    directional_first = 0 if lane == "directional" else 1
+    return (testnet_first, directional_first, run.paper_run_id or "")
 
 
 @shared_task(name="services.execution.tasks.risk_profile_sweep", queue="ops_queue")

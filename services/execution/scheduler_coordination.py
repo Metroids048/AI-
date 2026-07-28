@@ -21,6 +21,33 @@ def _db_time(value: datetime) -> datetime:
     return value.replace(tzinfo=None)
 
 
+def _local_pid_is_alive(pid: int | None) -> bool:
+    """Best-effort liveness probe for same-host lease reclaim after hard kills."""
+    if pid is None or int(pid) <= 0:
+        return False
+    pid_i = int(pid)
+    if os.name == "nt":
+        import ctypes
+
+        # OpenProcess is more reliable than os.kill(pid, 0) on Windows for
+        # distinguishing live vs gone PIDs across privilege boundaries.
+        process_query_limited_information = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, pid_i)
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        return False
+    try:
+        os.kill(pid_i, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 @dataclass(frozen=True)
 class CycleClaim:
     claimed: bool
@@ -83,7 +110,28 @@ class SchedulerCoordinator:
                 and lease.fencing_token != fencing_token
             ):
                 return False
-            takeover = lease.owner_id != self.instance_id or lease.expires_at <= observed_at
+            # Hard-killed local schedulers leave a long TTL lease; reclaim when the
+            # recorded PID is gone on the same host so restarts are not stuck in
+            # standby_not_leader until expires_at. Same-PID multi-instance (tests /
+            # rare in-process re-entry) must not treat the live owner as dead.
+            dead_local_owner = (
+                lease.owner_id != self.instance_id
+                and lease.hostname == self.hostname
+                and int(lease.process_id or 0) != int(self.process_id)
+                and not _local_pid_is_alive(lease.process_id)
+            )
+            if dead_local_owner:
+                session.query(models.SchedulerLease).filter(
+                    models.SchedulerLease.lease_name == lease_name,
+                    models.SchedulerLease.owner_id == lease.owner_id,
+                    models.SchedulerLease.process_id == lease.process_id,
+                    models.SchedulerLease.hostname == self.hostname,
+                ).update(
+                    {"expires_at": observed_at},
+                    synchronize_session=False,
+                )
+                session.flush()
+            takeover = lease.owner_id != self.instance_id or lease.expires_at <= observed_at or dead_local_owner
             next_token = int(lease.fencing_token or 1) + (1 if takeover else 0)
             updated = (
                 session.query(models.SchedulerLease)
@@ -147,10 +195,11 @@ class SchedulerCoordinator:
         run_mode: str = "paper",
         fencing_token: int | None = None,
     ) -> CycleClaim:
+        scheduled_for_db = _db_time(scheduled_for)
         with self.session_factory() as session:
             row = models.SchedulerCycle(
                 job_name=job_name,
-                scheduled_for=_db_time(scheduled_for),
+                scheduled_for=scheduled_for_db,
                 scheduler_instance_id=self.instance_id,
                 cycle_source=cycle_source,
                 run_mode=run_mode,
@@ -166,7 +215,38 @@ class SchedulerCoordinator:
                 session.commit()
             except IntegrityError:
                 session.rollback()
-                return CycleClaim(claimed=False)
+                existing = (
+                    session.query(models.SchedulerCycle)
+                    .filter(
+                        models.SchedulerCycle.job_name == job_name,
+                        models.SchedulerCycle.scheduled_for == scheduled_for_db,
+                    )
+                    .one_or_none()
+                )
+                if existing is None:
+                    return CycleClaim(claimed=False)
+                dead_local_claim = (
+                    existing.status == "claimed"
+                    and existing.hostname == self.hostname
+                    and existing.scheduler_instance_id != self.instance_id
+                    and int(existing.process_id or 0) != int(self.process_id)
+                    and not _local_pid_is_alive(existing.process_id)
+                )
+                if not dead_local_claim:
+                    return CycleClaim(claimed=False)
+                existing.scheduler_instance_id = self.instance_id
+                existing.cycle_source = cycle_source
+                existing.run_mode = run_mode
+                existing.deployment_sha = self.deployment_sha
+                existing.hostname = self.hostname
+                existing.process_id = self.process_id
+                existing.status = "claimed"
+                existing.started_at = _db_time(datetime.now(UTC))
+                existing.completed_at = None
+                existing.failure_reason = "reclaimed_from_dead_local_owner"
+                existing.fencing_token = fencing_token or self._fencing_tokens.get("paper_runtime_cycle")
+                session.commit()
+                return CycleClaim(claimed=True, scheduler_cycle_id=existing.scheduler_cycle_id)
             return CycleClaim(claimed=True, scheduler_cycle_id=row.scheduler_cycle_id)
 
     def finish_cycle(self, cycle_id: str, *, status: str, failure_reason: str | None = None) -> None:

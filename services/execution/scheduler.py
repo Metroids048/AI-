@@ -119,6 +119,7 @@ class RuntimeScheduler:
     ) -> None:
         self.paper_cycle_seconds = float(paper_cycle_seconds or settings.paper_runtime_cycle_seconds)
         self.paper_cycle_offset_seconds = float(settings.paper_runtime_cycle_offset_seconds)
+        self.paper_observation_offset_seconds = float(settings.paper_observation_cycle_offset_seconds)
         self.heartbeat_seconds = float(heartbeat_seconds or settings.market_data_heartbeat_seconds)
         self.notification_seconds = float(notification_seconds or settings.notification_dispatch_seconds)
         self.news_poll_seconds = float(news_poll_seconds)
@@ -176,6 +177,18 @@ class RuntimeScheduler:
                     coordinated=True,
                     align_to_interval=True,
                     interval_offset_seconds=self.paper_cycle_offset_seconds,
+                )
+            ),
+            asyncio.create_task(
+                self._run_periodic(
+                    name="paper_observation_cycle",
+                    interval_seconds=self.paper_cycle_seconds,
+                    runner=_default_observation_cycle_runner,
+                    records_auto_cycle=False,
+                    run_immediately=False,
+                    coordinated=True,
+                    align_to_interval=True,
+                    interval_offset_seconds=self.paper_observation_offset_seconds,
                 )
             ),
             asyncio.create_task(
@@ -390,9 +403,20 @@ class RuntimeScheduler:
             "fencing_token": fencing_token,
         }
         # Runner 类型是 Callable[[], Any]；默认 runner 额外接受 provenance，直接绑定 metadata。
-        runner_with_context: Runner = (
-            (lambda: _default_paper_cycle_runner(metadata)) if runner is _default_paper_cycle_runner else runner
-        )
+        if runner is _default_paper_cycle_runner:
+
+            def _paper_with_context() -> Any:
+                return _default_paper_cycle_runner(metadata)
+
+            runner_with_context: Runner = _paper_with_context
+        elif runner is _default_observation_cycle_runner:
+
+            def _observation_with_context() -> Any:
+                return _default_observation_cycle_runner(metadata)
+
+            runner_with_context = _observation_with_context
+        else:
+            runner_with_context = runner
         failure_count = self.status.failure_counts.get(name, 0)
         lease_done = asyncio.Event()
         renewal_task = asyncio.create_task(
@@ -591,6 +615,20 @@ def _default_paper_cycle_runner(provenance: dict[str, Any] | None = None) -> dic
     from services.execution.tasks import run_all_paper_runtime_cycles
 
     return run_all_paper_runtime_cycles.run(
+        {
+            "timeframe": "1m",
+            "max_symbols": len(AUTO_PAPER_RESEARCH_SYMBOLS),
+            "enable_decision_veto": settings.paper_runtime_enable_decision_veto,
+            **(provenance or {}),
+        }
+    )
+
+
+def _default_observation_cycle_runner(provenance: dict[str, Any] | None = None) -> dict:
+    from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
+    from services.execution.tasks import run_observation_paper_runtime_cycles
+
+    return run_observation_paper_runtime_cycles.run(
         {
             "timeframe": "1m",
             "max_symbols": len(AUTO_PAPER_RESEARCH_SYMBOLS),

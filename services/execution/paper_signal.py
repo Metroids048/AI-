@@ -146,18 +146,13 @@ class PaperSignalGenerator:
             stoploss_price=stoploss,
         )
         if sampling_mode:
-            account_equity, _ = resolve_paper_account_equity(
+            # Sampling risk band is exchange dynamic minimum notional at 1x.
+            min_notional = _sampling_min_notional_usdt(
                 paper_run=paper_run,
-                execution_repo=self.execution_repo,
+                strategy=strategy,
+                symbol=symbol,
             )
-            sampling_cap = max(
-                5.0,
-                min(
-                    float(paper_run.execution_profile.get("sampling_max_notional_usdt") or 20.0),
-                    account_equity * 0.002,
-                ),
-            )
-            requested_notional = min(requested_notional, sampling_cap)
+            requested_notional = float(min_notional)
         risk_state = self._build_risk_state(
             paper_run=paper_run,
             strategy=strategy,
@@ -169,7 +164,17 @@ class PaperSignalGenerator:
             reference_price=reference_price,
             stoploss_price=stoploss,
         )
-        requested_notional = risk_state.requested_notional
+        requested_notional = float(risk_state.requested_notional)
+        if sampling_mode:
+            # Risk gates may shrink size; never submit below the venue floor.
+            min_notional = _sampling_min_notional_usdt(
+                paper_run=paper_run,
+                strategy=strategy,
+                symbol=symbol,
+            )
+            if requested_notional < min_notional:
+                requested_notional = float(min_notional)
+                risk_state = risk_state.model_copy(update={"requested_notional": requested_notional})
         veto_result = decision.veto_result
         if not decision.should_trade and veto_result is None:
             pipeline_status = str(decision.trace.get("pipeline_status", ""))
@@ -216,7 +221,9 @@ class PaperSignalGenerator:
                     )
                 ),
                 "min_notional_usdt": float(
-                    paper_run.execution_profile.get(
+                    _sampling_min_notional_usdt(paper_run=paper_run, strategy=strategy, symbol=symbol)
+                    if sampling_mode
+                    else paper_run.execution_profile.get(
                         "min_notional_usdt", strategy.rules.position_rules.get("min_notional_usdt", 50.0)
                     )
                 ),
@@ -1144,3 +1151,29 @@ def _is_carry_strategy(*, rules, paper_run: PaperRun | None) -> bool:  # noqa: A
         if lane == "directional":
             return False
     return "funding_threshold_bps" in rules.entry_rules
+
+
+def _sampling_min_notional_usdt(
+    *,
+    paper_run: PaperRun,
+    strategy: StrategyContract,
+    symbol: str,
+) -> float:
+    """Resolve exchange dynamic minimum notional for the sampling risk band."""
+
+    for asset in paper_run.execution_profile.get("universe_assets", []) or []:
+        if not isinstance(asset, dict):
+            continue
+        if asset.get("platform_symbol") != symbol:
+            continue
+        raw = asset.get("min_notional")
+        if raw is not None:
+            value = float(raw)
+            if value > 0:
+                return value
+    return float(
+        paper_run.execution_profile.get(
+            "min_notional_usdt",
+            strategy.rules.position_rules.get("min_notional_usdt", 50.0),
+        )
+    )

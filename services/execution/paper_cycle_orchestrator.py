@@ -110,9 +110,49 @@ def _cycle_bar_time(cycle_key: str) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
+def _universe_assets_unresolved(assets: object) -> bool:
+    """True when exchange tradability metadata is missing or not yet TRADING."""
+    if not isinstance(assets, list) or not assets:
+        return True
+    for asset in assets:
+        if not isinstance(asset, dict):
+            return True
+        status = str(asset.get("tradable_status") or "unknown").lower()
+        if status != "trading":
+            return True
+    return False
+
+
+def _merge_runtime_execution_profile(
+    *,
+    snapshot_profile: dict[str, Any],
+    run_profile: dict[str, Any],
+) -> dict[str, Any]:
+    """Prefer freshly refreshed run-row universe_assets over a stale active snapshot.
+
+    exchange_info_refresh updates the PaperRun row immediately and stages a NEXT_CYCLE
+    snapshot. Until that snapshot activates, loading the active snapshot alone can
+    re-apply ``tradable_status=unknown`` and skip the entire Entry slot.
+    """
+    merged = dict(snapshot_profile)
+    snapshot_assets = snapshot_profile.get("universe_assets")
+    run_assets = run_profile.get("universe_assets")
+    if _universe_assets_unresolved(snapshot_assets) and not _universe_assets_unresolved(run_assets):
+        merged["universe_assets"] = run_assets
+    return merged
+
+
 def _funnel_terminal_for_action(
     action: PaperRuntimeAction,
 ) -> tuple[DecisionFunnelStage, DecisionFunnelStatus, str]:
+    sampling_rejection = action.decision_trace.get("sampling_fallback_rejection_reason")
+    if action.action.startswith("skip_no_trade") and sampling_rejection:
+        # Prefer sampling terminal so operators see why the fallback lane stayed silent.
+        return (
+            DecisionFunnelStage.ENTRY_SIGNAL,
+            DecisionFunnelStatus.SKIPPED,
+            str(sampling_rejection).upper(),
+        )
     reason = str(
         action.decision_trace.get("reason_code")
         or action.decision_trace.get("pipeline_status")
@@ -220,7 +260,14 @@ class PaperCycleOrchestrator:
         if active_config is not None:
             execution_profile = active_config.config.get("execution_profile")
             if isinstance(execution_profile, dict):
-                paper_run = paper_run.model_copy(update={"execution_profile": execution_profile})
+                paper_run = paper_run.model_copy(
+                    update={
+                        "execution_profile": _merge_runtime_execution_profile(
+                            snapshot_profile=execution_profile,
+                            run_profile=paper_run.execution_profile,
+                        )
+                    }
+                )
             strategy_rules = active_config.config.get("strategy_rules")
             if isinstance(strategy_rules, dict):
                 strategy = strategy.model_copy(update={"rules": StrategyRules(**strategy_rules)})
@@ -300,7 +347,6 @@ class PaperCycleOrchestrator:
         closed_positions = 0
         rejected_orders = 0
         skipped_symbols = 0
-        hard_drawdown_locked = self._is_hard_drawdown_locked(paper_run=paper_run, metrics=metrics)
 
         actions.extend(self._expire_pending_limit_entries(paper_run=paper_run, cycle_time=cycle_time))
         entry_blocked_symbols: set[str] = set()
@@ -309,6 +355,7 @@ class PaperCycleOrchestrator:
             "error": None,
             "consecutive_failures": 0,
             "entry_kill_switch_active": False,
+            "open_positions": None,
         }
 
         if self._gateway_mirror_armed(paper_run):
@@ -332,6 +379,14 @@ class PaperCycleOrchestrator:
             daily_realized_pnl += float(reconcile_result["net_pnl"])
             weekly_realized_pnl += float(reconcile_result["net_pnl"])
             entry_blocked_symbols.update(reconcile_result.get("entry_blocked_symbols", []))
+
+        # Reuse the cycle's reconcile open_positions so drawdown locking does not
+        # issue a second private-API reconcile before signal evaluation.
+        hard_drawdown_locked = self._is_hard_drawdown_locked(
+            paper_run=paper_run,
+            metrics=metrics,
+            open_positions=reconcile_result.get("open_positions"),
+        )
 
         cross_sectional_snapshot: dict[str, CrossSectionalRankEntry] = {}
         if paper_run.execution_profile.get("strategy_lane") == "cross_sectional_carry":
@@ -1648,6 +1703,19 @@ class PaperCycleOrchestrator:
             action_key = action.idempotency_key
             if action_key:
                 bar_time = _cycle_bar_time(action_key) or cycle_time
+                # Duplicate entry ticks must not overwrite the first real terminal
+                # for this closed bar (e.g. SAMPLING_RULES_NOT_ALIGNED → ALREADY PROCESSED).
+                if action.action == "skip_duplicate_cycle":
+                    existing_terminals = funnel_repo.list_terminals(
+                        paper_run_id=paper_run_id,
+                        symbol=action.symbol,
+                        limit=20,
+                    )
+                    if any(
+                        terminal.timeframe == runtime_timeframe and terminal.bar_time == bar_time
+                        for terminal in existing_terminals
+                    ):
+                        continue
                 stage, status, reason_code = _funnel_terminal_for_action(action)
                 funnel_repo.upsert_terminal(
                     DecisionFunnelTerminal(
@@ -1745,7 +1813,13 @@ class PaperCycleOrchestrator:
             raise ValueError("strategy not found")
         return strategy
 
-    def _is_hard_drawdown_locked(self, *, paper_run: PaperRun, metrics: dict[str, Any]) -> bool:
+    def _is_hard_drawdown_locked(
+        self,
+        *,
+        paper_run: PaperRun,
+        metrics: dict[str, Any],
+        open_positions: list[dict[str, Any]] | None = None,
+    ) -> bool:
         initial_equity = float(paper_run.execution_profile.get("account_equity") or 10_000.0)
         account_equity = float(metrics.get("account_equity") or initial_equity)
         # Exclude manual/external position PnL — same adjustment as the gatekeeper
@@ -1755,6 +1829,7 @@ class PaperCycleOrchestrator:
             paper_run=paper_run,
             execution_repo=self.execution_repo,
             gateway=self.gateway,
+            open_positions=open_positions,
         )
         strategy_equity = account_equity - manual_pnl
         equity_peak = float(metrics.get("strategy_equity_peak") or metrics.get("equity_peak") or strategy_equity)

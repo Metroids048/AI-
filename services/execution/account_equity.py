@@ -30,6 +30,7 @@ def resolve_manual_position_pnl(
     paper_run: PaperRun,
     execution_repo: ExecutionRepository,
     gateway: ExchangeGateway | None,
+    open_positions: list[dict] | None = None,
 ) -> float:
     """Sum unrealized PnL of exchange positions NOT owned by this strategy run.
 
@@ -43,17 +44,23 @@ def resolve_manual_position_pnl(
     Returns 0.0 (conservative — no adjustment) if the gateway is unavailable
     or the reconcile call fails, so a transient API error never accidentally
     masks a real drawdown.
+
+    Callers that already hold a reconcile snapshot should pass ``open_positions``
+    to avoid a second private-API round trip in the same cycle.
     """
-    if gateway is None or not paper_run.paper_run_id:
+    if not paper_run.paper_run_id:
         return 0.0
     try:
-        snapshot = gateway.reconcile(live_run_id=f"paper-testnet:{paper_run.paper_run_id}")
-        open_positions = snapshot.get("open_positions", [])
+        if open_positions is None:
+            if gateway is None:
+                return 0.0
+            snapshot = gateway.reconcile(live_run_id=f"paper-testnet:{paper_run.paper_run_id}")
+            open_positions = list(snapshot.get("open_positions", []))
 
-        capability = getattr(gateway, "capability", None)
+        capability = getattr(gateway, "capability", None) if gateway is not None else None
         exchange_name = str(getattr(capability, "exchange", None) or "paper")
         market_type = str(getattr(capability, "market_type", None) or "paper")
-        backend = str(getattr(gateway, "api_backend", None) or "local")
+        backend = str(getattr(gateway, "api_backend", None) or "local") if gateway is not None else "local"
         exchange_account = f"{exchange_name}:{market_type}:{backend}"
 
         manual_pnl = 0.0
@@ -150,19 +157,28 @@ def sync_paper_account_equity(
 ) -> dict:
     """Refresh metrics account_equity from exchange when mirror mode is armed."""
 
+    synced_equity: float | None = None
     if prefer_exchange and gateway is not None:
         try:
             snapshot = gateway.sync_account(live_run_id=f"paper:{paper_run_id or 'unknown'}")
             execution_repo.create_account_snapshot(snapshot)
+            snapshot_equity = float(snapshot.margin_balance or snapshot.wallet_balance)
+            if snapshot_equity > 0:
+                synced_equity = snapshot_equity
         except Exception:
             pass
 
-    equity, source = resolve_paper_account_equity(
-        paper_run=paper_run,
-        execution_repo=execution_repo,
-        gateway=gateway,
-        prefer_exchange=prefer_exchange,
-    )
+    if synced_equity is not None:
+        equity, source = synced_equity, "gateway_live"
+    else:
+        equity, source = resolve_paper_account_equity(
+            paper_run=paper_run,
+            execution_repo=execution_repo,
+            gateway=gateway,
+            # The live synchronization attempt above is authoritative for this
+            # cycle. Do not immediately repeat the same private API request.
+            prefer_exchange=False,
+        )
     if equity <= 0:
         return metrics
     baseline_initialized = bool(metrics.get("account_equity_baseline_initialized"))

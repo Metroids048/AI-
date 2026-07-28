@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
 from services.data.universe import FIXED_TOP20_SYMBOLS, platform_to_exchange_symbol
+from services.execution.bootstrap import AUTO_PAPER_EXECUTION_SYMBOLS
 from services.execution.execution_truth import binance_client_order_id
 from services.execution.order_context import build_gateway_market_rules
 from services.execution.order_normalizer import OrderNormalizer
-from shared.binance_network import binance_ccxt_config
+from shared.binance_network import binance_ccxt_config, binance_urlopen_json
 from shared.config import settings
 from shared.models import (
     ExchangeAccountSnapshot,
@@ -543,33 +546,51 @@ class BinanceUsdtPerpetualGateway:
     ) -> PretradeMarketSnapshot:
         exchange_symbol = _normalize_binance_symbol(order_request.symbol)
         market_id = _binance_market_id(exchange_symbol)
-        ticker = self.client.fetch_ticker(exchange_symbol)
-        info = _payload_info(ticker)
-        bid = _positive_float(ticker.get("bid") or info.get("bidPrice"))
-        ask = _positive_float(ticker.get("ask") or info.get("askPrice"))
-        mark = _positive_float(ticker.get("mark") or info.get("markPrice"))
+        # Prefer direct USDM public REST (and CCXT public helpers as fallback).
+        # Testnet fetch_ticker omits bid/ask/mark and CCXT demo-fapi is too slow
+        # for the 75s Sampling pretrade window.
+        bid: float | None = None
+        ask: float | None = None
+        mark: float | None = None
         exchange_times: list[float] = []
+        ticker: dict[str, Any] = {}
 
-        if bid is None or ask is None:
-            fetch_book = getattr(self.client, "fapiPublicGetTickerBookTicker", None)
-            book = fetch_book({"symbol": market_id}) if callable(fetch_book) else {}
-            if isinstance(book, dict):
-                bid = bid or _positive_float(book.get("bidPrice") or book.get("bid"))
-                ask = ask or _positive_float(book.get("askPrice") or book.get("ask"))
-                book_time = book.get("time") or book.get("timestamp")
-                if book_time is not None:
-                    with contextlib.suppress(TypeError, ValueError):
-                        exchange_times.append(float(book_time))
+        book, premium = _fetch_pretrade_book_and_mark(
+            client=self.client,
+            market_id=market_id,
+            use_testnet=self.use_testnet,
+        )
+        if isinstance(book, dict):
+            bid = _positive_float(book.get("bidPrice") or book.get("bid"))
+            ask = _positive_float(book.get("askPrice") or book.get("ask"))
+            book_time = book.get("time") or book.get("timestamp")
+            if book_time is not None:
+                with contextlib.suppress(TypeError, ValueError):
+                    exchange_times.append(float(book_time))
+        if isinstance(premium, dict):
+            mark = _positive_float(premium.get("markPrice") or premium.get("mark"))
+            premium_time = premium.get("time") or premium.get("timestamp")
+            if premium_time is not None:
+                with contextlib.suppress(TypeError, ValueError):
+                    exchange_times.append(float(premium_time))
 
-        if mark is None:
-            fetch_mark = getattr(self.client, "fapiPublicGetPremiumIndex", None)
-            premium = fetch_mark({"symbol": market_id}) if callable(fetch_mark) else {}
-            if isinstance(premium, dict):
-                mark = _positive_float(premium.get("markPrice") or premium.get("mark"))
-                premium_time = premium.get("time") or premium.get("timestamp")
-                if premium_time is not None:
-                    with contextlib.suppress(TypeError, ValueError):
-                        exchange_times.append(float(premium_time))
+        if bid is None or ask is None or mark is None:
+            ticker = self.client.fetch_ticker(exchange_symbol)
+            info = _payload_info(ticker)
+            bid = bid or _positive_float(ticker.get("bid") or info.get("bidPrice"))
+            ask = ask or _positive_float(ticker.get("ask") or info.get("askPrice"))
+            mark = mark or _positive_float(ticker.get("mark") or info.get("markPrice"))
+            last = _positive_float(ticker.get("last") or info.get("lastPrice") or ticker.get("close"))
+            if mark is None and last is not None:
+                mark = last
+            if bid is None and last is not None:
+                bid = last
+            if ask is None and last is not None:
+                ask = last
+            ticker_time = ticker.get("timestamp") or info.get("closeTime")
+            if ticker_time is not None:
+                with contextlib.suppress(TypeError, ValueError):
+                    exchange_times.append(float(ticker_time))
 
         if bid is None or ask is None or mark is None:
             raise ValueError("PRETRADE_MARKET_SNAPSHOT_UNAVAILABLE")
@@ -802,24 +823,39 @@ class BinanceUsdtPerpetualGateway:
             "gateway_status": _normalize_order_status(cancelled.get("status", "canceled")),
         }
 
-    def reconcile(self, *, live_run_id: str) -> dict[str, Any]:
+    def reconcile(
+        self,
+        *,
+        live_run_id: str,
+        symbols: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        # Default to the automated BTC/ETH universe. Diagnostic callers that need a
+        # wider account view must pass an explicit symbol list.
+        scope = tuple(symbols) if symbols is not None else AUTO_PAPER_EXECUTION_SYMBOLS
+        scope_market_ids = {_binance_market_id(_normalize_binance_symbol(symbol)) for symbol in scope}
         options = getattr(self.client, "options", None)
         if isinstance(options, dict):
             options["warnOnFetchOpenOrdersWithoutSymbol"] = False
         open_orders: list[Any] = []
-        open_orders_error: str | None = None
+        open_order_errors: list[str] = []
         open_algo_orders_error: str | None = None
+        for symbol in scope:
+            try:
+                open_orders.extend(list(self.client.fetch_open_orders(_normalize_binance_symbol(symbol))))
+            except Exception as exc:  # noqa: BLE001
+                # Position flatness is what clears local ghosts; do not fail closed on
+                # open-order scan warnings/rate-limit advisories from CCXT.
+                open_order_errors.append(f"{symbol}:{exc}")
         try:
-            open_orders = list(self.client.fetch_open_orders())
-        except Exception as exc:  # noqa: BLE001
-            # Position flatness is what clears local ghosts; do not fail closed on
-            # open-order scan warnings/rate-limit advisories from CCXT.
-            open_orders_error = str(exc)
-        try:
-            open_orders.extend(self._fetch_open_algo_orders())
+            open_orders.extend(self._fetch_open_algo_orders(market_ids=scope_market_ids))
         except Exception as exc:  # noqa: BLE001
             open_algo_orders_error = str(exc)
-        positions = list(self.client.fetch_positions())
+        open_orders_error = "; ".join(open_order_errors) if open_order_errors else None
+        positions = [
+            position
+            for position in self.client.fetch_positions()
+            if _binance_market_id(str(position.get("symbol") or "")) in scope_market_ids
+        ]
         leverage_by_symbol = self._fetch_position_leverages()
         open_positions = [position for position in positions if _position_open(position)]
         mismatches = [position for position in positions if not _position_open(position)]
@@ -851,12 +887,19 @@ class BinanceUsdtPerpetualGateway:
             "notes": notes,
         }
 
-    def _fetch_open_algo_orders(self) -> list[dict[str, Any]]:
+    def _fetch_open_algo_orders(self, *, market_ids: set[str] | None = None) -> list[dict[str, Any]]:
         method = getattr(self.client, "fapiPrivateGetOpenAlgoOrders", None)
         if not callable(method):
             return []
         payload = method({})
-        return list(payload or [])
+        orders = list(payload or [])
+        if market_ids is None:
+            return orders
+        return [
+            order
+            for order in orders
+            if isinstance(order, dict) and _binance_market_id(str(order.get("symbol") or "")) in market_ids
+        ]
 
     def _fetch_position_leverages(self) -> dict[str, float]:
         for method_name in (
@@ -1066,9 +1109,71 @@ class BinanceUsdtPerpetualGateway:
 
 MOCK_TRADING_WEB_URL = "https://demo.binance.com/en/futures/BTCUSDT"
 TESTNET_TRADING_WEB_URL = "https://testnet.binancefuture.com/en/futures/BTCUSDT"
+LEGACY_TESTNET_USDM_REST_BASE = "https://testnet.binancefuture.com"
 MAINNET_NOT_SYNCED_HINT = (
     "主网 futures.binance.com 的仓位/订单永远不会同步到本系统（LIVE_TRADING_ENABLED=false）。请只与下方模拟盘网页对账。"
 )
+
+
+def _pretrade_public_rest_base(*, use_testnet: bool) -> str:
+    if use_testnet:
+        return LEGACY_TESTNET_USDM_REST_BASE
+    return (settings.binance_usdm_rest_base or "https://fapi.binance.com").rstrip("/")
+
+
+def _fetch_pretrade_book_and_mark(
+    *,
+    client: Any,
+    market_id: str,
+    use_testnet: bool,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load bid/ask/mark without the slow CCXT demo-fapi public path.
+
+    Direct REST to legacy Testnet completes in ~1s; CCXT demo-fapi often stalls
+    ~20s per call and blew the 75s Sampling pretrade window.
+    """
+
+    base = _pretrade_public_rest_base(use_testnet=use_testnet)
+
+    def _http_book() -> dict[str, Any]:
+        payload = binance_urlopen_json(
+            f"{base}/fapi/v1/ticker/bookTicker?symbol={market_id}",
+            timeout=5,
+        )
+        return payload if isinstance(payload, dict) else {}
+
+    def _http_premium() -> dict[str, Any]:
+        payload = binance_urlopen_json(
+            f"{base}/fapi/v1/premiumIndex?symbol={market_id}",
+            timeout=5,
+        )
+        return payload if isinstance(payload, dict) else {}
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            book_future = pool.submit(_http_book)
+            premium_future = pool.submit(_http_premium)
+            book = book_future.result()
+            premium = premium_future.result()
+        if book or premium:
+            return book, premium
+    except Exception:  # noqa: BLE001 - fall back to CCXT public helpers
+        pass
+
+    def _ccxt_book() -> dict[str, Any]:
+        fetch_book = getattr(client, "fapiPublicGetTickerBookTicker", None)
+        payload = fetch_book({"symbol": market_id}) if callable(fetch_book) else {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _ccxt_premium() -> dict[str, Any]:
+        fetch_mark = getattr(client, "fapiPublicGetPremiumIndex", None)
+        payload = fetch_mark({"symbol": market_id}) if callable(fetch_mark) else {}
+        return payload if isinstance(payload, dict) else {}
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        book_future = pool.submit(_ccxt_book)
+        premium_future = pool.submit(_ccxt_premium)
+        return book_future.result(), premium_future.result()
 
 
 def _apply_legacy_testnet_api(client: Any) -> None:

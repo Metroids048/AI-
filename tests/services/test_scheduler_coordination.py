@@ -11,7 +11,8 @@ from services.strategy_library.models import Base
 
 
 def _coordinator(tmp_path, instance_id: str, *, process_id: int | None = None) -> SchedulerCoordinator:
-    engine = create_engine(f"sqlite:///{(tmp_path / 'coordination.db').as_posix()}")
+    db_path = tmp_path / "coordination.db"
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
     Base.metadata.create_all(engine)
     return SchedulerCoordinator(
         session_factory=sessionmaker(bind=engine, expire_on_commit=False),
@@ -21,9 +22,33 @@ def _coordinator(tmp_path, instance_id: str, *, process_id: int | None = None) -
     )
 
 
-def test_only_one_instance_can_hold_the_paper_scheduler_lease(tmp_path) -> None:
-    first = _coordinator(tmp_path, "scheduler-a")
-    second = _coordinator(tmp_path, "scheduler-b")
+def _paired_coordinators(tmp_path) -> tuple[SchedulerCoordinator, SchedulerCoordinator]:
+    """Two instance IDs sharing one DB; distinct fake PIDs keep reclaim logic honest."""
+    db_path = tmp_path / "coordination.db"
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    first = SchedulerCoordinator(
+        session_factory=factory,
+        instance_id="scheduler-a",
+        hostname="test-host",
+        process_id=10101,
+    )
+    second = SchedulerCoordinator(
+        session_factory=factory,
+        instance_id="scheduler-b",
+        hostname="test-host",
+        process_id=20202,
+    )
+    return first, second
+
+
+def test_only_one_instance_can_hold_the_paper_scheduler_lease(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "services.execution.scheduler_coordination._local_pid_is_alive",
+        lambda pid: True,
+    )
+    first, second = _paired_coordinators(tmp_path)
     now = datetime(2026, 7, 22, tzinfo=UTC)
 
     assert first.acquire_or_renew_lease(now=now, ttl_seconds=90) is True
@@ -31,9 +56,12 @@ def test_only_one_instance_can_hold_the_paper_scheduler_lease(tmp_path) -> None:
     assert second.acquire_or_renew_lease(now=now + timedelta(seconds=91), ttl_seconds=90) is True
 
 
-def test_takeover_increments_fencing_token_and_rejects_stale_owner(tmp_path) -> None:
-    first = _coordinator(tmp_path, "scheduler-a")
-    second = _coordinator(tmp_path, "scheduler-b")
+def test_takeover_increments_fencing_token_and_rejects_stale_owner(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "services.execution.scheduler_coordination._local_pid_is_alive",
+        lambda pid: True,
+    )
+    first, second = _paired_coordinators(tmp_path)
     now = datetime.now(UTC)
 
     assert first.acquire_or_renew_lease(now=now, ttl_seconds=90)
@@ -101,9 +129,12 @@ def test_stale_same_owner_release_cannot_expire_new_fencing_token(tmp_path) -> N
         )
 
 
-def test_two_instances_claim_each_of_96_accelerated_24h_slots_once(tmp_path) -> None:
-    first = _coordinator(tmp_path, "scheduler-a")
-    second = _coordinator(tmp_path, "scheduler-b")
+def test_two_instances_claim_each_of_96_accelerated_24h_slots_once(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "services.execution.scheduler_coordination._local_pid_is_alive",
+        lambda pid: True,
+    )
+    first, second = _paired_coordinators(tmp_path)
     start = datetime(2026, 7, 22, tzinfo=UTC)
     accepted = 0
 
