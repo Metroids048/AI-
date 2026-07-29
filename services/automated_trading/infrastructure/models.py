@@ -270,6 +270,11 @@ class V2ProtectionRecord(Base):
             "'PROTECTION_FAILED', 'PROTECTION_UNKNOWN')",
             name="ck_v2_protection_state",
         ),
+        CheckConstraint(
+            "state != 'PROTECTION_ACTIVE' OR "
+            "(stop_exchange_order_id IS NOT NULL AND length(stop_exchange_order_id) > 0)",
+            name="ck_v2_protection_active_requires_stop_xo",
+        ),
     )
 
 

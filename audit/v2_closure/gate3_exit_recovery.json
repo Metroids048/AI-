@@ -1,0 +1,17 @@
+{
+  "gate": 3,
+  "status": "READY_FOR_INDEPENDENT_REVIEW",
+  "proof_type": "EXIT_RECOVERY_WIRING",
+  "changes": {
+    "cycle_service_calls_execute_reduce_only_exit": true,
+    "recovery_executor_module": "services/automated_trading/application/recovery_executor.py",
+    "step_size_from_market_snapshot": true
+  },
+  "audit": {
+    "TestGate3ExitRecovery": "PASS"
+  },
+  "remaining": [
+    "Full scheduler-driven open→exit→HEALTHY lifecycle still needs Strict Fake Exchange integration coverage",
+    "Recovery action matrix not fully covered end-to-end"
+  ]
+}

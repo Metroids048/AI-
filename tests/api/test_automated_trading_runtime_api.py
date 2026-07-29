@@ -12,33 +12,41 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from apps.api.routers.automated_trading import _runtime_state, router
+from apps.api.routers import automated_trading
+from services.automated_trading.domain.enums import V2ExecutionMode
+from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
+from services.database import get_db_session
+from services.strategy_library import LlmInvocationRepository
+from shared.models import LlmInvocation, LlmInvocationStage
 
-# Build a minimal test app with just this router
-_app = FastAPI()
-_app.include_router(router)
-client = TestClient(_app, raise_server_exceptions=True)
+
+@pytest.fixture
+def v2_client(db_session) -> TestClient:
+    app = FastAPI()
+    app.include_router(automated_trading.router)
+
+    def _override_db():
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = _override_db
+    return TestClient(app, raise_server_exceptions=True)
 
 
-def _reset_state() -> None:
-    _runtime_state.clear()
-    _runtime_state.update(
-        {
-            "engine_id": "automated-trading-v2",
-            "mode": "BINANCE_TESTNET",
-            "activation": "DISABLED",
-            "entry_enabled": True,
-            "entry_disabled_reason": None,
-            "last_cycle_at": None,
-            "cycles": [],
-            "decisions": [],
-            "incidents": [],
-            "llm_invocations": [],
-        }
+def _seed_exchange_snapshot(repo: AutomatedTradingRepository) -> None:
+    repo.record_reconciliation(
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        exchange_positions={"positions": [{"symbol": "BTC/USDT", "qty": "0.001"}]},
+        exchange_open_orders={"open_orders": []},
+        local_positions={"positions": []},
+        discrepancies={"mismatches": []},
+        status="HEALTHY",
+        captured_at=datetime.now(UTC),
     )
+    repo.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -47,106 +55,104 @@ def _reset_state() -> None:
 
 
 class TestRuntimeEndpoint:
-    def setup_method(self) -> None:
-        _reset_state()
-
-    def test_returns_200(self) -> None:
-        resp = client.get("/api/v2/automated-trading/runtime")
+    def test_returns_200(self, v2_client: TestClient) -> None:
+        resp = v2_client.get("/api/v2/automated-trading/runtime")
         assert resp.status_code == 200
 
-    def test_engine_fields_present(self) -> None:
-        resp = client.get("/api/v2/automated-trading/runtime")
+    def test_engine_fields_present(self, v2_client: TestClient) -> None:
+        resp = v2_client.get("/api/v2/automated-trading/runtime")
         body = resp.json()
         engine = body["engine"]
         assert engine["engine_id"] == "automated-trading-v2"
         assert engine["mainnet_supported"] is False
         assert "activation" in engine
         assert "entry_enabled" in engine
+        assert engine["entry_enabled"] is False
 
-    def test_exchange_unavailable_does_not_return_zero(self) -> None:
+    def test_exchange_unavailable_does_not_return_zero(self, v2_client: TestClient) -> None:
         """When no exchange snapshot exists, available=False, not 0."""
-        resp = client.get("/api/v2/automated-trading/runtime")
+        resp = v2_client.get("/api/v2/automated-trading/runtime")
         body = resp.json()
         exchange = body["exchange"]
         assert exchange["available"] is False
-        # positions should be an empty list, not a fabricated zero
         assert exchange["positions"] == []
 
-    def test_exchange_available_when_snapshot_present(self) -> None:
-        _runtime_state["exchange_snapshot"] = {
-            "timestamp": datetime.now(UTC).isoformat(),
-            "positions": [{"symbol": "BTC/USDT", "qty": "0.001"}],
-            "open_orders": [],
-        }
-        resp = client.get("/api/v2/automated-trading/runtime")
+    def test_exchange_available_when_snapshot_present(self, v2_client: TestClient, db_session) -> None:
+        repo = AutomatedTradingRepository(db_session)
+        _seed_exchange_snapshot(repo)
+        resp = v2_client.get("/api/v2/automated-trading/runtime")
         body = resp.json()
         assert body["exchange"]["available"] is True
         assert len(body["exchange"]["positions"]) == 1
 
-    def test_local_projection_separate_from_exchange(self) -> None:
-        resp = client.get("/api/v2/automated-trading/runtime")
+    def test_local_projection_separate_from_exchange(self, v2_client: TestClient) -> None:
+        resp = v2_client.get("/api/v2/automated-trading/runtime")
         body = resp.json()
         assert "local_projection" in body
         assert "exchange" in body
-        # They are distinct objects
         assert body["local_projection"]["source"] == "V2_LOCAL_PROJECTION"
 
-    def test_reconciliation_unavailable_by_default(self) -> None:
-        resp = client.get("/api/v2/automated-trading/runtime")
+    def test_reconciliation_unavailable_by_default(self, v2_client: TestClient) -> None:
+        resp = v2_client.get("/api/v2/automated-trading/runtime")
         body = resp.json()
         assert body["reconciliation"]["status"] == "UNAVAILABLE"
 
-    def test_reconciliation_reflects_injected_state(self) -> None:
-        now = datetime.now(UTC).isoformat()
-        _runtime_state["reconciliation"] = {
-            "status": "HEALTHY",
-            "mismatches": [],
-            "entry_blocked_symbols": [],
-            "last_run_at": now,
-        }
-        resp = client.get("/api/v2/automated-trading/runtime")
+    def test_reconciliation_reflects_persisted_snapshot(self, v2_client: TestClient, db_session) -> None:
+        repo = AutomatedTradingRepository(db_session)
+        _seed_exchange_snapshot(repo)
+        resp = v2_client.get("/api/v2/automated-trading/runtime")
         body = resp.json()
         assert body["reconciliation"]["status"] == "HEALTHY"
 
-    def test_decisions_empty_by_default(self) -> None:
-        resp = client.get("/api/v2/automated-trading/runtime")
+    def test_decisions_empty_by_default(self, v2_client: TestClient) -> None:
+        resp = v2_client.get("/api/v2/automated-trading/runtime")
         assert resp.json()["latest_decisions"] == []
 
-    def test_decisions_returned_from_state(self) -> None:
-        _runtime_state["decisions"] = [
-            {
-                "symbol": "BTC/USDT",
-                "terminal_stage": "ENTRY_SIGNAL_EVALUATED",
-                "reason_code": "NO_ENTRY_SIGNAL",
-                "evaluated_at": datetime.now(UTC).isoformat(),
-                "candidate_id": None,
-                "exchange_submitted": False,
-            }
-        ]
-        resp = client.get("/api/v2/automated-trading/runtime")
+    def test_decisions_returned_from_db(self, v2_client: TestClient, db_session) -> None:
+        repo = AutomatedTradingRepository(db_session)
+        repo.create_cycle(
+            cycle_id="cycle-1",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            bar_timestamp=datetime(2026, 7, 28, 10, 0, tzinfo=UTC),
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            fencing_token="fence-1",
+        )
+        repo.complete_cycle(
+            cycle_id="cycle-1",
+            decision_terminal="ENTRY_SIGNAL_EVALUATED",
+            completed_at=datetime(2026, 7, 28, 10, 1, tzinfo=UTC),
+        )
+        repo.create_decision(
+            decision_id="decision-1",
+            cycle_id="cycle-1",
+            terminal_reason="NO_ENTRY_SIGNAL",
+            payload={"exchange_submitted": False},
+        )
+        repo.commit()
+        resp = v2_client.get("/api/v2/automated-trading/runtime")
         decisions = resp.json()["latest_decisions"]
         assert len(decisions) == 1
         assert decisions[0]["reason_code"] == "NO_ENTRY_SIGNAL"
 
-    def test_llm_invocation_null_when_absent(self) -> None:
-        resp = client.get("/api/v2/automated-trading/runtime")
+    def test_llm_invocation_null_when_absent(self, v2_client: TestClient) -> None:
+        resp = v2_client.get("/api/v2/automated-trading/runtime")
         assert resp.json()["latest_llm_invocation"] is None
 
-    def test_llm_invocation_returned_when_present(self) -> None:
-        now = datetime.now(UTC).isoformat()
-        _runtime_state["llm_invocations"] = [
-            {
-                "stage": "MARKET_REVIEW",
-                "status": "CALLED",
-                "provider": "anthropic",
-                "model": "claude-haiku-4-5-20251001",
-                "total_tokens": 120,
-                "error_code": None,
-                "skip_reason": None,
-                "invoked_at": now,
-            }
-        ]
-        resp = client.get("/api/v2/automated-trading/runtime")
+    def test_llm_invocation_returned_when_present(self, v2_client: TestClient, db_session) -> None:
+        LlmInvocationRepository(db_session).create_invocation(
+            LlmInvocation(
+                cycle_id="cycle-llm",
+                symbol="BTC/USDT",
+                called=True,
+                provider="anthropic",
+                model="claude-haiku-4-5-20251001",
+                stage=LlmInvocationStage.MARKET_REVIEW,
+                status="CALLED",
+                total_tokens=120,
+            )
+        )
+        resp = v2_client.get("/api/v2/automated-trading/runtime")
         llm = resp.json()["latest_llm_invocation"]
         assert llm is not None
         assert llm["status"] == "CALLED"
@@ -159,28 +165,31 @@ class TestRuntimeEndpoint:
 
 
 class TestPositionsEndpoint:
-    def setup_method(self) -> None:
-        _reset_state()
-
-    def test_exchange_and_local_are_separate(self) -> None:
-        resp = client.get("/api/v2/automated-trading/positions")
+    def test_exchange_and_local_are_separate(self, v2_client: TestClient) -> None:
+        resp = v2_client.get("/api/v2/automated-trading/positions")
         body = resp.json()
         assert "exchange" in body
         assert "local_projection" in body
 
-    def test_exchange_positions_from_snapshot(self) -> None:
-        _runtime_state["exchange_snapshot"] = {
-            "timestamp": datetime.now(UTC).isoformat(),
-            "positions": [{"symbol": "ETH/USDT", "qty": "0.01"}],
-            "open_orders": [],
-        }
-        resp = client.get("/api/v2/automated-trading/positions")
+    def test_exchange_positions_from_snapshot(self, v2_client: TestClient, db_session) -> None:
+        repo = AutomatedTradingRepository(db_session)
+        repo.record_reconciliation(
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            exchange_positions={"positions": [{"symbol": "ETH/USDT", "qty": "0.01"}]},
+            exchange_open_orders={"open_orders": []},
+            local_positions={"positions": []},
+            discrepancies={},
+            status="HEALTHY",
+            captured_at=datetime.now(UTC),
+        )
+        repo.commit()
+        resp = v2_client.get("/api/v2/automated-trading/positions")
         body = resp.json()
         assert body["exchange"]["available"] is True
         assert len(body["exchange"]["positions"]) == 1
 
-    def test_exchange_unavailable_shows_no_positions(self) -> None:
-        resp = client.get("/api/v2/automated-trading/positions")
+    def test_exchange_unavailable_shows_no_positions(self, v2_client: TestClient) -> None:
+        resp = v2_client.get("/api/v2/automated-trading/positions")
         body = resp.json()
         assert body["exchange"]["available"] is False
 
@@ -191,11 +200,16 @@ class TestPositionsEndpoint:
 
 
 class TestEntryControls:
-    def setup_method(self) -> None:
-        _reset_state()
-
-    def test_disable_entry(self) -> None:
-        resp = client.post(
+    def test_disable_entry(self, v2_client: TestClient, db_session) -> None:
+        repo = AutomatedTradingRepository(db_session)
+        repo.set_runtime_control(
+            scope="global",
+            entry_enabled=True,
+            reason="seed",
+            updated_by="test",
+        )
+        repo.commit()
+        resp = v2_client.post(
             "/api/v2/automated-trading/controls/entry-disable",
             json={"reason": "manual test disable"},
         )
@@ -205,29 +219,35 @@ class TestEntryControls:
         assert body["entry_enabled"] is False
         assert body["reason"] == "manual test disable"
         assert "changed_at" in body
+        assert repo.get_runtime_control("global").entry_enabled is False
 
-    def test_enable_entry(self) -> None:
-        _runtime_state["entry_enabled"] = False
-        resp = client.post(
+    def test_enable_entry(self, v2_client: TestClient, db_session) -> None:
+        repo = AutomatedTradingRepository(db_session)
+        assert repo.get_runtime_control("global").entry_enabled is False
+        resp = v2_client.post(
             "/api/v2/automated-trading/controls/entry-enable",
             json={"reason": "cleared manually"},
         )
         assert resp.status_code == 200
         body = resp.json()
         assert body["entry_enabled"] is True
+        assert repo.get_runtime_control("global").entry_enabled is True
 
-    def test_disable_entry_reflected_in_runtime(self) -> None:
-        client.post(
+    def test_disable_entry_reflected_in_runtime(self, v2_client: TestClient, db_session) -> None:
+        repo = AutomatedTradingRepository(db_session)
+        repo.set_runtime_control(scope="global", entry_enabled=True, reason="seed", updated_by="test")
+        repo.commit()
+        v2_client.post(
             "/api/v2/automated-trading/controls/entry-disable",
             json={"reason": "risk event"},
         )
-        runtime_resp = client.get("/api/v2/automated-trading/runtime")
+        runtime_resp = v2_client.get("/api/v2/automated-trading/runtime")
         assert runtime_resp.json()["engine"]["entry_enabled"] is False
 
-    def test_runtime_entry_enabled_after_re_enable(self) -> None:
-        client.post("/api/v2/automated-trading/controls/entry-disable", json={"reason": "test"})
-        client.post("/api/v2/automated-trading/controls/entry-enable", json={"reason": "cleared"})
-        runtime_resp = client.get("/api/v2/automated-trading/runtime")
+    def test_runtime_entry_enabled_after_re_enable(self, v2_client: TestClient) -> None:
+        v2_client.post("/api/v2/automated-trading/controls/entry-disable", json={"reason": "test"})
+        v2_client.post("/api/v2/automated-trading/controls/entry-enable", json={"reason": "cleared"})
+        runtime_resp = v2_client.get("/api/v2/automated-trading/runtime")
         assert runtime_resp.json()["engine"]["entry_enabled"] is True
 
 
@@ -237,21 +257,18 @@ class TestEntryControls:
 
 
 class TestListEndpoints:
-    def setup_method(self) -> None:
-        _reset_state()
+    def test_cycles_empty(self, v2_client: TestClient) -> None:
+        assert v2_client.get("/api/v2/automated-trading/cycles").json() == []
 
-    def test_cycles_empty(self) -> None:
-        assert client.get("/api/v2/automated-trading/cycles").json() == []
+    def test_decisions_empty(self, v2_client: TestClient) -> None:
+        assert v2_client.get("/api/v2/automated-trading/decisions").json() == []
 
-    def test_decisions_empty(self) -> None:
-        assert client.get("/api/v2/automated-trading/decisions").json() == []
+    def test_incidents_empty(self, v2_client: TestClient) -> None:
+        assert v2_client.get("/api/v2/automated-trading/incidents").json() == []
 
-    def test_incidents_empty(self) -> None:
-        assert client.get("/api/v2/automated-trading/incidents").json() == []
+    def test_llm_invocations_empty(self, v2_client: TestClient) -> None:
+        assert v2_client.get("/api/v2/automated-trading/llm-invocations").json() == []
 
-    def test_llm_invocations_empty(self) -> None:
-        assert client.get("/api/v2/automated-trading/llm-invocations").json() == []
-
-    def test_evidence_latest_no_data(self) -> None:
-        body = client.get("/api/v2/automated-trading/evidence/latest").json()
+    def test_evidence_latest_no_data(self, v2_client: TestClient) -> None:
+        body = v2_client.get("/api/v2/automated-trading/evidence/latest").json()
         assert body["available"] is False

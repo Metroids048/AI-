@@ -345,6 +345,18 @@ def refresh_volatility_asset_risk_tiers(*, lookback_days: int = 30) -> dict:
         session.close()
 
 
+@shared_task(name="services.execution.tasks.run_v2_automated_trading_cycles", queue="paper_queue")
+def run_v2_automated_trading_cycles(request_payload: dict | None = None) -> dict:
+    """Coordinated V2 automated trading cycle for BTC/USDT and ETH/USDT.
+
+    Resolves engine activation, acquires a SchedulerCoordinator lease, runs the
+    V2 cycle service per symbol, and persists cycle/decision fact-chain rows.
+    """
+    from services.execution.v2_scheduler_entry import execute_v2_automated_trading_cycles
+
+    return execute_v2_automated_trading_cycles(request_payload)
+
+
 @shared_task(name="services.execution.tasks.refresh_signal_edge_stats", queue="ops_queue")
 def refresh_signal_edge_stats(
     *,

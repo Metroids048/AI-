@@ -30,9 +30,11 @@ from services.automated_trading.application.entry_service import (
     execute_entry,
 )
 from services.automated_trading.application.exit_service import (
+    ExitExecutionStatus,
     ExitReason,
     ExitVerdict,
     evaluate_exit,
+    execute_reduce_only_exit,
 )
 from services.automated_trading.application.protection_service import (
     build_protection_plan,
@@ -44,6 +46,7 @@ from services.automated_trading.application.reconciliation_service import (
     ReconciliationStatus,
     reconcile,
 )
+from services.automated_trading.application.recovery_executor import execute_recovery_actions
 from services.automated_trading.application.recovery_service import recover_pending_state
 from services.automated_trading.domain.candidates import CandidateLane
 from services.automated_trading.domain.enums import (
@@ -133,6 +136,17 @@ def _build_local_state(adapter, execution_mode: V2ExecutionMode) -> LocalStateVi
         return LocalStateView()
 
 
+def _fetch_step_size(adapter, symbol: str) -> Decimal:
+    """Return market step size when available; fallback for offline/test paths."""
+    default = Decimal("0.001")
+    try:
+        market = adapter.fetch_market_snapshot(symbol)
+        return market.step_size
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("market snapshot unavailable for step_size (%s); using %s", exc, default)
+        return default
+
+
 def _calculate_quantity(request: CycleRequest, snapshot: AuthoritativeAccountSnapshot) -> Decimal:
     """Risk-based position sizing: risk_per_trade * equity / entry_price."""
     equity = max(snapshot.equity, Decimal("1"))
@@ -163,6 +177,17 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
 
     if recon.status in (ReconciliationStatus.RECOVERY_REQUIRED, ReconciliationStatus.UNAVAILABLE):
         recovery = recover_pending_state(snapshot, recon, local_state=local_state)
+        if recovery.actions:
+            step_size = _fetch_step_size(adapter, request.symbol)
+            recovery_exec = execute_recovery_actions(
+                recovery.actions,
+                adapter=adapter,
+                snapshot=snapshot,
+                local_state=local_state,
+                step_size=step_size,
+            )
+            if recovery_exec.errors:
+                result.record_error(f"recovery execution errors: {recovery_exec.errors}")
         if recovery.entry_blocked:
             logger.info(
                 "[cycle %s %s] reconciliation=%s; entry blocked",
@@ -171,7 +196,8 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                 recon.status.value,
             )
 
-    # 3. Evaluate exits for any open positions
+    # 3. Evaluate and execute exits for open positions on this symbol.
+    step_size = _fetch_step_size(adapter, request.symbol)
     for pos in local_state.positions:
         if pos.symbol != request.symbol or pos.state in ("CLOSED", "QUARANTINED"):
             continue
@@ -179,6 +205,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             (p for p in snapshot.positions if p.symbol == request.symbol and p.direction == pos.direction),
             None,
         )
+        # ponytail: no per-position exit trigger helper yet; TIME_EXIT is the cycle placeholder.
         exit_decision = evaluate_exit(
             position_id=pos.position_id,
             symbol=pos.symbol,
@@ -186,10 +213,20 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             reason=ExitReason.TIME_EXIT,
             requested_quantity=pos.quantity,
             authoritative_position=ex_pos,
-            step_size=Decimal("0.001"),
+            step_size=step_size,
         )
-        if exit_decision.verdict is ExitVerdict.ALREADY_FLAT:
-            pass  # Will be reconciled below
+        if exit_decision.verdict is ExitVerdict.APPROVED:
+            exec_result = execute_reduce_only_exit(
+                exit_decision,
+                adapter=adapter,
+                authoritative_quantity=ex_pos.quantity if ex_pos is not None else pos.quantity,
+                step_size=step_size,
+            )
+            if exec_result.status not in (
+                ExitExecutionStatus.NOT_ATTEMPTED,
+                ExitExecutionStatus.ALREADY_FLAT_RECONCILED,
+            ):
+                result.exit_submitted = True
 
     # 4. Decision funnel
     decision_context = DecisionContext(

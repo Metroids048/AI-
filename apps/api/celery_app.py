@@ -38,6 +38,7 @@ celery_app.conf.task_routes = {
     "services.execution.tasks.enqueue_paper_run": {"queue": "paper_queue"},
     "services.execution.tasks.run_all_paper_runtime_cycles": {"queue": "paper_queue"},
     "services.execution.tasks.run_observation_paper_runtime_cycles": {"queue": "paper_queue"},
+    "services.execution.tasks.run_v2_automated_trading_cycles": {"queue": "paper_queue"},
     "services.execution.tasks.run_paper_runtime_cycle": {"queue": "paper_queue"},
     "services.execution.tasks.risk_profile_sweep": {"queue": "ops_queue"},
     "services.execution.tasks.refresh_volatility_asset_risk_tiers": {"queue": "ops_queue"},
@@ -118,6 +119,16 @@ _beat_schedule = {
         "schedule": crontab(hour=4, minute=0, day_of_week="sun"),
     },
 }
+if settings.automated_trading_engine in {"v2_shadow", "v2_active"}:
+    _beat_schedule["automated-trading-v2-cycle"] = {
+        "task": "services.execution.tasks.run_v2_automated_trading_cycles",
+        "schedule": float(settings.paper_runtime_cycle_seconds),
+        "kwargs": {
+            "request_payload": {
+                "timeframe": "15m",
+            }
+        },
+    }
 if settings.market_review_enabled:
     _beat_schedule["market-review-advisory"] = {
         "task": "services.execution.tasks.run_market_review",

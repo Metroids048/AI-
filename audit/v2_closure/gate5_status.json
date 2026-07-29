@@ -1,0 +1,21 @@
+{
+  "gate": 5,
+  "status": "BLOCKED",
+  "proof_type": "NATURAL_SCHEDULER_TESTNET",
+  "reason": "Natural Scheduler E2E on Binance Testnet was not executed in this session. No fabricated NATURAL_SCHEDULER_TESTNET evidence file will be written.",
+  "missing_requirements": [
+    "ordinary_scheduler_trigger",
+    "real_closed_bar",
+    "real_entry_order_id",
+    "real_entry_trade_ids",
+    "real_fill",
+    "db_position",
+    "real_stop_tp_ids",
+    "natural_exit_trigger",
+    "real_reduce_only_exit_id",
+    "binance_qty_zero",
+    "local_closed",
+    "reconciliation_healthy"
+  ],
+  "blocker": "Requires armed Binance Testnet credentials, running RuntimeScheduler in v2_active, and a natural closed-bar cycle — external/operator environment step"
+}

@@ -172,95 +172,123 @@ class RuntimeScheduler:
         self.status.started_at = datetime.now(UTC)
         self.status.scheduler_error = None
         self._scheduler_errors.clear()
-        self._tasks = [
-            asyncio.create_task(
-                self._run_periodic(
-                    name="paper_runtime_cycle",
-                    interval_seconds=self.paper_cycle_seconds,
-                    runner=self.paper_cycle_runner,
-                    records_auto_cycle=True,
-                    run_immediately=False,
-                    coordinated=True,
-                    align_to_interval=True,
-                    interval_offset_seconds=self.paper_cycle_offset_seconds,
+        from services.automated_trading.infrastructure.runtime_lock import resolve_engine_activation
+
+        v2_activation = resolve_engine_activation(settings)
+        scheduled_jobs = _resolve_runtime_scheduler_jobs(v2_activation)
+        self._tasks = []
+        if "paper_runtime_cycle" in scheduled_jobs:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._run_periodic(
+                        name="paper_runtime_cycle",
+                        interval_seconds=self.paper_cycle_seconds,
+                        runner=self.paper_cycle_runner,
+                        records_auto_cycle=True,
+                        run_immediately=False,
+                        coordinated=True,
+                        align_to_interval=True,
+                        interval_offset_seconds=self.paper_cycle_offset_seconds,
+                    )
                 )
-            ),
-            asyncio.create_task(
-                self._run_periodic(
-                    name="paper_observation_cycle",
-                    interval_seconds=self.paper_cycle_seconds,
-                    runner=_default_observation_cycle_runner,
-                    records_auto_cycle=False,
-                    run_immediately=False,
-                    coordinated=True,
-                    align_to_interval=True,
-                    interval_offset_seconds=self.paper_observation_offset_seconds,
+            )
+        if "paper_observation_cycle" in scheduled_jobs:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._run_periodic(
+                        name="paper_observation_cycle",
+                        interval_seconds=self.paper_cycle_seconds,
+                        runner=_default_observation_cycle_runner,
+                        records_auto_cycle=False,
+                        run_immediately=False,
+                        coordinated=True,
+                        align_to_interval=True,
+                        interval_offset_seconds=self.paper_observation_offset_seconds,
+                    )
                 )
-            ),
-            asyncio.create_task(
-                self._run_periodic(
-                    name="market_data_heartbeat",
-                    interval_seconds=self.heartbeat_seconds,
-                    runner=self.heartbeat_runner,
+            )
+        if "automated_trading_v2_cycle" in scheduled_jobs:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._run_periodic(
+                        name="automated_trading_v2_cycle",
+                        interval_seconds=self.paper_cycle_seconds,
+                        runner=_default_v2_automated_trading_runner,
+                        records_auto_cycle=True,
+                        run_immediately=False,
+                        coordinated=True,
+                        align_to_interval=True,
+                        interval_offset_seconds=self.paper_cycle_offset_seconds,
+                    )
                 )
-            ),
-            asyncio.create_task(
-                self._run_periodic(
-                    name="exchange_info_refresh",
-                    interval_seconds=max(self.heartbeat_seconds, 60.0),
-                    runner=_default_exchange_info_refresh_runner,
-                )
-            ),
-            asyncio.create_task(
-                self._run_periodic(
-                    name="poll_news_feeds",
-                    interval_seconds=self.news_poll_seconds,
-                    runner=self.news_poll_runner,
-                    affects_scheduler_health=False,
-                )
-            ),
-            asyncio.create_task(
-                self._run_periodic(
-                    name="poll_macro_calendar",
-                    interval_seconds=self.macro_poll_seconds,
-                    runner=self.macro_poll_runner,
-                    affects_scheduler_health=False,
-                )
-            ),
-            asyncio.create_task(
-                self._run_periodic(
-                    name="poll_social_watchlist",
-                    interval_seconds=self.social_poll_seconds,
-                    runner=self.social_poll_runner,
-                    affects_scheduler_health=False,
-                )
-            ),
-            asyncio.create_task(
-                self._run_periodic(
-                    name="risk_profile_sweep",
-                    interval_seconds=self.risk_sweep_seconds,
-                    runner=self.risk_sweep_runner,
-                )
-            ),
-            asyncio.create_task(
-                self._run_periodic(
-                    name="refresh_signal_edge_stats",
-                    interval_seconds=self.edge_stats_refresh_seconds,
-                    runner=self.edge_stats_refresh_runner,
-                    affects_scheduler_health=False,
-                    run_immediately=False,
-                )
-            ),
-            asyncio.create_task(
-                self._run_periodic(
-                    name="notification_dispatch",
-                    interval_seconds=self.notification_seconds,
-                    runner=self.notification_runner,
-                    affects_scheduler_health=False,
-                )
-            ),
-            asyncio.create_task(self._run_daily_review_loop()),
-        ]
+            )
+        self._tasks.extend(
+            [
+                asyncio.create_task(
+                    self._run_periodic(
+                        name="market_data_heartbeat",
+                        interval_seconds=self.heartbeat_seconds,
+                        runner=self.heartbeat_runner,
+                    )
+                ),
+                asyncio.create_task(
+                    self._run_periodic(
+                        name="exchange_info_refresh",
+                        interval_seconds=max(self.heartbeat_seconds, 60.0),
+                        runner=_default_exchange_info_refresh_runner,
+                    )
+                ),
+                asyncio.create_task(
+                    self._run_periodic(
+                        name="poll_news_feeds",
+                        interval_seconds=self.news_poll_seconds,
+                        runner=self.news_poll_runner,
+                        affects_scheduler_health=False,
+                    )
+                ),
+                asyncio.create_task(
+                    self._run_periodic(
+                        name="poll_macro_calendar",
+                        interval_seconds=self.macro_poll_seconds,
+                        runner=self.macro_poll_runner,
+                        affects_scheduler_health=False,
+                    )
+                ),
+                asyncio.create_task(
+                    self._run_periodic(
+                        name="poll_social_watchlist",
+                        interval_seconds=self.social_poll_seconds,
+                        runner=self.social_poll_runner,
+                        affects_scheduler_health=False,
+                    )
+                ),
+                asyncio.create_task(
+                    self._run_periodic(
+                        name="risk_profile_sweep",
+                        interval_seconds=self.risk_sweep_seconds,
+                        runner=self.risk_sweep_runner,
+                    )
+                ),
+                asyncio.create_task(
+                    self._run_periodic(
+                        name="refresh_signal_edge_stats",
+                        interval_seconds=self.edge_stats_refresh_seconds,
+                        runner=self.edge_stats_refresh_runner,
+                        affects_scheduler_health=False,
+                        run_immediately=False,
+                    )
+                ),
+                asyncio.create_task(
+                    self._run_periodic(
+                        name="notification_dispatch",
+                        interval_seconds=self.notification_seconds,
+                        runner=self.notification_runner,
+                        affects_scheduler_health=False,
+                    )
+                ),
+                asyncio.create_task(self._run_daily_review_loop()),
+            ]
+        )
         if settings.market_review_enabled and self.market_review_seconds > 0:
             self._tasks.append(
                 asyncio.create_task(
@@ -427,6 +455,12 @@ class RuntimeScheduler:
                 return _default_paper_cycle_runner(metadata)
 
             runner_with_context: Runner = _paper_with_context
+        elif runner is _default_v2_automated_trading_runner:
+
+            def _v2_with_context() -> Any:
+                return _default_v2_automated_trading_runner(metadata)
+
+            runner_with_context = _v2_with_context
         elif runner is _default_observation_cycle_runner:
 
             def _observation_with_context() -> Any:
@@ -626,6 +660,30 @@ def runtime_scheduler_status() -> RuntimeSchedulerStatus:
     if _runtime_scheduler is None:
         return RuntimeSchedulerStatus(mode=settings.runtime_scheduler_mode, running=False)
     return _runtime_scheduler.status
+
+
+def _resolve_runtime_scheduler_jobs(v2_activation_config) -> frozenset[str]:
+    """Register legacy paper writers and/or V2 automated_trading cycles by activation.
+
+    Engine modes from settings.automated_trading_engine:
+    - legacy: paper writers only
+    - v2_shadow: legacy writers + AutomatedTrading V2 shadow cycle
+    - v2_active: AutomatedTrading V2 active cycle only (no legacy exchange writer)
+    """
+    from services.execution.v2_scheduler_entry import resolve_scheduler_v2_jobs
+
+    return resolve_scheduler_v2_jobs(v2_activation_config)
+
+
+def _default_v2_automated_trading_runner(provenance: dict[str, Any] | None = None) -> dict:
+    from services.execution.tasks import run_v2_automated_trading_cycles
+
+    payload = {
+        "timeframe": "15m",
+        "scheduler_instance_id": (provenance or {}).get("scheduler_instance_id"),
+        **(provenance or {}),
+    }
+    return run_v2_automated_trading_cycles.run(payload)
 
 
 def _default_paper_cycle_runner(provenance: dict[str, Any] | None = None) -> dict:

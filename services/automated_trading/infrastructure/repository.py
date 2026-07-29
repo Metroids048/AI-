@@ -435,23 +435,30 @@ class AutomatedTradingRepository:
         state: V2PositionState,
         projected_at: datetime,
     ) -> None:
-        """Compatibility: ensure fills exist, then project from DB aggregates."""
+        """Compatibility: project only from already-persisted fill rows.
+
+        Callers must persist fills via save_exchange_fill_receipt / save_fill_receipt
+        before projection. A FillReceipt argument cannot invent fill facts.
+        """
         assert_fill_receipt_valid(fill_receipt)
         order = self.session.get(V2ExchangeOrder, order_record_id)
         if order is None:
             raise ValueError(f"Order record {order_record_id!r} not found")
+        if not order.exchange_order_id:
+            raise ValueError(
+                f"Cannot project position: order {order_record_id!r} has no exchange_order_id; "
+                "fill receipt must be saved first"
+            )
         existing = list(
             self.session.scalars(
                 select(V2ExchangeFill).where(V2ExchangeFill.exchange_order_record_id == order_record_id)
             )
         )
         if not existing:
-            if not order.exchange_order_id:
-                raise ValueError(
-                    f"Cannot project position: order {order_record_id!r} has no exchange_order_id; "
-                    "fill receipt must be saved first"
-                )
-            self.save_fill_receipt(order_record_id, fill_receipt)
+            raise ValueError(
+                f"No confirmed fills for order {order_record_id!r}; "
+                "cannot project position without v2_exchange_fills rows"
+            )
         self.project_position_from_confirmed_fills(
             position_id=position_id,
             intent_id=intent_id,
@@ -546,7 +553,26 @@ class AutomatedTradingRepository:
         stop_client_order_id: str,
         tp_client_order_id: str | None,
         state: V2ProtectionState,
+        stop_exchange_order_id: str | None = None,
+        tp_exchange_order_id: str | None = None,
     ) -> None:
+        """Create a protection intent record.
+
+        ACTIVE may only be reached via transition_protection / update_protection_active
+        after exchange conditional order IDs are attached.
+        """
+        from services.automated_trading.domain.enums import V2ProtectionState as ProtState
+
+        if state is ProtState.PROTECTION_ACTIVE:
+            raise ValueError(
+                "save_protection cannot create PROTECTION_ACTIVE; "
+                "persist PROTECTION_INTENT then transition after exchange order ids"
+            )
+        if state is not ProtState.PROTECTION_INTENT:
+            raise ValueError(
+                f"save_protection only accepts PROTECTION_INTENT, got {state.value}; "
+                "use transition_protection for later states"
+            )
         protection = V2ProtectionRecord(
             protection_id=protection_id,
             position_id=position_id,
@@ -554,6 +580,8 @@ class AutomatedTradingRepository:
             take_profit_price=take_profit_price,
             stop_client_order_id=stop_client_order_id,
             tp_client_order_id=tp_client_order_id,
+            stop_exchange_order_id=stop_exchange_order_id,
+            tp_exchange_order_id=tp_exchange_order_id,
             state=state.value,
             version=0,
         )
@@ -762,6 +790,31 @@ class AutomatedTradingRepository:
 
     def get_position_by_id(self, position_id: str) -> V2ManagedPosition | None:
         return self.session.get(V2ManagedPosition, position_id)
+
+    def get_latest_cycle(self) -> V2ExecutionCycle | None:
+        stmt = select(V2ExecutionCycle).order_by(V2ExecutionCycle.started_at.desc()).limit(1)
+        return self.session.scalar(stmt)
+
+    def list_recent_cycles(self, limit: int = 20) -> list[V2ExecutionCycle]:
+        stmt = select(V2ExecutionCycle).order_by(V2ExecutionCycle.started_at.desc()).limit(limit)
+        return list(self.session.scalars(stmt))
+
+    def list_recent_decisions(self, limit: int = 50) -> list[tuple[V2ExecutionDecision, V2ExecutionCycle]]:
+        stmt = (
+            select(V2ExecutionDecision, V2ExecutionCycle)
+            .join(V2ExecutionCycle, V2ExecutionDecision.cycle_id == V2ExecutionCycle.cycle_id)
+            .order_by(V2ExecutionDecision.created_at.desc())
+            .limit(limit)
+        )
+        return list(self.session.execute(stmt).all())
+
+    def list_recent_incidents(self, limit: int = 20) -> list[V2ExecutionIncident]:
+        stmt = select(V2ExecutionIncident).order_by(V2ExecutionIncident.created_at.desc()).limit(limit)
+        return list(self.session.scalars(stmt))
+
+    def get_latest_reconciliation_snapshot(self) -> V2ReconciliationSnapshot | None:
+        stmt = select(V2ReconciliationSnapshot).order_by(V2ReconciliationSnapshot.captured_at.desc()).limit(1)
+        return self.session.scalar(stmt)
 
     def commit(self) -> None:
         self.session.commit()

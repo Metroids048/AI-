@@ -8,20 +8,32 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from services.automated_trading.application.cycle_service import (
     CycleRequest,
     run_automated_trading_cycle,
 )
 from services.automated_trading.application.decision_service import BarView, TimeframeView
-from services.automated_trading.domain.enums import V2ExecutionMode
+from services.automated_trading.application.exit_service import (
+    ExitDecision,
+    ExitExecutionResult,
+    ExitExecutionStatus,
+    ExitReason,
+    ExitVerdict,
+)
+from services.automated_trading.application.reconciliation_service import (
+    LocalPositionView,
+    LocalStateView,
+)
+from services.automated_trading.domain.enums import V2ExecutionMode, V2PositionState
 from services.automated_trading.infrastructure.binance_adapter import (
     ExchangeFillReceipt,
     ExchangeOrderReceipt,
 )
 from services.automated_trading.infrastructure.market_snapshot_provider import (
     AuthoritativeAccountSnapshot,
+    ExchangePositionSnapshot,
 )
 from services.automated_trading.infrastructure.runtime_lock import EngineActivation
 
@@ -227,3 +239,91 @@ def test_disabled_engine_blocks_entry() -> None:
 
     adapter.submit_market_order.assert_not_called()
     assert not result.entry_submitted
+
+
+def _open_local_position() -> LocalStateView:
+    return LocalStateView(
+        positions=(
+            LocalPositionView(
+                position_id="pos-exit-cycle-1",
+                symbol="BTC/USDT",
+                direction="long",
+                quantity=Decimal("0.01"),
+                state="PROTECTED",
+                claim_keys=frozenset({"pos-exit-cycle-1"}),
+                has_active_protection=True,
+            ),
+        )
+    )
+
+
+def _exchange_position(quantity: str = "0.01") -> ExchangePositionSnapshot:
+    return ExchangePositionSnapshot(
+        symbol="BTC/USDT",
+        direction="long",
+        quantity=Decimal(quantity),
+        entry_price=Decimal("50000"),
+        mark_price=Decimal("50000"),
+        unrealized_pnl=Decimal("0"),
+        leverage=10,
+    )
+
+
+@patch("services.automated_trading.application.cycle_service._build_local_state")
+def test_approved_exit_invokes_execute_reduce_only_exit(mock_local_state) -> None:
+    """Gate 3: cycle must execute reduce-only exits, not only evaluate them."""
+    mock_local_state.return_value = _open_local_position()
+    adapter = build_adapter_with_successful_cycle()
+    adapter.fetch_authoritative_snapshot.return_value = _snapshot(positions=[_exchange_position()])
+    adapter.submit_reduce_only_exit.return_value = ExchangeOrderReceipt(
+        exchange_order_id="ex-exit-1",
+        client_order_id="A2X-exit",
+        symbol="BTC/USDT",
+        side="sell",
+        order_type="market",
+        quantity=Decimal("0.01"),
+        price=None,
+        status="filled",
+        acknowledged_at=CYCLE_NOW,
+    )
+    adapter.fetch_fills.return_value = (
+        ExchangeFillReceipt(
+            exchange_order_id="ex-exit-1",
+            trade_id="trade-exit-1",
+            filled_quantity=Decimal("0.01"),
+            fill_price=Decimal("50000"),
+            fee=Decimal("0.2"),
+            fill_timestamp=CYCLE_NOW,
+        ),
+    )
+
+    result = run_automated_trading_cycle(build_request(), adapter)
+
+    adapter.submit_reduce_only_exit.assert_called_once()
+    assert result.exit_submitted
+
+
+@patch("services.automated_trading.application.cycle_service.execute_reduce_only_exit")
+@patch("services.automated_trading.application.cycle_service._build_local_state")
+def test_cycle_calls_execute_reduce_only_exit_on_approved_verdict(
+    mock_local_state,
+    mock_execute_exit,
+) -> None:
+    mock_local_state.return_value = _open_local_position()
+    mock_execute_exit.return_value = ExitExecutionResult(
+        status=ExitExecutionStatus.CLOSED,
+        position_state=V2PositionState.CLOSED,
+        client_order_id="A2X-exit",
+        exchange_order_id="ex-exit-1",
+    )
+    adapter = build_adapter_with_successful_cycle()
+    adapter.fetch_authoritative_snapshot.return_value = _snapshot(positions=[_exchange_position()])
+
+    result = run_automated_trading_cycle(build_request(), adapter)
+
+    mock_execute_exit.assert_called_once()
+    decision = mock_execute_exit.call_args.args[0]
+    assert isinstance(decision, ExitDecision)
+    assert decision.verdict is ExitVerdict.APPROVED
+    assert decision.reason is ExitReason.TIME_EXIT
+    assert result.exit_submitted

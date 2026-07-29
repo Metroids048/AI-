@@ -293,6 +293,34 @@ def main() -> int:
     results.append(_attempt("ACTIVE_PROTECTION_WITHOUT_EXCHANGE_ORDER_ID", active_without_xo))
     session.close()
 
+    # 6) save_protection create-path ACTIVE without exchange order id
+    session = _engine_session()
+    repo = AutomatedTradingRepository(session)
+
+    def save_active_without_xo() -> None:
+        intent_id, order_id = _seed_open_chain(repo, "save-active")
+        repo.project_position_from_confirmed_fills(
+            position_id="pos-save-active",
+            intent_id=intent_id,
+            order_record_id=order_id,
+            symbol="BTC/USDT",
+            direction="long",
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            projected_at=datetime(2026, 7, 28, 10, 2, tzinfo=UTC),
+        )
+        repo.save_protection(
+            protection_id="prot-save-active",
+            position_id="pos-save-active",
+            stop_loss_price=64000.0,
+            take_profit_price=67000.0,
+            stop_client_order_id="stop-save-active",
+            tp_client_order_id="tp-save-active",
+            state=V2ProtectionState.PROTECTION_ACTIVE,
+        )
+
+    results.append(_attempt("SAVE_PROTECTION_ACTIVE_WITHOUT_EXCHANGE_ORDER_ID", save_active_without_xo))
+    session.close()
+
     print(json.dumps({"attempts": results}, indent=2, ensure_ascii=False))
     all_ok = all(r["result"] == "REJECTED_AS_EXPECTED" for r in results)
     for r in results:

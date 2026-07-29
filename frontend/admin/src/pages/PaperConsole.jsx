@@ -1,7 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import { fetchPositions } from "../api/automatedTrading";
 import { request } from "../api/client";
+import { ExchangeVsLocal, RuntimeOverview, WhyNoTrade } from "../components/AutomatedTrading";
 import { AppShell } from "../components/Common";
 import { KlinePanel, MarketHeader } from "../components/MarketPanels";
 import { ExecutionAcceptancePanel, TradingRecordsWorkspace } from "../components/TradingRecordsWorkspace";
@@ -30,6 +32,7 @@ import {
   TestnetAccountPanel,
   TradingTicket,
 } from "../components/TradingConsolePanels";
+import { useAutomatedTradingRuntime } from "../hooks/useAutomatedTradingRuntime";
 import { useConsoleData } from "../hooks/useConsoleData";
 import { useRuntimeTruth } from "../hooks/useRuntimeTruth";
 
@@ -115,6 +118,22 @@ export function PaperConsole() {
   const [actionMessage, setActionMessage] = useState("");
   const data = useConsoleData(symbol, perpSymbol, timeframe);
   const runtimeTruth = useRuntimeTruth(symbol);
+  const v2Runtime = useAutomatedTradingRuntime();
+  const [v2Positions, setV2Positions] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPositions()
+      .then((payload) => {
+        if (!cancelled) setV2Positions(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setV2Positions(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [v2Runtime.lastSuccessAt]);
   const mode = "paper";
   const latestPaperRun = useMemo(
     () => (Array.isArray(data.overview?.paper_runs) ? data.overview.paper_runs.at(-1) : null),
@@ -281,6 +300,15 @@ export function PaperConsole() {
       />
       <BinanceSyncHero account={data.testnetAccount} />
       <RuntimeTruthPanel runtime={runtimeTruth} symbol={symbol} />
+      <div className="workspace-panel-grid">
+        <RuntimeOverview
+          snapshot={v2Runtime.snapshot}
+          error={v2Runtime.error}
+          lastSuccessAt={v2Runtime.lastSuccessAt}
+        />
+        <WhyNoTrade decisions={v2Runtime.snapshot?.latest_decisions ?? []} />
+        <ExchangeVsLocal positionsData={v2Positions} />
+      </div>
       <ExchangePositionHint
         positions={deskPositions}
         selectedSymbol={symbol}

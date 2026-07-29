@@ -233,7 +233,7 @@ class TestManagedPositionInvariants:
             fill_timestamp=datetime(2026, 7, 28, 10, 1, tzinfo=UTC),
         )
 
-        with pytest.raises(ValueError, match="has no exchange_order_id"):
+        with pytest.raises(ValueError, match="confirmed fills|v2_exchange_fills|exchange_order_id"):
             repo.project_position(
                 position_id="pos-002",
                 intent_id="intent-008",

@@ -68,12 +68,28 @@ def _seed_cycle(repo: AutomatedTradingRepository, cycle_id: str = "cycle-1") -> 
     )
 
 
+def _seed_decision(
+    repo: AutomatedTradingRepository,
+    *,
+    decision_id: str,
+    cycle_id: str = "cycle-1",
+) -> None:
+    repo.create_decision(
+        decision_id=decision_id,
+        cycle_id=cycle_id,
+        candidate_key="primary_mature",
+        terminal_reason=None,
+        payload={},
+    )
+
+
 def _seed_intent(
     repo: AutomatedTradingRepository,
     *,
     intent_id: str,
     cycle_id: str = "cycle-1",
     state: V2IntentState = V2IntentState.INTENT_CREATED,
+    decision_id: str | None = None,
 ) -> None:
     repo.create_intent(
         intent_id=intent_id,
@@ -86,6 +102,7 @@ def _seed_intent(
         decision_bar_timestamp=datetime(2026, 7, 28, 10, 0, tzinfo=UTC),
         decision_funnel_id=None,
         state=state,
+        decision_id=decision_id,
     )
 
 
@@ -158,7 +175,8 @@ def test_repository_rejects_filled_to_intent_created_transition(repo: AutomatedT
 
 def test_repository_rejects_closed_position_reopen(repo: AutomatedTradingRepository) -> None:
     _seed_cycle(repo)
-    _seed_intent(repo, intent_id="intent-pos")
+    _seed_decision(repo, decision_id="dec-pos", cycle_id="cycle-1")
+    _seed_intent(repo, intent_id="intent-pos", decision_id="dec-pos")
     order_id = _seed_filled_order(
         repo,
         intent_id="intent-pos",
@@ -203,7 +221,8 @@ def test_repository_rejects_active_protection_without_exchange_order_id(
     repo: AutomatedTradingRepository,
 ) -> None:
     _seed_cycle(repo)
-    _seed_intent(repo, intent_id="intent-prot")
+    _seed_decision(repo, decision_id="dec-prot", cycle_id="cycle-1")
+    _seed_intent(repo, intent_id="intent-prot", decision_id="dec-prot")
     order_id = _seed_filled_order(
         repo,
         intent_id="intent-prot",
@@ -243,6 +262,132 @@ def test_repository_rejects_active_protection_without_exchange_order_id(
             next_state=V2ProtectionState.PROTECTION_ACTIVE,
             event_type="ProtectionActive",
             payload={},
+        )
+
+
+def test_save_protection_rejects_active_without_exchange_order_id(
+    repo: AutomatedTradingRepository,
+) -> None:
+    """Independent-review counterexample: create-path must not bypass ACTIVE invariant."""
+    _seed_cycle(repo)
+    _seed_decision(repo, decision_id="dec-save-active", cycle_id="cycle-1")
+    _seed_intent(repo, intent_id="intent-save-active", decision_id="dec-save-active")
+    order_id = _seed_filled_order(
+        repo,
+        intent_id="intent-save-active",
+        client_order_id="co-save-active",
+        exchange_order_id="xo-save-active",
+        trade_id="trade-save-active",
+    )
+    repo.project_position_from_confirmed_fills(
+        position_id="pos-save-active",
+        intent_id="intent-save-active",
+        order_record_id=order_id,
+        symbol="BTC/USDT",
+        direction="long",
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        projected_at=datetime(2026, 7, 28, 10, 2, tzinfo=UTC),
+    )
+    with pytest.raises(ValueError, match="PROTECTION_INTENT|exchange"):
+        repo.save_protection(
+            protection_id="prot-active-bypass",
+            position_id="pos-save-active",
+            stop_loss_price=64000.0,
+            take_profit_price=67000.0,
+            stop_client_order_id="stop-bypass",
+            tp_client_order_id="tp-bypass",
+            state=V2ProtectionState.PROTECTION_ACTIVE,
+        )
+
+
+def test_db_rejects_active_protection_without_exchange_order_id(
+    repo: AutomatedTradingRepository,
+    integrity_db: Session,
+) -> None:
+    """Independent-review counterexample: DB CHECK must reject ACTIVE without XO."""
+    from sqlalchemy import text
+
+    _seed_cycle(repo)
+    _seed_decision(repo, decision_id="dec-sql-active", cycle_id="cycle-1")
+    _seed_intent(repo, intent_id="intent-sql-active", decision_id="dec-sql-active")
+    order_id = _seed_filled_order(
+        repo,
+        intent_id="intent-sql-active",
+        client_order_id="co-sql-active",
+        exchange_order_id="xo-sql-active",
+        trade_id="trade-sql-active",
+    )
+    repo.project_position_from_confirmed_fills(
+        position_id="pos-sql-active",
+        intent_id="intent-sql-active",
+        order_record_id=order_id,
+        symbol="BTC/USDT",
+        direction="long",
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        projected_at=datetime(2026, 7, 28, 10, 2, tzinfo=UTC),
+    )
+    integrity_db.commit()
+    with pytest.raises(IntegrityError):
+        integrity_db.execute(
+            text(
+                """
+                INSERT INTO v2_protection_records (
+                    protection_id, position_id, stop_loss_price, take_profit_price,
+                    stop_client_order_id, tp_client_order_id,
+                    stop_exchange_order_id, tp_exchange_order_id,
+                    state, version, created_at, activated_at
+                ) VALUES (
+                    'prot-sql-active', 'pos-sql-active', 64000, 67000,
+                    'stop-sql', 'tp-sql', NULL, NULL,
+                    'PROTECTION_ACTIVE', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        integrity_db.commit()
+    integrity_db.rollback()
+
+
+def test_project_position_rejects_fabricated_fill_without_persisted_rows(
+    repo: AutomatedTradingRepository,
+) -> None:
+    """Caller-supplied FillReceipt must not invent fill rows during projection."""
+    from services.automated_trading.domain.receipts import FillReceipt
+
+    _seed_cycle(repo)
+    _seed_intent(repo, intent_id="intent-fabricated")
+    order_id = repo.save_order_submission(
+        intent_id="intent-fabricated",
+        client_order_id="co-fabricated",
+        quantity=0.001,
+        leverage=20,
+        submitted_at=datetime(2026, 7, 28, 10, 0, tzinfo=UTC),
+    )
+    repo.save_exchange_order_receipt(
+        order_record_id=order_id,
+        exchange_order_id="xo-fabricated",
+        acknowledged_at=datetime(2026, 7, 28, 10, 0, 30, tzinfo=UTC),
+    )
+    fake = FillReceipt(
+        intent_id="intent-fabricated",
+        exchange_order_id="xo-fabricated",
+        trade_ids=("fabricated-trade",),
+        filled_quantity=Decimal("0.001"),
+        average_fill_price=Decimal("999999.0"),
+        total_fee=Decimal("0.01"),
+        fill_timestamp=datetime(2026, 7, 28, 10, 1, tzinfo=UTC),
+    )
+    with pytest.raises(ValueError, match="confirmed fills|v2_exchange_fills"):
+        repo.project_position(
+            position_id="pos-fabricated",
+            intent_id="intent-fabricated",
+            order_record_id=order_id,
+            symbol="BTC/USDT",
+            direction="long",
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            fill_receipt=fake,
+            state=V2PositionState.POSITION_PROJECTED,
+            projected_at=datetime(2026, 7, 28, 10, 2, tzinfo=UTC),
         )
 
 
@@ -323,7 +468,8 @@ def test_second_open_position_same_symbol_direction_mode_is_rejected(
     integrity_db: Session,
 ) -> None:
     _seed_cycle(repo, "cycle-open")
-    _seed_intent(repo, intent_id="intent-open-1", cycle_id="cycle-open")
+    _seed_decision(repo, decision_id="dec-open-1", cycle_id="cycle-open")
+    _seed_intent(repo, intent_id="intent-open-1", cycle_id="cycle-open", decision_id="dec-open-1")
     order_1 = _seed_filled_order(
         repo,
         intent_id="intent-open-1",
@@ -348,7 +494,8 @@ def test_second_open_position_same_symbol_direction_mode_is_rejected(
         event_type="Protected",
         payload={},
     )
-    _seed_intent(repo, intent_id="intent-open-2", cycle_id="cycle-open")
+    _seed_decision(repo, decision_id="dec-open-2", cycle_id="cycle-open")
+    _seed_intent(repo, intent_id="intent-open-2", cycle_id="cycle-open", decision_id="dec-open-2")
     order_2 = _seed_filled_order(
         repo,
         intent_id="intent-open-2",

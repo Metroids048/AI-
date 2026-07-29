@@ -977,6 +977,7 @@ def bootstrap_poll_information_sources() -> dict[str, Any]:
 
 
 def bootstrap_local_paper_runtime(*, seed_ohlcv: bool = True) -> None:
+    bootstrap_v2_engine_activation()
     bootstrap_paper_testnet_mirror()
     bootstrap_auto_trading_paper_run()
     bootstrap_auto_trading_technical_paper_run()
@@ -1007,36 +1008,8 @@ def bootstrap_v2_engine_activation() -> None:
     for warning in config.warnings:
         logger.warning("[V2 Engine] %s", warning)
 
-    # Check for Legacy Writer conflicts (will be enforced at runtime by fencing)
     if config.v2_activation == EngineActivation.ACTIVE and config.allow_legacy_writer:
-        # This should not happen if resolve_engine_activation() is correct, but log it anyway
         logger.error(
             "Configuration conflict: V2 is ACTIVE but Legacy Writer is also allowed. "
             "This violates the single-writer invariant and will cause runtime failures."
         )
-
-    # Warn if deprecated modes are still present in database (migration artifact)
-    # These are no longer used in V2, but might exist in old PaperRun records
-    from services.database import get_session_factory
-
-    with get_session_factory()() as session:
-        from shared.models import PaperRun
-
-        deprecated_runs = (
-            session.query(PaperRun)
-            .filter(
-                PaperRun.profile["mirror_to_gateway"].astext.in_(["true", "1"])  # type: ignore
-                | PaperRun.profile["execution_mode"].astext.in_(  # type: ignore
-                    ["binance_simulation_first", "testnet-but-local-fill"]
-                )
-            )
-            .limit(10)
-            .all()
-        )
-
-        if deprecated_runs:
-            logger.warning(
-                "Found %d PaperRun records with deprecated execution modes (mirror_to_gateway, "
-                "binance_simulation_first). These are Legacy Writer artifacts and are ignored by V2.",
-                len(deprecated_runs),
-            )
