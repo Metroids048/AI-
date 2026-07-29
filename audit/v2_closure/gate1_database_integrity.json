@@ -65,5 +65,5 @@
     "gate5_audit": "not_started",
     "natural_testnet": "not_in_scope_gate1"
   },
-  "commit_sha": "pending_gate1_fix_commit"
+  "commit_sha": "4670245"
 }
