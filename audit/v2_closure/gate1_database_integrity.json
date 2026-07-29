@@ -79,5 +79,5 @@
     "frontend": "not_run_gate1",
     "natural_testnet": "not_in_scope_gate1"
   },
-  "commit_sha": "PENDING_AFTER_COMMIT"
+  "commit_sha": "0830a81344d25309ef8bd6443c77f5d3ef302592"
 }
