@@ -1,5 +1,12 @@
 # Project Memory
 
+## Strategy core refactor Gate 0/1 baseline (2026-07-29)
+
+- Current-folder audit is frozen at `docs/audits/2026-07-29-strategy-refactor-audit.md`: V2 actually runs `testnet_sampling_v2` on 15m and emits V2 `TradeCandidate`; the legacy active manifest still points to `trend_momentum_v1` on the 4h/1h/15m path.
+- Golden Baseline generator is `scripts/generate_strategy_golden_baseline.py`; it hashes current paths+contents, current active rules, and BTC/ETH 1m/5m/15m/1h/4h data, then refuses overwrite.
+- The immutable evidence package at `artifacts/strategy_refactor/baseline/` is honestly `DATA_COVERAGE_INSUFFICIENT`: both BTC and ETH have zero 5m bars; 1m is about 14 days; 15m/1h/4h start around July 2025 and contain gaps. Therefore there is no valid common five-timeframe 4h cutoff, no frozen 180-day Final Holdout, no replay trades, and no performance/CI claim.
+- Strategy refactor Tasks 2+ are paused at the planned baseline review gate. The only valid next step is backfilling real BTC/ETH five-timeframe history through the existing data layer, then generating a new baseline at a new immutable destination; do not overwrite this failed evidence package.
+
 ## Testnet truth / P0.3 Entry-slot latency (2026-07-28)
 
 - Armed Testnet Entry runs only in coordinated lease `paper_runtime_cycle` (`slot=tight_entry`). Observation/local auto-runs use separate lease `paper_observation_cycle` at `paper_observation_cycle_offset_seconds=90`.
