@@ -1,0 +1,72 @@
+{
+  "candidate_id": "trend_momentum_v1",
+  "candidate_version": "1.0.0",
+  "current_rules_hash": "41a4c796502b5d6d2a739714bc945d455882acd0e7ab97c21a8d00c2938124b2",
+  "manifest": {
+    "candidate_id": "trend_momentum_v1",
+    "computed_at": "2026-07-21T02:52:26.360249+00:00",
+    "eligible_symbols": [
+      "BTC/USDT",
+      "ETH/USDT"
+    ],
+    "report_path": "artifacts/signal_edge_stats/auto_paper_mature_templates/reports/20260721T025226Z.json",
+    "rules_hash": "41a4c796502b5d6d2a739714bc945d455882acd0e7ab97c21a8d00c2938124b2",
+    "schema_version": 2,
+    "strategy_key": "auto_paper_mature_templates"
+  },
+  "manifest_path": "docs/evidence/active-manifests/auto_paper_mature_templates.json",
+  "manifest_rules_hash_matches_current_config": true,
+  "manifest_sha256": "04e6149f887cbe8842ff8a4f4fb78f4ca23d11decb85601b76dc0f355c689803",
+  "strategy_rules": {
+    "entry_rules": {
+      "candidate_id": "trend_momentum_v1",
+      "core_fee_bps": 5.0,
+      "core_slippage_bps": 1.0,
+      "direction_signals": [
+        "ema_trend",
+        "adx"
+      ],
+      "direction_timeframe": "4h",
+      "enabled_signals": [
+        "ema_trend",
+        "adx",
+        "macd"
+      ],
+      "entry_signals": [
+        "macd"
+      ],
+      "entry_timeframe": "15m",
+      "fusion_method": "weighted_vote",
+      "meta_label_min_win_rate": 0.42,
+      "minimum_net_reward_r": 1.0,
+      "standard_fee_bps": 5.0,
+      "standard_slippage_bps": 3.0,
+      "state_timeframe": "1h",
+      "strategy_lanes": [
+        "trend_breakout",
+        "volatility_filtered_breakout"
+      ],
+      "technical_pipeline": true,
+      "timeframe_model": "4h_direction_15m_entry"
+    },
+    "exit_rules": {
+      "close_on_opposite_signal": true,
+      "time_exit_hours": 24,
+      "time_exit_min_r": 0.5
+    },
+    "position_rules": {
+      "max_leverage": 40,
+      "max_portfolio_initial_risk_fraction": 0.25,
+      "max_position_fraction": 0.35,
+      "min_notional_usdt": 20,
+      "risk_per_trade": 0.05
+    },
+    "stoploss_rules": {
+      "atr_multiple": 2.0,
+      "fixed_bps": 250
+    },
+    "takeprofit_rules": {
+      "risk_reward": 2.0
+    }
+  }
+}

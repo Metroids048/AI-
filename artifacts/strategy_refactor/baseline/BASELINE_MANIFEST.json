@@ -1,0 +1,38 @@
+{
+  "active_strategy": {
+    "candidate_id": "trend_momentum_v1",
+    "candidate_version": "1.0.0",
+    "eligible_symbols": [
+      "BTC/USDT",
+      "ETH/USDT"
+    ],
+    "manifest_rules_hash_matches_current_config": true,
+    "strategy_key": "auto_paper_mature_templates"
+  },
+  "artifact_files": [
+    "BASELINE_MANIFEST.json",
+    "source_tree_manifest.json",
+    "data_manifest.json",
+    "config_manifest.json",
+    "cost_model.json",
+    "metrics.json",
+    "current_ci.json",
+    "funnel_counts.json",
+    "trades.jsonl",
+    "README.md"
+  ],
+  "auxiliary_git_sha": "5524d045c2d213dde7e0d5463f913481e05650bf",
+  "config_hash": "d4ab08a8104602d88db7a4d9603d26c6cabbb7d15f3b4127f04bfcb55efa51b2",
+  "cutoff": null,
+  "data_hash": "cd6a74145b43a1d3821e0cf3f86ad0f820aae930f90298814250477a564a1719",
+  "execution_eligible": false,
+  "final_holdout_end": null,
+  "final_holdout_start": null,
+  "generated_at": "2026-07-29T10:41:42.280179+00:00",
+  "holdout_policy": "not_frozen; required series unavailable",
+  "holdout_results_accessed": false,
+  "observed_at": "2026-07-29T10:41:42.280179+00:00",
+  "schema_version": 1,
+  "source_tree_hash": "b5210640337cd8059b68e7fb686e4435b3c788ee44ad365da89c71d71ca95313",
+  "status": "DATA_COVERAGE_INSUFFICIENT"
+}

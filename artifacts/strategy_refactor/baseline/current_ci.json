@@ -1,0 +1,6 @@
+{
+  "final_promotion_eligible": false,
+  "method": "legacy_iid_percentile_bootstrap",
+  "reason": "DATA_COVERAGE_INSUFFICIENT",
+  "status": "UNAVAILABLE"
+}

@@ -1,0 +1,329 @@
+{
+  "combined_data_hash": "cd6a74145b43a1d3821e0cf3f86ad0f820aae930f90298814250477a564a1719",
+  "coverage_gate": {
+    "cutoff": null,
+    "final_holdout_months": 6,
+    "final_holdout_start": null,
+    "oos_window_count": 8,
+    "oos_window_months": 3,
+    "required_history_start": null,
+    "required_total_months": 42,
+    "series": {
+      "BTC/USDT|15m": {
+        "continuous": false,
+        "coverage": {
+          "bar_count": 35798,
+          "data_hash": "009a1e5be0a2e93a75c21a14eb61df6debfced0af6ae133e962d5875ca8bbebd",
+          "first_open": "2025-07-16T20:00:00+00:00",
+          "gap_count": 7,
+          "largest_gap_seconds": 194400,
+          "last_open": "2026-07-29T10:15:00+00:00",
+          "latest_closed_at": "2026-07-29T10:30:00+00:00",
+          "missing_bar_count": 452,
+          "symbol": "BTC/USDT",
+          "timeframe": "15m"
+        },
+        "passed": false,
+        "present": true,
+        "reaches_cutoff": false,
+        "starts_before_required_history": false
+      },
+      "BTC/USDT|1h": {
+        "continuous": false,
+        "coverage": {
+          "bar_count": 9053,
+          "data_hash": "4ddfa6cf5e30bfeac2722b567dc5fbd5c06654ca6e49a189e927782ca88a611e",
+          "first_open": "2025-07-16T20:00:00+00:00",
+          "gap_count": 1,
+          "largest_gap_seconds": 36000,
+          "last_open": "2026-07-29T09:00:00+00:00",
+          "latest_closed_at": "2026-07-29T10:00:00+00:00",
+          "missing_bar_count": 9,
+          "symbol": "BTC/USDT",
+          "timeframe": "1h"
+        },
+        "passed": false,
+        "present": true,
+        "reaches_cutoff": false,
+        "starts_before_required_history": false
+      },
+      "BTC/USDT|1m": {
+        "continuous": false,
+        "coverage": {
+          "bar_count": 3539,
+          "data_hash": "e5541be269df31f354c1496bc7c806cf8d1775eb452ea69d051e782109e3675e",
+          "first_open": "2026-07-15T05:15:00+00:00",
+          "gap_count": 19,
+          "largest_gap_seconds": 243600,
+          "last_open": "2026-07-29T10:40:00+00:00",
+          "latest_closed_at": "2026-07-29T10:41:00+00:00",
+          "missing_bar_count": 16947,
+          "symbol": "BTC/USDT",
+          "timeframe": "1m"
+        },
+        "passed": false,
+        "present": true,
+        "reaches_cutoff": false,
+        "starts_before_required_history": false
+      },
+      "BTC/USDT|4h": {
+        "continuous": true,
+        "coverage": {
+          "bar_count": 2265,
+          "data_hash": "424bd7c5ffbbfafd10d236a43cbc9e2f17d3e7d67601e3d44076a47ddbd67f9a",
+          "first_open": "2025-07-16T20:00:00+00:00",
+          "gap_count": 0,
+          "largest_gap_seconds": 0,
+          "last_open": "2026-07-29T04:00:00+00:00",
+          "latest_closed_at": "2026-07-29T08:00:00+00:00",
+          "missing_bar_count": 0,
+          "symbol": "BTC/USDT",
+          "timeframe": "4h"
+        },
+        "passed": false,
+        "present": true,
+        "reaches_cutoff": false,
+        "starts_before_required_history": false
+      },
+      "BTC/USDT|5m": {
+        "continuous": false,
+        "coverage": {
+          "bar_count": 0,
+          "data_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "first_open": null,
+          "gap_count": 0,
+          "largest_gap_seconds": 0,
+          "last_open": null,
+          "latest_closed_at": null,
+          "missing_bar_count": 0,
+          "symbol": "BTC/USDT",
+          "timeframe": "5m"
+        },
+        "passed": false,
+        "present": false,
+        "reaches_cutoff": false,
+        "starts_before_required_history": false
+      },
+      "ETH/USDT|15m": {
+        "continuous": false,
+        "coverage": {
+          "bar_count": 35795,
+          "data_hash": "8a40013261ebfbae5e0f142e3a5ecf8cfac87061b8e3f016d88a0aa9d0412629",
+          "first_open": "2025-07-16T20:00:00+00:00",
+          "gap_count": 8,
+          "largest_gap_seconds": 194400,
+          "last_open": "2026-07-29T10:15:00+00:00",
+          "latest_closed_at": "2026-07-29T10:30:00+00:00",
+          "missing_bar_count": 455,
+          "symbol": "ETH/USDT",
+          "timeframe": "15m"
+        },
+        "passed": false,
+        "present": true,
+        "reaches_cutoff": false,
+        "starts_before_required_history": false
+      },
+      "ETH/USDT|1h": {
+        "continuous": false,
+        "coverage": {
+          "bar_count": 9053,
+          "data_hash": "2139ccc3ce0f980708f84ee1d4cb0c6c0a03dd531f78ed3679afeb29548ca93a",
+          "first_open": "2025-07-16T20:00:00+00:00",
+          "gap_count": 1,
+          "largest_gap_seconds": 36000,
+          "last_open": "2026-07-29T09:00:00+00:00",
+          "latest_closed_at": "2026-07-29T10:00:00+00:00",
+          "missing_bar_count": 9,
+          "symbol": "ETH/USDT",
+          "timeframe": "1h"
+        },
+        "passed": false,
+        "present": true,
+        "reaches_cutoff": false,
+        "starts_before_required_history": false
+      },
+      "ETH/USDT|1m": {
+        "continuous": false,
+        "coverage": {
+          "bar_count": 3540,
+          "data_hash": "aebf18c0fd815fbfea523176ed7c1fd3540ee3564b93682f4ecc3498a54989ac",
+          "first_open": "2026-07-15T05:15:00+00:00",
+          "gap_count": 19,
+          "largest_gap_seconds": 243600,
+          "last_open": "2026-07-29T10:40:00+00:00",
+          "latest_closed_at": "2026-07-29T10:41:00+00:00",
+          "missing_bar_count": 16946,
+          "symbol": "ETH/USDT",
+          "timeframe": "1m"
+        },
+        "passed": false,
+        "present": true,
+        "reaches_cutoff": false,
+        "starts_before_required_history": false
+      },
+      "ETH/USDT|4h": {
+        "continuous": true,
+        "coverage": {
+          "bar_count": 2265,
+          "data_hash": "959c26809fa55eb3c0c8d53a5251491a6bd59815e26e3c96d9eff64735242734",
+          "first_open": "2025-07-16T20:00:00+00:00",
+          "gap_count": 0,
+          "largest_gap_seconds": 0,
+          "last_open": "2026-07-29T04:00:00+00:00",
+          "latest_closed_at": "2026-07-29T08:00:00+00:00",
+          "missing_bar_count": 0,
+          "symbol": "ETH/USDT",
+          "timeframe": "4h"
+        },
+        "passed": false,
+        "present": true,
+        "reaches_cutoff": false,
+        "starts_before_required_history": false
+      },
+      "ETH/USDT|5m": {
+        "continuous": false,
+        "coverage": {
+          "bar_count": 0,
+          "data_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "first_open": null,
+          "gap_count": 0,
+          "largest_gap_seconds": 0,
+          "last_open": null,
+          "latest_closed_at": null,
+          "missing_bar_count": 0,
+          "symbol": "ETH/USDT",
+          "timeframe": "5m"
+        },
+        "passed": false,
+        "present": false,
+        "reaches_cutoff": false,
+        "starts_before_required_history": false
+      }
+    },
+    "status": "DATA_COVERAGE_INSUFFICIENT",
+    "training_months": 12
+  },
+  "database_url_redacted": "sqlite:///.local_paper_console.db",
+  "series": [
+    {
+      "bar_count": 3539,
+      "data_hash": "e5541be269df31f354c1496bc7c806cf8d1775eb452ea69d051e782109e3675e",
+      "first_open": "2026-07-15T05:15:00+00:00",
+      "gap_count": 19,
+      "largest_gap_seconds": 243600,
+      "last_open": "2026-07-29T10:40:00+00:00",
+      "latest_closed_at": "2026-07-29T10:41:00+00:00",
+      "missing_bar_count": 16947,
+      "symbol": "BTC/USDT",
+      "timeframe": "1m"
+    },
+    {
+      "bar_count": 0,
+      "data_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "first_open": null,
+      "gap_count": 0,
+      "largest_gap_seconds": 0,
+      "last_open": null,
+      "latest_closed_at": null,
+      "missing_bar_count": 0,
+      "symbol": "BTC/USDT",
+      "timeframe": "5m"
+    },
+    {
+      "bar_count": 35798,
+      "data_hash": "009a1e5be0a2e93a75c21a14eb61df6debfced0af6ae133e962d5875ca8bbebd",
+      "first_open": "2025-07-16T20:00:00+00:00",
+      "gap_count": 7,
+      "largest_gap_seconds": 194400,
+      "last_open": "2026-07-29T10:15:00+00:00",
+      "latest_closed_at": "2026-07-29T10:30:00+00:00",
+      "missing_bar_count": 452,
+      "symbol": "BTC/USDT",
+      "timeframe": "15m"
+    },
+    {
+      "bar_count": 9053,
+      "data_hash": "4ddfa6cf5e30bfeac2722b567dc5fbd5c06654ca6e49a189e927782ca88a611e",
+      "first_open": "2025-07-16T20:00:00+00:00",
+      "gap_count": 1,
+      "largest_gap_seconds": 36000,
+      "last_open": "2026-07-29T09:00:00+00:00",
+      "latest_closed_at": "2026-07-29T10:00:00+00:00",
+      "missing_bar_count": 9,
+      "symbol": "BTC/USDT",
+      "timeframe": "1h"
+    },
+    {
+      "bar_count": 2265,
+      "data_hash": "424bd7c5ffbbfafd10d236a43cbc9e2f17d3e7d67601e3d44076a47ddbd67f9a",
+      "first_open": "2025-07-16T20:00:00+00:00",
+      "gap_count": 0,
+      "largest_gap_seconds": 0,
+      "last_open": "2026-07-29T04:00:00+00:00",
+      "latest_closed_at": "2026-07-29T08:00:00+00:00",
+      "missing_bar_count": 0,
+      "symbol": "BTC/USDT",
+      "timeframe": "4h"
+    },
+    {
+      "bar_count": 3540,
+      "data_hash": "aebf18c0fd815fbfea523176ed7c1fd3540ee3564b93682f4ecc3498a54989ac",
+      "first_open": "2026-07-15T05:15:00+00:00",
+      "gap_count": 19,
+      "largest_gap_seconds": 243600,
+      "last_open": "2026-07-29T10:40:00+00:00",
+      "latest_closed_at": "2026-07-29T10:41:00+00:00",
+      "missing_bar_count": 16946,
+      "symbol": "ETH/USDT",
+      "timeframe": "1m"
+    },
+    {
+      "bar_count": 0,
+      "data_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "first_open": null,
+      "gap_count": 0,
+      "largest_gap_seconds": 0,
+      "last_open": null,
+      "latest_closed_at": null,
+      "missing_bar_count": 0,
+      "symbol": "ETH/USDT",
+      "timeframe": "5m"
+    },
+    {
+      "bar_count": 35795,
+      "data_hash": "8a40013261ebfbae5e0f142e3a5ecf8cfac87061b8e3f016d88a0aa9d0412629",
+      "first_open": "2025-07-16T20:00:00+00:00",
+      "gap_count": 8,
+      "largest_gap_seconds": 194400,
+      "last_open": "2026-07-29T10:15:00+00:00",
+      "latest_closed_at": "2026-07-29T10:30:00+00:00",
+      "missing_bar_count": 455,
+      "symbol": "ETH/USDT",
+      "timeframe": "15m"
+    },
+    {
+      "bar_count": 9053,
+      "data_hash": "2139ccc3ce0f980708f84ee1d4cb0c6c0a03dd531f78ed3679afeb29548ca93a",
+      "first_open": "2025-07-16T20:00:00+00:00",
+      "gap_count": 1,
+      "largest_gap_seconds": 36000,
+      "last_open": "2026-07-29T09:00:00+00:00",
+      "latest_closed_at": "2026-07-29T10:00:00+00:00",
+      "missing_bar_count": 9,
+      "symbol": "ETH/USDT",
+      "timeframe": "1h"
+    },
+    {
+      "bar_count": 2265,
+      "data_hash": "959c26809fa55eb3c0c8d53a5251491a6bd59815e26e3c96d9eff64735242734",
+      "first_open": "2025-07-16T20:00:00+00:00",
+      "gap_count": 0,
+      "largest_gap_seconds": 0,
+      "last_open": "2026-07-29T04:00:00+00:00",
+      "latest_closed_at": "2026-07-29T08:00:00+00:00",
+      "missing_bar_count": 0,
+      "symbol": "ETH/USDT",
+      "timeframe": "4h"
+    }
+  ]
+}
