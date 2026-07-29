@@ -50,6 +50,7 @@ from services.automated_trading.application.recovery_executor import execute_rec
 from services.automated_trading.application.recovery_service import recover_pending_state
 from services.automated_trading.domain.candidates import CandidateLane
 from services.automated_trading.domain.enums import (
+    V2CandidateType,
     V2ExecutionMode,
 )
 from services.automated_trading.infrastructure.runtime_lock import EngineActivation
@@ -75,7 +76,6 @@ class CycleRequest:
     engine_activation: EngineActivation
     fencing_token: str
     now: datetime
-    # Risk / position context
     risk_per_trade: Decimal = Decimal("0.01")
     max_leverage: int = 10
     account_equity: Decimal = Decimal("10000")
@@ -83,8 +83,21 @@ class CycleRequest:
     entry_kill_switch_active: bool = False
     daily_trade_limit_reached: bool = False
     symbol_cooldown_active: bool = False
-    # Optional accounts snapshot from a prior reconcile (skip fetch if provided)
     authoritative_snapshot: AuthoritativeAccountSnapshot | None = None
+    # When set, cycle may submit a reduce-only exit for this reason (no blind TIME_EXIT).
+    forced_exit_reason: ExitReason | None = None
+    # Persist Intent/Order/Fill/Position when True (scheduler / armed runs).
+    persist_facts: bool = False
+    decision_id: str | None = None
+
+
+@dataclass(frozen=True)
+class LocalStateLoadResult:
+    """Fail-closed local projection load (Gate 2)."""
+
+    status: str  # OK | UNAVAILABLE
+    state: LocalStateView | None
+    error_code: str | None = None
 
 
 @dataclass
@@ -100,14 +113,24 @@ class CycleResult:
     reconciliation_status: ReconciliationStatus = ReconciliationStatus.UNAVAILABLE
     funnel_payload: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    entry_blocked_by_runtime_control: bool = False
 
     def record_error(self, msg: str) -> None:
         logger.error("[cycle %s %s] %s", self.cycle_id, self.symbol, msg)
         self.errors.append(msg)
 
 
-def _build_local_state(adapter, execution_mode: V2ExecutionMode) -> LocalStateView:
-    """Read open V2 positions for reconciliation."""
+def _build_local_state(
+    adapter,
+    execution_mode: V2ExecutionMode,
+    *,
+    fail_closed: bool,
+) -> LocalStateLoadResult:
+    """Read open V2 positions for reconciliation.
+
+    When ``fail_closed`` is True (armed scheduler path), DB errors block entry.
+    Unit / shadow rehearsal paths pass fail_closed=False and fall back to empty.
+    """
     try:
         from services.automated_trading.infrastructure.repository import (
             AutomatedTradingRepository,
@@ -130,10 +153,31 @@ def _build_local_state(adapter, execution_mode: V2ExecutionMode) -> LocalStateVi
             )
             for p in open_positions
         )
-        return LocalStateView(positions=positions)
+        return LocalStateLoadResult(status="OK", state=LocalStateView(positions=positions))
     except Exception as exc:  # noqa: BLE001
-        logger.warning("failed to read local state for reconciliation: %s", exc)
-        return LocalStateView()
+        if fail_closed:
+            logger.error("LOCAL_STATE_UNAVAILABLE: %s", exc)
+            return LocalStateLoadResult(
+                status="UNAVAILABLE",
+                state=None,
+                error_code="LOCAL_STATE_UNAVAILABLE",
+            )
+        logger.debug("local state load skipped (offline/unit): %s", exc)
+        return LocalStateLoadResult(status="OK", state=LocalStateView())
+
+
+def _runtime_entry_enabled() -> bool:
+    """Read persisted entry kill switch; default disabled on any failure."""
+    try:
+        from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
+        from services.database import get_session_factory
+
+        with get_session_factory()() as session:
+            control = AutomatedTradingRepository(session).get_runtime_control("global")
+            return bool(control.entry_enabled)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("runtime control read failed; treating entry as disabled: %s", exc)
+        return False
 
 
 def _fetch_step_size(adapter, symbol: str) -> Decimal:
@@ -157,12 +201,10 @@ def _calculate_quantity(request: CycleRequest, snapshot: AuthoritativeAccountSna
 def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAdapter) -> CycleResult:
     """Run one V2 automated trading cycle.
 
-    The function is safe to call in SHADOW mode: no orders will be submitted,
-    but the full decision funnel runs and its record is returned.
+    Safe in SHADOW mode: no orders submitted, full decision funnel still runs.
     """
     result = CycleResult(cycle_id=request.cycle_id, symbol=request.symbol)
 
-    # 1. Fetch authoritative snapshot
     try:
         snapshot = request.authoritative_snapshot or adapter.fetch_authoritative_snapshot()
     except Exception as exc:  # noqa: BLE001
@@ -170,33 +212,45 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         result.reconciliation_status = ReconciliationStatus.UNAVAILABLE
         return result
 
-    # 2. Reconcile
-    local_state = _build_local_state(adapter, request.execution_mode)
-    recon = reconcile(snapshot, local_state)
-    result.reconciliation_status = recon.status
+    local_load = _build_local_state(
+        adapter,
+        request.execution_mode,
+        fail_closed=request.persist_facts,
+    )
+    entry_blocked_local = local_load.status != "OK" or local_load.state is None
+    local_state: LocalStateView
+    if entry_blocked_local:
+        result.record_error("LOCAL_STATE_UNAVAILABLE — entry blocked")
+        result.reconciliation_status = ReconciliationStatus.UNAVAILABLE
+        local_state = LocalStateView()
+        recon = reconcile(snapshot, local_state)
+    else:
+        assert local_load.state is not None
+        local_state = local_load.state
+        recon = reconcile(snapshot, local_state)
+        result.reconciliation_status = recon.status
+        if recon.status in (ReconciliationStatus.RECOVERY_REQUIRED, ReconciliationStatus.UNAVAILABLE):
+            recovery = recover_pending_state(snapshot, recon, local_state=local_state)
+            if recovery.actions:
+                step_size = _fetch_step_size(adapter, request.symbol)
+                recovery_exec = execute_recovery_actions(
+                    recovery.actions,
+                    adapter=adapter,
+                    snapshot=snapshot,
+                    local_state=local_state,
+                    step_size=step_size,
+                )
+                if recovery_exec.errors:
+                    result.record_error(f"recovery execution errors: {recovery_exec.errors}")
+            if recovery.entry_blocked:
+                logger.info(
+                    "[cycle %s %s] reconciliation=%s; entry blocked",
+                    request.cycle_id,
+                    request.symbol,
+                    recon.status.value,
+                )
 
-    if recon.status in (ReconciliationStatus.RECOVERY_REQUIRED, ReconciliationStatus.UNAVAILABLE):
-        recovery = recover_pending_state(snapshot, recon, local_state=local_state)
-        if recovery.actions:
-            step_size = _fetch_step_size(adapter, request.symbol)
-            recovery_exec = execute_recovery_actions(
-                recovery.actions,
-                adapter=adapter,
-                snapshot=snapshot,
-                local_state=local_state,
-                step_size=step_size,
-            )
-            if recovery_exec.errors:
-                result.record_error(f"recovery execution errors: {recovery_exec.errors}")
-        if recovery.entry_blocked:
-            logger.info(
-                "[cycle %s %s] reconciliation=%s; entry blocked",
-                request.cycle_id,
-                request.symbol,
-                recon.status.value,
-            )
-
-    # 3. Evaluate and execute exits for open positions on this symbol.
+    # Exits: only ALREADY_FLAT handling, forced_exit_reason, or emergency — never blind TIME_EXIT.
     step_size = _fetch_step_size(adapter, request.symbol)
     for pos in local_state.positions:
         if pos.symbol != request.symbol or pos.state in ("CLOSED", "QUARANTINED"):
@@ -205,16 +259,21 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             (p for p in snapshot.positions if p.symbol == request.symbol and p.direction == pos.direction),
             None,
         )
-        # ponytail: no per-position exit trigger helper yet; TIME_EXIT is the cycle placeholder.
+        already_flat = ex_pos is None or ex_pos.quantity <= 0
+        if not already_flat and request.forced_exit_reason is None:
+            continue
+        reason = request.forced_exit_reason or ExitReason.HARD_STOP
         exit_decision = evaluate_exit(
             position_id=pos.position_id,
             symbol=pos.symbol,
             direction=pos.direction,
-            reason=ExitReason.TIME_EXIT,
+            reason=reason,
             requested_quantity=pos.quantity,
             authoritative_position=ex_pos,
             step_size=step_size,
         )
+        if exit_decision.verdict is ExitVerdict.ALREADY_FLAT:
+            continue
         if exit_decision.verdict is ExitVerdict.APPROVED:
             exec_result = execute_reduce_only_exit(
                 exit_decision,
@@ -228,7 +287,6 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             ):
                 result.exit_submitted = True
 
-    # 4. Decision funnel
     decision_context = DecisionContext(
         cycle_id=request.cycle_id,
         symbol=request.symbol,
@@ -247,13 +305,18 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
     candidate = outcome.candidate
     assert candidate is not None
 
-    # 5. Entry gate
+    entry_enabled = True if not request.persist_facts else _runtime_entry_enabled()
+    if (request.persist_facts and not entry_enabled) or entry_blocked_local:
+        result.entry_blocked_by_runtime_control = request.persist_facts and not entry_enabled
+        if entry_blocked_local or not entry_enabled:
+            return result
+
     entry_runtime = EntryRuntimeContext(
         engine_activation=request.engine_activation,
         execution_mode=request.execution_mode,
         reconciliation_status=recon.status,
         entry_blocked_symbols=recon.entry_blocked_symbols,
-        entry_kill_switch_active=request.entry_kill_switch_active,
+        entry_kill_switch_active=request.entry_kill_switch_active or not entry_enabled,
         open_position_symbols=request.open_position_symbols,
         daily_trade_limit_reached=request.daily_trade_limit_reached,
         symbol_cooldown_active=request.symbol_cooldown_active,
@@ -270,7 +333,6 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
     if not gate.approved:
         return result
 
-    # 6. Execute entry
     intent_id = str(uuid.uuid4())
     quantity = _calculate_quantity(request, snapshot) / snapshot_market.current_price
     entry_result = execute_entry(
@@ -293,8 +355,9 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
 
     result.position_projected = True
 
-    # 7. Protection
     position_id = str(uuid.uuid4())
+    plan = None
+    protection = None
     try:
         plan = build_protection_plan(
             position_id=position_id,
@@ -309,5 +372,38 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             result.record_error(f"protection failed: {protection.detail}")
     except Exception as exc:  # noqa: BLE001
         result.record_error(f"protection error: {exc}")
+
+    if request.persist_facts:
+        try:
+            from services.automated_trading.application.fact_persistence import (
+                persist_entry_and_protection,
+            )
+
+            persist_entry_and_protection(
+                cycle_id=request.cycle_id,
+                decision_id=request.decision_id,
+                intent_id=intent_id,
+                symbol=request.symbol,
+                direction=candidate.direction,
+                candidate_key=getattr(candidate, "candidate_key", candidate.strategy_id),
+                candidate_type=V2CandidateType.SAMPLING,
+                execution_mode=request.execution_mode,
+                decision_bar_timestamp=(
+                    request.entry_timeframe.last_closed.timestamp
+                    if request.entry_timeframe.last_closed
+                    else request.now
+                ),
+                fencing_token=request.fencing_token,
+                leverage=request.max_leverage,
+                entry_result=entry_result,
+                position_id=position_id,
+                protection_result=protection,
+                stop_loss_price=plan.stop_price if plan else None,
+                take_profit_price=plan.take_profit_price if plan else None,
+                stop_client_order_id=plan.stop_client_order_id if plan else None,
+                tp_client_order_id=plan.tp_client_order_id if plan else None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            result.record_error(f"fact persistence failed: {exc}")
 
     return result

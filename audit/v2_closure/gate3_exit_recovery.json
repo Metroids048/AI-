@@ -5,13 +5,15 @@
   "changes": {
     "cycle_service_calls_execute_reduce_only_exit": true,
     "recovery_executor_module": "services/automated_trading/application/recovery_executor.py",
-    "step_size_from_market_snapshot": true
+    "step_size_from_market_snapshot": true,
+    "no_blind_time_exit": true,
+    "exit_requires_forced_exit_reason_or_already_flat": true
   },
   "audit": {
     "TestGate3ExitRecovery": "PASS"
   },
   "remaining": [
-    "Full scheduler-driven open→exit→HEALTHY lifecycle still needs Strict Fake Exchange integration coverage",
+    "Full scheduler-driven open→exit→HEALTHY lifecycle still needs NATURAL_SCHEDULER_TESTNET evidence (Gate 5)",
     "Recovery action matrix not fully covered end-to-end"
   ]
 }

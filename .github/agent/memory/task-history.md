@@ -1,5 +1,13 @@
 # Task History
 
+### [TASK-V2-CLOSURE-GAPS] Close Gate2-4 critical gaps; Gate5 remains BLOCKED
+- **Date**: 2026-07-29
+- **Type**: Automated Trading V2 production closure
+- **Summary**: Wired ACTIVE scheduler `persist_facts` (cycle ensure → run → finalize decision), added `fact_persistence` for confirmed fill→position→protection, removed blind TIME_EXIT (requires `forced_exit_reason`), fail-closed local state when persisting, fixed `v2_shadow_run` OHLCV loader. Gate5 stays BLOCKED — engine still `legacy`, no fabricated NATURAL evidence.
+- **Verification**: pytest fact_persistence+cycle+scheduler+audit 26 passed; ruff All checks passed; mypy Success on 3 files.
+- **Limits**: NATURAL_SCHEDULER_TESTNET still requires operator `v2_active` + `entry_enabled` + live scheduler observation.
+
+
 ### [TASK-063] Unblock pre-commit for bulk push (commit 6)
 - **Date**: 2026-07-26
 - **Type**: Ops / git hygiene

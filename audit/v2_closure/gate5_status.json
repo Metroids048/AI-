@@ -2,7 +2,21 @@
   "gate": 5,
   "status": "BLOCKED",
   "proof_type": "NATURAL_SCHEDULER_TESTNET",
-  "reason": "Natural Scheduler E2E on Binance Testnet was not executed in this session. No fabricated NATURAL_SCHEDULER_TESTNET evidence file will be written.",
+  "reason": "Natural Scheduler E2E on Binance Testnet was not executed. No fabricated NATURAL_SCHEDULER_TESTNET evidence file will be written. Code path for cycle→decision→intent→order→fill→position→protection is now wired for v2_active, but the live environment is not armed.",
+  "environment_probe": {
+    "automated_trading_engine": "legacy",
+    "binance_use_testnet": true,
+    "api_key_present": true,
+    "required_engine": "v2_active",
+    "runtime_entry_enabled_default": false,
+    "note": "Operator must set automated_trading_engine=v2_active, enable entry via runtime control API, run RuntimeScheduler, and observe a natural closed-bar cycle."
+  },
+  "code_ready": {
+    "scheduler_persist_facts_on_active": true,
+    "no_blind_time_exit": true,
+    "local_state_fail_closed_when_persisting": true,
+    "fact_persistence_module": "services/automated_trading/application/fact_persistence.py"
+  },
   "missing_requirements": [
     "ordinary_scheduler_trigger",
     "real_closed_bar",
@@ -17,5 +31,5 @@
     "local_closed",
     "reconciliation_healthy"
   ],
-  "blocker": "Requires armed Binance Testnet credentials, running RuntimeScheduler in v2_active, and a natural closed-bar cycle — external/operator environment step"
+  "blocker": "Requires automated_trading_engine=v2_active (currently legacy), runtime entry_enabled=true, running RuntimeScheduler, and a natural closed-bar cycle with real Binance Testnet fills — operator environment step"
 }

@@ -85,9 +85,11 @@ def _build_adapter():
 
 def _load_timeframe(symbol: str, timeframe: str, limit: int = 200) -> TimeframeView:
     """Load closed bars for *symbol* from the local OHLCV store."""
-    from services.data.repository import fetch_recent_ohlcv
+    from services.data.repository import DataRepository
+    from services.database import get_session_factory
 
-    rows = fetch_recent_ohlcv(symbol=symbol, timeframe=timeframe, limit=limit)
+    with get_session_factory()() as session:
+        rows = DataRepository(session).list_ohlcv_bars(symbol=symbol, timeframe=timeframe, limit=limit)
     bars = tuple(
         BarView(
             timestamp=row.timestamp,

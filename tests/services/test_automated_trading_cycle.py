@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from services.automated_trading.application.cycle_service import (
     CycleRequest,
+    LocalStateLoadResult,
     run_automated_trading_cycle,
 )
 from services.automated_trading.application.decision_service import BarView, TimeframeView
@@ -272,7 +273,7 @@ def _exchange_position(quantity: str = "0.01") -> ExchangePositionSnapshot:
 @patch("services.automated_trading.application.cycle_service._build_local_state")
 def test_approved_exit_invokes_execute_reduce_only_exit(mock_local_state) -> None:
     """Gate 3: cycle must execute reduce-only exits, not only evaluate them."""
-    mock_local_state.return_value = _open_local_position()
+    mock_local_state.return_value = LocalStateLoadResult(status="OK", state=_open_local_position())
     adapter = build_adapter_with_successful_cycle()
     adapter.fetch_authoritative_snapshot.return_value = _snapshot(positions=[_exchange_position()])
     adapter.submit_reduce_only_exit.return_value = ExchangeOrderReceipt(
@@ -297,7 +298,10 @@ def test_approved_exit_invokes_execute_reduce_only_exit(mock_local_state) -> Non
         ),
     )
 
-    result = run_automated_trading_cycle(build_request(), adapter)
+    result = run_automated_trading_cycle(
+        build_request(forced_exit_reason=ExitReason.TIME_EXIT),
+        adapter,
+    )
 
     adapter.submit_reduce_only_exit.assert_called_once()
     assert result.exit_submitted
@@ -309,7 +313,7 @@ def test_cycle_calls_execute_reduce_only_exit_on_approved_verdict(
     mock_local_state,
     mock_execute_exit,
 ) -> None:
-    mock_local_state.return_value = _open_local_position()
+    mock_local_state.return_value = LocalStateLoadResult(status="OK", state=_open_local_position())
     mock_execute_exit.return_value = ExitExecutionResult(
         status=ExitExecutionStatus.CLOSED,
         position_state=V2PositionState.CLOSED,
@@ -319,7 +323,10 @@ def test_cycle_calls_execute_reduce_only_exit_on_approved_verdict(
     adapter = build_adapter_with_successful_cycle()
     adapter.fetch_authoritative_snapshot.return_value = _snapshot(positions=[_exchange_position()])
 
-    result = run_automated_trading_cycle(build_request(), adapter)
+    result = run_automated_trading_cycle(
+        build_request(forced_exit_reason=ExitReason.TIME_EXIT),
+        adapter,
+    )
 
     mock_execute_exit.assert_called_once()
     decision = mock_execute_exit.call_args.args[0]
@@ -327,3 +334,19 @@ def test_cycle_calls_execute_reduce_only_exit_on_approved_verdict(
     assert decision.verdict is ExitVerdict.APPROVED
     assert decision.reason is ExitReason.TIME_EXIT
     assert result.exit_submitted
+
+
+@patch("services.automated_trading.application.cycle_service.execute_reduce_only_exit")
+@patch("services.automated_trading.application.cycle_service._build_local_state")
+def test_cycle_does_not_blind_time_exit_without_forced_reason(
+    mock_local_state,
+    mock_execute_exit,
+) -> None:
+    mock_local_state.return_value = LocalStateLoadResult(status="OK", state=_open_local_position())
+    adapter = build_adapter_with_successful_cycle()
+    adapter.fetch_authoritative_snapshot.return_value = _snapshot(positions=[_exchange_position()])
+
+    result = run_automated_trading_cycle(build_request(), adapter)
+
+    mock_execute_exit.assert_not_called()
+    assert not result.exit_submitted

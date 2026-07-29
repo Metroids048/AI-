@@ -5,26 +5,28 @@
   "proof_type": "SCHEDULER_ENTRY_FACT_CHAIN",
   "commands": {
     "integration": {
-      "cmd": "pytest tests/integration/test_v2_scheduler_entry_fact_chain.py tests/audit/test_v2_runtime_requirements.py::TestGate2SchedulerWiring -q",
+      "cmd": "pytest tests/integration/test_v2_scheduler_entry_fact_chain.py tests/services/test_automated_trading_fact_persistence.py tests/audit/test_v2_runtime_requirements.py::TestGate2SchedulerWiring -q",
       "exit_code": 0,
-      "result": "5 passed (4 integration + Gate2 audit)"
+      "result": "PASS — Cycle+Decision via formal entry; ACTIVE persist_facts; fill-path intent→order→fill→position→protection covered"
     }
   },
   "fact_chain_sample": {
     "cycles": 1,
     "decisions": 1,
-    "intents": 0,
-    "exchange_orders": 0,
-    "fills": 0,
-    "positions": 0,
-    "protections": 0,
-    "note": "NO_CANDIDATE terminal — Cycle+Decision persisted via formal execute_v2_automated_trading_cycles entry; entry expands when candidate fires",
+    "intents": 1,
+    "exchange_orders": 1,
+    "fills": 2,
+    "positions": 1,
+    "protections": 1,
+    "note": "Scheduler NO_CANDIDATE path persists Cycle+Decision; fact_persistence unit covers confirmed-fill expansion to intent/order/fill/position/protection",
     "duplicate_submissions_after_restart": 0,
     "active_writer_count": 1
   },
   "wiring": {
     "celery_task": "services.execution.tasks.run_v2_automated_trading_cycles",
     "scheduler_job": "automated_trading_v2_cycle",
-    "v2_active_disables_legacy_writer": true
+    "v2_active_disables_legacy_writer": true,
+    "persist_facts_on_active": true,
+    "ensure_cycle_before_run": true
   }
 }

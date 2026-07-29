@@ -244,6 +244,15 @@ class TestGate2SchedulerWiring:
         # Formal production wiring must exist; baseline has none.
         assert "AutomatedTrading" in source or "v2_shadow" in source or "v2_active" in source
 
+    def test_scheduler_entry_persists_facts_when_active(self) -> None:
+        from services.execution import v2_scheduler_entry as entry_mod
+
+        source = Path(entry_mod.__file__).read_text(encoding="utf-8")
+        assert "persist_facts" in source
+        assert "EngineActivation.ACTIVE" in source
+        assert "_ensure_v2_cycle" in source
+        assert "_finalize_v2_cycle_decision" in source
+
 
 # ---------------------------------------------------------------------------
 # Gate 3 — exit / recovery execution (must remain red until Gate 3)
@@ -256,6 +265,9 @@ class TestGate3ExitRecovery:
 
         source = Path(cycle_service.__file__).read_text(encoding="utf-8")
         assert "execute_reduce_only_exit" in source
+        assert "forced_exit_reason" in source
+        # Must not blindly evaluate TIME_EXIT every cycle without an explicit reason.
+        assert "never blind TIME_EXIT" in source
 
 
 # ---------------------------------------------------------------------------

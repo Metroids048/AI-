@@ -76,9 +76,35 @@ def _load_v2_entry_timeframe(symbol: str, timeframe: str = V2_CYCLE_TIMEFRAME) -
     return TimeframeView(timeframe=timeframe, bars=bars)
 
 
-def _persist_v2_cycle_facts(
+def _ensure_v2_cycle(
     *,
     cycle_id: str,
+    symbol: str,
+    timeframe: str,
+    bar_timestamp: datetime,
+    execution_mode: V2ExecutionMode,
+    fencing_token: str,
+) -> None:
+    """Create the cycle row before entry so fact FKs can attach."""
+    from services.automated_trading.infrastructure.models import V2ExecutionCycle
+
+    with get_session_factory()() as session:
+        if session.get(V2ExecutionCycle, cycle_id) is None:
+            AutomatedTradingRepository(session).create_cycle(
+                cycle_id=cycle_id,
+                symbol=symbol,
+                timeframe=timeframe,
+                bar_timestamp=bar_timestamp,
+                execution_mode=execution_mode,
+                fencing_token=fencing_token,
+            )
+            session.commit()
+
+
+def _finalize_v2_cycle_decision(
+    *,
+    cycle_id: str,
+    decision_id: str,
     symbol: str,
     timeframe: str,
     bar_timestamp: datetime,
@@ -87,26 +113,38 @@ def _persist_v2_cycle_facts(
     funnel_payload: dict[str, Any],
     completed_at: datetime,
 ) -> str:
-    decision_id = str(uuid.uuid4())
+    """Upsert decision payload and mark the cycle complete."""
+    from services.automated_trading.infrastructure.models import (
+        V2ExecutionCycle,
+        V2ExecutionDecision,
+    )
+
     terminal_stage = str(funnel_payload.get("terminal_stage") or "UNKNOWN")
     terminal_reason = funnel_payload.get("reason_code")
     with get_session_factory()() as session:
         repo = AutomatedTradingRepository(session)
-        repo.create_cycle(
-            cycle_id=cycle_id,
-            symbol=symbol,
-            timeframe=timeframe,
-            bar_timestamp=bar_timestamp,
-            execution_mode=execution_mode,
-            fencing_token=fencing_token,
-        )
-        repo.create_decision(
-            decision_id=decision_id,
-            cycle_id=cycle_id,
-            candidate_key=funnel_payload.get("candidate_key"),
-            terminal_reason=str(terminal_reason) if terminal_reason is not None else None,
-            payload=funnel_payload,
-        )
+        if session.get(V2ExecutionCycle, cycle_id) is None:
+            repo.create_cycle(
+                cycle_id=cycle_id,
+                symbol=symbol,
+                timeframe=timeframe,
+                bar_timestamp=bar_timestamp,
+                execution_mode=execution_mode,
+                fencing_token=fencing_token,
+            )
+        existing = session.get(V2ExecutionDecision, decision_id)
+        if existing is None:
+            repo.create_decision(
+                decision_id=decision_id,
+                cycle_id=cycle_id,
+                candidate_key=funnel_payload.get("candidate_key"),
+                terminal_reason=str(terminal_reason) if terminal_reason is not None else None,
+                payload=funnel_payload,
+            )
+        else:
+            existing.candidate_key = funnel_payload.get("candidate_key")
+            existing.terminal_reason = str(terminal_reason) if terminal_reason is not None else None
+            existing.payload = funnel_payload
         repo.complete_cycle(cycle_id, decision_terminal=terminal_stage, completed_at=completed_at)
         session.commit()
     return decision_id
@@ -179,6 +217,22 @@ def execute_v2_automated_trading_cycles(
                 continue
 
             bar_timestamp = entry_timeframe.last_closed.timestamp if entry_timeframe.last_closed else bar_slot
+            decision_id = str(uuid.uuid4())
+            try:
+                _ensure_v2_cycle(
+                    cycle_id=cycle_id,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    bar_timestamp=bar_timestamp,
+                    execution_mode=config.execution_mode,
+                    fencing_token=cycle_fencing_token,
+                )
+            except Exception as exc:  # noqa: BLE001
+                symbol_result.update({"status": "error", "error": f"cycle_persist_failed: {exc}"})
+                symbol_results.append(symbol_result)
+                task_failed = True
+                continue
+
             request = CycleRequest(
                 cycle_id=cycle_id,
                 symbol=symbol,
@@ -188,6 +242,8 @@ def execute_v2_automated_trading_cycles(
                 engine_activation=config.v2_activation,
                 fencing_token=cycle_fencing_token,
                 now=now,
+                persist_facts=config.v2_activation is EngineActivation.ACTIVE,
+                decision_id=decision_id,
             )
             try:
                 result = run_automated_trading_cycle(request, adapter)
@@ -197,8 +253,9 @@ def execute_v2_automated_trading_cycles(
                 task_failed = True
                 continue
 
-            decision_id = _persist_v2_cycle_facts(
+            decision_id = _finalize_v2_cycle_decision(
                 cycle_id=cycle_id,
+                decision_id=decision_id,
                 symbol=symbol,
                 timeframe=timeframe,
                 bar_timestamp=bar_timestamp,
