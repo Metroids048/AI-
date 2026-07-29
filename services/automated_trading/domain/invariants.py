@@ -46,9 +46,14 @@ def assert_protection_receipt_valid(receipt: ProtectionReceipt) -> None:
     Raises:
         ValueError: If receipt fails invariant checks
     """
-    if not receipt.stop_exchange_order_id:
+    assert_protection_active_requires_exchange_order_id(receipt.stop_exchange_order_id)
+
+
+def assert_protection_active_requires_exchange_order_id(stop_exchange_order_id: str | None) -> None:
+    """PROTECTION_ACTIVE requires an exchange-confirmed stop order id."""
+    if not stop_exchange_order_id:
         raise ValueError(
-            "Invariant violated: ProtectionReceipt missing stop_exchange_order_id; "
+            "Invariant violated: missing stop exchange order id; "
             "protection cannot be ACTIVE without exchange-confirmed conditional order"
         )
 

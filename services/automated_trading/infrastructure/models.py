@@ -1,17 +1,17 @@
 """V2 database models for Exchange-First execution persistence.
 
-These models store immutable execution facts as an append-only event log.
-State is derived from events, not mutated in place.
-
 Tables:
-- v2_execution_cycles: Scheduler cycle records
-- v2_execution_intents: Entry intent records
-- v2_execution_orders: Exchange order facts (with receipts)
-- v2_managed_positions: Position projections (requires fill receipt)
-- v2_protection_records: Stop-loss/take-profit records
-- v2_execution_events: Append-only event log
-- v2_reconciliation_snapshots: Exchange truth snapshots
-- v2_execution_incidents: Anomalies and quarantines
+- v2_execution_cycles
+- v2_execution_decisions
+- v2_execution_intents
+- v2_exchange_orders
+- v2_exchange_fills
+- v2_managed_positions
+- v2_protection_records
+- v2_execution_events
+- v2_reconciliation_snapshots
+- v2_execution_incidents
+- v2_runtime_controls
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
+    ForeignKey,
     Index,
     Integer,
     Numeric,
@@ -31,6 +32,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -65,16 +67,33 @@ class V2ExecutionCycle(Base):
     )
 
 
-class V2ExecutionIntent(Base):
-    """Entry intent created from strategy decision.
+class V2ExecutionDecision(Base):
+    """Persisted strategy/decision node for a cycle."""
 
-    One intent may result in zero or one exchange order.
-    """
+    __tablename__ = "v2_execution_decisions"
+
+    decision_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    cycle_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("v2_execution_cycles.cycle_id"), nullable=False, index=True
+    )
+    candidate_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    terminal_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+
+class V2ExecutionIntent(Base):
+    """Entry intent created from strategy decision."""
 
     __tablename__ = "v2_execution_intents"
 
     intent_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
-    cycle_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    cycle_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("v2_execution_cycles.cycle_id"), nullable=False, index=True
+    )
+    decision_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("v2_execution_decisions.decision_id"), nullable=True, index=True
+    )
     symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     direction: Mapped[str] = mapped_column(String(10), nullable=False)
     candidate_key: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -83,6 +102,7 @@ class V2ExecutionIntent(Base):
     decision_bar_timestamp: Mapped[datetime] = mapped_column(nullable=False)
     decision_funnel_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     state: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now(), onupdate=func.now())
 
@@ -105,17 +125,16 @@ class V2ExecutionIntent(Base):
 
 
 class V2ExchangeOrder(Base):
-    """Exchange order facts with fill receipts.
-
-    Exchange-First: This table stores exchange_order_id + trade_ids as proof.
-    """
+    """Exchange order facts with aggregate fill cache."""
 
     __tablename__ = "v2_exchange_orders"
 
     order_record_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
-    intent_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    intent_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("v2_execution_intents.intent_id"), nullable=False, index=True
+    )
     client_order_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
-    exchange_order_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    exchange_order_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True, index=True)
     quantity: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     leverage: Mapped[int] = mapped_column(Integer, nullable=False)
     submitted_at: Mapped[datetime | None] = mapped_column(nullable=True)
@@ -124,7 +143,7 @@ class V2ExchangeOrder(Base):
     average_fill_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
     total_fee: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
     fill_timestamp: Mapped[datetime | None] = mapped_column(nullable=True)
-    trade_ids: Mapped[dict] = mapped_column(JSON, default=dict)  # {"trade_ids": ["t1", "t2"]}
+    trade_ids: Mapped[dict] = mapped_column(JSON, default=dict)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
@@ -142,18 +161,51 @@ class V2ExchangeOrder(Base):
     )
 
 
-class V2ManagedPosition(Base):
-    """Managed position projection from exchange fill.
+class V2ExchangeFill(Base):
+    """Per-trade exchange fill fact. UNIQUE(account_id, trade_id)."""
 
-    Exchange-First Invariant: Cannot exist without a fill receipt.
-    One position per (symbol, direction, execution_mode).
-    """
+    __tablename__ = "v2_exchange_fills"
+
+    fill_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    intent_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("v2_execution_intents.intent_id"), nullable=False, index=True
+    )
+    exchange_order_record_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("v2_exchange_orders.order_record_id"), nullable=False, index=True
+    )
+    account_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    exchange_order_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    trade_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False)
+    side: Mapped[str] = mapped_column(String(10), nullable=False)
+    reduce_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    filled_quantity: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    fill_price: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    commission: Mapped[Decimal | None] = mapped_column(Numeric(38, 18), nullable=True)
+    commission_asset: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    exchange_event_time: Mapped[datetime] = mapped_column(nullable=False)
+    received_at: Mapped[datetime] = mapped_column(nullable=False)
+    raw_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("account_id", "trade_id", name="uq_v2_fill_account_trade"),
+        CheckConstraint("filled_quantity > 0", name="ck_v2_fill_qty_positive"),
+        CheckConstraint("fill_price > 0", name="ck_v2_fill_price_positive"),
+    )
+
+
+class V2ManagedPosition(Base):
+    """Managed position projection from confirmed exchange fills."""
 
     __tablename__ = "v2_managed_positions"
 
     position_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
-    intent_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
-    order_record_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    intent_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("v2_execution_intents.intent_id"), nullable=False, unique=True
+    )
+    order_record_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("v2_exchange_orders.order_record_id"), nullable=False
+    )
     symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     direction: Mapped[str] = mapped_column(String(10), nullable=False)
     execution_mode: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -161,21 +213,20 @@ class V2ManagedPosition(Base):
     entry_price: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
     entry_fee: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     state: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     projected_at: Mapped[datetime] = mapped_column(nullable=False)
     protected_at: Mapped[datetime | None] = mapped_column(nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(nullable=True)
     realized_pnl: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
 
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "ix_v2_position_one_open_per_symbol_direction_mode",
             "symbol",
             "direction",
             "execution_mode",
-            "state",
-            name="uq_v2_position_one_open_per_symbol_direction_mode",
-            # Only one open position per (symbol, direction, mode)
-            # This is enforced when state NOT IN ('CLOSED', 'QUARANTINED')
-            # by a partial unique index in the migration
+            unique=True,
+            sqlite_where=text("state NOT IN ('CLOSED', 'QUARANTINED')"),
         ),
         CheckConstraint("direction IN ('long', 'short')", name="ck_v2_position_direction"),
         CheckConstraint("quantity > 0", name="ck_v2_position_quantity_positive"),
@@ -193,7 +244,9 @@ class V2ProtectionRecord(Base):
     __tablename__ = "v2_protection_records"
 
     protection_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
-    position_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    position_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("v2_managed_positions.position_id"), nullable=False, index=True
+    )
     stop_loss_price: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
     take_profit_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
     stop_client_order_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
@@ -201,6 +254,7 @@ class V2ProtectionRecord(Base):
     stop_exchange_order_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     tp_exchange_order_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     state: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     activated_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
@@ -220,10 +274,7 @@ class V2ProtectionRecord(Base):
 
 
 class V2ExecutionEvent(Base):
-    """Append-only event log for state transitions.
-
-    All state mutations are recorded as events. Events are never updated or deleted.
-    """
+    """Append-only event log for state transitions."""
 
     __tablename__ = "v2_execution_events"
 
@@ -237,7 +288,7 @@ class V2ExecutionEvent(Base):
     __table_args__ = (
         Index("ix_v2_event_aggregate_occurred", "aggregate_id", "occurred_at"),
         CheckConstraint(
-            "aggregate_type IN ('CYCLE', 'INTENT', 'ORDER', 'POSITION', 'PROTECTION')",
+            "aggregate_type IN ('CYCLE', 'INTENT', 'ORDER', 'POSITION', 'PROTECTION', 'DECISION')",
             name="ck_v2_event_aggregate_type",
         ),
     )
@@ -249,6 +300,9 @@ class V2ReconciliationSnapshot(Base):
     __tablename__ = "v2_reconciliation_snapshots"
 
     snapshot_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    cycle_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("v2_execution_cycles.cycle_id"), nullable=True, index=True
+    )
     execution_mode: Mapped[str] = mapped_column(String(30), nullable=False)
     exchange_positions: Mapped[dict] = mapped_column(JSON, nullable=False)
     exchange_open_orders: Mapped[dict] = mapped_column(JSON, nullable=False)
@@ -259,7 +313,7 @@ class V2ReconciliationSnapshot(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('HEALTHY', 'DEGRADED', 'UNAVAILABLE', 'QUARANTINED')",
+            "status IN ('HEALTHY', 'DEGRADED', 'UNAVAILABLE', 'RECOVERY_REQUIRED', 'QUARANTINED')",
             name="ck_v2_recon_status",
         ),
     )
@@ -274,6 +328,12 @@ class V2ExecutionIncident(Base):
     incident_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     severity: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     related_aggregate_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    intent_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("v2_execution_intents.intent_id"), nullable=True, index=True
+    )
+    position_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("v2_managed_positions.position_id"), nullable=True, index=True
+    )
     description: Mapped[str] = mapped_column(Text, nullable=False)
     context: Mapped[dict] = mapped_column(JSON, default=dict)
     resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -283,3 +343,16 @@ class V2ExecutionIncident(Base):
     __table_args__ = (
         CheckConstraint("severity IN ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')", name="ck_v2_incident_severity"),
     )
+
+
+class V2RuntimeControl(Base):
+    """Persisted runtime control flags. entry_enabled defaults false until Gate 5."""
+
+    __tablename__ = "v2_runtime_controls"
+
+    scope: Mapped[str] = mapped_column(String(64), primary_key=True)
+    entry_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now(), onupdate=func.now())
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

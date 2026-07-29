@@ -1,0 +1,83 @@
+{
+  "gate": 1,
+  "status": "READY_FOR_INDEPENDENT_REVIEW",
+  "base_commit": "9afa16681e1525897ab03b89ad1febc37c30d807",
+  "branch": "fix/v2-production-closure",
+  "migration_revision": "0019",
+  "proof_type": "DATABASE_INTEGRITY_REJECTION",
+  "commands": {
+    "gate1_targeted": {
+      "cmd": "pytest tests/services/test_automated_trading_database_integrity.py tests/services/test_automated_trading_repository.py tests/services/test_automated_trading_state_machine.py tests/audit/test_v2_runtime_requirements.py::TestGate1DatabaseIntegrity tests/services/test_database_schema.py -q",
+      "exit_code": 0,
+      "result": "54 passed"
+    },
+    "audit_script": {
+      "cmd": "python scripts/audit_v2_database_invariants.py",
+      "exit_code": 0,
+      "results": {
+        "FILLED_TO_INTENT_CREATED": "REJECTED_AS_EXPECTED",
+        "CLOSED_TO_POSITION_PROJECTED": "REJECTED_AS_EXPECTED",
+        "DUPLICATE_TRADE_ID": "REJECTED_AS_EXPECTED",
+        "SECOND_OPEN_POSITION": "REJECTED_AS_EXPECTED",
+        "ACTIVE_PROTECTION_WITHOUT_EXCHANGE_ORDER_ID": "REJECTED_AS_EXPECTED"
+      }
+    },
+    "ruff": {
+      "cmd": "ruff check (Gate1 touched files)",
+      "exit_code": 0,
+      "result": "All checks passed!"
+    }
+  },
+  "illegal_writes": [
+    {"name": "FILLED_TO_INTENT_CREATED", "result": "REJECTED_AS_EXPECTED"},
+    {"name": "CLOSED_TO_POSITION_PROJECTED", "result": "REJECTED_AS_EXPECTED"},
+    {"name": "DUPLICATE_TRADE_ID", "result": "REJECTED_AS_EXPECTED"},
+    {"name": "SECOND_OPEN_POSITION", "result": "REJECTED_AS_EXPECTED"},
+    {"name": "ACTIVE_PROTECTION_WITHOUT_EXCHANGE_ORDER_ID", "result": "REJECTED_AS_EXPECTED"}
+  ],
+  "schema_summary": {
+    "new_tables": [
+      "v2_exchange_fills",
+      "v2_execution_decisions",
+      "v2_runtime_controls"
+    ],
+    "foreign_keys": [
+      "cycle -> decision",
+      "cycle -> intent",
+      "decision -> intent",
+      "intent -> order",
+      "order/intent -> fill",
+      "intent/order -> position",
+      "position -> protection",
+      "cycle -> reconciliation",
+      "intent/position -> incident"
+    ],
+    "unique_constraints": [
+      "UNIQUE(account_id, trade_id) on v2_exchange_fills",
+      "UNIQUE(exchange_order_id) on v2_exchange_orders",
+      "PARTIAL UNIQUE(symbol, direction, execution_mode) WHERE state NOT IN (CLOSED, QUARANTINED)"
+    ],
+    "runtime_control_default": {
+      "scope": "global",
+      "entry_enabled": false
+    },
+    "removed_public_mutators": [
+      "update_intent_state",
+      "update_position_state"
+    ],
+    "forced_transitions": [
+      "transition_intent",
+      "transition_position",
+      "transition_protection"
+    ]
+  },
+  "unpassed": {
+    "gate2_audit": "TestGate2SchedulerWiring still fails (expected)",
+    "gate3_audit": "TestGate3ExitRecovery still fails (expected)",
+    "gate4_audit": "TestGate4RuntimeApiFrontend still fails (expected)",
+    "gate5_audit": "TestGate5NaturalEvidence still fails (expected)",
+    "frontend": "not_run_gate1",
+    "natural_testnet": "not_in_scope_gate1"
+  },
+  "commit_sha": "PENDING_AFTER_COMMIT"
+}

@@ -1,0 +1,14 @@
+{
+  "base_commit": "9afa16681e1525897ab03b89ad1febc37c30d807",
+  "branch": "fix/v2-production-closure",
+  "python_version": "3.12.10",
+  "node_version": "v24.16.0",
+  "database_revision": "0018",
+  "backend_test_result": "1102 passed, 13 skipped, 3 deselected",
+  "frontend_test_result": "not_run_gate1",
+  "known_skips": [
+    "testnet_contract and natural_e2e deselected by marker"
+  ],
+  "known_failures": [],
+  "notes": "Gate 1 baseline captured before integrity changes"
+}

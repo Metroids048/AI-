@@ -91,7 +91,15 @@ class TestIntentManagement:
         )
         repo.commit()
 
-    def test_update_intent_state(self, repo: AutomatedTradingRepository) -> None:
+    def test_transition_intent_state(self, repo: AutomatedTradingRepository) -> None:
+        repo.create_cycle(
+            cycle_id="cycle-004",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            bar_timestamp=datetime(2026, 7, 28, 10, 0, tzinfo=UTC),
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            fencing_token="fence-004",
+        )
         repo.create_intent(
             intent_id="intent-002",
             cycle_id="cycle-004",
@@ -104,7 +112,13 @@ class TestIntentManagement:
             decision_funnel_id=None,
             state=V2IntentState.INTENT_CREATED,
         )
-        repo.update_intent_state("intent-002", V2IntentState.EXCHANGE_SUBMITTING)
+        repo.transition_intent(
+            intent_id="intent-002",
+            expected_current=V2IntentState.INTENT_CREATED,
+            next_state=V2IntentState.EXCHANGE_SUBMITTING,
+            event_type="IntentSubmitting",
+            payload={},
+        )
         repo.commit()
 
 

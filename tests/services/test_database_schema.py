@@ -71,13 +71,16 @@ def test_prepare_database_creates_v2_automated_trading_tables(tmp_path) -> None:
         inspector = inspect(get_engine(database_url))
         expected_tables = {
             "v2_execution_cycles",
+            "v2_execution_decisions",
             "v2_execution_intents",
             "v2_exchange_orders",
+            "v2_exchange_fills",
             "v2_managed_positions",
             "v2_protection_records",
             "v2_execution_events",
             "v2_reconciliation_snapshots",
             "v2_execution_incidents",
+            "v2_runtime_controls",
         }
         assert expected_tables.issubset(set(inspector.get_table_names()))
     finally:

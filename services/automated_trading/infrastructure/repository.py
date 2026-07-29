@@ -1,33 +1,42 @@
-"""V2 execution repository: append-only event persistence.
+"""V2 execution repository: append-only event persistence with forced transitions.
 
 Exchange-First persistence rules:
-- Cannot create V2ManagedPosition without a fill receipt (exchange_order_id + trade_ids)
-- All state mutations append events to v2_execution_events
-- Client order IDs and exchange order IDs must be unique
-- Trade IDs are stored as immutable evidence
+- Cannot create V2ManagedPosition without confirmed fills in v2_exchange_fills
+- State mutations go through transition_* (domain validated + event appended)
+- Client order IDs, exchange order IDs, and (account_id, trade_id) must be unique
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from services.automated_trading.domain.invariants import assert_fill_receipt_valid
-from services.automated_trading.domain.receipts import (
-    FillReceipt,
-    ProtectionReceipt,
+from services.automated_trading.domain.invariants import (
+    assert_fill_receipt_valid,
+    assert_protection_active_requires_exchange_order_id,
+)
+from services.automated_trading.domain.receipts import FillReceipt, ProtectionReceipt
+from services.automated_trading.domain.state import (
+    validate_intent_transition,
+    validate_position_transition,
+    validate_protection_transition,
 )
 from services.automated_trading.infrastructure.models import (
+    V2ExchangeFill,
     V2ExchangeOrder,
     V2ExecutionCycle,
+    V2ExecutionDecision,
     V2ExecutionEvent,
     V2ExecutionIncident,
+    V2ExecutionIntent,
     V2ManagedPosition,
     V2ProtectionRecord,
     V2ReconciliationSnapshot,
+    V2RuntimeControl,
 )
 
 if TYPE_CHECKING:
@@ -41,13 +50,14 @@ if TYPE_CHECKING:
 
 
 class AutomatedTradingRepository:
-    """Repository for V2 automated trading persistence.
-
-    All writes are append-only or state transitions validated by domain layer.
-    """
+    """Repository for V2 automated trading persistence."""
 
     def __init__(self, session: Session) -> None:
         self.session = session
+
+    # ------------------------------------------------------------------
+    # Cycle / Decision / Intent
+    # ------------------------------------------------------------------
 
     def create_cycle(
         self,
@@ -59,7 +69,6 @@ class AutomatedTradingRepository:
         execution_mode: V2ExecutionMode,
         fencing_token: str,
     ) -> V2ExecutionCycle:
-        """Create a new execution cycle record."""
         cycle = V2ExecutionCycle(
             cycle_id=cycle_id,
             symbol=symbol,
@@ -78,13 +87,32 @@ class AutomatedTradingRepository:
         decision_terminal: str,
         completed_at: datetime,
     ) -> None:
-        """Mark cycle as completed with decision terminal reason."""
         cycle = self.session.get(V2ExecutionCycle, cycle_id)
         if cycle is None:
             raise ValueError(f"Cycle {cycle_id!r} not found")
         cycle.decision_terminal = decision_terminal
         cycle.completed_at = completed_at
         self.session.flush()
+
+    def create_decision(
+        self,
+        *,
+        decision_id: str,
+        cycle_id: str,
+        candidate_key: str | None = None,
+        terminal_reason: str | None = None,
+        payload: dict | None = None,
+    ) -> V2ExecutionDecision:
+        decision = V2ExecutionDecision(
+            decision_id=decision_id,
+            cycle_id=cycle_id,
+            candidate_key=candidate_key,
+            terminal_reason=terminal_reason,
+            payload=payload or {},
+        )
+        self.session.add(decision)
+        self.session.flush()
+        return decision
 
     def create_intent(
         self,
@@ -99,13 +127,12 @@ class AutomatedTradingRepository:
         decision_bar_timestamp: datetime,
         decision_funnel_id: str | None,
         state: V2IntentState,
+        decision_id: str | None = None,
     ) -> None:
-        """Create entry intent record."""
-        from services.automated_trading.infrastructure.models import V2ExecutionIntent
-
         intent = V2ExecutionIntent(
             intent_id=intent_id,
             cycle_id=cycle_id,
+            decision_id=decision_id,
             symbol=symbol,
             direction=direction,
             candidate_key=candidate_key,
@@ -114,20 +141,51 @@ class AutomatedTradingRepository:
             decision_bar_timestamp=decision_bar_timestamp,
             decision_funnel_id=decision_funnel_id,
             state=state.value,
+            version=0,
         )
         self.session.add(intent)
         self.session.flush()
 
-    def update_intent_state(self, intent_id: str, new_state: V2IntentState) -> None:
-        """Update intent state. State transition must be validated before calling."""
-        from services.automated_trading.infrastructure.models import V2ExecutionIntent
-
-        stmt = select(V2ExecutionIntent).where(V2ExecutionIntent.intent_id == intent_id)
-        intent = self.session.scalar(stmt)
+    def transition_intent(
+        self,
+        intent_id: str,
+        expected_current: V2IntentState,
+        next_state: V2IntentState,
+        event_type: str,
+        payload: dict,
+        occurred_at: datetime | None = None,
+    ) -> None:
+        intent = self.session.get(V2ExecutionIntent, intent_id)
         if intent is None:
             raise ValueError(f"Intent {intent_id!r} not found")
-        intent.state = new_state.value
+        from services.automated_trading.domain.enums import V2IntentState as IntentState
+
+        current = IntentState(intent.state)
+        if current != expected_current:
+            raise ValueError(
+                f"Intent {intent_id!r} expected state {expected_current.value}, "
+                f"found {current.value} (version={intent.version})"
+            )
+        validate_intent_transition(current, next_state)
+        intent.state = next_state.value
+        intent.version = int(intent.version) + 1
+        self.append_event(
+            aggregate_id=intent_id,
+            aggregate_type="INTENT",
+            event_type=event_type,
+            event_payload={
+                **payload,
+                "from_state": current.value,
+                "to_state": next_state.value,
+                "version": intent.version,
+            },
+            occurred_at=occurred_at or datetime.now(UTC),
+        )
         self.session.flush()
+
+    # ------------------------------------------------------------------
+    # Orders / Fills
+    # ------------------------------------------------------------------
 
     def save_order_submission(
         self,
@@ -138,7 +196,6 @@ class AutomatedTradingRepository:
         leverage: int,
         submitted_at: datetime,
     ) -> str:
-        """Save exchange order submission record. Returns order_record_id."""
         order = V2ExchangeOrder(
             intent_id=intent_id,
             client_order_id=client_order_id,
@@ -150,27 +207,219 @@ class AutomatedTradingRepository:
         self.session.flush()
         return order.order_record_id
 
+    def save_exchange_order_receipt(
+        self,
+        *,
+        order_record_id: str,
+        exchange_order_id: str,
+        acknowledged_at: datetime,
+    ) -> None:
+        order = self.session.get(V2ExchangeOrder, order_record_id)
+        if order is None:
+            raise ValueError(f"Order record {order_record_id!r} not found")
+        if not exchange_order_id:
+            raise ValueError("exchange_order_id is required")
+        order.exchange_order_id = exchange_order_id
+        order.acknowledged_at = acknowledged_at
+        self.session.flush()
+
+    def save_exchange_fill_receipt(
+        self,
+        *,
+        intent_id: str,
+        exchange_order_record_id: str,
+        account_id: str,
+        exchange_order_id: str,
+        trade_id: str,
+        symbol: str,
+        side: str,
+        reduce_only: bool,
+        filled_quantity: Decimal,
+        fill_price: Decimal,
+        commission: Decimal | None,
+        commission_asset: str | None,
+        exchange_event_time: datetime,
+        received_at: datetime,
+        raw_hash: str,
+    ) -> str:
+        order = self.session.get(V2ExchangeOrder, exchange_order_record_id)
+        if order is None:
+            raise ValueError(f"Order record {exchange_order_record_id!r} not found")
+        if order.intent_id != intent_id:
+            raise ValueError(f"Fill intent_id={intent_id!r} does not match order intent_id={order.intent_id!r}")
+        if order.exchange_order_id and order.exchange_order_id != exchange_order_id:
+            raise ValueError(
+                f"Fill exchange_order_id={exchange_order_id!r} does not match "
+                f"saved order exchange_order_id={order.exchange_order_id!r}"
+            )
+        if not order.exchange_order_id:
+            order.exchange_order_id = exchange_order_id
+
+        fill = V2ExchangeFill(
+            intent_id=intent_id,
+            exchange_order_record_id=exchange_order_record_id,
+            account_id=account_id,
+            exchange_order_id=exchange_order_id,
+            trade_id=trade_id,
+            symbol=symbol,
+            side=side,
+            reduce_only=reduce_only,
+            filled_quantity=filled_quantity,
+            fill_price=fill_price,
+            commission=commission,
+            commission_asset=commission_asset,
+            exchange_event_time=exchange_event_time,
+            received_at=received_at,
+            raw_hash=raw_hash,
+        )
+        self.session.add(fill)
+        self.session.flush()
+        self._refresh_order_aggregate_from_fills(exchange_order_record_id)
+        self.session.flush()
+        return fill.fill_id
+
     def save_fill_receipt(
         self,
         order_record_id: str,
         receipt: FillReceipt,
+        *,
+        account_id: str = "binance_testnet",
+        symbol: str = "BTC/USDT",
+        side: str = "BUY",
+        reduce_only: bool = False,
     ) -> None:
-        """Save exchange fill receipt.
-
-        Exchange-First: This persists exchange_order_id + trade_ids as proof.
-        """
+        """Compatibility wrapper: persist per-trade fills then refresh order cache."""
         assert_fill_receipt_valid(receipt)
+        order = self.session.get(V2ExchangeOrder, order_record_id)
+        if order is None:
+            raise ValueError(f"Order record {order_record_id!r} not found")
+        if order.intent_id != receipt.intent_id:
+            raise ValueError(
+                f"FillReceipt intent_id={receipt.intent_id!r} does not match order intent_id={order.intent_id!r}"
+            )
+
+        order.exchange_order_id = receipt.exchange_order_id
+        n = len(receipt.trade_ids)
+        # Distribute quantity evenly across trade IDs for compatibility path;
+        # production callers should use save_exchange_fill_receipt per trade.
+        per_qty = (receipt.filled_quantity / n).quantize(Decimal("0.00000001"))
+        allocated = Decimal("0")
+        for idx, trade_id in enumerate(receipt.trade_ids):
+            qty = receipt.filled_quantity - allocated if idx == n - 1 else per_qty
+            allocated += qty
+            self.save_exchange_fill_receipt(
+                intent_id=receipt.intent_id,
+                exchange_order_record_id=order_record_id,
+                account_id=account_id,
+                exchange_order_id=receipt.exchange_order_id,
+                trade_id=trade_id,
+                symbol=symbol,
+                side=side,
+                reduce_only=reduce_only,
+                filled_quantity=qty,
+                fill_price=receipt.average_fill_price,
+                commission=(receipt.total_fee / n) if n else receipt.total_fee,
+                commission_asset="USDT",
+                exchange_event_time=receipt.fill_timestamp,
+                received_at=receipt.fill_timestamp,
+                raw_hash=f"{receipt.exchange_order_id}:{trade_id}",
+            )
+
+    def _aggregate_fills(self, order_record_id: str) -> dict[str, Any]:
+        fills = list(
+            self.session.scalars(
+                select(V2ExchangeFill).where(V2ExchangeFill.exchange_order_record_id == order_record_id)
+            )
+        )
+        if not fills:
+            raise ValueError(
+                f"No confirmed fills for order {order_record_id!r}; "
+                "cannot project position without v2_exchange_fills rows"
+            )
+        total_qty = sum((f.filled_quantity for f in fills), Decimal("0"))
+        notional = sum((f.filled_quantity * f.fill_price for f in fills), Decimal("0"))
+        total_fee = sum((f.commission or Decimal("0") for f in fills), Decimal("0"))
+        vwap = (notional / total_qty) if total_qty > 0 else Decimal("0")
+
+        def _as_naive(dt: datetime) -> datetime:
+            if dt.tzinfo is None:
+                return dt
+            return dt.astimezone(UTC).replace(tzinfo=None)
+
+        return {
+            "filled_quantity": total_qty,
+            "average_fill_price": vwap,
+            "total_fee": total_fee,
+            "trade_ids": [f.trade_id for f in fills],
+            "exchange_order_id": fills[0].exchange_order_id,
+            "fill_timestamp": max(_as_naive(f.exchange_event_time) for f in fills),
+        }
+
+    def _refresh_order_aggregate_from_fills(self, order_record_id: str) -> None:
+        order = self.session.get(V2ExchangeOrder, order_record_id)
+        if order is None:
+            return
+        fills = list(
+            self.session.scalars(
+                select(V2ExchangeFill).where(V2ExchangeFill.exchange_order_record_id == order_record_id)
+            )
+        )
+        if not fills:
+            return
+        agg = self._aggregate_fills(order_record_id)
+        order.filled_quantity = agg["filled_quantity"]
+        order.average_fill_price = agg["average_fill_price"]
+        order.total_fee = agg["total_fee"]
+        order.fill_timestamp = agg["fill_timestamp"]
+        order.trade_ids = {"trade_ids": list(agg["trade_ids"])}
+        if not order.exchange_order_id:
+            order.exchange_order_id = agg["exchange_order_id"]
+
+    # ------------------------------------------------------------------
+    # Position projection / transitions
+    # ------------------------------------------------------------------
+
+    def project_position_from_confirmed_fills(
+        self,
+        *,
+        position_id: str,
+        intent_id: str,
+        order_record_id: str,
+        symbol: str,
+        direction: str,
+        execution_mode: V2ExecutionMode,
+        projected_at: datetime,
+    ) -> None:
+        """Project position quantities exclusively from persisted fill rows."""
+        from services.automated_trading.domain.enums import V2PositionState
 
         order = self.session.get(V2ExchangeOrder, order_record_id)
         if order is None:
             raise ValueError(f"Order record {order_record_id!r} not found")
+        if order.intent_id != intent_id:
+            raise ValueError(f"Cannot project: order intent_id={order.intent_id!r} != intent_id={intent_id!r}")
+        agg = self._aggregate_fills(order_record_id)
+        if not order.exchange_order_id:
+            raise ValueError(
+                f"Cannot project position: order {order_record_id!r} has no exchange_order_id; "
+                "fill receipt must be saved first"
+            )
 
-        order.exchange_order_id = receipt.exchange_order_id
-        order.filled_quantity = receipt.filled_quantity
-        order.average_fill_price = receipt.average_fill_price
-        order.total_fee = receipt.total_fee
-        order.fill_timestamp = receipt.fill_timestamp
-        order.trade_ids = {"trade_ids": list(receipt.trade_ids)}
+        position = V2ManagedPosition(
+            position_id=position_id,
+            intent_id=intent_id,
+            order_record_id=order_record_id,
+            symbol=symbol,
+            direction=direction,
+            execution_mode=execution_mode.value,
+            quantity=agg["filled_quantity"],
+            entry_price=agg["average_fill_price"],
+            entry_fee=agg["total_fee"],
+            state=V2PositionState.POSITION_PROJECTED.value,
+            version=0,
+            projected_at=projected_at,
+        )
+        self.session.add(position)
         self.session.flush()
 
     def project_position(
@@ -186,45 +435,106 @@ class AutomatedTradingRepository:
         state: V2PositionState,
         projected_at: datetime,
     ) -> None:
-        """Project managed position from exchange fill.
-
-        Exchange-First Invariant: Cannot create position without fill receipt.
-        """
+        """Compatibility: ensure fills exist, then project from DB aggregates."""
         assert_fill_receipt_valid(fill_receipt)
-
-        # Verify order record has the fill receipt
         order = self.session.get(V2ExchangeOrder, order_record_id)
         if order is None:
             raise ValueError(f"Order record {order_record_id!r} not found")
-        if not order.exchange_order_id:
-            raise ValueError(
-                f"Cannot project position: order {order_record_id!r} has no exchange_order_id; "
-                "fill receipt must be saved first"
+        existing = list(
+            self.session.scalars(
+                select(V2ExchangeFill).where(V2ExchangeFill.exchange_order_record_id == order_record_id)
             )
-
-        position = V2ManagedPosition(
+        )
+        if not existing:
+            if not order.exchange_order_id:
+                raise ValueError(
+                    f"Cannot project position: order {order_record_id!r} has no exchange_order_id; "
+                    "fill receipt must be saved first"
+                )
+            self.save_fill_receipt(order_record_id, fill_receipt)
+        self.project_position_from_confirmed_fills(
             position_id=position_id,
             intent_id=intent_id,
             order_record_id=order_record_id,
             symbol=symbol,
             direction=direction,
-            execution_mode=execution_mode.value,
-            quantity=fill_receipt.filled_quantity,
-            entry_price=fill_receipt.average_fill_price,
-            entry_fee=fill_receipt.total_fee,
-            state=state.value,
+            execution_mode=execution_mode,
             projected_at=projected_at,
         )
-        self.session.add(position)
-        self.session.flush()
+        # Caller-requested non-default state must go through legal transitions.
+        from services.automated_trading.domain.enums import V2PositionState as PosState
 
-    def update_position_state(self, position_id: str, new_state: V2PositionState) -> None:
-        """Update position state. State transition must be validated before calling."""
+        if state is PosState.POSITION_PROJECTED:
+            return
+        if state is PosState.CLOSED:
+            # Compatibility seed path used by fencing/cutover guards.
+            self.transition_position(
+                position_id=position_id,
+                expected_current=PosState.POSITION_PROJECTED,
+                next_state=PosState.REDUCING,
+                event_type="PositionReducingForCloseSeed",
+                payload={},
+            )
+            self.transition_position(
+                position_id=position_id,
+                expected_current=PosState.REDUCING,
+                next_state=PosState.CLOSED,
+                event_type="PositionClosedSeed",
+                payload={},
+            )
+            return
+        self.transition_position(
+            position_id=position_id,
+            expected_current=PosState.POSITION_PROJECTED,
+            next_state=state,
+            event_type="PositionProjectedThenTransitioned",
+            payload={},
+        )
+
+    def transition_position(
+        self,
+        position_id: str,
+        expected_current: V2PositionState,
+        next_state: V2PositionState,
+        event_type: str,
+        payload: dict,
+        occurred_at: datetime | None = None,
+    ) -> None:
         position = self.session.get(V2ManagedPosition, position_id)
         if position is None:
             raise ValueError(f"Position {position_id!r} not found")
-        position.state = new_state.value
+        from services.automated_trading.domain.enums import V2PositionState as PosState
+
+        current = PosState(position.state)
+        if current != expected_current:
+            raise ValueError(
+                f"Position {position_id!r} expected state {expected_current.value}, "
+                f"found {current.value} (version={position.version})"
+            )
+        validate_position_transition(current, next_state)
+        position.state = next_state.value
+        position.version = int(position.version) + 1
+        if next_state is PosState.CLOSED:
+            position.closed_at = occurred_at or datetime.now(UTC)
+        if next_state is PosState.PROTECTED:
+            position.protected_at = occurred_at or datetime.now(UTC)
+        self.append_event(
+            aggregate_id=position_id,
+            aggregate_type="POSITION",
+            event_type=event_type,
+            event_payload={
+                **payload,
+                "from_state": current.value,
+                "to_state": next_state.value,
+                "version": position.version,
+            },
+            occurred_at=occurred_at or datetime.now(UTC),
+        )
         self.session.flush()
+
+    # ------------------------------------------------------------------
+    # Protection
+    # ------------------------------------------------------------------
 
     def save_protection(
         self,
@@ -237,7 +547,6 @@ class AutomatedTradingRepository:
         tp_client_order_id: str | None,
         state: V2ProtectionState,
     ) -> None:
-        """Save protection order intent."""
         protection = V2ProtectionRecord(
             protection_id=protection_id,
             position_id=position_id,
@@ -246,8 +555,50 @@ class AutomatedTradingRepository:
             stop_client_order_id=stop_client_order_id,
             tp_client_order_id=tp_client_order_id,
             state=state.value,
+            version=0,
         )
         self.session.add(protection)
+        self.session.flush()
+
+    def transition_protection(
+        self,
+        protection_id: str,
+        expected_current: V2ProtectionState,
+        next_state: V2ProtectionState,
+        event_type: str,
+        payload: dict,
+        occurred_at: datetime | None = None,
+    ) -> None:
+        from services.automated_trading.domain.enums import V2ProtectionState as ProtState
+
+        protection = self.session.get(V2ProtectionRecord, protection_id)
+        if protection is None:
+            raise ValueError(f"Protection {protection_id!r} not found")
+        current = ProtState(protection.state)
+        if current != expected_current:
+            raise ValueError(
+                f"Protection {protection_id!r} expected state {expected_current.value}, "
+                f"found {current.value} (version={protection.version})"
+            )
+        validate_protection_transition(current, next_state)
+        if next_state is ProtState.PROTECTION_ACTIVE:
+            assert_protection_active_requires_exchange_order_id(protection.stop_exchange_order_id)
+        protection.state = next_state.value
+        protection.version = int(protection.version) + 1
+        if next_state is ProtState.PROTECTION_ACTIVE:
+            protection.activated_at = occurred_at or datetime.now(UTC)
+        self.append_event(
+            aggregate_id=protection_id,
+            aggregate_type="PROTECTION",
+            event_type=event_type,
+            event_payload={
+                **payload,
+                "from_state": current.value,
+                "to_state": next_state.value,
+                "version": protection.version,
+            },
+            occurred_at=occurred_at or datetime.now(UTC),
+        )
         self.session.flush()
 
     def update_protection_active(
@@ -257,16 +608,42 @@ class AutomatedTradingRepository:
         new_state: V2ProtectionState,
         activated_at: datetime,
     ) -> None:
-        """Mark protection as active with exchange conditional order IDs."""
+        """Attach exchange IDs then force a validated transition to ACTIVE."""
+        from services.automated_trading.domain.enums import V2ProtectionState as ProtState
+
         protection = self.session.get(V2ProtectionRecord, protection_id)
         if protection is None:
             raise ValueError(f"Protection {protection_id!r} not found")
-
+        assert_protection_active_requires_exchange_order_id(receipt.stop_exchange_order_id)
         protection.stop_exchange_order_id = receipt.stop_exchange_order_id
         protection.tp_exchange_order_id = receipt.tp_exchange_order_id
-        protection.state = new_state.value
-        protection.activated_at = activated_at
         self.session.flush()
+        current = ProtState(protection.state)
+        if current is ProtState.PROTECTION_INTENT:
+            self.transition_protection(
+                protection_id=protection_id,
+                expected_current=ProtState.PROTECTION_INTENT,
+                next_state=ProtState.PROTECTION_SUBMITTING,
+                event_type="ProtectionSubmitting",
+                payload={},
+                occurred_at=activated_at,
+            )
+            current = ProtState.PROTECTION_SUBMITTING
+        self.transition_protection(
+            protection_id=protection_id,
+            expected_current=current,
+            next_state=new_state,
+            event_type="ProtectionActivated",
+            payload={
+                "stop_exchange_order_id": receipt.stop_exchange_order_id,
+                "tp_exchange_order_id": receipt.tp_exchange_order_id,
+            },
+            occurred_at=activated_at,
+        )
+
+    # ------------------------------------------------------------------
+    # Events / recon / incidents / runtime control
+    # ------------------------------------------------------------------
 
     def append_event(
         self,
@@ -277,7 +654,6 @@ class AutomatedTradingRepository:
         event_payload: dict,
         occurred_at: datetime,
     ) -> str:
-        """Append event to immutable event log. Returns event_id."""
         event = V2ExecutionEvent(
             aggregate_id=aggregate_id,
             aggregate_type=aggregate_type,
@@ -299,9 +675,10 @@ class AutomatedTradingRepository:
         discrepancies: dict,
         status: str,
         captured_at: datetime,
+        cycle_id: str | None = None,
     ) -> str:
-        """Record reconciliation snapshot. Returns snapshot_id."""
         snapshot = V2ReconciliationSnapshot(
+            cycle_id=cycle_id,
             execution_mode=execution_mode.value,
             exchange_positions=exchange_positions,
             exchange_open_orders=exchange_open_orders,
@@ -322,12 +699,15 @@ class AutomatedTradingRepository:
         related_aggregate_id: str | None,
         description: str,
         context: dict,
+        intent_id: str | None = None,
+        position_id: str | None = None,
     ) -> str:
-        """Record execution incident. Returns incident_id."""
         incident = V2ExecutionIncident(
             incident_type=incident_type,
             severity=severity,
             related_aggregate_id=related_aggregate_id,
+            intent_id=intent_id,
+            position_id=position_id,
             description=description,
             context=context,
         )
@@ -335,8 +715,43 @@ class AutomatedTradingRepository:
         self.session.flush()
         return incident.incident_id
 
+    def get_runtime_control(self, scope: str = "global") -> V2RuntimeControl:
+        control = self.session.get(V2RuntimeControl, scope)
+        if control is None:
+            control = V2RuntimeControl(
+                scope=scope,
+                entry_enabled=False,
+                reason="default_disabled_until_gate5",
+                updated_by="system",
+                version=0,
+            )
+            self.session.add(control)
+            self.session.flush()
+        return control
+
+    def set_runtime_control(
+        self,
+        *,
+        scope: str,
+        entry_enabled: bool,
+        reason: str | None,
+        updated_by: str | None,
+        expected_version: int | None = None,
+    ) -> V2RuntimeControl:
+        control = self.get_runtime_control(scope)
+        if expected_version is not None and int(control.version) != expected_version:
+            raise ValueError(
+                f"Runtime control {scope!r} version conflict: expected {expected_version}, found {control.version}"
+            )
+        control.entry_enabled = entry_enabled
+        control.reason = reason
+        control.updated_by = updated_by
+        control.version = int(control.version) + 1
+        control.updated_at = datetime.now(UTC)
+        self.session.flush()
+        return control
+
     def get_open_positions(self, execution_mode: V2ExecutionMode, symbol: str | None = None) -> list[V2ManagedPosition]:
-        """Get open positions (not CLOSED or QUARANTINED)."""
         stmt = select(V2ManagedPosition).where(
             V2ManagedPosition.execution_mode == execution_mode.value,
             V2ManagedPosition.state.not_in(["CLOSED", "QUARANTINED"]),
@@ -346,13 +761,10 @@ class AutomatedTradingRepository:
         return list(self.session.scalars(stmt))
 
     def get_position_by_id(self, position_id: str) -> V2ManagedPosition | None:
-        """Get position by position_id."""
         return self.session.get(V2ManagedPosition, position_id)
 
     def commit(self) -> None:
-        """Commit the transaction."""
         self.session.commit()
 
     def rollback(self) -> None:
-        """Rollback the transaction."""
         self.session.rollback()
