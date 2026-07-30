@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from unittest.mock import Mock
 
 from services.data.repository import DataRepository
 from shared.models import Exchange, MarketExtras, OHLCVBar, Timeframe
@@ -58,6 +59,22 @@ def test_timeseries_repository_upserts_duplicate_market_rows(db_session) -> None
     assert loaded_bars[0].close == Decimal("42100")
     assert len(loaded_extras) == 1
     assert loaded_extras[0].funding_rate == Decimal("0.0009")
+
+
+def test_timeseries_repository_batches_sqlite_ohlcv_upsert(db_session, monkeypatch) -> None:
+    repo = DataRepository(db_session)
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    execute = Mock(wraps=db_session.execute)
+    monkeypatch.setattr(db_session, "execute", execute)
+
+    repo.store_ohlcv_bars(
+        [
+            _bar("BTC/USDT", start + timedelta(minutes=index), str(42000 + index), timeframe="1m")
+            for index in range(5_000)
+        ]
+    )
+
+    assert execute.call_count == 1
 
 
 def test_gap_and_freshness_checks(db_session) -> None:

@@ -22,6 +22,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -162,39 +163,34 @@ class DataRepository:
             )
         if rows:
             if self._is_postgres():
-                stmt = postgres_insert(ohlcv_bars).values(rows)
+                postgres_stmt = postgres_insert(ohlcv_bars).values(rows)
                 self.session.execute(
-                    stmt.on_conflict_do_update(
+                    postgres_stmt.on_conflict_do_update(
                         index_elements=["symbol", "exchange", "timeframe", "time"],
                         set_={
-                            "open": stmt.excluded.open,
-                            "high": stmt.excluded.high,
-                            "low": stmt.excluded.low,
-                            "close": stmt.excluded.close,
-                            "volume": stmt.excluded.volume,
+                            "open": postgres_stmt.excluded.open,
+                            "high": postgres_stmt.excluded.high,
+                            "low": postgres_stmt.excluded.low,
+                            "close": postgres_stmt.excluded.close,
+                            "volume": postgres_stmt.excluded.volume,
                         },
                     )
                 )
             else:
-                for row in rows:
-                    result = self.session.execute(
-                        update(ohlcv_bars)
-                        .where(
-                            ohlcv_bars.c.time == row["time"],
-                            ohlcv_bars.c.symbol == row["symbol"],
-                            ohlcv_bars.c.exchange == row["exchange"],
-                            ohlcv_bars.c.timeframe == row["timeframe"],
-                        )
-                        .values(
-                            open=row["open"],
-                            high=row["high"],
-                            low=row["low"],
-                            close=row["close"],
-                            volume=row["volume"],
-                        )
-                    )
-                    if getattr(result, "rowcount", 0) == 0:
-                        self.session.execute(insert(ohlcv_bars), row)
+                sqlite_stmt = sqlite_insert(ohlcv_bars)
+                self.session.execute(
+                    sqlite_stmt.on_conflict_do_update(
+                        index_elements=["symbol", "exchange", "timeframe", "time"],
+                        set_={
+                            "open": sqlite_stmt.excluded.open,
+                            "high": sqlite_stmt.excluded.high,
+                            "low": sqlite_stmt.excluded.low,
+                            "close": sqlite_stmt.excluded.close,
+                            "volume": sqlite_stmt.excluded.volume,
+                        },
+                    ),
+                    rows,
+                )
             self.session.commit()
         return len(rows)
 
