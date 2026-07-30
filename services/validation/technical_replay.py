@@ -295,9 +295,7 @@ class TechnicalStrategyComparisonReport:
         baseline_curve = {item["time"]: item["equity"] for item in self.baseline._equity_curve()}
         candidate_curve = {item["time"]: item["equity"] for item in self.candidate._equity_curve()}
         for point in sorted(set(baseline_curve) | set(candidate_curve)):
-            lines.append(
-                f"| {point} | {baseline_curve.get(point, '')} | {candidate_curve.get(point, '')} |"
-            )
+            lines.append(f"| {point} | {baseline_curve.get(point, '')} | {candidate_curve.get(point, '')} |")
         if issues:
             lines.extend(["", "## Data Issues", "", *[f"- {issue}" for issue in sorted(set(issues))]])
         return "\n".join(lines) + "\n"
@@ -432,7 +430,7 @@ def compare_exit_policies(
     if symbols is not None:
         wanted = set(symbols)
         market_data = {symbol: frames for symbol, frames in market_data.items() if symbol in wanted}
-    start_at, end_at = (date_range or (None, None))
+    start_at, end_at = date_range or (None, None)
 
     def _replay(policy: ExitPolicy) -> ReplayMetrics:
         service = TechnicalStrategyValidationService(
@@ -641,11 +639,7 @@ class TechnicalStrategyValidationService:
         end_at: datetime | None,
     ) -> tuple[list[ReplayTrade], int, list[str]]:
         view = HistoricalMarketDataView(market_data)
-        missing = [
-            timeframe
-            for timeframe in required_timeframes
-            if not view.bars(symbol=symbol, timeframe=timeframe)
-        ]
+        missing = [timeframe for timeframe in required_timeframes if not view.bars(symbol=symbol, timeframe=timeframe)]
         if missing:
             return [], 0, [f"{symbol}: missing {timeframe}" for timeframe in missing]
         symbol_start = start_at or self._warmup_start(view=view, symbol=symbol, timeframes=required_timeframes)
@@ -695,9 +689,7 @@ class TechnicalStrategyValidationService:
             start_at=shared_start,
             end_at=shared_end,
         )
-        density = (
-            candidate_all.signal_count / baseline_all.signal_count if baseline_all.signal_count > 0 else None
-        )
+        density = candidate_all.signal_count / baseline_all.signal_count if baseline_all.signal_count > 0 else None
         promotion = self._promotion_decision(baseline_oos=baseline_oos, candidate_oos=candidate_oos)
         return TechnicalStrategyComparisonReport(
             generated_at=datetime.now(UTC),
@@ -753,7 +745,7 @@ class TechnicalStrategyValidationService:
         trades: list[ReplayTrade] = []
         signal_count = 0
         risk_prices = PaperSignalGenerator(data_repo=cast(DataRepository, view))
-        for bar in bars:
+        for index, bar in enumerate(bars):
             if bar.timestamp < start_at or (end_at is not None and bar.timestamp > end_at):
                 continue
             view.set_cutoff(bar.timestamp)
@@ -776,11 +768,18 @@ class TechnicalStrategyValidationService:
             ):
                 continue
             signal_count += 1
-            entry_price = float(decision.reference_price)
+            # A signal is confirmed on the closed bar; the earliest historical
+            # fill is the next bar's open, matching the live scheduler boundary.
+            if index + 1 >= len(bars):
+                continue
+            fill_bar = bars[index + 1]
+            if end_at is not None and fill_bar.timestamp > end_at:
+                continue
+            entry_price = float(fill_bar.open)
             if entry_price <= 0:
                 continue
             stop_price, take_price = risk_prices._risk_prices(
-                reference_price=decision.reference_price,
+                reference_price=fill_bar.open,
                 direction=decision.direction,
                 strategy=strategy,
                 atr=decision.atr,
@@ -804,7 +803,7 @@ class TechnicalStrategyValidationService:
             position = _OpenPosition(
                 symbol=symbol,
                 side=decision.direction,
-                opened_at=bar.timestamp,
+                opened_at=fill_bar.timestamp,
                 entry_price=entry_price,
                 stop_price=float(stop_price),
                 take_price=effective_take,
@@ -816,7 +815,14 @@ class TechnicalStrategyValidationService:
                 trail_after_r=trail_after_r,
             )
         if position is not None and position.remaining_fraction > 0:
-            latest = next((bar for bar in reversed(bars) if bar.timestamp >= start_at), None)
+            latest = next(
+                (
+                    bar
+                    for bar in reversed(bars)
+                    if bar.timestamp >= start_at and (end_at is None or bar.timestamp <= end_at)
+                ),
+                None,
+            )
             if latest is not None:
                 trades.append(
                     self._close(
@@ -969,13 +975,13 @@ class TechnicalStrategyValidationService:
                     slippage_bps=position.slippage_bps,
                     original_stop=position.original_stop,
                     remaining_fraction=position.remaining_fraction,
-                ladder=ladder,
-                trail_after_r=position.trail_after_r,
-                mae_r=position.mae_r,
-                mfe_r=position.mfe_r,
-                bars_to_mfe=position.bars_to_mfe,
-                bars_held=position.bars_held,
-            )
+                    ladder=ladder,
+                    trail_after_r=position.trail_after_r,
+                    mae_r=position.mae_r,
+                    mfe_r=position.mfe_r,
+                    bars_to_mfe=position.bars_to_mfe,
+                    bars_held=position.bars_held,
+                )
         return closed, position
 
     @staticmethod
@@ -1113,9 +1119,7 @@ class TechnicalStrategyValidationService:
             periods_per_year = max(1.0, len(ordered) / span_years) if span_years > 0 else float(len(ordered))
         else:
             periods_per_year = 1.0
-        hold_hours = [
-            max(0.0, (trade.closed_at - trade.opened_at).total_seconds() / 3600.0) for trade in ordered
-        ]
+        hold_hours = [max(0.0, (trade.closed_at - trade.opened_at).total_seconds() / 3600.0) for trade in ordered]
         ladder_hits: dict[str, int] = {}
         for trade in ordered:
             if trade.exit_reason.startswith("exit_ladder_"):

@@ -43,6 +43,7 @@ class _ScheduledPipeline:
             trace={"pipeline_status": "scheduled_signal" if should_trade else "no_signal"},
         )
 
+
 def _bars(*, symbol: str, timeframe: str, count: int = 100) -> list[dict]:
     start = datetime(2026, 1, 1, tzinfo=UTC)
     step = {"15m": timedelta(minutes=15), "1h": timedelta(hours=1), "4h": timedelta(hours=4)}[timeframe]
@@ -113,6 +114,145 @@ def test_replay_uses_live_pipeline_and_deducts_round_trip_costs() -> None:
     assert result.trades[0].mfe_r == 2.0
     assert result.trades[0].mae_r == 0.0
     assert result.trades[0].bars_to_mfe == result.trades[0].bars_held == 1
+
+
+def test_replay_fills_at_next_bar_open_after_closed_bar_signal() -> None:
+    symbol = "BTC/USDT"
+    bars = _bars(symbol=symbol, timeframe="1h", count=100)
+    signal_index = 80
+    fill_index = signal_index + 1
+    exit_index = signal_index + 2
+    bars[signal_index].update(
+        {
+            "open": Decimal("99"),
+            "high": Decimal("105"),
+            "low": Decimal("98"),
+            "close": Decimal("100"),
+        }
+    )
+    bars[fill_index].update(
+        {
+            "open": Decimal("110"),
+            "high": Decimal("110"),
+            "low": Decimal("109"),
+            "close": Decimal("110"),
+        }
+    )
+    bars[exit_index].update(
+        {
+            "open": Decimal("110"),
+            "high": Decimal("113"),
+            "low": Decimal("109"),
+            "close": Decimal("110"),
+        }
+    )
+    data = {
+        symbol: {
+            "1h": bars,
+            "15m": _bars(symbol=symbol, timeframe="15m"),
+            "4h": _bars(symbol=symbol, timeframe="4h"),
+        }
+    }
+    signal_at = bars[signal_index]["time"]
+    service = TechnicalStrategyValidationService(
+        pipeline_factory=lambda view: _ScheduledPipeline(view, {signal_at}),
+        warmup_bars=80,
+    )
+
+    result = service.replay(strategy=_strategy(key="next-bar-open", timeframe="1h"), market_data=data)
+
+    assert result.total_trades == 1
+    trade = result.trades[0]
+    assert trade.opened_at == bars[fill_index]["time"]
+    assert trade.entry_price == 110.0
+    assert trade.closed_at == bars[exit_index]["time"]
+    assert trade.exit_reason == "takeprofit"
+
+
+def test_replay_does_not_fill_signal_without_a_following_bar() -> None:
+    symbol = "BTC/USDT"
+    bars = _bars(symbol=symbol, timeframe="1h", count=100)
+    signal_at = bars[-1]["time"]
+    data = {
+        symbol: {
+            "1h": bars,
+            "15m": _bars(symbol=symbol, timeframe="15m"),
+            "4h": _bars(symbol=symbol, timeframe="4h"),
+        }
+    }
+    service = TechnicalStrategyValidationService(
+        pipeline_factory=lambda view: _ScheduledPipeline(view, {signal_at}),
+        warmup_bars=80,
+    )
+
+    result = service.replay(strategy=_strategy(key="no-next-bar", timeframe="1h"), market_data=data)
+
+    assert result.signal_count == 1
+    assert result.total_trades == 0
+
+
+def test_replay_does_not_fill_next_bar_outside_end_at() -> None:
+    symbol = "BTC/USDT"
+    bars = _bars(symbol=symbol, timeframe="1h", count=100)
+    signal_at = bars[80]["time"]
+    data = {
+        symbol: {
+            "1h": bars,
+            "15m": _bars(symbol=symbol, timeframe="15m"),
+            "4h": _bars(symbol=symbol, timeframe="4h"),
+        }
+    }
+    service = TechnicalStrategyValidationService(
+        pipeline_factory=lambda view: _ScheduledPipeline(view, {signal_at}),
+        warmup_bars=80,
+    )
+
+    result = service.replay(
+        strategy=_strategy(key="end-at-fill-boundary", timeframe="1h"),
+        market_data=data,
+        end_at=signal_at,
+    )
+
+    assert result.signal_count == 1
+    assert result.total_trades == 0
+
+
+def test_replay_closes_open_position_at_end_at_not_data_tail() -> None:
+    symbol = "BTC/USDT"
+    bars = _bars(symbol=symbol, timeframe="1h", count=100)
+    signal_index = 80
+    signal_at = bars[signal_index]["time"]
+    for bar in bars[signal_index + 1 :]:
+        bar.update(
+            {
+                "open": Decimal("100"),
+                "high": Decimal("100"),
+                "low": Decimal("100"),
+                "close": Decimal("100"),
+            }
+        )
+    end_at = bars[85]["time"]
+    data = {
+        symbol: {
+            "1h": bars,
+            "15m": _bars(symbol=symbol, timeframe="15m"),
+            "4h": _bars(symbol=symbol, timeframe="4h"),
+        }
+    }
+    service = TechnicalStrategyValidationService(
+        pipeline_factory=lambda view: _ScheduledPipeline(view, {signal_at}),
+        warmup_bars=80,
+    )
+
+    result = service.replay(
+        strategy=_strategy(key="end-at-close-boundary", timeframe="1h"),
+        market_data=data,
+        end_at=end_at,
+    )
+
+    assert result.total_trades == 1
+    assert result.trades[0].closed_at == end_at
+    assert result.trades[0].exit_reason == "end_of_window"
 
 
 def test_comparison_requires_all_promotion_gates_and_never_mutates_strategy() -> None:
@@ -271,9 +411,10 @@ def test_exit_ladder_mode_records_partial_closes_and_hold_hours() -> None:
     assert "exit_ladder_1.5r" in reasons
     assert result.ladder_level_hits.get("exit_ladder_1r", 0) >= 1
     assert result.average_hold_hours >= 0
-    assert abs(sum(trade.quantity_fraction for trade in result.trades) - 1.0) < 1e-6 or sum(
-        trade.quantity_fraction for trade in result.trades
-    ) >= 0.7
+    assert (
+        abs(sum(trade.quantity_fraction for trade in result.trades) - 1.0) < 1e-6
+        or sum(trade.quantity_fraction for trade in result.trades) >= 0.7
+    )
 
 
 def test_historical_view_reuses_slices_until_the_replay_time_changes() -> None:
