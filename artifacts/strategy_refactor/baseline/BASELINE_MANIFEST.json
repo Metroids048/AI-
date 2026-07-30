@@ -21,18 +21,18 @@
     "trades.jsonl",
     "README.md"
   ],
-  "auxiliary_git_sha": "5524d045c2d213dde7e0d5463f913481e05650bf",
+  "auxiliary_git_sha": "71a29bdb6b7ba6175aac346b3db9df7ca6b33721",
   "config_hash": "d4ab08a8104602d88db7a4d9603d26c6cabbb7d15f3b4127f04bfcb55efa51b2",
   "cutoff": null,
-  "data_hash": "cd6a74145b43a1d3821e0cf3f86ad0f820aae930f90298814250477a564a1719",
+  "data_hash": "e91f73a337f0eedf90133c6abb2a3655893b0f03715210ff605c4d0d6714066e",
   "execution_eligible": false,
   "final_holdout_end": null,
   "final_holdout_start": null,
-  "generated_at": "2026-07-29T10:41:42.280179+00:00",
+  "generated_at": "2026-07-30T02:35:10.984598+00:00",
   "holdout_policy": "not_frozen; required series unavailable",
   "holdout_results_accessed": false,
-  "observed_at": "2026-07-29T10:41:42.280179+00:00",
+  "observed_at": "2026-07-30T02:35:10.984598+00:00",
   "schema_version": 1,
-  "source_tree_hash": "b5210640337cd8059b68e7fb686e4435b3c788ee44ad365da89c71d71ca95313",
+  "source_tree_hash": "4b8e7c5301afe7fbb35dbd9962f213e1e39fda9b2ccc5f66580d08bbd7cdb216",
   "status": "DATA_COVERAGE_INSUFFICIENT"
 }

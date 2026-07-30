@@ -1,7 +1,127 @@
 {
   "algorithm": "sha256(sorted(relative_path<TAB>content_sha256<LF>))",
-  "file_count": 683,
+  "excluded_path_parts": [
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "artifacts",
+    "build",
+    "coverage",
+    "dist",
+    "htmlcov",
+    "logs",
+    "node_modules",
+    "site-packages"
+  ],
+  "file_count": 973,
   "files": [
+    {
+      "path": ".agent/TASK_STATE_TEMPLATE.json",
+      "sha256": "dfbf65b068120dfce69610ee13bdea5050c592f905a2f4a38c3e107c7bf81f1e"
+    },
+    {
+      "path": ".agents/skills/verify-work/SKILL.md",
+      "sha256": "42a387f1e5cb5aa1d9f8886468df88a055d2782d04e56f0a2ef9e3eeb6185d51"
+    },
+    {
+      "path": ".audit/自动开平仓系统审查记录_20260725.md",
+      "sha256": "8ec4bea826ba5ec73fb0c97a8576426f4f812278161d9a2ff2ff85cff692dc78"
+    },
+    {
+      "path": ".claude/agents/code-reviewer.md",
+      "sha256": "42c2e7eec8528c81a7d5f25eefe0a8017420f7231c0166c8c0b83022346ad16c"
+    },
+    {
+      "path": ".claude/hooks/_hooklib.py",
+      "sha256": "d2e6ee362b55120cebc4cd0d0abcb03a9c3c75ed5e3484575b5b78ab624227a2"
+    },
+    {
+      "path": ".claude/hooks/gate_stop.py",
+      "sha256": "a29581b7638214ef02c85d50d113b2da9ded6cb23b3f14a8e136b5aa7c55d125"
+    },
+    {
+      "path": ".claude/hooks/guard_bash.py",
+      "sha256": "a9c93d020e5da6d3d768a59b894e7be5d3ec0920f0eb06448f0203412436f48b"
+    },
+    {
+      "path": ".claude/hooks/inject_context.py",
+      "sha256": "6d02e41624fee1375f6ec77bd10ed6c61a013d7199e91bb04ab7d989f20585a3"
+    },
+    {
+      "path": ".claude/hooks/selftest.py",
+      "sha256": "c6007b16a1b13d643a542c1f89bdc9f7d864016ea49933aad4bafe2c16d9c31e"
+    },
+    {
+      "path": ".claude/hooks/verify_critical_edit.py",
+      "sha256": "d4a7c22eb6c6dc5f0df20d30d748e1eb23198320bde1b68071e3137002a4f04a"
+    },
+    {
+      "path": ".claude/memory/MEMORY.md",
+      "sha256": "7f9da54f10635b86946dc339baa16f36049b4ecd6ce2448b68e4f77ecc1e2a05"
+    },
+    {
+      "path": ".claude/memory/project_manual_position_fix.md",
+      "sha256": "1a46b2957ef3b070c4f123d976701ae1b7c5f0b5f139b7fdfe5969990373f337"
+    },
+    {
+      "path": ".claude/projects/c--Users-Windows11-Desktop-----/memory/MEMORY.md",
+      "sha256": "d219f7f984c60d2ce87c3c43e26bf0df37acf68e2bf2374ccc73ae2e63abc6cc"
+    },
+    {
+      "path": ".claude/projects/c--Users-Windows11-Desktop-----/memory/code-stability-rule.md",
+      "sha256": "62d6dba25c49937941f34ed11c1313b46d9d26c68b466086e0c18c41575cb55f"
+    },
+    {
+      "path": ".claude/rules/testing.md",
+      "sha256": "ac95fe088fc09d6672ab929a42146e9dc9d58292665c1ad4a3308cb4be5e54d5"
+    },
+    {
+      "path": ".claude/settings.json",
+      "sha256": "9bf613f4e3adaf0eb4b50d258369f1445f8ecc69fbb43121f00b2e4624706308"
+    },
+    {
+      "path": ".claude/settings.local.json",
+      "sha256": "8757d3aa111b328e2bfdfda701bf6da364ab691e0742e32a4e5b508c182be9a7"
+    },
+    {
+      "path": ".claude/skills/verify-work/SKILL.md",
+      "sha256": "42a387f1e5cb5aa1d9f8886468df88a055d2782d04e56f0a2ef9e3eeb6185d51"
+    },
+    {
+      "path": ".cursor/commands/Token耗尽前收口.md",
+      "sha256": "fc485d3910342b8dbb995915c9c2d87e4580a0a18a9bf0dd994509e833902ac8"
+    },
+    {
+      "path": ".cursor/commands/同步项目知识.md",
+      "sha256": "e4cf8a903cc26385682a8aa665efdc9cd493d068b453f96c3b133dbad3e1ce30"
+    },
+    {
+      "path": ".cursor/commands/开始任务记录.md",
+      "sha256": "3297bdcd1f091c4de6f8f36e4cae212a17d3d23a64fca34b9e9a3a63a32fc4c4"
+    },
+    {
+      "path": ".cursor/commands/生成视频素材.md",
+      "sha256": "c36783ba4bc0bca6ca24ecfcfac3eb50d5203ed1ea6e3951de8951fb6eecc500"
+    },
+    {
+      "path": ".cursor/commands/结束并归档.md",
+      "sha256": "880f7acfb32f934cb039bd98b776d2f71b83c427638e9b09f33f0b08bb3c3ccc"
+    },
+    {
+      "path": ".cursor/commands/项目阶段复盘.md",
+      "sha256": "7c4dd0c58a750f8a99d3f2226a1e33831bb577c555dc1478de9859080d1c3a3f"
+    },
+    {
+      "path": ".cursor/hooks.json",
+      "sha256": "663a32885707c49c24e364ca6809852376bffcc5bc9bc7e2e92b0c9b1cbbc244"
+    },
+    {
+      "path": ".cursor/skills/verify-work/SKILL.md",
+      "sha256": "42a387f1e5cb5aa1d9f8886468df88a055d2782d04e56f0a2ef9e3eeb6185d51"
+    },
     {
       "path": ".github/agent/coding-standards.md",
       "sha256": "4bb33d79b5d38cfbf16eff5b301e9c705089fda6de59a5b001fcb2dffd5630a6"
@@ -12,11 +132,11 @@
     },
     {
       "path": ".github/agent/memory/project-memory.md",
-      "sha256": "7b9be387d7d66a05348ab49417f67fedd2968b9ae3464934401277d273eba346"
+      "sha256": "07b66a9720b03ca5e468437a55c4faec4822797073c420332d71751c3abe959a"
     },
     {
       "path": ".github/agent/memory/task-history.md",
-      "sha256": "4bd0c09d805eaf0a625d4f54e9aa98fff7975543f7f949914fab8e63a641eb66"
+      "sha256": "6b3ec7ca2c5158016067a4c6af04622b95c529b3d1bdfb280640484192751ca6"
     },
     {
       "path": ".github/agent/prompt-templates.md",
@@ -51,8 +171,100 @@
       "sha256": "5709daf77d781cc94d57e1db821a9876d6c7072309a3b90db5f2509d45f71c40"
     },
     {
+      "path": ".local/_audit_age.py",
+      "sha256": "f80ae9d2a42e581d0f4c3f9d3dc9df69f2e1302482129688d2ead4be05c4a1b6"
+    },
+    {
+      "path": ".local/_audit_reject_detail.py",
+      "sha256": "a0352f2fa6de142ae690ccca54bc3c51bce2c7765f45bc6d99615c4b98b116df"
+    },
+    {
+      "path": ".local/_audit_reject_detail2.py",
+      "sha256": "d3f30786113159c6fc43c32e2051c5e149c7cad77a98e33d97a2d049f6c1f321"
+    },
+    {
+      "path": ".local/_audit_rejects.py",
+      "sha256": "319eba3b9ec4760c1ffeb1ace23a74507f0b3e5c0dcb2bfb3483298f89bee80f"
+    },
+    {
+      "path": ".local/_audit_runtime_db.py",
+      "sha256": "41ac2434fcfbc193f81e8453e6a251422267f8a8eea54ba832d0b526b66cd2c2"
+    },
+    {
+      "path": ".local/_audit_runtime_db2.py",
+      "sha256": "b35a621886ba8fc5b58bdf3da9d9b873f098331d5a69f68323e7937c3f0083bf"
+    },
+    {
+      "path": ".local/audit/adversarial_pure_checks.py",
+      "sha256": "84b7df432c887c0ae2608f6a00922736b7750e09dc3173c50b39381433c6498e"
+    },
+    {
+      "path": ".local/audit/browser-processes.json",
+      "sha256": "dc7896bee0aafeb59a6921ffc6f9f2511c7179c05b09100ceb2364b884252dd7"
+    },
+    {
+      "path": ".local/audit/gateway_idempotency_check.py",
+      "sha256": "c508097fa9426dd858ca70dbf2bc24d9bd1cdf625dd4fbc7de35d955d376d678"
+    },
+    {
+      "path": ".local/audit/testnet_preflight.py",
+      "sha256": "67c1d890bc3fb19623807a8ad671abca053fb38d2a568d54ac059d231c613d9f"
+    },
+    {
+      "path": ".local/extract_thread.py",
+      "sha256": "dcb3f375fad487d26834d2720a0ebbed2cc8af30fb129803869a03aed5e30fe1"
+    },
+    {
+      "path": ".pre-commit-config.yaml",
+      "sha256": "a976125a517b7ea0f5076727278069aa117f42b57e8d56e4fe927d5f29dd77b9"
+    },
+    {
+      "path": ".superpowers/sdd/progress.md",
+      "sha256": "28066d02a946d5ecc8007071e54aaf379011787187adfb022dcc8174cf0717ba"
+    },
+    {
+      "path": ".superpowers/sdd/task-1-brief.md",
+      "sha256": "e3f932a6077acf9eb470fa4d86aa18080fc77b56f00ec86ed07cfb4f85c5ac3b"
+    },
+    {
+      "path": "2026-07-27-automatic-trading-v2-final-rebuild-plan.md",
+      "sha256": "f65129704fa2fe37c22852285131401cfb93f3024ce181911958d6255e49b67f"
+    },
+    {
+      "path": "2026-07-29-crypto-strategy-closure-design.md",
+      "sha256": "742d4828849a1735080af7784fa65a197377c872d5d37316733ab0bba3b260cd"
+    },
+    {
+      "path": "2026-07-29-crypto-strategy-refactor-prompt.md",
+      "sha256": "f76a28800ca2f85336324a13a7ed2735ebf60ae7057687e4691f35d7f88e2f4f"
+    },
+    {
       "path": "AGENTS.md",
       "sha256": "1f5280c41c31b53be40d101c6be1c2bedef4444ffba1b8ff1b3dc6fff0b0f26b"
+    },
+    {
+      "path": "AI原始记录/2026-07-28_112855_AI--main_验证报告.md",
+      "sha256": "5cc1e5730f31e07420bc317a0d6fc1ae7aadbf2e4e5060bb52a7d17060266b49"
+    },
+    {
+      "path": "AI原始记录/2026-07-28_112855_CursorCLI_AI--main_AI输出.md",
+      "sha256": "3e052d46e5c83a23da52a8266969a42b1eceb347f5fbf95cf444a8b1f06959e2"
+    },
+    {
+      "path": "AI原始记录/2026-07-28_112855_CursorCLI_AI--main_用户输入.md",
+      "sha256": "ad7fcd1eb0fbff7efb562db01bbba87cc5b528f79b503beb943ff17201d19256"
+    },
+    {
+      "path": "AI原始记录/2026-07-28_112856_AI--main_验证报告.md",
+      "sha256": "677d3d97242514a0a5c59113ddc9190f50f5ea87c866df326b8f95fdb0d34cbf"
+    },
+    {
+      "path": "AI原始记录/2026-07-28_112856_CursorCLI_AI--main_AI输出.md",
+      "sha256": "ced1d40e8fa3e7a596051b66e629aa1448c89cc7dd03313834c9b80bfd76dc01"
+    },
+    {
+      "path": "AI原始记录/2026-07-28_112856_CursorCLI_AI--main_用户输入.md",
+      "sha256": "4396495e33dcb589f5235c8bef82bbe232f17e467e764264d815fbac8f4b89db"
     },
     {
       "path": "CLAUDE.md",
@@ -61,6 +273,10 @@
     {
       "path": "CURRENT_STATE.md",
       "sha256": "23f26c54f9dd3f71b81f24d4ab63ee3860372906b5098818c2798f728227e672"
+    },
+    {
+      "path": "README.md",
+      "sha256": "69e9152461f4cce7fb75932c67b87b6ef818c02b868c174e9931744e4c67f3fc"
     },
     {
       "path": "apps/__init__.py",
@@ -171,8 +387,860 @@
       "sha256": "62c8b704219438f45bf06e8023dde0e1f7cc49d890403d98b89635c4d51658ed"
     },
     {
+      "path": "audit/AUDIT_ACCEPTANCE_MAP.md",
+      "sha256": "2c9be83f51ecb6ed070cada8bfdac56b1acf067c93efd021b94390c740fc75d6"
+    },
+    {
+      "path": "audit/AUTO_ENTRY_CALL_GRAPH.md",
+      "sha256": "f1e48524cbd464a53a7d3b400819e8f4dc9e6e3e018da4b5d8d8de6f2216888e"
+    },
+    {
+      "path": "audit/AUTO_EXIT_CALL_GRAPH.md",
+      "sha256": "1dc3d67ee6044a030fb646fbebbbd3c02302a04661c94531037fbf546233c875"
+    },
+    {
+      "path": "audit/CONFIG_CONFLICTS.md",
+      "sha256": "be9ac2372d6676085f20c062592f83c47cb5a2026615d6b5558ff8729fed66aa"
+    },
+    {
+      "path": "audit/CONFIG_MAP.md",
+      "sha256": "6061c5d001d8119805d29ba493e4051cd26edd680d1d145823ee8f4fc994efbe"
+    },
+    {
+      "path": "audit/CONFIG_PRECEDENCE.md",
+      "sha256": "99f6a9be82c3de319215346b7d9fe6c85267493e23a1e8a2738bac4a05190857"
+    },
+    {
+      "path": "audit/ENTRYPOINTS.md",
+      "sha256": "c8a7cdeb2c1b1c98b02d2ac21dbebfb26918c3d8970f4cc57bcdac1273071d0e"
+    },
+    {
+      "path": "audit/INDEPENDENT_REVIEW.md",
+      "sha256": "135091c0eb8d655a4d2cbeb9fc6dbad88e67e32a800684a632d1d417b879785d"
+    },
+    {
+      "path": "audit/ISOLATED_TEST_DESIGN.md",
+      "sha256": "f6729bc071c7a6829b9ddfcd9c89e8f00f5572fed1e714cba5624b538124fd01"
+    },
+    {
+      "path": "audit/MANUAL_VS_AUTO_DIFF.md",
+      "sha256": "e934c6382f244d6da3e2fc8b38769c2bf047a71856bfe105ae163b0b3c96f88e"
+    },
+    {
+      "path": "audit/OBSERVABILITY_GAPS.md",
+      "sha256": "039636d0e4f11f0c47043066eaec2bd065f5ecc75c83057933b129f9acbc83d2"
+    },
+    {
+      "path": "audit/PIPELINE_ACCEPTANCE_MATRIX.md",
+      "sha256": "45f04a0fd21c0dadc13a5ca698e45f7958b983e08c98dc29eb08519db503629d"
+    },
+    {
+      "path": "audit/PRE_EXCHANGE_VERIFICATION_REPORT.md",
+      "sha256": "e425968683e2a33dac7d00c2bfd24943110c7ebde4643991918787f9d05995a3"
+    },
+    {
+      "path": "audit/RECENT_CHANGE_MAP.md",
+      "sha256": "58ce35f0a96658627c8466db4baccccfbdababe52e9a27843c4d6678b374af55"
+    },
+    {
+      "path": "audit/REPOSITORY_MAP.md",
+      "sha256": "c6c9a8afa23d0261de802ae9834c1e0641ebb836f2e09a85dfc562a14bbcd1b8"
+    },
+    {
+      "path": "audit/ROOT_CAUSE_REPORT.md",
+      "sha256": "ac9290c7fa747aa79c497dafa2a1749f99e591120899573c260457b3044332c8"
+    },
+    {
+      "path": "audit/SILENT_DROP_INVENTORY.md",
+      "sha256": "0b3be13b5abb15efea6722af659a8b5b2bf571c323d312ef2f64a9e2e0dd4040"
+    },
+    {
+      "path": "audit/STAGE_COUNT_MODEL.md",
+      "sha256": "44de8b97cf9728a7c4cdf6a22ebd1fed3dd4854573d944ab306ce216a7837478"
+    },
+    {
+      "path": "audit/TEST_BASELINE.md",
+      "sha256": "69264f8bb82fcf3088a2283cbfc788da3e5dadbbdb3eff83449b2010f1e9e43d"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/BASELINE.json",
+      "sha256": "07e9b50c1141d07a0d294a649ef495336c9602c731dd649830ce5e9f60d10a06"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/CHANGESET.md",
+      "sha256": "b6205fcf86ff0b41c3654e8f65424380dd8474bbedccf8a5ffc2df773c2fe029"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/ENVIRONMENT.md",
+      "sha256": "e223bac58f35d4828aa1e783589154f9a32669fe18906a8c0985ccceb7e377e9"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/FINDINGS.md",
+      "sha256": "0f10d1ae0424890b936735498e38c7a9745969805cc399292ff00e6000e7163a"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/GLOBAL_ACCEPTANCE_MANIFEST.json",
+      "sha256": "760ce7004bb3a6796fb7bbb230ae62cceb6e0182721ce67d1cd6b0b04dadf494"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/GLOBAL_ACCEPTANCE_REPORT.md",
+      "sha256": "631ec67e014aad9562fd024bfbb44d0045380bf19b0b6dbf66769a1adc8fb36a"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/NEXT_ACTION_PROMPT.md",
+      "sha256": "245cc5a57a97487324c776b90ab29257fcfacb90e3fa107346fbdd63143ccd01"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/PROBES/capture_phase0.ps1",
+      "sha256": "1eda07e07e2cb04bb2600959e81f3f76706f166120f6c895ac94d9e528f364ac"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/PROBES/snapshot_master_prompt.ps1",
+      "sha256": "5010310c300ceab4fc13103250ecf0d50769d9120bac220baf16b6d172933405"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/PROBES/verify_outputs.ps1",
+      "sha256": "0e699ac56524249c342d392c56369b19a9127585612b7065eb60db1438ca2dbc"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/PRODUCTION_CALL_GRAPH.md",
+      "sha256": "cd1990a823e9061db7295cf88a0c2a855634b5306e862bcb79b9f17605031f2e"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/00-initial-baseline.command.json",
+      "sha256": "1004e7cd5c1d18c2df7bf3ff2bbaa80868256f70dc2608b9ae4e5a750cc5359f"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/01-git-status.command.json",
+      "sha256": "63e92e8160de8927fc26e753d70dba57d2088a35d65654fe96d1d6ec60021716"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/02-git-branch.command.json",
+      "sha256": "ea854b78cf7b18bee858c2b9d96f343f72b6e748fbac6ae8ac2500894cf5886c"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/03-git-head.command.json",
+      "sha256": "e78ecf83d23ec487d7c6a228c8bfda220571c4bfdcfa48a112eb760430b41a72"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/04-git-log-head.command.json",
+      "sha256": "455836c10bafaedc7897d3226e8b03c8f12fd5de7c00ea7bf9e02caa4cdc6cd0"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/05-git-remotes.command.json",
+      "sha256": "b018e7bb4957a64a8c91c510beaa6eb72a70adb62d484cdf5bcd2326b81cd5df"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/06-old-baseline.command.json",
+      "sha256": "be27b23f5eff606b756e68329d2b24d33b5c59541d44616b8d7a0298734cead3"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/07-diff-stat.command.json",
+      "sha256": "8b20f25d01b67f5f5e5047e6fbcddfb60a1d03e7c9a8b2491806accfa70da2d6"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/08-diff-name-status.command.json",
+      "sha256": "a61d874fb788ada2532535621b8d3deb852a64faaaa742da3a037174016bc712"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/09-log-range.command.json",
+      "sha256": "9f2c7514df3439903bfa674ed2965ee89cfccd1591e6f39e7d78bb3084e29c60"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/10-python-version.command.json",
+      "sha256": "6ee2855a535a76e248ce8b7b32983a5428942de53822913af5da78beebefd85c"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/11-pip-version.command.json",
+      "sha256": "0c7d68dfe35556e26ab210319aff5dc6f352aebdcc60299580d6c00e5fa36144"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/12-node-version.command.json",
+      "sha256": "5bc7f6c952cca3fa3dfc50c2833875fc0fbcaedf1c645c187ebb3b7cde48f9be"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/13-npm-version.command.json",
+      "sha256": "3a30f6e41b68a3bdc76448510d1bdfd8efe3879238dfe4d49be01ea031e9e07f"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/14-pnpm-version.command.json",
+      "sha256": "8752833a0f07e7f3524b8675a1ad2e3fcb38df4e2d405a6fc1740a7ef27ab8c3"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/15-docker-version.command.json",
+      "sha256": "e6dd9b4e838bcd048aae000736b077acadb20f08ed2a247abd4911f9e3ba17e9"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/16-environment-presence.command.json",
+      "sha256": "b09f946668b38637ca204b824771e2d0305e3da035cf98eeee54b7383cbd26f9"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/17-output-verification.command.json",
+      "sha256": "f04af6daf383081652bad6d170191bc6d8ec8a4a6ab527acaa1055cd45646db4"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/18-master-prompt-snapshot.command.json",
+      "sha256": "1362432773ff9cfc762fe83be2594dc2aae42bb4506f4354982d22de65af0ae3"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/RAW/master-prompt.snapshot.md",
+      "sha256": "1e17a1844bf53403936a5b2b1abeae21d529618c8fbbf5393a06af1d84bec341"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/STRATEGY_READINESS.md",
+      "sha256": "2104e9aa4c5d4987a3340f215e9fb8b9408c0a6d96d6720546006c75ae0a9c77"
+    },
+    {
+      "path": "audit/global_acceptance/20260729-143208-7351110/TEST_MATRIX.md",
+      "sha256": "c838eb9214cac560c7924a79e4dbebc89f3f43824506989a539b0b4548da3a10"
+    },
+    {
+      "path": "audit/v2_closure/baseline.json",
+      "sha256": "f1210547b8938737bfcb2e20a905bf76058c30f6d1634db9200625948e0f0c97"
+    },
+    {
+      "path": "audit/v2_closure/gate1_database_integrity.json",
+      "sha256": "f819329322dccf6ba697906742c285f5a82995faf3c285f422c6f127be62ba7d"
+    },
+    {
+      "path": "audit/v2_closure/gate2_scheduler_fact_chain.json",
+      "sha256": "35da70c38939b4054f2fe164e0e49b7a90d29f17d4aae62c310ab90c079af16b"
+    },
+    {
+      "path": "audit/v2_closure/gate3_exit_recovery.json",
+      "sha256": "7107de4c670ccb477007fa586ae107d93b21ed915beab9a35beb0193cb0d8afe"
+    },
+    {
+      "path": "audit/v2_closure/gate4_runtime_api_frontend.json",
+      "sha256": "c37b2343d04480c714ccf54e98b1af3e378fa649143796554cf599f70716c476"
+    },
+    {
+      "path": "audit/v2_closure/gate5_status.json",
+      "sha256": "1541650392e1cdeec820159b69a751fb0a1b4f79b086b1a1dfb0906905935d7b"
+    },
+    {
+      "path": "docker-compose.dev.yml",
+      "sha256": "80a8beaed96ef80e11bad9ade4d9f343e3cebbcc0ee322c658493e256ff1a8b0"
+    },
+    {
+      "path": "docker-compose.live.yml",
+      "sha256": "4ec817008ad36e8c194e2b9a6fe7912e4681ade0388d86f1000b5203ffbe91e1"
+    },
+    {
+      "path": "docker-compose.paper.yml",
+      "sha256": "3bd179ee5e70ea6cefeecd05bf099b8122f5e984660f612d2e2dd6a27dc36845"
+    },
+    {
+      "path": "docker-compose.test.yml",
+      "sha256": "59e52c356103c7db66ddae8c2af4331dc42426ae651322f015b3921c806014a1"
+    },
+    {
       "path": "docker-compose.yml",
       "sha256": "c233569de2b12f1e0a780df66b1e0962c61667453bf03f57158cbade16ad6a26"
+    },
+    {
+      "path": "docs/2026-07-27-crypto-quant-strategy-v2-refactor-plan.md",
+      "sha256": "a70c358293e986f8072a394cd795056a77a48011d9c678fc81180d03bb5c8295"
+    },
+    {
+      "path": "docs/AGENT_LESSONS.md",
+      "sha256": "0ba79dc4c88272466266ba2081732c61eeed9ebf162444569929ecac8e4f5ab6"
+    },
+    {
+      "path": "docs/BINANCE_AUTO_TRADING_DIAGNOSIS_2026-07-25.md",
+      "sha256": "c5f8b27b717cc2bbe22b354e0081b0b1feda91fc29e09adabe80757dfbcd6040"
+    },
+    {
+      "path": "docs/BINANCE_AUTO_TRADING_SUMMARY_2026-07-25.md",
+      "sha256": "658afb2bca33c9831b88b1410ad4bdd8049a3f99651d0072949223bfdef35ed2"
+    },
+    {
+      "path": "docs/DELIVERY-REPORT.md",
+      "sha256": "306d53c3bf3e22dfaa0095ab9fd0611541689c1584e88927c1b1d74496198fc6"
+    },
+    {
+      "path": "docs/DRAWDOWN_FIX_CHECKLIST.md",
+      "sha256": "abf234c6365f66c670f2819c89f65aa65041a0a402de4440c5a46d8c9809b212"
+    },
+    {
+      "path": "docs/EXIT-POLICY-VALIDATION-SUMMARY.md",
+      "sha256": "f836dd794bd8b2280f31952da76b993c965c8e268c5a4b53721ddc0de000f9bc"
+    },
+    {
+      "path": "docs/FINAL_ACCEPTANCE_REPORT_2026-07-25.md",
+      "sha256": "d8b466d7cd09a7f421e9611ed5d1af2878fc2ed015d27743783e4a890d8df020"
+    },
+    {
+      "path": "docs/FINAL_VERIFICATION_REPORT.md",
+      "sha256": "9dbca8657b5678394676d6c8b19774743bb60efe47e51d8c1027a25b4fbf3930"
+    },
+    {
+      "path": "docs/FRONTEND_FIX_DELIVERY_REPORT.md",
+      "sha256": "5e012d956314fa400c3984edf1113b9cc5b61d5d8a1c79feae381bff47f02878"
+    },
+    {
+      "path": "docs/FRONTEND_ISSUES_DIAGNOSIS_2026-07-26.md",
+      "sha256": "23171dcf26881d5dce002a8595db03cae2fc1e2bb160a85dc0e4f750572b34a5"
+    },
+    {
+      "path": "docs/ORDER_SYNC_EXPLANATION.md",
+      "sha256": "067051f559b218907b69a2d810e51531434230dca912e20bc889db5422719ae9"
+    },
+    {
+      "path": "docs/README.md",
+      "sha256": "2110af554aa5ec724b5dc46e445e35d3c8bf82e3c9d8eb3fe3b576169e9ef5f5"
+    },
+    {
+      "path": "docs/STRATEGY_DIAGNOSIS_2026-07-26.md",
+      "sha256": "b8cb9648e5f0cdf91c2407fb2f9cd502a3bf6324f3a83ad06b28a5a689b95b9f"
+    },
+    {
+      "path": "docs/SYSTEM_STATUS_CONFIRMATION.md",
+      "sha256": "ff590b54a9812ac06d462b901f7ef1312555d6498a2f042fb8932263edabedff"
+    },
+    {
+      "path": "docs/TASK_COMPLETION_SUMMARY.md",
+      "sha256": "4e754d10c96e45dab22418f3749e85cccb0849011eb4b8bdb8bfe0f4defcc6ff"
+    },
+    {
+      "path": "docs/TASK_SPEC_TEMPLATE.md",
+      "sha256": "9f644843af3df0decde399647b068d0226a7b288d9a7f927bf5dbb92297578f8"
+    },
+    {
+      "path": "docs/adr/ADR-001-automated-trading-v2-single-writer.md",
+      "sha256": "e5bb4b9c471470383c3482130923320a7d2e57691f9df5bf9e64ccf9b2abc706"
+    },
+    {
+      "path": "docs/adr/ADR-002-exchange-first-receipts.md",
+      "sha256": "31427bcffee33e8ea7e8b7fd667a5a8f4452eee0148b00fbbc1bd70890f26bbc"
+    },
+    {
+      "path": "docs/adr/ADR-003-entry-exit-gate-separation.md",
+      "sha256": "86b8a50c5b9b04756b1bae08e13d2d1b02caca6fa504575cd64003760973ead9"
+    },
+    {
+      "path": "docs/analysis/2026-07-15-auto-trading-logic-report.md",
+      "sha256": "66b232cc6adaed287f3657b07695314ac3679c036dec6d8ca0926e7194cd8d3c"
+    },
+    {
+      "path": "docs/analysis/2026-07-15-comprehensive-project-analysis.md",
+      "sha256": "1191bf19bce157d9e0e853e277919ab201dd874be72637a0f2728dde70cfc308"
+    },
+    {
+      "path": "docs/analysis/auto-trading-logic.md",
+      "sha256": "f737ce26379cdd79f7c22201a9738360cdff78e3220e446ce02cc349aa7886e4"
+    },
+    {
+      "path": "docs/analysis/why-solutions-not-implemented.md",
+      "sha256": "94aa4c5c69582a5a9ef657a2a95298af49c274bfb991fded1db88972917e788f"
+    },
+    {
+      "path": "docs/architecture/2026-07-12-top20-technical-validation-design.md",
+      "sha256": "c028d425854d96dbcfe57466234e9119eceff2f30c13ceff1933fe026da82283"
+    },
+    {
+      "path": "docs/architecture/24x7-operations-plan.md",
+      "sha256": "250912c5d20f50715e308eab51e4f0017c0dc402e6be2dcb2f8f3aa0fbe8aa4d"
+    },
+    {
+      "path": "docs/architecture/agent-and-orchestration-design.md",
+      "sha256": "f9aaa12145e60c3028b0939762b20a8a8fc2a4f42c3fbff44a5d8a1caf6ecce8"
+    },
+    {
+      "path": "docs/architecture/appendix-a-repository-structure.md",
+      "sha256": "65e583dc36be4e88ae0dda3b0b6bb7e5b2a0946d3d69651a2c5e438cad6809f3"
+    },
+    {
+      "path": "docs/architecture/appendix-b-feature-phasing.md",
+      "sha256": "c1d598bcbbf29cdbd3654a6b3e519b3fc36762048b45e9838f4eeac13a047448"
+    },
+    {
+      "path": "docs/architecture/appendix-c-principles-and-non-goals.md",
+      "sha256": "26a1dafd68441e6aa588aaa1c166915d5c9563c517de9974b4d6faf1d5d5752c"
+    },
+    {
+      "path": "docs/architecture/automated-trading-v2.md",
+      "sha256": "c719ab48bbe264a7571e4e172c186644e113e276a2fcb245bd858ebf07b90d69"
+    },
+    {
+      "path": "docs/architecture/current-trading-pipeline.md",
+      "sha256": "466561da9afa191d7d1aaee9493f5cfc00ea90a78e1a788071ed3a054e553001"
+    },
+    {
+      "path": "docs/architecture/data-and-ingestion-design.md",
+      "sha256": "545ee035f65e186163467ef3d4fd98c2ba16bea88d87d72c346404c5da3839a4"
+    },
+    {
+      "path": "docs/architecture/design-source-index.md",
+      "sha256": "c688321db805178e9289aab981ac9586191a407da6324cdf52a3495e163fa621"
+    },
+    {
+      "path": "docs/architecture/domain-and-interfaces-design.md",
+      "sha256": "35ffd96e1eec927e1c358fe587a77c3037ad6be14743baf7bb0878f7994c4caa"
+    },
+    {
+      "path": "docs/architecture/execution-risk-review-design.md",
+      "sha256": "5ccc5ef59a554106cf6d2ab6a0146846619d990bfe2d8701d846b172b7d52194"
+    },
+    {
+      "path": "docs/architecture/external-data-source-integration-plan.md",
+      "sha256": "04cb97110db373b68592e0a728081e3dbe3bf6095ef8c4276be20eb3d7e6c520"
+    },
+    {
+      "path": "docs/architecture/implementation-status-matrix.md",
+      "sha256": "b8a63c3ca409ea73d4e740c011ca9856a9c312d939a3a0ff314ede1700b040b8"
+    },
+    {
+      "path": "docs/architecture/llm-integration-plan.md",
+      "sha256": "98355ae9433fb141b2fe0087591e09f3026298ba2b4baff61dba3c42fe083cc3"
+    },
+    {
+      "path": "docs/architecture/platform-master-design.md",
+      "sha256": "39a6f110ed3bb1906f3c735eb64e49f1b51a1c16bd92ea3dbf24e62967afaf6c"
+    },
+    {
+      "path": "docs/architecture/report-alignment.md",
+      "sha256": "04e6368cbbc1949dde78e51d6bd5778f8055660bd03bef6888ad97da1f511047"
+    },
+    {
+      "path": "docs/architecture/risk-control-and-safeguards-plan.md",
+      "sha256": "902bb32a4eb16f39581804fa563f730432a9815beb17a7bc99de0c7ffe1e806d"
+    },
+    {
+      "path": "docs/architecture/strategy-library-collection-and-scoring.md",
+      "sha256": "30df4d2fbb33b518b13c45f823f6041d31f1235a1a64fa23ce44891602fcde8f"
+    },
+    {
+      "path": "docs/architecture/technical-architecture-plan.md",
+      "sha256": "ef61f9b6b29a455754b766e047fde941d9a1d40e7f605d3c6d64b21edb9b129f"
+    },
+    {
+      "path": "docs/architecture/temporal-migration-adr.md",
+      "sha256": "c8e1e2f5a5942a05fe3b2e7539850c753f11538a6f38d10fca9b8e417d54ac98"
+    },
+    {
+      "path": "docs/architecture/v2-integration-reconciliation.md",
+      "sha256": "bd2cc9f597b6b6f231f3103c26684096e05ae839c08114a41cd6b3c73eca8ee6"
+    },
+    {
+      "path": "docs/architecture/validation-methodology.md",
+      "sha256": "79ceabf83cf8e991aa4ab8cabf6bd63cf01b0240c4dc2df61ef4b093fce97f6a"
+    },
+    {
+      "path": "docs/archive/2026-07/README.md",
+      "sha256": "3d09d2dac650648291a53fb72b6ab63aa1649240783052bcc4d63dfed53b6bf3"
+    },
+    {
+      "path": "docs/archive/2026-07/diagnosis/2026-07-16-automatic-paper-order-remediation.md",
+      "sha256": "cf0b92a3f474a1c640a0457cc8a844e2fb7f2581a299a0e246edc0429b0cb5c1"
+    },
+    {
+      "path": "docs/archive/2026-07/diagnosis/2026-07-16-zero-orders-diagnosis.md",
+      "sha256": "396a67b46ade140400b2ae9dbf0d65af286537b51bc02e33b38fd576157a3eae"
+    },
+    {
+      "path": "docs/archive/2026-07/diagnosis/system-readiness-2026-07-15.md",
+      "sha256": "d2ca88255b1e992bd68409b2da0e6329ce64deb3924835b76f4e802c800a279d"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/.temp_design_pandas_ta_adapter.md",
+      "sha256": "26a065623f1e13c821a2f9c3dea7b52af9fc0d50818f42a826c40cac6a709d65"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/01_项目综合审查报告_2026-07-16.md",
+      "sha256": "2b6798d2d43316c6541e909c845ce7381b9fd750e658bbab1daadd9c80c222e8"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/02_7x24自动开平仓逻辑与量化策略详细报告_2026-07-16.md",
+      "sha256": "18dba5c2f8e5d89277a93313a27e72bc7d40e50eaae3e4d0c0b2c3197acd2390"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/02_量化策略与LLM+RAG开平单逻辑详细报告.md",
+      "sha256": "5b68370a18e2ccaf06af5ccb8f386f16794ac9b3f88fde4a2a07c9dcc04eea4a"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/04_分模块实施方案.md",
+      "sha256": "bb8a4cef644fe075d0cc1ece4c4f711d0cc503502a531edacac523ee0664089c"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/AI量化平台_开发协作Prompt手册 (1).md",
+      "sha256": "41b3ea0f8031828dd81f0bac152dfa463403760a9626ed5506cb0ca0fa46822e"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/DEPLOY-ULTRA-AGGRESSIVE-CONFIG.md",
+      "sha256": "d7c63af2eaf3fc72bf6f07c6da47c92bcba2e8f76cae6da2872d7dc2fe956652"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/FINAL-DELIVERY-SUMMARY.md",
+      "sha256": "bcd67c2095588e9ca01b69312c871fc77b9174d5dfc86183df39ac975fa26d6d"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/HANDOFF-COMPLETE.md",
+      "sha256": "f745e5bc0bf6621e4a0d7abd62084e4fd8b4e4382f0fe5d9a73e3b909db8006b"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/HANDOFF.md",
+      "sha256": "65eb70e56d79a73b759098d3408bba2f3db6b5ed982786b0ca784b55412ef182"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/README-ENV-FIX.md",
+      "sha256": "56e6143ee74281818e39e3f0d610ec3ecc8f50bb6e3dbe5484a0fa6a3ab64977"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/URGENT-ACTION-REQUIRED.md",
+      "sha256": "c7595218f88ed7b6baf27973a1b6a99281a54851417ec5d412fca7bbaa8bb618"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/findings.md",
+      "sha256": "6c3efa2a3174ad8941191e4e42c42adc3dec72b56112ef25a9027eaef8938fee"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/overview.md",
+      "sha256": "8b3bee9fbc4ebc04edf56bcf00bff060145f239b20d44e01a410e93fd1cd1607"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/progress.md",
+      "sha256": "4491908cbc68e0872ac1d32888c2b672f6972b440ce21e71e2a59c8984ff36ac"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/task_plan.md",
+      "sha256": "a237039fdddd5353cbaecb6fc25936b0a2296063cbd23e2eb1bc56ac12003a01"
+    },
+    {
+      "path": "docs/archive/2026-07/legacy-root/立即执行-简化版.md",
+      "sha256": "7a02ad73037748d1b0ecdc4c8a4c1f59179022070948a5330f9a34c1db8b3c40"
+    },
+    {
+      "path": "docs/audit/AI-global-project-acceptance-audit-master-prompt.md",
+      "sha256": "1e17a1844bf53403936a5b2b1abeae21d529618c8fbbf5393a06af1d84bec341"
+    },
+    {
+      "path": "docs/audit/deployment-coupled-trading-incident.md",
+      "sha256": "c9e6359b3dac92bff24d9d96364e082a96faa11ef1979b371c08d565cf2f7da2"
+    },
+    {
+      "path": "docs/audit/manual-trade-miss-analysis.md",
+      "sha256": "499a747c2862604497a6c27ccb25352ac692e09f8da98a680eaf2c9d8f3d3c82"
+    },
+    {
+      "path": "docs/audit/phase-1-5-strategy-optimization-delivery.md",
+      "sha256": "b7e94e38db8dd6580338ca9025008ac0ffd97b1cc9bf780522adfbcea041018e"
+    },
+    {
+      "path": "docs/audit/scheduler-liveness-report.md",
+      "sha256": "dc2ddd4daa188b5ad83ccece7cc748b771d2814f716aa746b8d1114ecf0db1b7"
+    },
+    {
+      "path": "docs/audit/shadow-ablation-report.md",
+      "sha256": "3fad8b3f05e0dc2ff56333d20bc4ae2c177fc6049bc82491c25659ec502c97d7"
+    },
+    {
+      "path": "docs/audit/strategy-liveness-funnel.md",
+      "sha256": "4f7cfd41a8c904e419038a57316027f6dd4d35afb0e4586c3172134c6d6d89d4"
+    },
+    {
+      "path": "docs/audit/swing-strategy-oos-report.md",
+      "sha256": "7763055837a071a1112fb832b770cf04cfe136dd86a9e5aa5788d12056c67de0"
+    },
+    {
+      "path": "docs/audit/trade-burst-root-cause.md",
+      "sha256": "742d5293496be34b743ee9dbc5155007ca36954d5c68635774b4ff3f0dd43450"
+    },
+    {
+      "path": "docs/audit/trading-system-audit.md",
+      "sha256": "2533e9c5e1126d23bc0caea856163ff305650831b7c0d34ea53cfc84888fac82"
+    },
+    {
+      "path": "docs/audits/2026-07-10-global-adversarial-architecture-audit.md",
+      "sha256": "5e9473281909b4db484b77c949ff14872a9c84336bd06076edaf0afa0606c093"
+    },
+    {
+      "path": "docs/audits/2026-07-12-current-state-review.md",
+      "sha256": "2fadb6dbaaac86df6e306e1b324111244d6d5620015cc3e5f5a8b31167824a71"
+    },
+    {
+      "path": "docs/audits/2026-07-12-directional-binance-reachability.md",
+      "sha256": "a1175d822afa58968826a002a4c90253f3f79f7b13b0be75d561708db59ca1ca"
+    },
+    {
+      "path": "docs/audits/2026-07-12-directional-ghost-reduceonly-fix.md",
+      "sha256": "7fbfc4035a16e428e3ee32215a8754b4ca410df2aac67fdd21b231e7ec04acef"
+    },
+    {
+      "path": "docs/audits/2026-07-12-exitladder-binance-sim-boundary.md",
+      "sha256": "12e25ebbcc8e7e57f2a1183a274fe58c2ce4d635b1676e8effa88681e373d9db"
+    },
+    {
+      "path": "docs/audits/2026-07-12-exitladder-replay-comparison.md",
+      "sha256": "1d222c387d1e9af30df70d413874f7500e628bc9ac2154c84d85269fd840c333"
+    },
+    {
+      "path": "docs/audits/2026-07-12-risk-gate-iteration.md",
+      "sha256": "135f952ebd12de26261c28c7f8b14fb83c2b1711dce77754f9a8ee0902ff126e"
+    },
+    {
+      "path": "docs/audits/2026-07-12-top20-technical-validation.md",
+      "sha256": "eb9d2767d7929164a2314315cbfe3c73933d7908e7ccdb963854cb674ae2ddfe"
+    },
+    {
+      "path": "docs/audits/2026-07-14-exposure-rejection-audit.md",
+      "sha256": "f1252ab2c73196c538210c24a02a11a09314325b9a27f186c749dfd753308fa8"
+    },
+    {
+      "path": "docs/audits/2026-07-14-signal-edge-stats.md",
+      "sha256": "c0e383a55f4f958a51869d32a505801474e381017ad12306c1dfde6e5af0fef7"
+    },
+    {
+      "path": "docs/audits/2026-07-14-top20-data-completeness.md",
+      "sha256": "57dbdd36bfdde6ea8243507d7f2e51f140e0cce8034e4c549acf31741b9de2ee"
+    },
+    {
+      "path": "docs/audits/2026-07-15-carry-delta-neutral-complete.md",
+      "sha256": "e7d37a1c6b0bba77a83e493d7a8e87db8ab17bb80337613e038745022e8b9c12"
+    },
+    {
+      "path": "docs/audits/2026-07-15-carry-delta-neutral-fix.md",
+      "sha256": "ab259d17064f51b991c841099b769c3376ae84ae4539f9b678cdaebbe82c6105"
+    },
+    {
+      "path": "docs/audits/2026-07-15-carry-delta-neutral-implementation-status.md",
+      "sha256": "1e000e783b7274630042eb8998609beeb1d3b267736dfa49a4e411a305177156"
+    },
+    {
+      "path": "docs/audits/2026-07-15-fix-module11-and-module6-implementation-gap.md",
+      "sha256": "d7031fd29387de9732b3c076587ee14f828d364203193bcd7378f8596f00fc60"
+    },
+    {
+      "path": "docs/audits/2026-07-15-multi-device-env-consistency.md",
+      "sha256": "4b3ff9e8f1946af309488af89f37eba9bedfca32ecaeb8b7004a7d7b306696d7"
+    },
+    {
+      "path": "docs/audits/2026-07-15-task-execution-summary.md",
+      "sha256": "1b0255f02a87a25f6c86f49f523b21cf8d13d3be909419edba573ebdeac995b9"
+    },
+    {
+      "path": "docs/audits/2026-07-15-verification-report.md",
+      "sha256": "dfd87c0bd2ccf6454370bcbaf9d6c9c6a8dc1a6374857b60bfaf764ca1287f2d"
+    },
+    {
+      "path": "docs/audits/2026-07-18-five-candidate-competition.json",
+      "sha256": "bb1079b6cc2c3701bbfa68c0bca9c11508ae9c886bbc2c53000d54e0e000673f"
+    },
+    {
+      "path": "docs/audits/2026-07-18-five-candidate-competition.md",
+      "sha256": "d88978dec67a26d502de9aa947a9bb448e187c62809a2710037a06bd504d2a5a"
+    },
+    {
+      "path": "docs/audits/2026-07-18-trend_momentum_v1-mae_mfe.json",
+      "sha256": "2c077adb9f9a70e6c414b9349382daaaa6cc6f8ebe65617ef4d8ff225f169964"
+    },
+    {
+      "path": "docs/audits/2026-07-19-five-candidate-competition.json",
+      "sha256": "bb047687affa86d926d2e51c687816142047dc5a933e8f06bacb9e908d9e2bee"
+    },
+    {
+      "path": "docs/audits/2026-07-19-five-candidate-competition.md",
+      "sha256": "3b318251b85a44d579aeaf42a8b15867ce2ac8651be1300cb9522adca15b69e2"
+    },
+    {
+      "path": "docs/audits/2026-07-19-paper-runtime-split-review.md",
+      "sha256": "25b810ca3398be42aa44c95de3d1480e68d0397e7cd1e6cc48082e0f7d4d029e"
+    },
+    {
+      "path": "docs/audits/2026-07-29-strategy-refactor-audit.md",
+      "sha256": "d4007ce3ab9dc9ff93dd53b034262f3ac8800e1b146cb1886b9ebb0d86795e92"
+    },
+    {
+      "path": "docs/audits/_directional_ghost_repair.json",
+      "sha256": "1cbc9536ceb8f7cfa8c5f7405509c4600c7ff0e219659a06e6bf7ffb7c2056e8"
+    },
+    {
+      "path": "docs/audits/_directional_manual_mirror_proof.json",
+      "sha256": "4bb50769b7927f101eb2484ded6a68b86edc84f56bdbbddc1c46769665679930"
+    },
+    {
+      "path": "docs/audits/_directional_ops_finalize.json",
+      "sha256": "9f4634664b3afc0d3bf5ce25b7f7bc184b971488a8d468082b192dba769eb867"
+    },
+    {
+      "path": "docs/audits/_directional_unblock_cycle.json",
+      "sha256": "2c297ca943575e83d3bf9262167ede66d442870bd3bf2ef3cd7ca63d973b11a5"
+    },
+    {
+      "path": "docs/audits/_phase_a_order_provenance.json",
+      "sha256": "8cf082664db940700d315af38aa6ba42b10f0576445759c4028ec1d9729702e0"
+    },
+    {
+      "path": "docs/audits/_phase_a_probe_raw.json",
+      "sha256": "0e22fc32e8164bdd54798a665335ba204c8ff209b10c6309faff3228e16b7d60"
+    },
+    {
+      "path": "docs/audits/_phase_a_sqlite_raw.json",
+      "sha256": "589362a33452142f2ddaaf7ff705a6bd69c5b94dd3cff8a29a70ca90b1f3bce5"
+    },
+    {
+      "path": "docs/bugfix/2026-07-16-edge-calculation-fix.md",
+      "sha256": "40e029e3840de9a2faac9cfaa34c0d713086e41de0ff7a08c13096dabd91bffb"
+    },
+    {
+      "path": "docs/chan-theory-integration-guide.md",
+      "sha256": "f84e7944b4e7de36136a8ae7318fae102ce5bce495abf020f452d6ca796964ec"
+    },
+    {
+      "path": "docs/evidence/active-edge-stats/auto_paper_mature_templates/trend_momentum_v1/BTCUSDT/active.json",
+      "sha256": "b70b6c2af1550b7e86d7d0207d55197a71fbb8450e90b82e60986fe90165e106"
+    },
+    {
+      "path": "docs/evidence/active-edge-stats/auto_paper_mature_templates/trend_momentum_v1/ETHUSDT/active.json",
+      "sha256": "f742954721eaeb3ea6110a1212088a9ed57b868b56b0430e2cd3977fd06a7736"
+    },
+    {
+      "path": "docs/evidence/active-manifests/auto_paper_mature_templates.json",
+      "sha256": "04e6149f887cbe8842ff8a4f4fb78f4ca23d11decb85601b76dc0f355c689803"
+    },
+    {
+      "path": "docs/evidence/runtime-ledger/README.md",
+      "sha256": "ae7e17ef80c86883b5531276e45ef9bbf70c3518ea9caa8474b88ac98426a6bb"
+    },
+    {
+      "path": "docs/evidence/runtime-ledger/current/SUMMARY.md",
+      "sha256": "0595e47086f3a11ddd93453a0c01c1c5799fb27a4d7780a7190049f9511a8ee2"
+    },
+    {
+      "path": "docs/evidence/runtime-ledger/current/manifest.json",
+      "sha256": "8862114874f72aa92af3f9df7f33e2d48ae612bcc8e6f2bb36d89abf8f5f3f00"
+    },
+    {
+      "path": "docs/exit-policy-validation-runbook.md",
+      "sha256": "bed8c19888904151c112a515dc8261486ee5dbd19b399089280fdd024b97d8e7"
+    },
+    {
+      "path": "docs/hotfix/HOTFIX-001-carry-hedge-indentation.md",
+      "sha256": "024ec274ff5c61610e0c42ebf5e364d7c00bee12e62d75ed7291529b3f584d75"
+    },
+    {
+      "path": "docs/implementation/CURRENT_TRADING_FLOW.md",
+      "sha256": "41476f492bed357e071ea0823668ada9bded6cdddf82c71b686f629403fd68f2"
+    },
+    {
+      "path": "docs/implementation/C_PLUS_DELIVERY_SUMMARY.md",
+      "sha256": "fdc876f851075e205e9cea338fa9e711da3c853434ea19852beeb648e469d133"
+    },
+    {
+      "path": "docs/implementation/C_PLUS_QUICK_START.md",
+      "sha256": "0683b7c7b6090a70b1562e74afd48e538f98b17583c7f1e1643b16721588f667"
+    },
+    {
+      "path": "docs/implementation/ENSEMBLE_WEIGHTED_FINAL.md",
+      "sha256": "c86b26a9d996611b471a4c521f48d6073a273a5280aba89e90ba63b040fc204b"
+    },
+    {
+      "path": "docs/implementation/ENSEMBLE_WEIGHTED_MINIMAL.md",
+      "sha256": "880806b1854327af01715638a119f8c4d3b55c90e55c83502aa70d474cfec9fd"
+    },
+    {
+      "path": "docs/implementation/c_plus_strategy_implementation_report.md",
+      "sha256": "b72ec8297a4d1f4afd7554476fd8312df5da3be37697d387740074c0e9a66887"
+    },
+    {
+      "path": "docs/operations/FIXES-SUMMARY.md",
+      "sha256": "0d1d9a8c27c469e51ecf855e2ad1e738492d1d73309a7f0d9e1230f1f0b83db3"
+    },
+    {
+      "path": "docs/operations/STARTUP-GUIDE.md",
+      "sha256": "1ae1fb10253704584e785805c2a2c08eef0f48287784574504df1d948b10eedc"
+    },
+    {
+      "path": "docs/ops/delivery-checklist.md",
+      "sha256": "b12f5effd5a458b71824bfd4268e7478ed606567aadb37d0ae7df7d785ca6622"
+    },
+    {
+      "path": "docs/ops/environment-and-config.md",
+      "sha256": "4691cc7c889fe1ad954b93b1f2208d4dd4076063de6304bc1b428eb86b67e3e7"
+    },
+    {
+      "path": "docs/optimization/2026-07-15-aggressive-paper-config.md",
+      "sha256": "3df69ca9e5542d6e38c3c9402af3b56364563329e7bf7d770c19342195028887"
+    },
+    {
+      "path": "docs/optimization/2026-07-15-strategy-optimization-plan.md",
+      "sha256": "7f32ec1e7eddfa446743b3228ff246623aa00ca5949e299bbf670fd29b176496"
+    },
+    {
+      "path": "docs/optimization/2026-07-15-ultra-aggressive-final-config.md",
+      "sha256": "c02fea5990f3cafdc7fd7e9bb5cf50589ea0681d7a01ab002366b1711d3edcab"
+    },
+    {
+      "path": "docs/process/config-change-checklist.md",
+      "sha256": "092b5e37b877040caeee2f3dcb3944e9a5b556133912f2d3e89c5ff1efdaaf8a"
+    },
+    {
+      "path": "docs/product/feature-catalog.md",
+      "sha256": "cc5b62fc6381f621a644498604398d65618f782bfb37076906461257004c230d"
+    },
+    {
+      "path": "docs/product/module-feature-catalog.md",
+      "sha256": "257887adf027853b9bc1141244cc2dae246b32f1ea827455c6e4551dfb6c02a0"
+    },
+    {
+      "path": "docs/product/prd.md",
+      "sha256": "48d3bca705c66b8d91e6840605cc158029afc8e7d553d5bb3f31c2ed6fafae0c"
+    },
+    {
+      "path": "docs/product/product-spec.md",
+      "sha256": "c168478c58f3607eac2dadad9b0c0ba10134e92e71cd93d9e223c978af153340"
+    },
+    {
+      "path": "docs/roadmap/phase-roadmap.md",
+      "sha256": "8ae37e869031e493e75d044253b929d069c45a53f2207d0150190bea667fae64"
+    },
+    {
+      "path": "docs/runbooks/live-trading-safety.md",
+      "sha256": "2075fad92ee6a6b906356c0663116bba9d37ed532d1a317b76d96a9e43bc391d"
+    },
+    {
+      "path": "docs/runbooks/recovery.md",
+      "sha256": "1e75ba12cde3903eaf844083ca63f85bd0ab5d26e9923088faca850662a95a11"
+    },
+    {
+      "path": "docs/security/task-030-security-scan.html",
+      "sha256": "24cb60b9dcbfde23e887f59cff05596424ae36a906ff128fa53127a3f95b637d"
+    },
+    {
+      "path": "docs/security/task-030-security-scan.md",
+      "sha256": "c3fbe84641c30d87ebb4d490413bd28faf4db210ba12376cb85bed0260277922"
+    },
+    {
+      "path": "docs/stage1-pandas-ta-adapter-acceptance.md",
+      "sha256": "313843a03b54533d873f9fd4ae89f1f2c5659eb2abc70738535a0fa73efee235"
+    },
+    {
+      "path": "docs/strategy-layer-refactor-handoff.md",
+      "sha256": "27f38719f7e2c3f2170a6456185088e32938458910c5174a97d1d3645cff9831"
+    },
+    {
+      "path": "docs/strategy-layer-refactor-progress-report.md",
+      "sha256": "a4617f1bcdfe2e21012285c796e3e01de4df013430ab455fc1392a0b1387c2cf"
+    },
+    {
+      "path": "docs/strategy/trend-pullback-v1.md",
+      "sha256": "58891addd45689b5f3d3a102660de2003241a7ae04df9fe361cdef2d3a61a4cf"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-24-directional-candidate-throughput.md",
+      "sha256": "dc7eea33181d8e5ec08230ad8f3cf8539bfae78dfb7b50f427381ea8830fd764"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-24-exchange-first-simulation.md",
+      "sha256": "7693fa4c77cdd1cd1d81b969512360578d5dd1cb1aecf1fe7fbf98dfe66cba29"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-07-27-automatic-trading-v2-final-rebuild-plan.md",
+      "sha256": "2260204854092a47a5a72534f280e7db56a56419d55c67dfaf8fb0fc04515c79"
+    },
+    {
+      "path": "docs/technical-validation-framework.md",
+      "sha256": "74aef7beb3c1627745ce392864c9fd0e0b8f1a09db407ba43daa07ee96a041e0"
     },
     {
       "path": "frontend/admin/index.html",
@@ -328,7 +1396,7 @@
     },
     {
       "path": "frontend/admin/src/pages/PaperConsole.jsx",
-      "sha256": "395a2995626d9231bd86fc62717fd241ce89cd01c48e12a8bbdcf4ec7b32404e"
+      "sha256": "7692d4f7c9d56c8d847c211c0cc9ec9d5c452bb6abeafd69a29dfb22c7778038"
     },
     {
       "path": "frontend/admin/src/pages/ResearchDesk.jsx",
@@ -1108,7 +2176,7 @@
     },
     {
       "path": "scripts/generate_strategy_golden_baseline.py",
-      "sha256": "9781fd8b44f1900182e703d0af5ae17dccc859dfbff720c6121caef23ac7259d"
+      "sha256": "9e185b40164399e02930d462e100c13f71e9959843b1c143217629c1b37f9706"
     },
     {
       "path": "scripts/import_runtime_ledger.py",
@@ -1180,7 +2248,7 @@
     },
     {
       "path": "scripts/probe_v2_fact_chain.py",
-      "sha256": "0faefeebce0c5a4b34e1c639ecaa810eb4b759a52c2791de589b241888a996a4"
+      "sha256": "82846185bbe5002bd754fde1ea3dd7f31f428465095654c41afba2d05b26c72c"
     },
     {
       "path": "scripts/prove_real_binance_natural_order.py",
@@ -1228,7 +2296,7 @@
     },
     {
       "path": "scripts/run-local-paper-scheduler.py",
-      "sha256": "b372fb90250fd5e43730eaaf420d70364275b86e8995742f4bdc96d1244c40b6"
+      "sha256": "7c64130d99dc1f1d4c82610ef75560b59ef30d4100e25549e6ad041a42ee5541"
     },
     {
       "path": "scripts/run_candidate_competition.py",
@@ -1424,7 +2492,7 @@
     },
     {
       "path": "services/automated_trading/application/cycle_service.py",
-      "sha256": "2f9466802e3062ad0847b447e20946772496bcd6a461b449329aabe8bb8888e7"
+      "sha256": "c5fc5d786170bcd299480fafe8b6ba64ccc6e75f4d60ad1072ebae9f35ecb6b3"
     },
     {
       "path": "services/automated_trading/application/decision_service.py",
@@ -1440,7 +2508,7 @@
     },
     {
       "path": "services/automated_trading/application/fact_persistence.py",
-      "sha256": "d3f49a05c485c14d8f25f6d953fcaf415c2dad491bfe3a8ab3369d8faa58733b"
+      "sha256": "6afc1a922978410dfb8171e745c37cca0b360be584168528181ef69e72941ed6"
     },
     {
       "path": "services/automated_trading/application/fencing.py",
@@ -1784,7 +2852,7 @@
     },
     {
       "path": "services/execution/v2_scheduler_entry.py",
-      "sha256": "4c6687b7dde52e40a567441671aa8ca676213c5c744a1660f8771542f4c69dd9"
+      "sha256": "261f7e18afce4bf27ac008df0d0ddaba764919dceea40379ecc274407a861e0f"
     },
     {
       "path": "services/notifications.py",
@@ -2108,7 +3176,7 @@
     },
     {
       "path": "tests/api/test_automated_trading_runtime_api.py",
-      "sha256": "b802956a37df6075c5451e19b15d87374ecdd41d5fdfcd12a89af6d29b160451"
+      "sha256": "0b64b2349d8c2f1221c644f6675556807db6acc3658399ba9af84d2e60180256"
     },
     {
       "path": "tests/api/test_carry_execution_api.py",
@@ -2272,7 +3340,7 @@
     },
     {
       "path": "tests/integration/test_v2_scheduler_entry_fact_chain.py",
-      "sha256": "e71322f9a72b2e4f3897d6bdcc39b6e735fc63d298960f8ab8af3d35106dadc6"
+      "sha256": "896f92d3b9fc4d9fe211980b98de9101d2d0aa94b3519f55550bee0ebe4b27e1"
     },
     {
       "path": "tests/repositories/test_config_snapshot_and_decision_event_repository.py",
@@ -2292,7 +3360,7 @@
     },
     {
       "path": "tests/scripts/test_generate_strategy_golden_baseline.py",
-      "sha256": "17aabd9d520fc77c9115839323adfb33c3f19ed63f0dd0b370d8b2ffa1c8aae5"
+      "sha256": "c17d7dd4162630117d28e966af13b315fed86e9ea36aaad766c261295c39191d"
     },
     {
       "path": "tests/scripts/test_v2_shadow_run.py",
@@ -2336,7 +3404,7 @@
     },
     {
       "path": "tests/services/test_automated_trading_cycle.py",
-      "sha256": "241e76919064e9e39d75f64d6fd5b71cde9dbc406533068e0a9b1cd6edbec76a"
+      "sha256": "b5289938ff1cde317183b8ab9a6cb2c24372eef8d58209c556c7fede8fabf19b"
     },
     {
       "path": "tests/services/test_automated_trading_database_integrity.py",
@@ -2360,7 +3428,7 @@
     },
     {
       "path": "tests/services/test_automated_trading_fact_persistence.py",
-      "sha256": "90da7c0774b5766efdbe763f8853dce65bc90c03e716a818f94880f9f16c1e49"
+      "sha256": "545e7777fbfc658341105112b7e8d3a6f35a2e1b6040c4a059972bfc3df7e901"
     },
     {
       "path": "tests/services/test_automated_trading_fencing.py",
@@ -2529,6 +3597,10 @@
     {
       "path": "tests/services/test_llm_dual_lane.py",
       "sha256": "98af349bd11d8fe94b7194c10dd9b114f9ab07cc047de4afacf4e7ff72715025"
+    },
+    {
+      "path": "tests/services/test_local_v2_scheduler_script.py",
+      "sha256": "d4b785008563fc28b388e354ee7f63e7ed1bc64b173a94845a8164a3da18a0fd"
     },
     {
       "path": "tests/services/test_manual_trade_miss_analysis.py",
@@ -2733,7 +3805,129 @@
     {
       "path": "tests/test_pandas_ta_adapter_import.py",
       "sha256": "e4e42d14f25e5cbd8e15d026b2894d6307a9fefdc1070b8b945b5ac5234b27ee"
+    },
+    {
+      "path": "策略库/00_当前系统策略与开平单逻辑.md",
+      "sha256": "02a54b10a3312169d96866e0d5145e8cdab77bbd3f16af7875b17024566f5685"
+    },
+    {
+      "path": "策略库/01_外部策略来源索引.md",
+      "sha256": "c18b6bde73c56e82d0c402e74420e5c3af5b17ea239ba3da3b24fc1fbfd69481"
+    },
+    {
+      "path": "策略库/02_ABU策略因子蒸馏.md",
+      "sha256": "fa46578fb03aa8ebb7035cc460bddd624a0ad1d97769a461f6c28c297a80288f"
+    },
+    {
+      "path": "策略库/03_加密货币策略候选库.md",
+      "sha256": "d6443f7cb5e6aeb6924f87bfffbde23af09a58354ffb5fd7f92513eb8311f6eb"
+    },
+    {
+      "path": "策略库/04_风险控制与禁用清单.md",
+      "sha256": "a41bee56ba4d2645ca67def9b8df88016135b1dc9ad392fa86328432d4b59879"
+    },
+    {
+      "path": "策略库/05_ABU策略组件索引.md",
+      "sha256": "fc36d1e00735767ab0d2aaeda6c375695d48da186d6c70229c2656cc285148b1"
+    },
+    {
+      "path": "策略库/06_GitHub生态补充调研.md",
+      "sha256": "35e9e9c18892957d776556a107db5609b1cb49e21db06ff9a2f838807b0bfec2"
+    },
+    {
+      "path": "策略库/README.md",
+      "sha256": "043fbd3b01dadde12cc50d7d64a470760743c7bd62e70495d630160de9d79bbd"
+    },
+    {
+      "path": "项目知识库/会话记录/2026-07-28_112855_CursorCLI_AI--main_会话记录.md",
+      "sha256": "17dfb7b89e85b8d34a71301f5b85e5c4467826f8981a4755cfb788087783b855"
+    },
+    {
+      "path": "项目知识库/会话记录/2026-07-28_112856_CursorCLI_AI--main_会话记录.md",
+      "sha256": "dbc5571af3e9e63b35265011217cc28f105a2ab1d182e7bbabb76febd8713a14"
+    },
+    {
+      "path": "项目知识库/会话记录/2026-07-29_Codex历史批量同步.md",
+      "sha256": "5541527e0567b1d5c920157ffa4eda4c4588f54186f0959aada69da490711334"
+    },
+    {
+      "path": "项目知识库/内容素材.md",
+      "sha256": "0e4d760da780af4c41fdc17aa7815519fae4147bc844889945981cf2fb33db59"
+    },
+    {
+      "path": "项目知识库/决策记录.md",
+      "sha256": "33777facef9aa4669afe7bf48a52f2b6dddc5df5fdbdca26c7af153db3c132c0"
+    },
+    {
+      "path": "项目知识库/同步配置.yaml",
+      "sha256": "33eb43190fbdbcf7dd701cfa52a8d2c4dbeefc49aeee897cd75c1a73888d803b"
+    },
+    {
+      "path": "项目知识库/已验证解决方案.md",
+      "sha256": "cea92da397ff7f49bbb71a3744b77d915392c8239f163f914a9825d6b41083a9"
+    },
+    {
+      "path": "项目知识库/开放事项.md",
+      "sha256": "62401e507373816c7123776650c203738b63b0c2d60af53f623e4f658d4b7a43"
+    },
+    {
+      "path": "项目知识库/当前状态.md",
+      "sha256": "033897b824f0510f77b5a762e99b682314e831354664b89cc663c7405860eaac"
+    },
+    {
+      "path": "项目知识库/敏感信息边界.md",
+      "sha256": "ccd5524e32e1fb125fec7080aff618961f87fa502ceee4e1c7bd3ac12eb297c2"
+    },
+    {
+      "path": "项目知识库/最后同步.json",
+      "sha256": "a61f53d2ccbd3abbb8d1ea52a00f85641874fb5f680208ac72d9bf2a2d2db15b"
+    },
+    {
+      "path": "项目知识库/架构与关键目录.md",
+      "sha256": "4b5b121bc13af917a83dc62c094a0bf45d1bb61530b0cfa5411c95bb500b12c5"
+    },
+    {
+      "path": "项目知识库/用户偏好摘要.md",
+      "sha256": "22c384e3eea14345f56d89c31d01140631b578bdc58da5a9db36e4b2b0293338"
+    },
+    {
+      "path": "项目知识库/用户反馈与纠正.md",
+      "sha256": "c92ac5eaaeeb92819844c61a948ba97efdb5195d29fa5fa5d02ae1157be87ba7"
+    },
+    {
+      "path": "项目知识库/目标与验收标准.md",
+      "sha256": "6d21657175b619788154ff053a2bc1c596ca9cfbe5ef01d44fbd0671a38bb403"
+    },
+    {
+      "path": "项目知识库/真实命令与环境.md",
+      "sha256": "c975174651c3475f2dc247d3c2513d66b9603ddc2b509f5dfa57b2dabcda687c"
+    },
+    {
+      "path": "项目知识库/错误与根因.md",
+      "sha256": "1f34234bb0d9bb5ca4c82fc294b1ea112546750a424c4d37079c025508f30d12"
+    },
+    {
+      "path": "项目知识库/项目总览.md",
+      "sha256": "8e87b63f4b58ac061c296f2abac28306a0d866c308dbe330b0c539ee61f52c6e"
     }
   ],
-  "source_tree_hash": "b5210640337cd8059b68e7fb686e4435b3c788ee44ad365da89c71d71ca95313"
+  "included_extensions": [
+    ".css",
+    ".html",
+    ".js",
+    ".json",
+    ".jsx",
+    ".md",
+    ".ps1",
+    ".py",
+    ".pyi",
+    ".sql",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".yaml",
+    ".yml"
+  ],
+  "scope": "all source/config/document files under source_root",
+  "source_tree_hash": "4b8e7c5301afe7fbb35dbd9962f213e1e39fda9b2ccc5f66580d08bbd7cdb216"
 }

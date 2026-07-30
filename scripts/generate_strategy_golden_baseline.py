@@ -49,18 +49,6 @@ TIMEFRAME_SECONDS = {
 }
 ACTIVE_MANIFEST = Path("docs/evidence/active-manifests/auto_paper_mature_templates.json")
 DEFAULT_OUTPUT = Path("artifacts/strategy_refactor/baseline")
-SOURCE_ROOTS = (
-    "apps",
-    "services",
-    "shared",
-    "scripts",
-    "tests",
-    "migrations",
-    "infra",
-    "frontend",
-    "research_source",
-    ".github",
-)
 SOURCE_EXTENSIONS = {
     ".py",
     ".pyi",
@@ -78,22 +66,17 @@ SOURCE_EXTENSIONS = {
     ".sql",
     ".md",
 }
-ROOT_SOURCE_FILES = (
-    "AGENTS.md",
-    "CLAUDE.md",
-    "CURRENT_STATE.md",
-    "pyproject.toml",
-    "package.json",
-    "package-lock.json",
-    "docker-compose.yml",
-    "docker-compose.yaml",
-)
 EXCLUDED_PARTS = {
     ".git",
+    ".venv",
+    "artifacts",
     "node_modules",
     "dist",
     "build",
     "coverage",
+    "htmlcov",
+    "logs",
+    "site-packages",
     "__pycache__",
     ".pytest_cache",
     ".mypy_cache",
@@ -246,22 +229,15 @@ def assess_data_coverage(
 
 
 def _iter_source_files(root: Path) -> list[Path]:
-    files: set[Path] = set()
-    for source_root in SOURCE_ROOTS:
-        candidate = root / source_root
-        if not candidate.exists():
-            continue
-        for path in candidate.rglob("*"):
-            if (
-                path.is_file()
-                and path.suffix.lower() in SOURCE_EXTENSIONS
-                and not any(part in EXCLUDED_PARTS for part in path.relative_to(root).parts)
-            ):
-                files.add(path)
-    for filename in ROOT_SOURCE_FILES:
-        path = root / filename
-        if path.is_file():
-            files.add(path)
+    files = {
+        path
+        for path in root.rglob("*")
+        if (
+            path.is_file()
+            and path.suffix.lower() in SOURCE_EXTENSIONS
+            and not any(part in EXCLUDED_PARTS for part in path.relative_to(root).parts)
+        )
+    }
     return sorted(files, key=lambda item: item.relative_to(root).as_posix())
 
 
@@ -279,6 +255,9 @@ def source_tree_manifest(root: Path) -> dict[str, Any]:
     combined = "".join(f"{item['path']}\t{item['sha256']}\n" for item in entries).encode()
     return {
         "algorithm": "sha256(sorted(relative_path<TAB>content_sha256<LF>))",
+        "scope": "all source/config/document files under source_root",
+        "included_extensions": sorted(SOURCE_EXTENSIONS),
+        "excluded_path_parts": sorted(EXCLUDED_PARTS),
         "file_count": len(entries),
         "source_tree_hash": _sha256_bytes(combined),
         "files": entries,
@@ -710,6 +689,8 @@ def generate_golden_baseline(
         f"- Final Holdout: `{coverage['final_holdout_start']}` to `{_iso(cutoff)}`\n"
         "- Holdout results accessed: `false`\n"
         "- Runtime/execution eligibility: `false`\n\n"
+        "`auxiliary_git_sha` is the repository HEAD observed during generation and is "
+        "informational only; the path-plus-content `source_tree_hash` is authoritative.\n\n"
         "This directory is created atomically and the generator refuses to overwrite it. "
         "When status is `DATA_COVERAGE_INSUFFICIENT`, empty trades and unavailable metrics "
         "are evidence of the coverage gate; they are not zero-performance claims.\n"

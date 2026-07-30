@@ -131,6 +131,39 @@ def test_source_tree_hash_depends_on_sorted_paths_and_file_contents(tmp_path: Pa
     assert changed["source_tree_hash"] != first["source_tree_hash"]
 
 
+def test_source_tree_hash_covers_docs_and_root_source_files(tmp_path: Path) -> None:
+    (tmp_path / "docs" / "audits").mkdir(parents=True)
+    (tmp_path / "docs" / "audits" / "strategy.md").write_text(
+        "audit-v1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs" / "scheduler-state.json").write_text(
+        '{"runtime":"mutable"}\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "strategy-design.md").write_text("design-v1\n", encoding="utf-8")
+
+    first = source_tree_manifest(tmp_path)
+    paths = [item["path"] for item in first["files"]]
+
+    assert paths == [
+        "docs/audits/strategy.md",
+        "strategy-design.md",
+    ]
+    assert first["scope"] == "all source/config/document files under source_root"
+    assert "artifacts" in first["excluded_path_parts"]
+    assert "logs" in first["excluded_path_parts"]
+
+    (tmp_path / "docs" / "audits" / "strategy.md").write_text(
+        "audit-v2\n",
+        encoding="utf-8",
+    )
+    changed = source_tree_manifest(tmp_path)
+
+    assert changed["source_tree_hash"] != first["source_tree_hash"]
+
+
 def test_immutable_writer_refuses_to_overwrite_existing_baseline(tmp_path: Path) -> None:
     destination = tmp_path / "baseline"
     write_immutable_artifacts(
