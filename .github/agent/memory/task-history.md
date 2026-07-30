@@ -3,9 +3,9 @@
 ### [TASK-STRATEGY-REFACTOR-01] Current-tree audit and immutable Golden Baseline gate
 - **Date**: 2026-07-29
 - **Type**: Strategy core refactor / validation evidence
-- **Summary**: Audited the current V2 and legacy strategy paths without changing runtime. Added an atomic, no-overwrite baseline generator covering source/data/config hashes, current active manifest, BTC/ETH five-timeframe coverage, legacy replay outputs, costs, current IID CI, trades, and terminal funnel reasons. Added six TDD tests.
+- **Summary**: Audited the current V2 and legacy strategy paths without changing runtime. Added an atomic, no-overwrite baseline generator covering source/data/config hashes, current active manifest, BTC/ETH five-timeframe coverage, legacy replay outputs, costs, current IID CI, trades, and terminal funnel reasons. Independent review then caught and drove a TDD fix for incomplete tree-hash scope and stale post-memory evidence.
 - **Result**: `DATA_COVERAGE_INSUFFICIENT`. BTC/ETH 5m history is absent, 1m history is only about 14 days, and longer frames begin around July 2025 with gaps. No common five-timeframe cutoff exists, so Holdout was not frozen or evaluated and metrics/trades are explicitly unavailable.
-- **Verification**: RED import failure proved the generator was absent; later boundary regression failed when a missing series incorrectly produced a cutoff. Final targeted suite: `94 passed in 19.96s`; targeted Ruff/format clean; Mypy `Success: no issues found in 1 source file`; pre-commit passed on commits `5524d04` and `5940a40`.
+- **Verification**: RED import failure proved the generator was absent; later boundary regression failed when a missing series incorrectly produced a cutoff; the independent-review regression proved `docs/**` and arbitrary root design files were absent from the hash. Post-fix Task 0/1 regression: `95 passed in 37.18s`; targeted Ruff/format clean; Mypy `Success: no issues found in 1 source file`; pre-commit passed through commit `bf3b0b7`.
 - **Limits**: Tasks 2+ are intentionally paused. No strategy, risk, execution state machine, frontend, Mainnet, leverage, sizing, stop, or take-profit behavior changed.
 
 ### [TASK-V2-CLOSURE-GAPS] Close Gate2-4 critical gaps; Gate5 remains BLOCKED
