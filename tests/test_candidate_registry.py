@@ -12,21 +12,22 @@ from services.strategy_library.candidates.registry import (
 )
 
 
-def test_registry_has_six_candidates():
+def test_registry_has_seven_candidates():
     """验证注册表包含全部可回放候选。"""
-    assert len(CANDIDATE_REGISTRY) == 6
+    assert len(CANDIDATE_REGISTRY) == 7
     assert "operator_heuristic_v1" in CANDIDATE_REGISTRY
     assert "trend_momentum_v1" in CANDIDATE_REGISTRY
     assert "trend_breakout_v1" in CANDIDATE_REGISTRY
     assert "pandas_ta_broad_screen_v1" in CANDIDATE_REGISTRY
     assert "operator_heuristic_v2_relaxed" in CANDIDATE_REGISTRY
     assert "trend_pullback_v1" in CANDIDATE_REGISTRY
+    assert "failed_breakout_reversal_v1" in CANDIDATE_REGISTRY
 
 
 def test_list_candidates():
     """验证list_candidates返回所有候选ID。"""
     candidates = list_candidates()
-    assert len(candidates) == 6
+    assert len(candidates) == 7
     assert set(candidates) == {
         "operator_heuristic_v1",
         "trend_momentum_v1",
@@ -34,6 +35,7 @@ def test_list_candidates():
         "pandas_ta_broad_screen_v1",
         "operator_heuristic_v2_relaxed",
         "trend_pullback_v1",
+        "failed_breakout_reversal_v1",
     }
 
 
@@ -105,6 +107,15 @@ def test_all_candidates_have_required_metadata():
         assert candidate.market is not None
         assert candidate.timeframe is not None
         assert candidate.config_factory is not None
+        assert candidate.execution_eligible is False
+
+
+def test_failed_breakout_candidate_is_registered_as_research_only() -> None:
+    candidate = get_candidate("failed_breakout_reversal_v1")
+
+    assert candidate.lifecycle_state == "RESEARCH_ONLY"
+    assert candidate.execution_eligible is False
+    assert candidate.get_config()["entry_rules"]["research_only"] is True
 
 
 def test_candidates_return_valid_configs():

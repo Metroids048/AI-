@@ -39,6 +39,13 @@ def test_trend_pullback_candidate_is_registered_as_research_only() -> None:
     assert config["exit_rules"]["no_progress_bars"] == 10
 
 
+def test_failed_breakout_candidate_is_not_execution_eligible() -> None:
+    candidate = get_candidate("failed_breakout_reversal_v1")
+
+    assert candidate.execution_eligible is False
+    assert candidate.lifecycle_state == "RESEARCH_ONLY"
+
+
 def test_all_evidence_candidates_share_cost_exit_and_timeframe_contracts() -> None:
     configs = [get_candidate(candidate_id).get_config() for candidate_id in list_candidates()]
     contracts = {

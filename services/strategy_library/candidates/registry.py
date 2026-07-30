@@ -42,6 +42,8 @@ class StrategyCandidate:
     market: str
     timeframe: str
     config_factory: Any  # Callable[[], dict[str, Any]]
+    lifecycle_state: str = "BASELINE_ONLY"
+    execution_eligible: bool = False
 
     def get_config(self) -> dict[str, Any]:
         """Return the strategy configuration dict."""
@@ -361,6 +363,42 @@ TREND_PULLBACK_V1 = StrategyCandidate(
 )
 
 
+def _failed_breakout_reversal_v1_config() -> dict[str, Any]:
+    """Research contract for the point-in-time proposal generator.
+
+    This remains deliberately separate from the active manifest and legacy
+    execution path until independent validation completes.
+    """
+
+    config = _operator_heuristic_v1_config()
+    config["entry_rules"] = {
+        **config["entry_rules"],
+        "candidate_id": "failed_breakout_reversal_v1",
+        "research_only": True,
+        "proposal_generator": "failed_breakout_reversal_v1",
+        "primary_structure_boundary": "donchian_24",
+        "entry_timeframe": "15m",
+    }
+    return config
+
+
+FAILED_BREAKOUT_REVERSAL_V1 = StrategyCandidate(
+    candidate_id="failed_breakout_reversal_v1",
+    source="structure_reversal_research",
+    hypothesis=(
+        "A 15m sweep beyond one confirmed Donchian-24 boundary that closes back inside "
+        "and receives next-bar confirmation can identify bounded reversal setups."
+    ),
+    version="1.0.0-research",
+    created_at=datetime(2026, 7, 30),
+    market="BTC/USDT,ETH/USDT",
+    timeframe="15m",
+    config_factory=_failed_breakout_reversal_v1_config,
+    lifecycle_state="RESEARCH_ONLY",
+    execution_eligible=False,
+)
+
+
 # ============================================================================
 # Registry
 # ============================================================================
@@ -372,6 +410,7 @@ CANDIDATE_REGISTRY: dict[str, StrategyCandidate] = {
     "pandas_ta_broad_screen_v1": PANDAS_TA_BROAD_SCREEN,
     "operator_heuristic_v2_relaxed": OPERATOR_HEURISTIC_V2_RELAXED,
     "trend_pullback_v1": TREND_PULLBACK_V1,
+    "failed_breakout_reversal_v1": FAILED_BREAKOUT_REVERSAL_V1,
 }
 
 
