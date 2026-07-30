@@ -3428,7 +3428,7 @@
     },
     {
       "path": "tests/services/test_automated_trading_fact_persistence.py",
-      "sha256": "d0ef455ef50f81324da03080e2f224ab28502bde2071070202f8b651c608ec84"
+      "sha256": "f10ed02a2666fa24d821494441f2fcff31efb9f4928e297ee92b9f2fa7771a86"
     },
     {
       "path": "tests/services/test_automated_trading_fencing.py",
@@ -3929,5 +3929,5 @@
     ".yml"
   ],
   "scope": "all source/config/document files under source_root",
-  "source_tree_hash": "1ca2b8a9066a00792b0e6d9e3904117165b1e1a574786e9d98f7990c164ea5e0"
+  "source_tree_hash": "c3d9f51701f84e4a03f81f38860a54560d84d6049211ae8772252a9b77ceed03"
 }
