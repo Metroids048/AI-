@@ -399,6 +399,35 @@ FAILED_BREAKOUT_REVERSAL_V1 = StrategyCandidate(
 )
 
 
+def _trend_pullback_v2_config() -> dict[str, Any]:
+    config = _operator_heuristic_v1_config()
+    config["entry_rules"] = {
+        **config["entry_rules"],
+        "candidate_id": "trend_pullback_v2",
+        "research_only": True,
+        "proposal_generator": "trend_pullback_v2",
+        "entry_timeframe": "15m",
+    }
+    return config
+
+
+TREND_PULLBACK_V2 = StrategyCandidate(
+    candidate_id="trend_pullback_v2",
+    source="time_series_momentum_research",
+    hypothesis=(
+        "A trend-aligned 15m EMA pullback with volume contraction and next-bar confirmation "
+        "can improve entry timing without a higher-timeframe hard veto."
+    ),
+    version="2.0.0-research",
+    created_at=datetime(2026, 7, 30),
+    market="BTC/USDT,ETH/USDT",
+    timeframe="15m",
+    config_factory=_trend_pullback_v2_config,
+    lifecycle_state="RESEARCH_ONLY",
+    execution_eligible=False,
+)
+
+
 # ============================================================================
 # Registry
 # ============================================================================
@@ -411,6 +440,7 @@ CANDIDATE_REGISTRY: dict[str, StrategyCandidate] = {
     "operator_heuristic_v2_relaxed": OPERATOR_HEURISTIC_V2_RELAXED,
     "trend_pullback_v1": TREND_PULLBACK_V1,
     "failed_breakout_reversal_v1": FAILED_BREAKOUT_REVERSAL_V1,
+    "trend_pullback_v2": TREND_PULLBACK_V2,
 }
 
 
