@@ -132,11 +132,11 @@
     },
     {
       "path": ".github/agent/memory/project-memory.md",
-      "sha256": "07b66a9720b03ca5e468437a55c4faec4822797073c420332d71751c3abe959a"
+      "sha256": "eeccc7a9bfc26512e975c97e5a0a37e97baad8c074c9053c13895397b1f6f4ca"
     },
     {
       "path": ".github/agent/memory/task-history.md",
-      "sha256": "6b3ec7ca2c5158016067a4c6af04622b95c529b3d1bdfb280640484192751ca6"
+      "sha256": "12826db6da7723c96fd6bcb0c21d61a5e48b7e8937b666231e7c87557095381f"
     },
     {
       "path": ".github/agent/prompt-templates.md",
@@ -320,7 +320,7 @@
     },
     {
       "path": "apps/api/routers/automated_trading.py",
-      "sha256": "da571657fd4f33e1a612c046a0f4b60a27d4055a439e9eafe9da6fa42806c272"
+      "sha256": "aa924e74a803f14c5ed76dbc12d39f21549301683190c5376b6fa23d237e0dbe"
     },
     {
       "path": "apps/api/routers/backtests.py",
@@ -2492,7 +2492,7 @@
     },
     {
       "path": "services/automated_trading/application/cycle_service.py",
-      "sha256": "c5fc5d786170bcd299480fafe8b6ba64ccc6e75f4d60ad1072ebae9f35ecb6b3"
+      "sha256": "2d5e657df6319b823e71a7726bc8c75bebe387b7b4e70a4351b7509405ff034a"
     },
     {
       "path": "services/automated_trading/application/decision_service.py",
@@ -2508,7 +2508,7 @@
     },
     {
       "path": "services/automated_trading/application/fact_persistence.py",
-      "sha256": "6afc1a922978410dfb8171e745c37cca0b360be584168528181ef69e72941ed6"
+      "sha256": "eb1d62b203411769b33872aa9c0a69f73bdcb47ce44403275932bb40006b2706"
     },
     {
       "path": "services/automated_trading/application/fencing.py",
@@ -2524,7 +2524,7 @@
     },
     {
       "path": "services/automated_trading/application/recovery_executor.py",
-      "sha256": "1e7a981f0480f743b4a917d6765cc3f4bfadb8b1ba3acedc570b31fb02c85896"
+      "sha256": "4db9f1d7c9d44e0b6dbffaf94ee15eb7c6a73d394bef7b245701b2ce0bf20992"
     },
     {
       "path": "services/automated_trading/application/recovery_service.py",
@@ -2588,7 +2588,7 @@
     },
     {
       "path": "services/automated_trading/infrastructure/repository.py",
-      "sha256": "1dc35df91520e1a9a215437dacfaad933316d62d14c0de848fc9857ec42dbeee"
+      "sha256": "cb37766629d5d3f9ff6e31f5a573ea4e03fc1839168afffbc1bf4f1e021116d9"
     },
     {
       "path": "services/automated_trading/infrastructure/runtime_lock.py",
@@ -3176,7 +3176,7 @@
     },
     {
       "path": "tests/api/test_automated_trading_runtime_api.py",
-      "sha256": "0b64b2349d8c2f1221c644f6675556807db6acc3658399ba9af84d2e60180256"
+      "sha256": "798ba6e26ab2b74c13d487fd50ce6571d9f6cbd9555c61aebc6cd1bc7cd2a0a9"
     },
     {
       "path": "tests/api/test_carry_execution_api.py",
@@ -3428,7 +3428,7 @@
     },
     {
       "path": "tests/services/test_automated_trading_fact_persistence.py",
-      "sha256": "545e7777fbfc658341105112b7e8d3a6f35a2e1b6040c4a059972bfc3df7e901"
+      "sha256": "d0ef455ef50f81324da03080e2f224ab28502bde2071070202f8b651c608ec84"
     },
     {
       "path": "tests/services/test_automated_trading_fencing.py",
@@ -3868,7 +3868,7 @@
     },
     {
       "path": "项目知识库/开放事项.md",
-      "sha256": "62401e507373816c7123776650c203738b63b0c2d60af53f623e4f658d4b7a43"
+      "sha256": "c7aac6f6ad914c570f16c991887eece4c4ca164cafe29a8a205bf3c69d2463aa"
     },
     {
       "path": "项目知识库/当前状态.md",
@@ -3880,7 +3880,7 @@
     },
     {
       "path": "项目知识库/最后同步.json",
-      "sha256": "a61f53d2ccbd3abbb8d1ea52a00f85641874fb5f680208ac72d9bf2a2d2db15b"
+      "sha256": "15883d8f6184900e2e8889c49e35ba2fce1cb46b41fac552ababc117d5237896"
     },
     {
       "path": "项目知识库/架构与关键目录.md",
@@ -3929,5 +3929,5 @@
     ".yml"
   ],
   "scope": "all source/config/document files under source_root",
-  "source_tree_hash": "4b8e7c5301afe7fbb35dbd9962f213e1e39fda9b2ccc5f66580d08bbd7cdb216"
+  "source_tree_hash": "1ca2b8a9066a00792b0e6d9e3904117165b1e1a574786e9d98f7990c164ea5e0"
 }
