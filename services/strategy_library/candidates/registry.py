@@ -428,6 +428,36 @@ TREND_PULLBACK_V2 = StrategyCandidate(
 )
 
 
+def _range_sweep_reversion_v1_config() -> dict[str, Any]:
+    config = _operator_heuristic_v1_config()
+    config["entry_rules"] = {
+        **config["entry_rules"],
+        "candidate_id": "range_sweep_reversion_v1",
+        "research_only": True,
+        "proposal_generator": "range_sweep_reversion_v1",
+        "primary_structure_boundary": "donchian_24",
+        "entry_timeframe": "15m",
+    }
+    return config
+
+
+RANGE_SWEEP_REVERSION_V1 = StrategyCandidate(
+    candidate_id="range_sweep_reversion_v1",
+    source="liquidity_sweep_research",
+    hypothesis=(
+        "A confirmed 15m liquidity sweep beyond a stable Donchian-24 range boundary that "
+        "closes back inside the range can produce bounded mean-reversion proposals."
+    ),
+    version="1.0.0-research",
+    created_at=datetime(2026, 7, 30),
+    market="BTC/USDT,ETH/USDT",
+    timeframe="15m",
+    config_factory=_range_sweep_reversion_v1_config,
+    lifecycle_state="RESEARCH_ONLY",
+    execution_eligible=False,
+)
+
+
 # ============================================================================
 # Registry
 # ============================================================================
@@ -441,6 +471,7 @@ CANDIDATE_REGISTRY: dict[str, StrategyCandidate] = {
     "trend_pullback_v1": TREND_PULLBACK_V1,
     "failed_breakout_reversal_v1": FAILED_BREAKOUT_REVERSAL_V1,
     "trend_pullback_v2": TREND_PULLBACK_V2,
+    "range_sweep_reversion_v1": RANGE_SWEEP_REVERSION_V1,
 }
 
 
