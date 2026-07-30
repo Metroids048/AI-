@@ -1,0 +1,12 @@
+{
+  "candidate_signal_count": 1126,
+  "evaluated_decisions": 43925,
+  "note": "The legacy replay exposes terminal DecisionPipeline reasons, not a V2 per-stage funnel. Counts are frozen as-is and are not reconstructed from future logic.",
+  "scope": "portfolio replay terminal outcomes",
+  "status": "AVAILABLE",
+  "terminal_reason_counts": {
+    "ensemble_meta_label_passed": 1126,
+    "multi_timeframe_disagreement": 24325,
+    "technical_signals_insufficient": 18474
+  }
+}

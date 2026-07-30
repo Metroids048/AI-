@@ -11,9 +11,13 @@ from sqlalchemy.orm import Session
 
 from scripts.generate_strategy_golden_baseline import (
     BarCoverage,
+    _json_line_bytes,
+    _load_coverage_bounds,
+    _load_coverages,
     assess_data_coverage,
     generate_golden_baseline,
     latest_common_closed_4h_boundary,
+    rewrite_legacy_baseline_jsonl,
     source_tree_manifest,
     write_immutable_artifacts,
 )
@@ -22,6 +26,42 @@ from shared.models import Exchange, OHLCVBar, Timeframe
 
 SYMBOLS = ("BTC/USDT", "ETH/USDT")
 TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h")
+
+
+def test_json_line_bytes_writes_one_independently_parseable_record() -> None:
+    payload = {"trade_id": "trade-1", "nested": {"reason": "filled"}}
+
+    encoded = _json_line_bytes(payload)
+
+    assert encoded.count(b"\n") == 1
+    assert json.loads(encoded) == payload
+
+
+def test_legacy_baseline_jsonl_rewrite_is_structural_and_holdout_safe(tmp_path: Path) -> None:
+    source = tmp_path / "baseline-legacy"
+    source.mkdir()
+    (source / "BASELINE_MANIFEST.json").write_text(
+        json.dumps({"holdout_results_accessed": False, "status": "SUFFICIENT"}), encoding="utf-8"
+    )
+    (source / "README.md").write_text("legacy\n", encoding="utf-8")
+    (source / "metrics.json").write_bytes(b"{}\n")
+    (source / "trades.jsonl").write_text(
+        json.dumps({"trade_id": "a", "nested": {"r": 1}}, indent=2) + "\n" + json.dumps({"trade_id": "b"}, indent=2),
+        encoding="utf-8",
+    )
+
+    output = tmp_path / "baseline-r1"
+    manifest = rewrite_legacy_baseline_jsonl(source_dir=source, output_dir=output)
+
+    lines = (output / "trades.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line) for line in lines] == [
+        {"trade_id": "a", "nested": {"r": 1}},
+        {"trade_id": "b"},
+    ]
+    assert all("\n" not in line for line in lines)
+    assert manifest["supersedes"] == "baseline-legacy"
+    assert manifest["correction"]["records_rewritten"] == 2
+    assert manifest["holdout_results_accessed"] is False
 
 
 def _coverage(
@@ -65,7 +105,6 @@ def test_latest_common_boundary_uses_slowest_closed_series_and_floors_to_4h() ->
         first_open=first_open,
         latest_closed_at=datetime(2026, 7, 29, 13, 7, tzinfo=UTC),
     )
-
     assert latest_common_closed_4h_boundary(coverages) == datetime(
         2026,
         7,
@@ -74,6 +113,40 @@ def test_latest_common_boundary_uses_slowest_closed_series_and_floors_to_4h() ->
         0,
         tzinfo=UTC,
     )
+
+
+def test_fast_coverage_bounds_choose_same_cutoff_as_full_scan(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{(tmp_path / 'bounds.db').as_posix()}"
+    engine = create_engine(database_url)
+    create_timeseries_schema(engine)
+    observed_at = datetime(2026, 7, 29, 18, 0, tzinfo=UTC)
+    with Session(engine) as session:
+        repository = DataRepository(session)
+        for symbol in SYMBOLS:
+            for timeframe in TIMEFRAMES:
+                delta = timedelta(seconds={"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400}[timeframe])
+                repository.store_ohlcv_bars(
+                    [
+                        OHLCVBar(
+                            symbol=symbol,
+                            exchange=Exchange.BINANCE,
+                            timeframe=Timeframe(timeframe),
+                            time=observed_at - delta * index,
+                            open=Decimal("100"),
+                            high=Decimal("101"),
+                            low=Decimal("99"),
+                            close=Decimal("100"),
+                            volume=Decimal("10"),
+                        )
+                        for index in (2, 1)
+                    ]
+                )
+    engine.dispose()
+
+    bounds = _load_coverage_bounds(database_url, closed_through=observed_at)
+    full = _load_coverages(database_url, closed_through=observed_at)
+
+    assert latest_common_closed_4h_boundary(bounds) == latest_common_closed_4h_boundary(full)
 
 
 def test_coverage_gate_requires_42_calendar_months_and_no_series_gaps() -> None:

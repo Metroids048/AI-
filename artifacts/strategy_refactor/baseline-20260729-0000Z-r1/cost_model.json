@@ -1,0 +1,14 @@
+{
+  "entry_rules": {
+    "core_fee_bps": 5.0,
+    "core_slippage_bps": 1.0,
+    "standard_fee_bps": 5.0,
+    "standard_slippage_bps": 3.0
+  },
+  "exit_model": "fixed_2r",
+  "funding": "not modeled by legacy technical replay",
+  "latency": "not modeled by legacy technical replay",
+  "partial_fill": "not modeled by fixed_2r legacy replay",
+  "source": "current active strategy rules",
+  "spread": "not modeled separately by legacy technical replay"
+}

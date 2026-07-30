@@ -1,0 +1,44 @@
+{
+  "active_strategy": {
+    "candidate_id": "trend_momentum_v1",
+    "candidate_version": "1.0.0",
+    "eligible_symbols": [
+      "BTC/USDT",
+      "ETH/USDT"
+    ],
+    "manifest_rules_hash_matches_current_config": true,
+    "strategy_key": "auto_paper_mature_templates"
+  },
+  "artifact_files": [
+    "BASELINE_MANIFEST.json",
+    "source_tree_manifest.json",
+    "data_manifest.json",
+    "config_manifest.json",
+    "cost_model.json",
+    "metrics.json",
+    "current_ci.json",
+    "funnel_counts.json",
+    "trades.jsonl",
+    "README.md"
+  ],
+  "auxiliary_git_sha": "5bfa658e9de474bc8879f6ecb2322dd8ba1f1792",
+  "config_hash": "d4ab08a8104602d88db7a4d9603d26c6cabbb7d15f3b4127f04bfcb55efa51b2",
+  "correction": {
+    "holdout_results_accessed": false,
+    "records_rewritten": 1126,
+    "type": "jsonl_serialization"
+  },
+  "cutoff": "2026-07-29T00:00:00+00:00",
+  "data_hash": "63aabfb72633db2f9794fb64ddfba0466525f07fa95e6cf8050403e471db0f6d",
+  "execution_eligible": false,
+  "final_holdout_end": "2026-07-29T00:00:00+00:00",
+  "final_holdout_start": "2026-01-29T00:00:00+00:00",
+  "generated_at": "2026-07-29T00:00:00+00:00",
+  "holdout_policy": "frozen_by_range_and_hash_only; no metrics computed",
+  "holdout_results_accessed": false,
+  "observed_at": "2026-07-29T00:00:00+00:00",
+  "schema_version": 1,
+  "source_tree_hash": "3e0ab62df20bc0f3fe0d5ff6f4db4a6e2273be08a8736599579dfac9d7318312",
+  "status": "SUFFICIENT",
+  "supersedes": "baseline-20260729-0000Z"
+}

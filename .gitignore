@@ -43,6 +43,8 @@ Thumbs.db
 /.local_paper_console.db.*
 /.local_runtime_ledger.db
 /.local_runtime_ledger.db.*
+/.strategy_refactor_history.db
+/.cache/strategy_refactor_history/
 *.db.backup*
 *.sqlite
 *.sqlite3

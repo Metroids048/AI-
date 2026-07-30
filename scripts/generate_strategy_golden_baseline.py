@@ -23,7 +23,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 
 from services.data.repository import DataRepository, ohlcv_bars
 from services.execution.decision_pipeline import DecisionPipeline, DecisionPipelineResult
@@ -124,6 +124,28 @@ def _iso(value: datetime | None) -> str | None:
 
 def _json_bytes(payload: Any) -> bytes:
     return (json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _json_line_bytes(payload: Any) -> bytes:
+    return (json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+def _parse_concatenated_json(payload: bytes) -> list[Any]:
+    """Parse legacy pretty-printed JSON records separated by whitespace."""
+
+    text = payload.decode("utf-8")
+    decoder = json.JSONDecoder()
+    records: list[Any] = []
+    offset = 0
+    while offset < len(text):
+        while offset < len(text) and text[offset].isspace():
+            offset += 1
+        if offset >= len(text):
+            break
+        record, end = decoder.raw_decode(text, offset)
+        records.append(record)
+        offset = end
+    return records
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -355,6 +377,49 @@ def _load_coverages(database_url: str, *, closed_through: datetime) -> list[BarC
     ]
 
 
+def _load_coverage_bounds(database_url: str, *, closed_through: datetime) -> list[BarCoverage]:
+    """Load only the bounds needed to choose the common cutoff."""
+
+    engine = create_engine(database_url)
+    coverages: list[BarCoverage] = []
+    try:
+        with engine.connect() as connection:
+            for symbol in SYMBOLS:
+                for timeframe in TIMEFRAMES:
+                    latest_open = _aware(closed_through) - timedelta(seconds=TIMEFRAME_SECONDS[timeframe])
+                    row = connection.execute(
+                        select(
+                            func.min(ohlcv_bars.c.time),
+                            func.max(ohlcv_bars.c.time),
+                            func.count(),
+                        ).where(
+                            ohlcv_bars.c.symbol == symbol,
+                            ohlcv_bars.c.timeframe == timeframe,
+                            ohlcv_bars.c.time <= latest_open,
+                        )
+                    ).one()
+                    first_open = _aware(row[0]) if row[0] is not None else None
+                    last_open = _aware(row[1]) if row[1] is not None else None
+                    delta = timedelta(seconds=TIMEFRAME_SECONDS[timeframe])
+                    coverages.append(
+                        BarCoverage(
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            first_open=first_open,
+                            last_open=last_open,
+                            latest_closed_at=last_open + delta if last_open is not None else None,
+                            bar_count=int(row[2]),
+                            gap_count=0,
+                            missing_bar_count=0,
+                            largest_gap_seconds=0,
+                            data_hash="bounds_only_not_evidence",
+                        )
+                    )
+    finally:
+        engine.dispose()
+    return coverages
+
+
 def _active_strategy(source_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     manifest_path = source_root / ACTIVE_MANIFEST
     manifest_bytes = manifest_path.read_bytes()
@@ -553,6 +618,46 @@ def write_immutable_artifacts(destination: Path, artifacts: dict[str, bytes]) ->
         raise
 
 
+def rewrite_legacy_baseline_jsonl(*, source_dir: Path, output_dir: Path) -> dict[str, Any]:
+    """Freeze a corrected JSONL copy without rerunning or reading Holdout metrics.
+
+    The first baseline generator emitted indented JSON objects into a file named
+    ``trades.jsonl``.  This migration parses those complete objects structurally,
+    writes one compact record per line, and preserves every other artifact byte.
+    """
+
+    source_dir = source_dir.resolve()
+    output_dir = output_dir.resolve()
+    if not source_dir.is_dir():
+        raise FileNotFoundError(source_dir)
+    manifest = json.loads((source_dir / "BASELINE_MANIFEST.json").read_text(encoding="utf-8"))
+    if manifest.get("holdout_results_accessed") is not False:
+        raise ValueError("refusing to migrate a baseline that accessed Final Holdout results")
+    records = _parse_concatenated_json((source_dir / "trades.jsonl").read_bytes())
+    manifest["supersedes"] = source_dir.name
+    manifest["correction"] = {
+        "type": "jsonl_serialization",
+        "records_rewritten": len(records),
+        "holdout_results_accessed": False,
+    }
+    readme = (source_dir / "README.md").read_text(encoding="utf-8")
+    readme += (
+        "\nThis corrected immutable copy supersedes the original because its trades.jsonl "
+        "is now one compact JSON record per line. No replay or Final Holdout result was read.\n"
+    )
+    artifacts: dict[str, bytes] = {}
+    for path in source_dir.iterdir():
+        if path.name in {"BASELINE_MANIFEST.json", "README.md", "trades.jsonl"}:
+            continue
+        if path.is_file():
+            artifacts[path.name] = path.read_bytes()
+    artifacts["BASELINE_MANIFEST.json"] = _json_bytes(manifest)
+    artifacts["README.md"] = readme.encode("utf-8")
+    artifacts["trades.jsonl"] = b"".join(_json_line_bytes(record) for record in records)
+    write_immutable_artifacts(output_dir, artifacts)
+    return manifest
+
+
 def _auxiliary_git_sha(source_root: Path) -> str | None:
     try:
         return subprocess.run(
@@ -578,7 +683,7 @@ def generate_golden_baseline(
 
     observed_at = _aware(observed_at)
     source_root = source_root.resolve()
-    initial_coverages = _load_coverages(database_url, closed_through=observed_at)
+    initial_coverages = _load_coverage_bounds(database_url, closed_through=observed_at)
     try:
         cutoff = latest_common_closed_4h_boundary(initial_coverages)
     except ValueError:
@@ -681,7 +786,7 @@ def generate_golden_baseline(
         "coverage_gate": coverage,
         "series": [item.as_dict() for item in coverages],
     }
-    trades_bytes = b"".join(_json_bytes(trade) for trade in trades)
+    trades_bytes = b"".join(_json_line_bytes(trade) for trade in trades)
     readme = (
         "# Immutable Strategy Golden Baseline\n\n"
         f"- Status: `{status}`\n"
@@ -725,9 +830,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database-url", default="sqlite:///./.local_paper_console.db")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--rewrite-from",
+        type=Path,
+        default=None,
+        help="rewrite a legacy immutable baseline's trades.jsonl without replaying it",
+    )
     parser.add_argument("--source-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--observed-at", type=datetime.fromisoformat, default=None)
     args = parser.parse_args()
+    if args.rewrite_from is not None:
+        result = rewrite_legacy_baseline_jsonl(source_dir=args.rewrite_from, output_dir=args.output_dir)
+        print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
+        return 0
     result = generate_golden_baseline(
         database_url=args.database_url,
         output_dir=args.output_dir,

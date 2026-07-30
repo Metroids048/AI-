@@ -1,0 +1,47 @@
+{
+  "BTC/USDT": {
+    "confidence": 0.9,
+    "final_promotion_eligible": false,
+    "method": "legacy_iid_percentile_bootstrap",
+    "net_expectancy": [
+      -0.0031606181296516315,
+      0.002542146847306897
+    ],
+    "resamples": 1000,
+    "seed": 42,
+    "sharpe": [
+      -1.1007905659627941,
+      0.8400446481516343
+    ]
+  },
+  "ETH/USDT": {
+    "confidence": 0.9,
+    "final_promotion_eligible": false,
+    "method": "legacy_iid_percentile_bootstrap",
+    "net_expectancy": [
+      -0.002356069364161849,
+      0.002087572254335264
+    ],
+    "resamples": 1000,
+    "seed": 42,
+    "sharpe": [
+      -1.0259199552061857,
+      0.8733541177227878
+    ]
+  },
+  "portfolio": {
+    "confidence": 0.9,
+    "final_promotion_eligible": false,
+    "method": "legacy_iid_percentile_bootstrap",
+    "net_expectancy": [
+      -0.002045307758914403,
+      0.0014634917688554116
+    ],
+    "resamples": 1000,
+    "seed": 42,
+    "sharpe": [
+      -1.1324899246469011,
+      0.7843966645924121
+    ]
+  }
+}
