@@ -310,3 +310,30 @@ class TestReconciliationAndIncidents:
         )
         assert incident_id is not None
         repo.commit()
+
+    def test_healthy_reconciliation_resolves_only_mismatch_incidents(self, repo: AutomatedTradingRepository) -> None:
+        repo.record_incident(
+            incident_type="LOCAL_GHOST_QUARANTINED",
+            severity="MEDIUM",
+            related_aggregate_id="pos-ghost",
+            description="exchange flat before fill projection",
+            context={"symbol": "ETH/USDT"},
+        )
+        repo.record_incident(
+            incident_type="PROTECTION_SUBMISSION_FAILED",
+            severity="HIGH",
+            related_aggregate_id="pos-protection",
+            description="operator review required",
+            context={"symbol": "BTC/USDT"},
+        )
+        resolved_at = datetime(2026, 7, 30, 5, 40, tzinfo=UTC)
+
+        assert repo.resolve_reconciliation_incidents(resolved_at=resolved_at) == 1
+        repo.commit()
+
+        incidents = repo.list_recent_incidents()
+        by_type = {incident.incident_type: incident for incident in incidents}
+        assert by_type["LOCAL_GHOST_QUARANTINED"].resolved is True
+        assert by_type["LOCAL_GHOST_QUARANTINED"].resolved_at is not None
+        assert by_type["LOCAL_GHOST_QUARANTINED"].resolved_at.replace(tzinfo=UTC) == resolved_at
+        assert by_type["PROTECTION_SUBMISSION_FAILED"].resolved is False

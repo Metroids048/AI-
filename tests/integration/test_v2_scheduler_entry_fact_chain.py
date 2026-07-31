@@ -6,7 +6,9 @@ DB session to assert persisted Cycle + Decision facts.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import logging
+from contextlib import nullcontext
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -24,7 +26,9 @@ from services.automated_trading.infrastructure.models import (
 )
 from services.automated_trading.infrastructure.runtime_lock import EngineActivation, EngineActivationConfig
 from services.execution import tasks as tasks_mod
+from services.execution.scheduler import SchedulerCoordinator
 from services.execution.v2_scheduler_entry import (
+    _load_v2_entry_timeframe,
     execute_v2_automated_trading_cycles,
     resolve_scheduler_v2_jobs,
 )
@@ -110,8 +114,72 @@ def test_v2_shadow_keeps_legacy_and_v2() -> None:
     assert "paper_runtime_cycle" in jobs
 
 
-def test_v2_active_scheduler_persists_entry_fact_chain(v2_db, monkeypatch) -> None:
+def test_v2_timeframe_loader_exposes_exchange_bar_close_time(monkeypatch) -> None:
+    open_time = datetime(2026, 7, 29, 7, 15, tzinfo=UTC)
+    row = SimpleNamespace(
+        timestamp=open_time,
+        open=Decimal("65000"),
+        high=Decimal("65100"),
+        low=Decimal("64900"),
+        close=Decimal("65050"),
+        volume=Decimal("100"),
+    )
+
+    class FakeDataRepository:
+        def __init__(self, _session) -> None:
+            pass
+
+        def list_ohlcv_bars(self, **_kwargs):
+            return [row]
+
+    monkeypatch.setattr("services.execution.v2_scheduler_entry.get_session_factory", lambda: lambda: nullcontext())
+    monkeypatch.setattr("services.data.repository.DataRepository", FakeDataRepository)
+
+    timeframe = _load_v2_entry_timeframe("BTC/USDT", "15m")
+
+    assert timeframe.last_closed is not None
+    assert timeframe.last_closed.timestamp == datetime(2026, 7, 29, 7, 30, tzinfo=UTC)
+
+
+def test_v2_timeframe_loader_excludes_current_unclosed_bar(monkeypatch) -> None:
+    observed_at = datetime.now(UTC)
+    closed_row = SimpleNamespace(
+        timestamp=observed_at - timedelta(minutes=16),
+        open=Decimal("65000"),
+        high=Decimal("65100"),
+        low=Decimal("64900"),
+        close=Decimal("65050"),
+        volume=Decimal("100"),
+    )
+    open_row = SimpleNamespace(
+        timestamp=observed_at - timedelta(minutes=5),
+        open=Decimal("65050"),
+        high=Decimal("65200"),
+        low=Decimal("65000"),
+        close=Decimal("65150"),
+        volume=Decimal("80"),
+    )
+
+    class FakeDataRepository:
+        def __init__(self, _session) -> None:
+            pass
+
+        def list_ohlcv_bars(self, **_kwargs):
+            return [closed_row, open_row]
+
+    monkeypatch.setattr("services.execution.v2_scheduler_entry.get_session_factory", lambda: lambda: nullcontext())
+    monkeypatch.setattr("services.data.repository.DataRepository", FakeDataRepository)
+
+    timeframe = _load_v2_entry_timeframe("BTC/USDT", "15m")
+
+    assert len(timeframe.bars) == 1
+    assert timeframe.last_closed is not None
+    assert timeframe.last_closed.close == Decimal("65050")
+
+
+def test_v2_active_scheduler_persists_entry_fact_chain(v2_db, monkeypatch, caplog) -> None:
     """Formal entry must persist Cycle+Decision; verified via a fresh Session."""
+    caplog.set_level(logging.INFO, logger="services.execution.v2_scheduler_entry")
     monkeypatch.setattr(
         "services.execution.v2_scheduler_entry.resolve_engine_activation",
         lambda _settings: EngineActivationConfig(
@@ -121,9 +189,11 @@ def test_v2_active_scheduler_persists_entry_fact_chain(v2_db, monkeypatch) -> No
             warnings=[],
         ),
     )
-    monkeypatch.setattr(
-        "services.execution.v2_scheduler_entry.run_automated_trading_cycle",
-        lambda request, adapter: SimpleNamespace(
+    captured_requests = []
+
+    def fake_cycle(request, _adapter):
+        captured_requests.append(request)
+        return SimpleNamespace(
             funnel_payload={
                 "terminal_stage": "NO_CANDIDATE",
                 "reason_code": "technical_signals_insufficient",
@@ -132,7 +202,11 @@ def test_v2_active_scheduler_persists_entry_fact_chain(v2_db, monkeypatch) -> No
             reconciliation_status=SimpleNamespace(value="HEALTHY"),
             entry_submitted=False,
             errors=[],
-        ),
+        )
+
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.run_automated_trading_cycle",
+        fake_cycle,
     )
 
     result = execute_v2_automated_trading_cycles(
@@ -147,6 +221,9 @@ def test_v2_active_scheduler_persists_entry_fact_chain(v2_db, monkeypatch) -> No
 
     assert result["status"] in {"completed", "partial_failure"}
     assert result.get("results")
+    assert "V2 cycle started" in caplog.text
+    assert captured_requests[0].risk_per_trade == Decimal("0.05")
+    assert captured_requests[0].max_leverage == 40
 
     session: Session = v2_db()
     try:
@@ -157,3 +234,106 @@ def test_v2_active_scheduler_persists_entry_fact_chain(v2_db, monkeypatch) -> No
         assert decisions[0].cycle_id == cycles[0].cycle_id
     finally:
         session.close()
+
+
+def test_scheduler_passes_previously_evaluated_closed_bar_to_cycle(v2_db, monkeypatch) -> None:
+    """A 5-minute scheduler tick must not re-evaluate the same closed 15m candle."""
+    prior_bar = _bars().last_closed
+    assert prior_bar is not None
+    session: Session = v2_db()
+    try:
+        session.add(
+            V2ExecutionCycle(
+                cycle_id="prior-cycle",
+                symbol="BTC/USDT",
+                timeframe="15m",
+                bar_timestamp=prior_bar.timestamp,
+                execution_mode=V2ExecutionMode.BINANCE_TESTNET.value,
+                fencing_token="prior-fence",
+                completed_at=datetime.now(UTC),
+                decision_terminal="ENTRY_SIGNAL_EVALUATED",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.resolve_engine_activation",
+        lambda _settings: EngineActivationConfig(
+            v2_activation=EngineActivation.ACTIVE,
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            allow_legacy_writer=False,
+            warnings=[],
+        ),
+    )
+    captured_requests = []
+
+    def fake_cycle(request, _adapter):
+        captured_requests.append(request)
+        return SimpleNamespace(
+            funnel_payload={
+                "terminal_stage": "CANDLE_CLOSED",
+                "reason_code": "DUPLICATE_DECISION",
+                "candidate_key": None,
+            },
+            reconciliation_status=SimpleNamespace(value="HEALTHY"),
+            entry_submitted=False,
+            errors=[],
+        )
+
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.run_automated_trading_cycle",
+        fake_cycle,
+    )
+
+    execute_v2_automated_trading_cycles(
+        {
+            "symbols": ["BTC/USDT"],
+            "interval_seconds": 60,
+            "scheduler_instance_id": "duplicate-bar-test-instance",
+        },
+        adapter_factory=_fake_adapter,
+        timeframe_loader=lambda _symbol, _tf: _bars(),
+    )
+
+    assert captured_requests
+    assert prior_bar.timestamp in captured_requests[0].already_evaluated_bars
+
+
+def test_scheduler_global_writer_lease_blocks_overlapping_slots(v2_db, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.resolve_engine_activation",
+        lambda _settings: EngineActivationConfig(
+            v2_activation=EngineActivation.ACTIVE,
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            allow_legacy_writer=False,
+            warnings=[],
+        ),
+    )
+    holder = SchedulerCoordinator(
+        session_factory=v2_db,
+        instance_id="already-running-v2-cycle",
+    )
+    writer_lease_name = "automated_trading_v2:BINANCE_TESTNET:single_writer"
+    assert holder.acquire_or_renew_lease(
+        lease_name=writer_lease_name,
+        now=datetime.now(UTC),
+        ttl_seconds=900,
+    )
+
+    try:
+        result = execute_v2_automated_trading_cycles(
+            {
+                "symbols": ["BTC/USDT"],
+                "interval_seconds": 60,
+                "scheduler_instance_id": "overlap-attempt",
+            },
+            adapter_factory=_fake_adapter,
+            timeframe_loader=lambda _symbol, _tf: _bars(),
+        )
+    finally:
+        holder.release_lease(lease_name=writer_lease_name)
+
+    assert result["status"] == "active_cycle_running"
+    assert result["writer_lease_name"] == writer_lease_name

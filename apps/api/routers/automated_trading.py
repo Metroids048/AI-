@@ -16,7 +16,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from apps.api.config import settings as api_settings
@@ -109,9 +109,14 @@ class IncidentSummary(BaseModel):
 class LLMInvocationSummary(BaseModel):
     stage: str
     status: str
+    called: bool
     provider: str | None = None
     model: str | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
     total_tokens: int | None = None
+    latency_ms: int | None = None
+    result: str
     error_code: str | None = None
     skip_reason: str | None = None
     invoked_at: datetime | None = None
@@ -129,7 +134,7 @@ class RuntimeSnapshot(BaseModel):
     latest_decisions: list[DecisionSummary] = []
     latest_incidents: list[IncidentSummary] = []
     latest_llm_invocation: LLMInvocationSummary | None = None
-    snapshot_at: datetime = datetime.now(UTC)
+    snapshot_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     class Config:
         json_encoders = {Decimal: str}
@@ -240,13 +245,24 @@ def _reconciliation_from_snapshot(snapshot: V2ReconciliationSnapshot | None) -> 
 
 def _decision_to_summary(decision: V2ExecutionDecision, cycle: V2ExecutionCycle) -> DecisionSummary:
     payload = decision.payload or {}
+    stages = payload.get("stages")
+    exchange_submitted = bool(payload.get("exchange_submitted"))
+    if isinstance(stages, list):
+        exchange_submitted = exchange_submitted or any(
+            isinstance(stage, dict)
+            and stage.get("stage") == "EXCHANGE_SUBMITTED"
+            and stage.get("outcome") == "PASSED"
+            and isinstance(stage.get("metrics"), dict)
+            and bool(stage["metrics"].get("exchange_order_id"))
+            for stage in stages
+        )
     return DecisionSummary(
         symbol=cycle.symbol,
         terminal_stage=cycle.decision_terminal or str(payload.get("terminal_stage") or "UNKNOWN"),
         reason_code=decision.terminal_reason or str(payload.get("reason_code") or "UNKNOWN"),
         evaluated_at=decision.created_at,
-        candidate_id=decision.candidate_key,
-        exchange_submitted=bool(payload.get("exchange_submitted", False)),
+        candidate_id=str(payload.get("candidate_id") or decision.candidate_key or "") or None,
+        exchange_submitted=exchange_submitted,
     )
 
 
@@ -266,9 +282,14 @@ def _llm_to_summary(invocation: LlmInvocation) -> LLMInvocationSummary:
     return LLMInvocationSummary(
         stage=invocation.stage.value,
         status=invocation.status,
+        called=invocation.called,
         provider=invocation.provider,
         model=invocation.model,
+        prompt_tokens=invocation.prompt_tokens or None,
+        completion_tokens=invocation.completion_tokens or None,
         total_tokens=invocation.total_tokens or None,
+        latency_ms=invocation.latency_ms,
+        result=invocation.status,
         error_code=invocation.error,
         skip_reason=invocation.skip_reason,
         invoked_at=invocation.created_at,

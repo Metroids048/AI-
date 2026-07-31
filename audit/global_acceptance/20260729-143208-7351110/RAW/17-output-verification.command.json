@@ -1,0 +1,96 @@
+{
+  "command": "pwsh -File PROBES/verify_outputs.ps1",
+  "working_directory": "C:\\Users\\win\\Desktop\\AI--main",
+  "environment_variable_names": [],
+  "started_at": "2026-07-29T14:49:59.1308098+08:00",
+  "ended_at": "2026-07-29T14:49:59.3379623+08:00",
+  "exit_code": 0,
+  "stdout": [
+    {
+      "name": "required_file:GLOBAL_ACCEPTANCE_REPORT.md",
+      "passed": true,
+      "detail": "Required primary deliverable exists"
+    },
+    {
+      "name": "required_file:GLOBAL_ACCEPTANCE_MANIFEST.json",
+      "passed": true,
+      "detail": "Required primary deliverable exists"
+    },
+    {
+      "name": "required_file:STRATEGY_READINESS.md",
+      "passed": true,
+      "detail": "Required primary deliverable exists"
+    },
+    {
+      "name": "required_file:NEXT_ACTION_PROMPT.md",
+      "passed": true,
+      "detail": "Required primary deliverable exists"
+    },
+    {
+      "name": "manifest_json",
+      "passed": true,
+      "detail": "Manifest parses as JSON"
+    },
+    {
+      "name": "baseline_json",
+      "passed": true,
+      "detail": "Baseline parses as JSON"
+    },
+    {
+      "name": "verdict_enum",
+      "passed": true,
+      "detail": "Verdict is REJECTED_INTEGRATION"
+    },
+    {
+      "name": "expected_verdict",
+      "passed": true,
+      "detail": "Dirty baseline maps to REJECTED_INTEGRATION"
+    },
+    {
+      "name": "locked_head",
+      "passed": true,
+      "detail": "Manifest retains the locked HEAD"
+    },
+    {
+      "name": "sha256:GLOBAL_ACCEPTANCE_REPORT.md",
+      "passed": true,
+      "detail": "actual=631ec67e014aad9562fd024bfbb44d0045380bf19b0b6dbf66769a1adc8fb36a expected=631ec67e014aad9562fd024bfbb44d0045380bf19b0b6dbf66769a1adc8fb36a"
+    },
+    {
+      "name": "sha256:STRATEGY_READINESS.md",
+      "passed": true,
+      "detail": "actual=2104e9aa4c5d4987a3340f215e9fb8b9408c0a6d96d6720546006c75ae0a9c77 expected=2104e9aa4c5d4987a3340f215e9fb8b9408c0a6d96d6720546006c75ae0a9c77"
+    },
+    {
+      "name": "sha256:NEXT_ACTION_PROMPT.md",
+      "passed": true,
+      "detail": "actual=245cc5a57a97487324c776b90ab29257fcfacb90e3fa107346fbdd63143ccd01 expected=245cc5a57a97487324c776b90ab29257fcfacb90e3fa107346fbdd63143ccd01"
+    },
+    {
+      "name": "status_command",
+      "passed": true,
+      "detail": "git status exit=0"
+    },
+    {
+      "name": "outside_audit_status_unchanged",
+      "passed": true,
+      "detail": "status=?? docs/audit/AI-global-project-acceptance-audit-master-prompt.md"
+    },
+    {
+      "name": "private_key_scan",
+      "passed": true,
+      "detail": "No private-key block marker found"
+    },
+    {
+      "name": "credential_value_scan",
+      "passed": true,
+      "detail": "No non-empty Binance credential value found"
+    },
+    {
+      "name": "mainnet_endpoint_scan",
+      "passed": true,
+      "detail": "No Binance USDT-M mainnet endpoint found in evidence"
+    }
+  ],
+  "stderr": []
+}

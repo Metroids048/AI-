@@ -1,0 +1,1 @@
+pip 26.1.2 from C:\Users\win\AppData\Local\Programs\Python\Python312\Lib\site-packages\pip (python 3.12)

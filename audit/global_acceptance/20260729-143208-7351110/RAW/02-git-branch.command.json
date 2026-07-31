@@ -1,0 +1,20 @@
+{
+  "command": "git branch --show-current",
+  "working_directory": "C:\\Users\\win\\Desktop\\AI--main",
+  "environment_variable_names": [
+    "AUTOMATED_TRADING_ENGINE",
+    "V2_TESTNET_CONTRACT_ENABLED",
+    "NATURAL_E2E_ENABLED",
+    "BINANCE_API_KEY",
+    "BINANCE_API_SECRET",
+    "BINANCE_HTTPS_PROXY",
+    "HTTPS_PROXY",
+    "PAPER_CONSOLE_DISABLE_LIVE_WS",
+    "DATABASE_URL"
+  ],
+  "started_at": "2026-07-29T14:37:02.8140439+08:00",
+  "ended_at": "2026-07-29T14:37:02.8758097+08:00",
+  "exit_code": 0,
+  "stdout": "fix/v2-production-closure\n",
+  "stderr": null
+}

@@ -1,0 +1,3 @@
+7351110595bc063f3db69afa1b5554cdb8de7d3a
+2026-07-29 14:25:46 +0800
+fix: wire v2 active fact chain and keep gate5 blocked

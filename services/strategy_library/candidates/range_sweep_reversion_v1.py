@@ -53,7 +53,7 @@ def _proposal(
     upper: Decimal,
     lower: Decimal,
     atr: Decimal,
-) -> StrategyProposal:
+) -> StrategyProposal | None:
     entry = confirmation.close
     stop = sweep.low - atr * config.atr_buffer if side == "long" else sweep.high + atr * config.atr_buffer
     midpoint = (upper + lower) / Decimal("2")
@@ -63,6 +63,8 @@ def _proposal(
     risk = abs(entry - stop)
     opposite = upper if side == "long" else lower
     cost_adjusted_rr = (abs(opposite - entry) - cost) / (risk + cost)
+    if cost_adjusted_rr <= 0:
+        return None
     signal_time = context.bars_15m.last_closed_at
     assert signal_time is not None
     return StrategyProposal(

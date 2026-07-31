@@ -11,7 +11,7 @@ import os
 import socket
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -28,6 +28,7 @@ from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.database import get_session_factory
 from services.execution.scheduler_coordination import SchedulerCoordinator
 from shared.config import settings
+from shared.models.risk import PAPER_RUNTIME_LIMITS
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +60,24 @@ def _default_adapter_factory(execution_mode: V2ExecutionMode) -> Any:
 
 def _load_v2_entry_timeframe(symbol: str, timeframe: str = V2_CYCLE_TIMEFRAME) -> TimeframeView:
     with get_session_factory()() as session:
+        from services.data.binance import TIMEFRAME_TO_SECONDS
         from services.data.repository import DataRepository
 
         rows = DataRepository(session).list_ohlcv_bars(symbol=symbol, timeframe=timeframe, limit=200)
+    timeframe_seconds = TIMEFRAME_TO_SECONDS.get(timeframe)
+    if timeframe_seconds is None:
+        raise ValueError(f"Unsupported V2 decision timeframe: {timeframe}")
+    observed_at = datetime.now(UTC)
+
+    def closed_at(row) -> datetime:  # noqa: ANN001
+        opened_at = row.timestamp
+        if opened_at.tzinfo is None:
+            opened_at = opened_at.replace(tzinfo=UTC)
+        return opened_at.astimezone(UTC) + timedelta(seconds=timeframe_seconds)
+
     bars = tuple(
         BarView(
-            timestamp=row.timestamp,
+            timestamp=closed_at(row),
             open=Decimal(str(row.open)),
             high=Decimal(str(row.high)),
             low=Decimal(str(row.low)),
@@ -72,6 +85,7 @@ def _load_v2_entry_timeframe(symbol: str, timeframe: str = V2_CYCLE_TIMEFRAME) -
             volume=Decimal(str(row.volume)),
         )
         for row in rows
+        if closed_at(row) <= observed_at
     )
     return TimeframeView(timeframe=timeframe, bars=bars)
 
@@ -99,6 +113,34 @@ def _ensure_v2_cycle(
                 fencing_token=fencing_token,
             )
             session.commit()
+
+
+def _load_already_evaluated_bars(
+    *,
+    symbol: str,
+    timeframe: str,
+    execution_mode: V2ExecutionMode,
+) -> frozenset[datetime]:
+    """Return closed bars that already reached a persisted terminal decision."""
+    from sqlalchemy import select
+
+    from services.automated_trading.infrastructure.models import V2ExecutionCycle
+
+    with get_session_factory()() as session:
+        timestamps = tuple(
+            session.scalars(
+                select(V2ExecutionCycle.bar_timestamp).where(
+                    V2ExecutionCycle.symbol == symbol,
+                    V2ExecutionCycle.timeframe == timeframe,
+                    V2ExecutionCycle.execution_mode == execution_mode.value,
+                    V2ExecutionCycle.decision_terminal.is_not(None),
+                )
+            )
+        )
+    return frozenset(
+        timestamp.replace(tzinfo=UTC) if timestamp.tzinfo is None else timestamp.astimezone(UTC)
+        for timestamp in timestamps
+    )
 
 
 def _finalize_v2_cycle_decision(
@@ -161,6 +203,12 @@ def execute_v2_automated_trading_cycles(
     config = resolve_engine_activation(settings)
     if config.v2_activation is EngineActivation.DISABLED:
         return {"status": "skipped", "reason": "v2_disabled", "v2_activation": config.v2_activation.value}
+    logger.info(
+        "V2 cycle started activation=%s execution_mode=%s scheduler_instance_id=%s",
+        config.v2_activation.value,
+        config.execution_mode.value,
+        payload.get("scheduler_instance_id"),
+    )
 
     now = datetime.now(UTC)
     interval_seconds = float(payload.get("interval_seconds") or settings.paper_runtime_cycle_seconds)
@@ -171,13 +219,25 @@ def execute_v2_automated_trading_cycles(
     )
     coordinator = SchedulerCoordinator(session_factory=get_session_factory(), instance_id=instance_id)
     lease_ttl = max(90.0, interval_seconds * 3)
+    writer_lease_name = f"automated_trading_v2:{config.execution_mode.value}:single_writer"
+    if not coordinator.acquire_or_renew_lease(
+        lease_name=writer_lease_name,
+        now=now,
+        ttl_seconds=lease_ttl,
+    ):
+        return {
+            "status": "active_cycle_running",
+            "writer_lease_name": writer_lease_name,
+        }
 
     if not coordinator.acquire_or_renew_lease(lease_name=lease_name, now=now, ttl_seconds=lease_ttl):
+        coordinator.release_lease(lease_name=writer_lease_name)
         return {"status": "standby_not_leader", "lease_name": lease_name}
 
     fencing_token = coordinator.fencing_token(lease_name=lease_name)
     if fencing_token is None:
         coordinator.release_lease(lease_name=lease_name)
+        coordinator.release_lease(lease_name=writer_lease_name)
         return {"status": "lease_lost", "lease_name": lease_name}
 
     claim = coordinator.claim_cycle(
@@ -189,6 +249,7 @@ def execute_v2_automated_trading_cycles(
     )
     if not claim.claimed or claim.scheduler_cycle_id is None:
         coordinator.release_lease(lease_name=lease_name)
+        coordinator.release_lease(lease_name=writer_lease_name)
         return {
             "status": "duplicate_slot_skipped",
             "lease_name": lease_name,
@@ -242,6 +303,13 @@ def execute_v2_automated_trading_cycles(
                 engine_activation=config.v2_activation,
                 fencing_token=cycle_fencing_token,
                 now=now,
+                risk_per_trade=Decimal(str(PAPER_RUNTIME_LIMITS["risk_per_trade"])),
+                max_leverage=int(PAPER_RUNTIME_LIMITS["max_leverage"]),
+                already_evaluated_bars=_load_already_evaluated_bars(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    execution_mode=config.execution_mode,
+                ),
                 persist_facts=config.v2_activation is EngineActivation.ACTIVE,
                 decision_id=decision_id,
             )
@@ -282,12 +350,14 @@ def execute_v2_automated_trading_cycles(
             failure_reason="one_or_more_symbol_cycles_failed" if task_failed else None,
         )
         coordinator.release_lease(lease_name=lease_name)
+        coordinator.release_lease(lease_name=writer_lease_name)
 
     return {
         "status": "completed" if not task_failed else "partial_failure",
         "v2_activation": config.v2_activation.value,
         "execution_mode": config.execution_mode.value,
         "lease_name": lease_name,
+        "writer_lease_name": writer_lease_name,
         "scheduler_cycle_id": claim.scheduler_cycle_id,
         "symbols": symbols,
         "results": symbol_results,

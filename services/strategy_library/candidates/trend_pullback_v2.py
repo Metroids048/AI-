@@ -59,7 +59,7 @@ def _proposal(
     confirmation: ClosedBar,
     atr: Decimal,
     fast_ema: Decimal,
-) -> StrategyProposal:
+) -> StrategyProposal | None:
     entry = confirmation.close
     stop = (
         pullback.low - atr * config.stop_atr_buffer if side == "long" else pullback.high + atr * config.stop_atr_buffer
@@ -70,6 +70,8 @@ def _proposal(
     tp3 = entry + risk * Decimal("2.5") if side == "long" else entry - risk * Decimal("2.5")
     cost = entry * config.expected_round_trip_cost_bps / Decimal("10000")
     cost_adjusted_rr = (abs(tp2 - entry) - cost) / (risk + cost)
+    if cost_adjusted_rr <= 0:
+        return None
     signal_time = context.bars_15m.last_closed_at
     assert signal_time is not None
     higher_direction = regime.evidence.get("direction_4h", 0.0)

@@ -108,7 +108,7 @@ def _proposal(
     lower: Decimal,
     wick_ratio: Decimal,
     atr: Decimal,
-) -> StrategyProposal:
+) -> StrategyProposal | None:
     entry = confirmation.close
     buffer = atr * config.atr_buffer
     stop = sweep.high + buffer if side == "short" else sweep.low - buffer
@@ -126,6 +126,8 @@ def _proposal(
         tp2 = max(entry + risk, opposite_boundary)
     cost = entry * config.expected_round_trip_cost_bps / Decimal("10000")
     cost_adjusted_rr = (abs(two_r - entry) - cost) / (risk + cost)
+    if cost_adjusted_rr <= 0:
+        return None
     signal_time = context.bars_15m.last_closed_at
     assert signal_time is not None
     regime_fit = max(regime.range, regime.trend_down if side == "short" else regime.trend_up)

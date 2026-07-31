@@ -134,6 +134,84 @@ def test_fetch_authoritative_snapshot_skips_closed_positions():
     assert snapshot.positions == []
 
 
+def test_fetch_authoritative_snapshot_preserves_unknown_exchange_leverage():
+    """A real open position remains observable when CCXT reports leverage=None."""
+    mock_client = MagicMock()
+    mock_client.fetch_balance.return_value = {"USDT": {"free": "500.0", "total": "500.0"}}
+    mock_client.fetch_positions.return_value = [
+        {
+            "symbol": "BTC/USDT:USDT",
+            "side": "short",
+            "contracts": "0.0324",
+            "entryPrice": "118000.0",
+            "markPrice": "119000.0",
+            "unrealizedPnl": "-32.4",
+            "leverage": None,
+        }
+    ]
+    mock_client.fetch_open_orders.return_value = []
+
+    adapter = _adapter_with_mock_client(mock_client)
+    snapshot = adapter.fetch_authoritative_snapshot()
+
+    assert len(snapshot.positions) == 1
+    assert snapshot.positions[0].symbol == "BTC/USDT"
+    assert snapshot.positions[0].quantity == Decimal("0.0324")
+    assert snapshot.positions[0].leverage is None
+
+
+def test_fetch_authoritative_snapshot_normalizes_perpetual_open_order_symbol():
+    mock_client = MagicMock()
+    mock_client.fetch_balance.return_value = {"USDT": {"free": "500.0", "total": "500.0"}}
+    mock_client.fetch_positions.return_value = []
+    mock_client.fetch_open_orders.return_value = [
+        {
+            "id": "order-1",
+            "clientOrderId": "A2S-protection",
+            "symbol": "ETH/USDT:USDT",
+            "side": "sell",
+            "type": "stop_market",
+            "amount": "0.1",
+            "price": None,
+            "status": "open",
+            "reduceOnly": True,
+        }
+    ]
+
+    snapshot = _adapter_with_mock_client(mock_client).fetch_authoritative_snapshot()
+
+    assert snapshot.pending_orders[0].symbol == "ETH/USDT"
+
+
+def test_fetch_authoritative_snapshot_includes_open_algo_protection_orders():
+    """Binance USDM conditional SL/TP live on the algo endpoint, not CCXT open orders."""
+    mock_client = MagicMock()
+    mock_client.fetch_balance.return_value = {"USDT": {"free": "500.0", "total": "500.0"}}
+    mock_client.fetch_positions.return_value = []
+    mock_client.fetch_open_orders.return_value = []
+    mock_client.fapiPrivateGetOpenAlgoOrders.return_value = [
+        {
+            "algoId": "1000000149467048",
+            "clientAlgoId": "A2S-d325aac9142a94fcc2",
+            "symbol": "ETHUSDT",
+            "side": "SELL",
+            "orderType": "STOP_MARKET",
+            "quantity": "0.164",
+            "triggerPrice": "1912.79",
+            "algoStatus": "NEW",
+            "reduceOnly": True,
+        }
+    ]
+
+    snapshot = _adapter_with_mock_client(mock_client).fetch_authoritative_snapshot()
+
+    assert len(snapshot.pending_orders) == 1
+    assert snapshot.pending_orders[0].exchange_order_id == "1000000149467048"
+    assert snapshot.pending_orders[0].client_order_id == "A2S-d325aac9142a94fcc2"
+    assert snapshot.pending_orders[0].symbol == "ETH/USDT"
+    assert snapshot.pending_orders[0].reduce_only is True
+
+
 def test_fetch_market_snapshot_returns_immutable_snapshot():
     """fetch_market_snapshot returns immutable PreSubmitMarketSnapshot."""
     mock_client = MagicMock()
@@ -243,6 +321,36 @@ def test_fetch_fills_returns_empty_tuple_when_no_trades():
     adapter = _adapter_with_mock_client(mock_client)
 
     assert adapter.fetch_fills("BTC/USDT", "exchange_order_456") == ()
+
+
+def test_fetch_fills_resolves_algo_order_to_actual_filled_order() -> None:
+    mock_client = MagicMock()
+    mock_client.fetch_my_trades.side_effect = [
+        [],
+        [
+            {
+                "id": "309068467",
+                "amount": "0.164",
+                "price": "1909.35",
+                "fee": {"cost": "0.12525336"},
+                "timestamp": 1785381075368,
+            }
+        ],
+    ]
+    mock_client.fapiPrivateGetAlgoOrder.return_value = {
+        "algoId": "1000000150045714",
+        "clientAlgoId": "A2S-8a9e64e4c0d938d733",
+        "algoStatus": "FINISHED",
+        "actualOrderId": "14984144295",
+    }
+    adapter = _adapter_with_mock_client(mock_client)
+
+    fills = adapter.fetch_fills("ETH/USDT", "1000000150045714")
+
+    assert len(fills) == 1
+    assert fills[0].exchange_order_id == "14984144295"
+    assert fills[0].trade_id == "309068467"
+    assert mock_client.fetch_my_trades.call_args_list[1].kwargs == {"params": {"orderId": "14984144295"}}
 
 
 def test_submit_protection_returns_stop_and_tp_receipts():
@@ -401,6 +509,30 @@ def test_cancel_order_returns_canceled_receipt():
     assert receipt.exchange_order_id == "stop_order_789"
     assert receipt.status == "canceled"
     mock_client.cancel_order.assert_called_once_with("stop_order_789", "BTC/USDT")
+
+
+def test_cancel_order_falls_back_to_binance_algo_endpoint():
+    mock_client = MagicMock()
+    mock_client.cancel_order.side_effect = RuntimeError("Unknown order sent")
+    mock_client.fapiPrivateDeleteAlgoOrder.return_value = {
+        "algoId": "1000000149468905",
+        "clientAlgoId": "A2S-172b588b45c5817468",
+        "side": "SELL",
+        "orderType": "STOP_MARKET",
+        "quantity": "0.164",
+        "triggerPrice": "1912.80",
+        "algoStatus": "CANCELED",
+    }
+
+    receipt = _adapter_with_mock_client(mock_client).cancel_order(
+        "ETH/USDT",
+        "1000000149468905",
+    )
+
+    assert receipt.exchange_order_id == "1000000149468905"
+    assert receipt.client_order_id == "A2S-172b588b45c5817468"
+    assert receipt.status == "canceled"
+    mock_client.fapiPrivateDeleteAlgoOrder.assert_called_once_with({"algoId": "1000000149468905", "symbol": "ETHUSDT"})
 
 
 def test_adapter_never_creates_local_positions():

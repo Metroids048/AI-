@@ -38,6 +38,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _canonical_symbol(symbol: str) -> str:
+    """Map CCXT perpetual symbols to the platform's execution-universe form."""
+    canonical = symbol.split(":", 1)[0]
+    if "/" not in canonical and canonical.endswith("USDT"):
+        return f"{canonical[:-4]}/USDT"
+    return canonical
+
+
+def _looks_like_binance_algo_order_id(exchange_order_id: str) -> bool:
+    """Binance algo ids occupy a distinct long numeric id space."""
+    return exchange_order_id.isdigit() and len(exchange_order_id) >= 15
+
+
 @dataclass(frozen=True)
 class ExchangeOrderReceipt:
     """Immutable evidence of exchange order submission.
@@ -164,15 +177,16 @@ class BinanceTestnetAdapter:
                 if Decimal(str(pos_data.get("contracts", 0))) == 0:
                     continue  # Skip closed positions
 
+                leverage = pos_data.get("leverage")
                 positions.append(
                     ExchangePositionSnapshot(
-                        symbol=pos_data["symbol"],
+                        symbol=_canonical_symbol(pos_data["symbol"]),
                         direction="long" if pos_data["side"] == "long" else "short",
                         quantity=Decimal(str(pos_data["contracts"])),
                         entry_price=Decimal(str(pos_data["entryPrice"])),
                         mark_price=Decimal(str(pos_data["markPrice"])),
                         unrealized_pnl=Decimal(str(pos_data.get("unrealizedPnl", 0))),
-                        leverage=int(pos_data.get("leverage", 1)),
+                        leverage=int(leverage) if leverage is not None else None,
                     )
                 )
 
@@ -184,7 +198,7 @@ class BinanceTestnetAdapter:
                     ExchangeOrderSnapshot(
                         exchange_order_id=str(order_data["id"]),
                         client_order_id=order_data.get("clientOrderId"),
-                        symbol=order_data["symbol"],
+                        symbol=_canonical_symbol(order_data["symbol"]),
                         side=order_data["side"],
                         order_type=order_data["type"],
                         quantity=Decimal(str(order_data["amount"])),
@@ -193,6 +207,35 @@ class BinanceTestnetAdapter:
                         reduce_only=order_data.get("reduceOnly", False),
                     )
                 )
+            # Binance USDM conditional SL/TP orders are served by the algo
+            # endpoint and are not included in CCXT fetch_open_orders().
+            fetch_open_algo_orders = getattr(client, "fapiPrivateGetOpenAlgoOrders", None)
+            algo_orders = fetch_open_algo_orders({}) if callable(fetch_open_algo_orders) else []
+            known_order_ids = {order.exchange_order_id for order in orders}
+            for order_data in algo_orders or []:
+                exchange_order_id = str(
+                    order_data.get("algoId") or order_data.get("orderId") or order_data.get("id") or ""
+                )
+                if not exchange_order_id or exchange_order_id in known_order_ids:
+                    continue
+                orders.append(
+                    ExchangeOrderSnapshot(
+                        exchange_order_id=exchange_order_id,
+                        client_order_id=order_data.get("clientAlgoId") or order_data.get("clientOrderId"),
+                        symbol=_canonical_symbol(str(order_data.get("symbol") or "")),
+                        side=str(order_data.get("side") or "").lower(),
+                        order_type=str(order_data.get("orderType") or order_data.get("type") or "conditional").lower(),
+                        quantity=Decimal(str(order_data.get("quantity") or "0")),
+                        price=(
+                            Decimal(str(order_data.get("triggerPrice") or order_data.get("stopPrice")))
+                            if order_data.get("triggerPrice") or order_data.get("stopPrice")
+                            else None
+                        ),
+                        status=str(order_data.get("algoStatus") or order_data.get("status") or "NEW").lower(),
+                        reduce_only=bool(order_data.get("reduceOnly", False)),
+                    )
+                )
+                known_order_ids.add(exchange_order_id)
 
             return AuthoritativeAccountSnapshot(
                 balance=usdt_balance,
@@ -377,13 +420,29 @@ class BinanceTestnetAdapter:
         client = self._ensure_gateway()
 
         try:
-            trades = client.fetch_my_trades(symbol, params={"orderId": exchange_order_id})
+            actual_order_id = exchange_order_id
+            trades = client.fetch_my_trades(symbol, params={"orderId": actual_order_id})
+            if not trades and _looks_like_binance_algo_order_id(exchange_order_id):
+                fetch_algo_order = getattr(client, "fapiPrivateGetAlgoOrder", None)
+                if callable(fetch_algo_order):
+                    algo_order = fetch_algo_order(
+                        {
+                            "algoId": exchange_order_id,
+                            "symbol": symbol.replace("/", "").split(":", 1)[0],
+                        }
+                    )
+                    if isinstance(algo_order, dict) and algo_order.get("actualOrderId"):
+                        actual_order_id = str(algo_order["actualOrderId"])
+                        trades = client.fetch_my_trades(
+                            symbol,
+                            params={"orderId": actual_order_id},
+                        )
 
             receipts = []
             for trade_data in trades:
                 receipts.append(
                     ExchangeFillReceipt(
-                        exchange_order_id=exchange_order_id,
+                        exchange_order_id=actual_order_id,
                         trade_id=str(trade_data["id"]),
                         filled_quantity=Decimal(str(trade_data["amount"])),
                         fill_price=Decimal(str(trade_data["price"])),
@@ -563,20 +622,66 @@ class BinanceTestnetAdapter:
         client = self._ensure_gateway()
 
         try:
-            cancel_response = client.cancel_order(exchange_order_id, symbol)
-
-            return ExchangeOrderReceipt(
-                exchange_order_id=str(cancel_response["id"]),
-                client_order_id=cancel_response.get("clientOrderId"),
-                symbol=symbol,
-                side=cancel_response["side"],
-                order_type=cancel_response["type"],
-                quantity=Decimal(str(cancel_response["amount"])),
-                price=Decimal(str(cancel_response["price"])) if cancel_response.get("price") else None,
-                status="canceled",
-                acknowledged_at=datetime.now(UTC),
-            )
-
+            cancel_algo_order = getattr(client, "fapiPrivateDeleteAlgoOrder", None)
+            if _looks_like_binance_algo_order_id(exchange_order_id) and callable(cancel_algo_order):
+                cancel_response = cancel_algo_order(
+                    {
+                        "algoId": exchange_order_id,
+                        "symbol": symbol.replace("/", "").split(":", 1)[0],
+                    }
+                )
+                return ExchangeOrderReceipt(
+                    exchange_order_id=str(cancel_response.get("algoId") or exchange_order_id),
+                    client_order_id=cancel_response.get("clientAlgoId"),
+                    symbol=symbol,
+                    side=str(cancel_response.get("side") or "").lower(),
+                    order_type=str(cancel_response.get("orderType") or "conditional").lower(),
+                    quantity=Decimal(str(cancel_response.get("quantity") or "0")),
+                    price=(
+                        Decimal(str(cancel_response.get("triggerPrice") or cancel_response.get("stopPrice")))
+                        if cancel_response.get("triggerPrice") or cancel_response.get("stopPrice")
+                        else None
+                    ),
+                    status="canceled",
+                    acknowledged_at=datetime.now(UTC),
+                )
+            try:
+                cancel_response = client.cancel_order(exchange_order_id, symbol)
+                return ExchangeOrderReceipt(
+                    exchange_order_id=str(cancel_response["id"]),
+                    client_order_id=cancel_response.get("clientOrderId"),
+                    symbol=symbol,
+                    side=cancel_response["side"],
+                    order_type=cancel_response["type"],
+                    quantity=Decimal(str(cancel_response["amount"])),
+                    price=Decimal(str(cancel_response["price"])) if cancel_response.get("price") else None,
+                    status="canceled",
+                    acknowledged_at=datetime.now(UTC),
+                )
+            except Exception:
+                if not callable(cancel_algo_order):
+                    raise
+                cancel_response = cancel_algo_order(
+                    {
+                        "algoId": exchange_order_id,
+                        "symbol": symbol.replace("/", "").split(":", 1)[0],
+                    }
+                )
+                return ExchangeOrderReceipt(
+                    exchange_order_id=str(cancel_response.get("algoId") or exchange_order_id),
+                    client_order_id=cancel_response.get("clientAlgoId"),
+                    symbol=symbol,
+                    side=str(cancel_response.get("side") or "").lower(),
+                    order_type=str(cancel_response.get("orderType") or "conditional").lower(),
+                    quantity=Decimal(str(cancel_response.get("quantity") or "0")),
+                    price=(
+                        Decimal(str(cancel_response.get("triggerPrice") or cancel_response.get("stopPrice")))
+                        if cancel_response.get("triggerPrice") or cancel_response.get("stopPrice")
+                        else None
+                    ),
+                    status="canceled",
+                    acknowledged_at=datetime.now(UTC),
+                )
         except Exception as e:
             logger.error(
                 "Failed to cancel order %s on %s: %s",

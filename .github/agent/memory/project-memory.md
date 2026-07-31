@@ -1,12 +1,14 @@
 # Project Memory
 
-## Strategy core refactor Gate 0/1 baseline (2026-07-29)
+## Strategy core refactor Gate 0/1 baseline (updated 2026-07-30)
 
 - Current-folder audit is frozen at `docs/audits/2026-07-29-strategy-refactor-audit.md`: V2 actually runs `testnet_sampling_v2` on 15m and emits V2 `TradeCandidate`; the legacy active manifest still points to `trend_momentum_v1` on the 4h/1h/15m path.
 - Golden Baseline generator is `scripts/generate_strategy_golden_baseline.py`; it hashes current paths+contents, current active rules, and BTC/ETH 1m/5m/15m/1h/4h data, then refuses overwrite.
 - Independent review found the first tree-hash scope omitted `docs/**` and became stale after a memory commit. Commit `bf3b0b7` corrected the scope to all source/config/document files under the current folder, explicitly excluding generated artifacts, caches, dependencies, and mutable runtime logs; the frozen hash must equal a fresh recomputation before delivery.
-- The immutable evidence package at `artifacts/strategy_refactor/baseline/` is honestly `DATA_COVERAGE_INSUFFICIENT`: both BTC and ETH have zero 5m bars; 1m is about 14 days; 15m/1h/4h start around July 2025 and contain gaps. Therefore there is no valid common five-timeframe 4h cutoff, no frozen 180-day Final Holdout, no replay trades, and no performance/CI claim.
-- Strategy refactor Tasks 2+ are paused at the planned baseline review gate. The only valid next step is backfilling real BTC/ETH five-timeframe history through the existing data layer, then generating a new baseline at a new immutable destination; do not reinterpret or overwrite this failed evidence package.
+- Historical backfill now covers BTC/ETH continuously from 2023-01-01 through the 2026-07-29 cutoff: per symbol 1m=1,879,200; 5m=375,840; 15m=125,280; 1h=31,320; 4h=7,830, with zero gaps/missing bars. Provenance is `artifacts/strategy_refactor/history-provenance-2026-07-29.json`.
+- The corrected immutable baseline is `artifacts/strategy_refactor/baseline-20260729-0000Z-r4`. It freezes a 2026-01-29..2026-07-29 Final Holdout without reading it. The original directory is superseded because its pretty-printed `trades.jsonl` was not valid line-delimited JSON; `r1` captured a pre-sync source tree; `r2` was invalidated by concurrent research-candidate commits; `r3` preceded the generated pytest-state refresh. All remain immutable evidence.
+- Data coverage is `SUFFICIENT`, but `trend_momentum_v1` is rejected: portfolio 1,126 trades, Sharpe -0.1096, PF 0.9882, MaxDD 77.14%, net expectancy -0.000202 and net return -22.71%. The 90% IID bootstrap intervals cross zero and are not promotion eligible.
+- The next approved step is Phase 1 data/feature parity and next-bar semantics, followed by point-in-time costs and per-window walk-forward/dependent bootstrap. Do not tune MACD/RSI, risk, stops or promotion gates to rescue the failed candidate, and do not use the sealed Holdout for optimization.
 
 ## Testnet truth / P0.3 Entry-slot latency (2026-07-28)
 
@@ -585,3 +587,34 @@
 - 2026-07-28 authorized Testnet flatten closed unmanaged ETH short (`gateway_order_id=14774000974`); exchange BTC/ETH open positions and open orders are again `0`. Local unmanaged/ghost rows remain quarantined as `RECONCILED_GHOST` where applicable.
 - Observed after the latency fix: ordinary Scheduler evaluated closed 15m bar `2026-07-28T02:15:00Z` by `02:17:17Z` without `PRETRADE_DECISION_STALE` (prior failure was `age=706s`). Terminal reasons were `TECHNICAL_SIGNALS_INSUFFICIENT` / Sampling `SAMPLING_RULES_NOT_ALIGNED` — signal silence, not execution-path timeout.
 - **P0.3 remains incomplete** until a natural receipt-backed Entry → SL/TP exchange IDs → normal Reduce-risk Exit ends at local `0` == exchange `0`. P1/P2 promotion and P3 stay locked.
+
+## Automatic Trading V2 Natural Lifecycle Closure (2026-07-30)
+
+- P0.3 is now verified complete on Binance USDT-M Testnet through the normal Scheduler path. Three natural managed positions produced exchange Entry fills, protection algo orders, protection-triggered reduce-only Exit fills, local `CLOSED`, and `PROTECTION_FILLED`.
+- Evidence: ETH `14979020372 -> 14984144295`, BTC `24887097073 -> 24906752342`, ETH `14985524359 -> 14988841518`. These are Testnet order IDs and are not profitability evidence.
+- The production fix set recovers delayed ACK/fills, resolves Binance protection `algoId -> actualOrderId`, projects quarantined positions closed only from matching persisted reduce-only fills, and resolves only ghost/external mismatch incidents after a fresh `HEALTHY` reconciliation.
+- Runtime truth at final acceptance: Binance open positions `0`, Binance open orders `0`, local V2 open positions `0`, reconciliation `HEALTHY`; the API, RuntimeScheduler, frontend, and `scripts/watch_v2_runtime.ps1` watcher remain online.
+- Frontend `/trading` renders V2 Engine Status, Why No Trade, and Exchange vs Local from the real Runtime API. Cold-load sampling showed two React development initialization requests followed by stable `~10s` polling; console had `0` errors and two non-blocking framework/chart warnings.
+- LLM runtime truth exposes `called/provider/model/tokens/latency_ms/result`; a no-candidate cycle records `called=false, result=skipped, skip_reason=NO_CANDIDATE`, while provider failures are retained as attempted calls rather than disguised skips.
+- Final deterministic verification: Ruff clean; mypy clean for 206 source files; pytest `1181 passed, 16 skipped`; frontend Vitest `16 files / 65 tests`; Vite production build passed.
+- Residual risk: one historical `PROTECTION_RECOVERY_FAILED` incident remains `OPEN` for manual review by design. Strategy optimization is a separate next phase and must preserve the current 5%/40x Testnet-only sampling authorization and validation gates.
+
+## Strategy Readiness Gate (2026-07-30)
+
+- Current strategy verdict is `DATA_READY / ACTIVE_STRATEGY_REJECTED / OPTIMIZATION_NOT_READY`, documented in `docs/audit/strategy-readiness-2026-07-30.md`.
+- The corrected pre-parity artifact covers BTC/ETH continuously across 1m/5m/15m/1h/4h through the 2026-07-29 cutoff; its Final Holdout remains sealed and unaccessed. The artifact is historical after the Phase 1 replay semantics change.
+- Legacy technical replay still does not model funding, latency, spread, or partial fills, and the existing IID percentile bootstrap is not a valid final promotion CI. Do not optimize or change thresholds until those gates are repaired.
+
+## Final V2 Drain Re-verification And Runtime Restore (2026-07-30)
+
+- Normal RuntimeScheduler protection handling closed the latest BTC/ETH managed shorts without a manual close or direct cycle invocation. BTC reduce-only stop actual order `24933450773`, trade `522947770`, filled `0.0049 @ 64190.0`; ETH reduce-only stop actual order `15006608596`, trade `309176628`, filled `0.165 @ 1911.67`.
+- BTC position `953a6487-3310-4c44-a7c8-916ebf032c8c` and ETH position `217bc8f7-9195-426d-914a-b5542e492558` are `CLOSED`; both protection records are `PROTECTION_FILLED`.
+- Independent Binance Testnet probe returned positions/orders `0/0`; Runtime local open positions `0`; reconciliation `HEALTHY` with zero mismatches.
+- Entries were restored through `POST /api/v2/automated-trading/controls/entry-enable`, reason `phase2_final_acceptance_complete`; live Runtime verified `entry_enabled=true`. No risk, leverage, stop/take-profit, net-edge, or strategy threshold changed.
+
+## Strategy Phase 1 next-bar parity (2026-07-31)
+
+- The first methodology slice is implemented in `services/validation/technical_replay.py`: replay evaluates a signal on a closed bar and fills at the following bar's open/timestamp; a final-bar signal without a following bar is not fabricated into an end-of-window trade.
+- Regression evidence: focused replay tests `14 passed`; related validation tests `21 passed`; touched Ruff and production mypy passed.
+- The corrected `baseline-20260729-0000Z-r4` remains a historical pre-parity artifact and must not be treated as source-hash-current after this code change. No new baseline or Final Holdout result was generated.
+- Remaining Phase 1 work: shared point-in-time MarketSnapshot/features, live/replay input-hash parity, funding/spread/latency/partial-fill costs, per-window walk-forward ledgers, and dependent/block bootstrap. Do not tune thresholds or read Holdout results.

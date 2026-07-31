@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
 
 from services.automated_trading.application.reconciliation_service import (
     Discrepancy,
@@ -24,6 +26,7 @@ from services.automated_trading.application.reconciliation_service import (
     reconcile,
     unavailable,
 )
+from services.automated_trading.application.recovery_executor import execute_recovery_actions
 from services.automated_trading.application.recovery_service import (
     EmergencyCloseRequest,
     PendingIntentView,
@@ -36,8 +39,19 @@ from services.automated_trading.infrastructure.market_snapshot_provider import (
     ExchangeOrderSnapshot,
     ExchangePositionSnapshot,
 )
+from services.automated_trading.infrastructure.models import Base, V2ExecutionIncident
 
 NOW = datetime(2026, 7, 28, 12, 0, tzinfo=UTC)
+
+
+@pytest.fixture
+def recovery_db(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'recovery.db'}")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    monkeypatch.setattr("services.database.get_session_factory", lambda: factory)
+    yield factory
+    engine.dispose()
 
 
 def _snapshot(
@@ -168,6 +182,25 @@ def test_external_position_is_quarantined_never_adopted():
     # No emergency close was planned for a position we do not own
     assert not any(a.action_type is RecoveryActionType.EMERGENCY_REDUCE_ONLY_CLOSE for a in result.actions)
     assert result.entry_blocked is True
+
+
+def test_external_quarantine_executor_persists_incident(recovery_db):
+    action = RecoveryAction(
+        action_type=RecoveryActionType.QUARANTINE_EXTERNAL_POSITION,
+        target_ref="BTC/USDT:short",
+        symbol="BTC/USDT",
+        reason="external position has no V2 identity claim",
+    )
+
+    execution = execute_recovery_actions((action,), adapter=None, snapshot=_snapshot())
+
+    assert execution.errors == ()
+    assert execution.executed == ("BTC/USDT:short",)
+    with recovery_db() as session:
+        incidents = list(session.scalars(select(V2ExecutionIncident)))
+    assert len(incidents) == 1
+    assert incidents[0].incident_type == "EXTERNAL_POSITION_QUARANTINED"
+    assert incidents[0].severity == "MEDIUM"
 
 
 def test_restart_recovers_protection_for_unprotected_position():

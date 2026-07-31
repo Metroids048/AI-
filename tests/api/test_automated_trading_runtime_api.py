@@ -10,6 +10,7 @@ Gate 13:
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 
 import pytest
@@ -58,6 +59,13 @@ class TestRuntimeEndpoint:
     def test_returns_200(self, v2_client: TestClient) -> None:
         resp = v2_client.get("/api/v2/automated-trading/runtime")
         assert resp.status_code == 200
+
+    def test_snapshot_timestamp_is_created_per_response(self, v2_client: TestClient) -> None:
+        first = datetime.fromisoformat(v2_client.get("/api/v2/automated-trading/runtime").json()["snapshot_at"])
+        time.sleep(0.01)
+        second = datetime.fromisoformat(v2_client.get("/api/v2/automated-trading/runtime").json()["snapshot_at"])
+
+        assert second > first
 
     def test_engine_fields_present(self, v2_client: TestClient) -> None:
         resp = v2_client.get("/api/v2/automated-trading/runtime")
@@ -135,6 +143,52 @@ class TestRuntimeEndpoint:
         assert len(decisions) == 1
         assert decisions[0]["reason_code"] == "NO_ENTRY_SIGNAL"
 
+    def test_exchange_submission_is_derived_from_funnel_stage(
+        self,
+        v2_client: TestClient,
+        db_session,
+    ) -> None:
+        repo = AutomatedTradingRepository(db_session)
+        repo.create_cycle(
+            cycle_id="cycle-exchange-submitted",
+            symbol="ETH/USDT",
+            timeframe="15m",
+            bar_timestamp=datetime(2026, 7, 29, 9, 30, tzinfo=UTC),
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            fencing_token="fence-exchange-submitted",
+        )
+        repo.complete_cycle(
+            cycle_id="cycle-exchange-submitted",
+            decision_terminal="EXCHANGE_SUBMITTED",
+            completed_at=datetime(2026, 7, 29, 9, 31, tzinfo=UTC),
+        )
+        repo.create_decision(
+            decision_id="decision-exchange-submitted",
+            cycle_id="cycle-exchange-submitted",
+            candidate_key=None,
+            terminal_reason="OK",
+            payload={
+                "candidate_id": "candidate-real-entry",
+                "terminal_stage": "EXCHANGE_SUBMITTED",
+                "stages": [
+                    {
+                        "stage": "EXCHANGE_SUBMITTED",
+                        "outcome": "PASSED",
+                        "metrics": {
+                            "client_order_id": "A2E-real-entry",
+                            "exchange_order_id": "14907989375",
+                        },
+                    }
+                ],
+            },
+        )
+        repo.commit()
+
+        decision = v2_client.get("/api/v2/automated-trading/decisions?limit=100").json()[0]
+
+        assert decision["candidate_id"] == "candidate-real-entry"
+        assert decision["exchange_submitted"] is True
+
     def test_llm_invocation_null_when_absent(self, v2_client: TestClient) -> None:
         resp = v2_client.get("/api/v2/automated-trading/runtime")
         assert resp.json()["latest_llm_invocation"] is None
@@ -149,14 +203,22 @@ class TestRuntimeEndpoint:
                 model="claude-haiku-4-5-20251001",
                 stage=LlmInvocationStage.MARKET_REVIEW,
                 status="CALLED",
+                prompt_tokens=80,
+                completion_tokens=40,
                 total_tokens=120,
+                latency_ms=345,
             )
         )
         resp = v2_client.get("/api/v2/automated-trading/runtime")
         llm = resp.json()["latest_llm_invocation"]
         assert llm is not None
         assert llm["status"] == "CALLED"
+        assert llm["called"] is True
+        assert llm["prompt_tokens"] == 80
+        assert llm["completion_tokens"] == 40
         assert llm["total_tokens"] == 120
+        assert llm["latency_ms"] == 345
+        assert llm["result"] == "CALLED"
 
 
 # ---------------------------------------------------------------------------

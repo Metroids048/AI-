@@ -13,8 +13,9 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
+from services.automated_trading.application.cycle_service import _build_local_state
 from services.automated_trading.domain.enums import (
     V2CandidateType,
     V2ExecutionMode,
@@ -22,6 +23,7 @@ from services.automated_trading.domain.enums import (
     V2PositionState,
     V2ProtectionState,
 )
+from services.automated_trading.domain.receipts import ProtectionReceipt
 from services.automated_trading.infrastructure.models import Base, V2ManagedPosition  # noqa: F401
 from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
 
@@ -595,6 +597,91 @@ def test_recovery_required_reconciliation_can_be_persisted(repo: AutomatedTradin
     )
     assert snapshot_id is not None
     repo.commit()
+
+
+def test_local_reconciliation_state_loads_full_exchange_identity_and_protection(
+    repo: AutomatedTradingRepository,
+    integrity_db: Session,
+    monkeypatch,
+) -> None:
+    _seed_cycle(repo, "cycle-reconcile-identity")
+    _seed_intent(repo, intent_id="intent-reconcile-identity", cycle_id="cycle-reconcile-identity")
+    order_id = _seed_filled_order(
+        repo,
+        intent_id="intent-reconcile-identity",
+        client_order_id="A2E-reconcile-identity",
+        exchange_order_id="xo-reconcile-identity",
+        trade_id="trade-reconcile-identity",
+    )
+    repo.project_position_from_confirmed_fills(
+        position_id="pos-reconcile-identity",
+        intent_id="intent-reconcile-identity",
+        order_record_id=order_id,
+        symbol="BTC/USDT",
+        direction="long",
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        projected_at=datetime(2026, 7, 28, 10, 2, tzinfo=UTC),
+    )
+    repo.save_protection(
+        protection_id="protection-reconcile-identity",
+        position_id="pos-reconcile-identity",
+        stop_loss_price=64000.0,
+        take_profit_price=67000.0,
+        stop_client_order_id="A2S-reconcile-identity",
+        tp_client_order_id="A2T-reconcile-identity",
+        state=V2ProtectionState.PROTECTION_INTENT,
+    )
+    repo.transition_protection(
+        "protection-reconcile-identity",
+        expected_current=V2ProtectionState.PROTECTION_INTENT,
+        next_state=V2ProtectionState.PROTECTION_SUBMITTING,
+        event_type="Submitting",
+        payload={},
+    )
+    repo.update_protection_active(
+        "protection-reconcile-identity",
+        receipt=ProtectionReceipt(
+            position_id="pos-reconcile-identity",
+            stop_exchange_order_id="xo-stop-reconcile-identity",
+            tp_exchange_order_id="xo-tp-reconcile-identity",
+            submission_timestamp=datetime(2026, 7, 28, 10, 3, tzinfo=UTC),
+        ),
+        new_state=V2ProtectionState.PROTECTION_ACTIVE,
+        activated_at=datetime(2026, 7, 28, 10, 3, tzinfo=UTC),
+    )
+    repo.transition_position(
+        "pos-reconcile-identity",
+        expected_current=V2PositionState.POSITION_PROJECTED,
+        next_state=V2PositionState.PROTECTED,
+        event_type="Protected",
+        payload={},
+    )
+    repo.commit()
+
+    factory = sessionmaker(bind=integrity_db.get_bind(), expire_on_commit=False)
+    monkeypatch.setattr("services.database.get_session_factory", lambda: factory)
+
+    loaded = _build_local_state(
+        object(),
+        V2ExecutionMode.BINANCE_TESTNET,
+        fail_closed=True,
+    )
+
+    assert loaded.status == "OK"
+    assert loaded.state is not None
+    position = loaded.state.positions[0]
+    assert {
+        "pos-reconcile-identity",
+        "intent-reconcile-identity",
+        "A2E-reconcile-identity",
+        "xo-reconcile-identity",
+        "trade-reconcile-identity",
+    }.issubset(position.claim_keys)
+    assert position.has_active_protection is True
+    assert position.protection_exchange_order_ids == frozenset(
+        {"xo-stop-reconcile-identity", "xo-tp-reconcile-identity"}
+    )
+    assert loaded.exchange_position_claim_refs["BTC/USDT:long"] == position.claim_keys
 
 
 def test_state_transition_appends_event_in_same_transaction(

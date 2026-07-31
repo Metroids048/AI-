@@ -7,7 +7,6 @@ import { ExchangeVsLocal, RuntimeOverview, WhyNoTrade } from "../components/Auto
 import { AppShell } from "../components/Common";
 import { KlinePanel, MarketHeader } from "../components/MarketPanels";
 import { ExecutionAcceptancePanel, TradingRecordsWorkspace } from "../components/TradingRecordsWorkspace";
-import { RuntimeTruthPanel } from "../components/RuntimeTruthPanel";
 import {
   AutoSettingsPanel,
   DecisionDebugPanel,
@@ -34,7 +33,6 @@ import {
 } from "../components/TradingConsolePanels";
 import { useAutomatedTradingRuntime } from "../hooks/useAutomatedTradingRuntime";
 import { useConsoleData } from "../hooks/useConsoleData";
-import { useRuntimeTruth } from "../hooks/useRuntimeTruth";
 
 const DEFAULT_SYMBOL = "BTC/USDT";
 const DEFAULT_PERP = "BTC/USDT:USDT";
@@ -110,6 +108,60 @@ export function deskOrdersFromAccount(account) {
   return [...openRows, ...recentRows.filter((row) => !seen.has(row.gateway_order_id))];
 }
 
+/** Prefer the persisted V2 exchange snapshot; never fall back to legacy Paper rows. */
+export function deskPositionsFromRuntimeTruth(positionsData, account = null) {
+  if (positionsData?.exchange?.available === true) {
+    const observedAt = positionsData.exchange.observed_at ?? new Date().toISOString();
+    return asArray(positionsData.exchange.positions)
+      .filter((position) => Math.abs(Number(position.quantity) || 0) > 0)
+      .map((position) => {
+        const quantity = position.quantity;
+        const markPrice = Number(position.mark_price || position.entry_price || 0);
+        const notional = Math.abs(Number(quantity) || 0) * markPrice;
+        const leverage = position.leverage ?? null;
+        return {
+          position_snapshot_id: `v2-binance:${position.symbol}:${position.direction}`,
+          symbol: platformSymbol(position.symbol),
+          side: position.direction,
+          quantity,
+          entry_price: position.entry_price,
+          mark_price: position.mark_price,
+          notional_usdt: notional > 0 ? notional : null,
+          margin_usdt: notional > 0 && leverage ? notional / leverage : null,
+          leverage,
+          unrealized_pnl: position.unrealized_pnl,
+          snapshot_time: observedAt,
+          source: "binance_v2_reconciliation",
+        };
+      });
+  }
+  return deskPositionsFromAccount(account) ?? [];
+}
+
+/** Prefer V2 reconciliation open orders, including an authoritative empty book. */
+export function deskOrdersFromRuntimeTruth(runtimeSnapshot, account = null) {
+  if (runtimeSnapshot?.exchange?.available === true) {
+    const observedAt = runtimeSnapshot.exchange.timestamp ?? new Date().toISOString();
+    return asArray(runtimeSnapshot.exchange.open_orders).map((order) => ({
+      order_execution_id: `v2-binance-open:${order.exchange_order_id}`,
+      symbol: platformSymbol(order.symbol),
+      direction: String(order.side || "").toLowerCase() === "sell" ? "short" : "long",
+      execution_status: String(order.status || "open").toLowerCase(),
+      gateway_order_id: order.exchange_order_id,
+      gateway_name: "binance_usdt_perpetual",
+      entry_context: {
+        execution_kind: "v2_binance_open_order",
+        order_type: order.order_type,
+        quantity: order.quantity,
+        actual_avg_price: order.price,
+        reduce_only: Boolean(order.reduce_only),
+      },
+      created_at: observedAt,
+    }));
+  }
+  return deskOrdersFromAccount(account) ?? [];
+}
+
 export function PaperConsole() {
   const [searchParams, setSearchParams] = useSearchParams();
   const symbol = searchParams.get("symbol") || DEFAULT_SYMBOL;
@@ -117,7 +169,6 @@ export function PaperConsole() {
   const timeframe = searchParams.get("timeframe") || DEFAULT_TIMEFRAME;
   const [actionMessage, setActionMessage] = useState("");
   const data = useConsoleData(symbol, perpSymbol, timeframe);
-  const runtimeTruth = useRuntimeTruth(symbol);
   const v2Runtime = useAutomatedTradingRuntime();
   const [v2Positions, setV2Positions] = useState(null);
 
@@ -144,23 +195,14 @@ export function PaperConsole() {
   const mirrorToGateway = Boolean(
     (data.decisionTrace?.execution_profile ?? latestPaperRun?.execution_profile)?.mirror_to_gateway,
   );
-  const deskPositions = useMemo(() => {
-    const fromExchange = deskPositionsFromAccount(data.testnetAccount);
-    if (fromExchange) return fromExchange;
-    return (data.overview?.positions ?? []).map((pos) => {
-      const qty = Math.abs(Number(pos.quantity) || 0);
-      const markPrice = Number(pos.mark_price || pos.entry_price || 0);
-      const notional = pos.notional_usdt ?? (qty * markPrice > 0 ? qty * markPrice : null);
-      const leverage = pos.leverage ?? null;
-      const margin = pos.margin_usdt ?? (notional && leverage ? notional / leverage : null);
-      return { ...pos, notional_usdt: notional, margin_usdt: margin, leverage };
-    });
-  }, [data.testnetAccount, data.overview?.positions]);
-  const deskOrders = useMemo(() => {
-    const fromExchange = deskOrdersFromAccount(data.testnetAccount);
-    if (fromExchange && fromExchange.length) return fromExchange;
-    return data.overview?.orders ?? [];
-  }, [data.testnetAccount, data.overview?.orders]);
+  const deskPositions = useMemo(
+    () => deskPositionsFromRuntimeTruth(v2Positions, data.testnetAccount),
+    [v2Positions, data.testnetAccount],
+  );
+  const deskOrders = useMemo(
+    () => deskOrdersFromRuntimeTruth(v2Runtime.snapshot, data.testnetAccount),
+    [v2Runtime.snapshot, data.testnetAccount],
+  );
   const latestPosition = useMemo(
     () => deskPositions.find((position) => position.symbol === symbol && Math.abs(Number(position.quantity)) > 0),
     [deskPositions, symbol],
@@ -299,7 +341,6 @@ export function PaperConsole() {
         onTimeframeChange={(nextTimeframe) => updateSelection({ timeframe: nextTimeframe })}
       />
       <BinanceSyncHero account={data.testnetAccount} />
-      <RuntimeTruthPanel runtime={runtimeTruth} symbol={symbol} />
       <div className="workspace-panel-grid">
         <RuntimeOverview
           snapshot={v2Runtime.snapshot}

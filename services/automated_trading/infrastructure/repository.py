@@ -183,6 +183,44 @@ class AutomatedTradingRepository:
         )
         self.session.flush()
 
+    def reconcile_intent_from_confirmed_fill(self, intent_id: str) -> None:
+        """Correct a terminal local guess only after an exact exchange fill is durable."""
+        intent = self.session.get(V2ExecutionIntent, intent_id)
+        if intent is None:
+            raise ValueError(f"Intent {intent_id!r} not found")
+        order = self.session.scalar(select(V2ExchangeOrder).where(V2ExchangeOrder.intent_id == intent_id))
+        if order is None or not order.exchange_order_id:
+            raise ValueError("confirmed exchange order identity is required")
+        fill = self.session.scalar(
+            select(V2ExchangeFill).where(
+                V2ExchangeFill.intent_id == intent_id,
+                V2ExchangeFill.exchange_order_id == order.exchange_order_id,
+            )
+        )
+        if fill is None:
+            raise ValueError("confirmed exchange fill receipt is required")
+        current = intent.state
+        if current == "FILLED":
+            return
+        if current not in {"EXCHANGE_ACKNOWLEDGED", "CANCELLED", "EXPIRED"}:
+            raise ValueError(f"intent state {current!r} cannot be reconciled from a fill")
+        intent.state = "FILLED"
+        intent.version = int(intent.version) + 1
+        self.append_event(
+            aggregate_id=intent_id,
+            aggregate_type="INTENT",
+            event_type="ExchangeFillReconciled",
+            event_payload={
+                "from_state": current,
+                "to_state": "FILLED",
+                "exchange_order_id": order.exchange_order_id,
+                "trade_id": fill.trade_id,
+                "version": intent.version,
+            },
+            occurred_at=datetime.now(UTC),
+        )
+        self.session.flush()
+
     # ------------------------------------------------------------------
     # Orders / Fills
     # ------------------------------------------------------------------
@@ -539,6 +577,70 @@ class AutomatedTradingRepository:
         )
         self.session.flush()
 
+    def repair_quarantined_position_from_confirmed_exit(
+        self,
+        *,
+        position_id: str,
+        exit_order_record_id: str,
+        occurred_at: datetime,
+        payload: dict,
+    ) -> None:
+        """Correct a quarantined projection only from persisted reduce-only fills.
+
+        QUARANTINED remains terminal for ordinary state transitions. This
+        narrowly-scoped reconciliation correction requires an exact exit order
+        and enough persisted reduce-only fill quantity to flatten the projected
+        position.
+        """
+        from services.automated_trading.domain.enums import V2PositionState as PosState
+
+        position = self.session.get(V2ManagedPosition, position_id)
+        if position is None:
+            raise ValueError(f"Position {position_id!r} not found")
+        if PosState(position.state) is not PosState.QUARANTINED:
+            raise ValueError(f"Position {position_id!r} is not QUARANTINED; use the normal state machine")
+        order = self.session.get(V2ExchangeOrder, exit_order_record_id)
+        if order is None or not order.exchange_order_id:
+            raise ValueError("quarantine repair requires an acknowledged exit order")
+        fills = tuple(
+            self.session.scalars(
+                select(V2ExchangeFill).where(V2ExchangeFill.exchange_order_record_id == exit_order_record_id)
+            )
+        )
+        if not fills or any(not fill.reduce_only for fill in fills):
+            raise ValueError("quarantine repair requires persisted reduce-only fills")
+        if any(fill.symbol != position.symbol for fill in fills):
+            raise ValueError("quarantine repair fill symbol does not match position")
+        reduced_quantity = sum(
+            (fill.filled_quantity for fill in fills),
+            Decimal("0"),
+        )
+        if reduced_quantity < position.quantity:
+            raise ValueError(
+                f"quarantine repair fill quantity {reduced_quantity} is below projected quantity {position.quantity}"
+            )
+
+        current = PosState.QUARANTINED
+        position.state = PosState.CLOSED.value
+        position.closed_at = occurred_at
+        position.version = int(position.version) + 1
+        self.append_event(
+            aggregate_id=position_id,
+            aggregate_type="POSITION",
+            event_type="QuarantinedProjectionCorrectedFromConfirmedExit",
+            event_payload={
+                **payload,
+                "exit_order_record_id": exit_order_record_id,
+                "exchange_order_id": order.exchange_order_id,
+                "trade_ids": [fill.trade_id for fill in fills],
+                "from_state": current.value,
+                "to_state": PosState.CLOSED.value,
+                "version": position.version,
+            },
+            occurred_at=occurred_at,
+        )
+        self.session.flush()
+
     # ------------------------------------------------------------------
     # Protection
     # ------------------------------------------------------------------
@@ -743,6 +845,27 @@ class AutomatedTradingRepository:
         self.session.flush()
         return incident.incident_id
 
+    def resolve_reconciliation_incidents(self, *, resolved_at: datetime) -> int:
+        """Resolve mismatch incidents only after a HEALTHY exchange reconciliation."""
+        incidents = tuple(
+            self.session.scalars(
+                select(V2ExecutionIncident).where(
+                    V2ExecutionIncident.resolved.is_(False),
+                    V2ExecutionIncident.incident_type.in_(
+                        [
+                            "LOCAL_GHOST_QUARANTINED",
+                            "EXTERNAL_POSITION_QUARANTINED",
+                        ]
+                    ),
+                )
+            )
+        )
+        for incident in incidents:
+            incident.resolved = True
+            incident.resolved_at = resolved_at
+        self.session.flush()
+        return len(incidents)
+
     def get_runtime_control(self, scope: str = "global") -> V2RuntimeControl:
         control = self.session.get(V2RuntimeControl, scope)
         if control is None:
@@ -806,7 +929,7 @@ class AutomatedTradingRepository:
             .order_by(V2ExecutionDecision.created_at.desc())
             .limit(limit)
         )
-        return list(self.session.execute(stmt).all())
+        return [(decision, cycle) for decision, cycle in self.session.execute(stmt)]
 
     def list_recent_incidents(self, limit: int = 20) -> list[V2ExecutionIncident]:
         stmt = select(V2ExecutionIncident).order_by(V2ExecutionIncident.created_at.desc()).limit(limit)

@@ -88,7 +88,7 @@ class ExchangePositionSnapshot:
     entry_price: Decimal
     mark_price: Decimal
     unrealized_pnl: Decimal
-    leverage: int
+    leverage: int | None
 
 
 @dataclass(frozen=True)

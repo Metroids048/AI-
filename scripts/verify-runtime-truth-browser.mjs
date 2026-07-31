@@ -13,7 +13,7 @@ const LOG_DIR = path.join(ROOT, "logs", "p2-runtime-truth-verify");
 const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://127.0.0.1:5173/trading";
 const API_BASE = process.env.API_BASE ?? "http://127.0.0.1:8016";
 const TOKEN = process.env.ADMIN_TOKEN ?? "dev-admin-token";
-const POLL_WAIT_MS = 35_000; // observe ~30s fallback interval
+const POLL_WAIT_MS = 26_000; // observe at least two 10s V2 refresh intervals
 
 fs.mkdirSync(LOG_DIR, { recursive: true });
 
@@ -38,11 +38,11 @@ function save(name, data) {
 
 async function apiCheck() {
   const endpoints = [
-    "/api/v1/runtime/snapshot",
-    "/api/v1/runtime/decisions?limit=5",
-    "/api/v1/runtime/positions",
-    "/api/v1/runtime/llm-invocations?limit=5",
-    "/api/v1/runtime/reconciliation",
+    "/api/v2/automated-trading/runtime",
+    "/api/v2/automated-trading/decisions?limit=5",
+    "/api/v2/automated-trading/positions",
+    "/api/v2/automated-trading/llm-invocations?limit=5",
+    "/api/v2/automated-trading/reconciliation",
   ];
   const datumFields = ["source", "observed_at", "freshness", "status"];
   const results = {};
@@ -58,16 +58,16 @@ async function apiCheck() {
       const body = await res.json();
       const structure = { status: res.status, elapsed_ms: elapsed };
 
-      if (ep.includes("snapshot")) {
-        for (const key of ["exchange", "local_projection", "mismatch", "scheduler"]) {
+      if (ep.endsWith("/runtime")) {
+        for (const key of ["exchange", "local_projection", "reconciliation", "scheduler"]) {
           const block = body[key];
           structure[key] = block
             ? Object.fromEntries(datumFields.map((f) => [f, block[f] ?? null]))
             : null;
         }
-        structure.observed_at = body.observed_at ?? null;
+        structure.snapshot_at = body.snapshot_at ?? null;
       } else if (ep.includes("positions")) {
-        for (const key of ["exchange", "local"]) {
+        for (const key of ["exchange", "local_projection"]) {
           const block = body[key];
           structure[key] = block
             ? Object.fromEntries(datumFields.map((f) => [f, block[f] ?? null]))
@@ -78,9 +78,9 @@ async function apiCheck() {
         structure.observed_at = body.observed_at ?? null;
         structure.entry_blocked_symbols = body.entry_blocked_symbols ?? null;
         structure.error = body.error ?? null;
-      } else if (body?.items) {
-        structure.item_count = body.items.length;
-        const first = body.items[0];
+      } else if (Array.isArray(body)) {
+        structure.item_count = body.length;
+        const first = body[0];
         structure.first_item_keys = first ? Object.keys(first).slice(0, 12) : [];
       }
 
@@ -100,8 +100,13 @@ async function apiCheck() {
 }
 
 function analyzePollingTimestamps(allTimestamps, snapshotTimestamps) {
-  const timestamps =
-    snapshotTimestamps.length >= 2 ? snapshotTimestamps : allTimestamps.filter((_, i, arr) => i % 6 === 0);
+  const rawTimestamps =
+    snapshotTimestamps.length >= 2 ? snapshotTimestamps : allTimestamps;
+  // React development StrictMode invokes mount effects twice. Coalesce only
+  // the sub-second initialization burst; real polling intervals remain intact.
+  const timestamps = rawTimestamps.filter(
+    (timestamp, index) => index === 0 || timestamp - rawTimestamps[index - 1] >= 1_000,
+  );
   if (timestamps.length < 2) {
     return { pass: false, intervals_ms: [], detail: "fewer than 2 refresh cycles observed" };
   }
@@ -111,7 +116,7 @@ function analyzePollingTimestamps(allTimestamps, snapshotTimestamps) {
   const max = Math.max(...intervals);
   const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
   const notSpam = min >= 5000;
-  const nearFallback = avg >= 20_000 && avg <= 45_000;
+  const nearFallback = avg >= 8_000 && avg <= 15_000;
   return {
     pass: notSpam && nearFallback,
     refresh_cycles: timestamps.length,
@@ -140,17 +145,17 @@ async function browserCheck() {
 
   page.on("request", (req) => {
     const url = req.url();
-    if (url.includes("/api/v1/runtime/") && !url.includes("/events")) {
+    if (url.includes("/api/v2/automated-trading/")) {
       const ts = Date.now();
       runtimeTimestamps.push(ts);
-      if (url.includes("/runtime/snapshot")) snapshotTimestamps.push(ts);
+      if (url.endsWith("/automated-trading/runtime")) snapshotTimestamps.push(ts);
       report.runtimeRequests.push({ url, method: req.method(), ts: new Date().toISOString() });
     }
   });
 
   page.on("response", async (res) => {
     const url = res.url();
-    if (url.includes("/api/v1/runtime/") && !url.includes("/events")) {
+    if (url.includes("/api/v2/automated-trading/")) {
       const existing = report.runtimeRequests.find((r) => r.url === url && !r.status);
       if (existing) existing.status = res.status();
     }
@@ -183,20 +188,22 @@ async function browserCheck() {
     detail: `loaded in ${Date.now() - navStart}ms`,
   };
 
-  // Runtime Truth panel
-  const runtimeTitle = page.locator("#runtime-truth-title");
-  const runtimePanel = page.locator(".runtime-truth-panel");
-  const titleVisible = await runtimeTitle.isVisible({ timeout: 15_000 }).catch(() => false);
-  const panelVisible = await runtimePanel.isVisible({ timeout: 5_000 }).catch(() => false);
-  const titleText = titleVisible ? await runtimeTitle.textContent() : null;
+  // V2 Runtime Truth panels
+  const v2PanelTitles = ["V2 引擎状态", "为什么不开单?", "交易所 vs 本地投影"];
+  const panelVisibility = {};
+  for (const title of v2PanelTitles) {
+    panelVisibility[title] = await page
+      .getByText(title, { exact: true })
+      .isVisible({ timeout: 15_000 })
+      .catch(() => false);
+  }
+  const panelsVisible = Object.values(panelVisibility).every(Boolean);
 
   report.checks.runtimeTruthPanel = {
-    pass: titleVisible || panelVisible,
-    detail: titleVisible
-      ? `visible: "${titleText?.trim()}"`
-      : panelVisible
-        ? "panel visible without title"
-        : "Runtime Truth panel not found",
+    pass: panelsVisible,
+    detail: panelsVisible
+      ? `visible: ${v2PanelTitles.join(", ")}`
+      : `missing V2 panels: ${v2PanelTitles.filter((title) => !panelVisibility[title]).join(", ")}`,
   };
 
   // Paper Console fallback sections
@@ -212,9 +219,6 @@ async function browserCheck() {
   const polling = analyzePollingTimestamps(runtimeTimestamps, snapshotTimestamps);
   report.checks.pollingInterval = polling;
 
-  const runtimeResponsesOk =
-    report.runtimeRequests.length > 0 &&
-    report.runtimeRequests.every((r) => r.status === 200 || r.status === undefined);
   report.checks.runtimeNetwork = {
     pass:
       report.runtimeRequests.length >= 1 &&

@@ -1,0 +1,20 @@
+{
+  "command": "git diff --stat 9afa16681e1525897ab03b89ad1febc37c30d807..HEAD",
+  "working_directory": "C:\\Users\\win\\Desktop\\AI--main",
+  "environment_variable_names": [
+    "AUTOMATED_TRADING_ENGINE",
+    "V2_TESTNET_CONTRACT_ENABLED",
+    "NATURAL_E2E_ENABLED",
+    "BINANCE_API_KEY",
+    "BINANCE_API_SECRET",
+    "BINANCE_HTTPS_PROXY",
+    "HTTPS_PROXY",
+    "PAPER_CONSOLE_DISABLE_LIVE_WS",
+    "DATABASE_URL"
+  ],
+  "started_at": "2026-07-29T14:37:03.1638857+08:00",
+  "ended_at": "2026-07-29T14:37:03.2351186+08:00",
+  "exit_code": 0,
+  "stdout": " .github/agent/memory/task-history.md               |   8 +\n apps/api/celery_app.py                             |  11 +\n apps/api/routers/automated_trading.py              | 339 +++++++----\n audit/v2_closure/baseline.json                     |  14 +\n audit/v2_closure/baseline_pytest.txt               |  35 ++\n audit/v2_closure/gate1_database_integrity.json     |  69 +++\n audit/v2_closure/gate2_scheduler_fact_chain.json   |  32 ++\n audit/v2_closure/gate3_exit_recovery.json          |  19 +\n audit/v2_closure/gate4_runtime_api_frontend.json   |  18 +\n audit/v2_closure/gate5_status.json                 |  35 ++\n frontend/admin/src/pages/PaperConsole.jsx          |  30 +-\n migrations/versions/0019_v2_database_integrity.py  | 231 ++++++++\n .../0020_v2_protection_active_requires_xo.py       | 133 +++++\n scripts/audit_v2_database_invariants.py            | 332 +++++++++++\n scripts/v2_shadow_run.py                           |   6 +-\n .../automated_trading/application/cycle_service.py | 201 +++++--\n .../application/fact_persistence.py                | 194 +++++++\n .../application/recovery_executor.py               | 214 +++++++\n services/automated_trading/domain/invariants.py    |   9 +-\n .../automated_trading/infrastructure/models.py     | 164 ++++--\n .../automated_trading/infrastructure/repository.py | 597 +++++++++++++++++---\n services/execution/bootstrap.py                    |  29 +-\n services/execution/scheduler.py                    | 230 +++++---\n services/execution/tasks.py                        |  12 +\n services/execution/v2_scheduler_entry.py           | 294 ++++++++++\n tests/api/test_automated_trading_runtime_api.py    | 271 ++++-----\n tests/audit/test_v2_runtime_requirements.py        | 303 ++++++++++\n .../test_v2_scheduler_entry_fact_chain.py          | 159 ++++++\n tests/services/test_automated_trading_cycle.py     | 127 ++++-\n .../test_automated_trading_database_integrity.py   | 623 +++++++++++++++++++++\n .../test_automated_trading_fact_persistence.py     | 150 +++++\n .../services/test_automated_trading_repository.py  |  20 +-\n tests/services/test_database_schema.py             |   3 +\n ...274\\200\\346\\224\\276\\344\\272\\213\\351\\241\\271.md\" |   5 +\n 34 files changed, 4429 insertions(+), 488 deletions(-)\n",
+  "stderr": null
+}

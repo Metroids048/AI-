@@ -1,5 +1,12 @@
 # Task History
 
+### [TASK-STRATEGY-READINESS-02] Complete history, freeze corrected baseline, reject legacy candidate
+- **Date**: 2026-07-30
+- **Type**: Strategy readiness / deterministic validation
+- **Summary**: Completed the Binance Vision BTC/ETH five-timeframe history through 2026-07-29, generated a new immutable Golden Baseline, found that `trades.jsonl` used pretty-printed multi-line records, fixed the serializer with a regression test, rejected stale intermediate source hashes caused by final sync, concurrent candidate commits and the required pytest-state refresh, and froze corrected `r4` evidence without reading Final Holdout results.
+- **Result**: Data coverage is `SUFFICIENT`, but the active `trend_momentum_v1` candidate is rejected. Portfolio baseline: 1,126 trades, Sharpe -0.1096, PF 0.9882, MaxDD 77.14%, net expectancy -0.000202, net return -22.71%; 90% IID confidence intervals cross zero. Strategy optimization/promotion remains blocked on next-bar parity, realistic point-in-time costs, per-window walk-forward and dependent bootstrap.
+- **Safety**: No exchange order, runtime risk parameter, leverage, sizing, stop/take-profit, net-edge or strategy threshold changed. Final Holdout remains sealed.
+
 ### [TASK-STRATEGY-REFACTOR-01] Current-tree audit and immutable Golden Baseline gate
 - **Date**: 2026-07-29
 - **Type**: Strategy core refactor / validation evidence
@@ -659,3 +666,30 @@
 - **External evidence**: Authorized Testnet cleanup returned BTC/ETH to zero exchange positions and zero open orders. A normal Scheduler reconciliation then retained the two historical local rows but changed their current status to `RECONCILED_GHOST`. A later Runtime Truth snapshot reported Binance Testnet `0` positions, `0` open orders, and Testnet-local mismatch `consistent=true`; Local Paper SOL remained isolated from that comparison.
 - **Verification**: Full non-integration suite `678 passed, 10 skipped, 2 deselected`; targeted post-review Runtime Truth tests passed; `ruff check .` passed; `mypy` passed for 169 source files; frontend `40 passed` and production build passed; changed-file pre-commit passed all hooks. Full-repository format check still reports 44 unrelated baseline files and is not treated as newly introduced. Browser verified live authenticated WebSocket, terminal no-trade reason, source/time/freshness fields, no console errors, and a non-overlapping 30-second Runtime Truth REST fallback.
 - **Incomplete by design**: No natural Scheduler Entry → Fill → SL/TP → normal Reduce-risk Exit occurred during this work window, so P0.3 is not complete and P1/P2 promotion remains locked. The first real LLM smoke attempt reached the provider path but failed before persistence because the environment resolved a non-existent `timescaledb` host; the script was corrected to preflight local persistence, but no second paid/provider call was made. P3 strategy-evidence upgrades were not started.
+
+## 2026-07-30 — Phase 2 V2 production lifecycle closure
+
+- **Summary**: Completed the natural Scheduler-driven Binance Testnet Entry/Fill/Position/Protection/Exit/Final Reconciliation loop. Fixed delayed ACK/fill recovery, protection `algoId -> actualOrderId` fill lookup, exact reduce-only closure of quarantined projections, mismatch-incident resolution after healthy reconciliation, and complete LLM invocation truth in the Runtime API.
+- **External evidence**: ETH entry/exit `14979020372 / 14984144295`; BTC `24887097073 / 24906752342`; second ETH `14985524359 / 14988841518`. Final Binance position/order counts `0/0`; local V2 open count `0`; reconciliation `HEALTHY`.
+- **Browser evidence**: `http://127.0.0.1:5173/trading` rendered real V2 Runtime panels with `0` console errors. After the two dev-mode initialization calls, Runtime polling deltas were `10010ms`, `9989ms`, and `10000ms`.
+- **Verification**: `ruff check .` passed; `mypy` reported no issues in 206 source files; full pytest `1181 passed, 16 skipped, 7 warnings`; frontend `16 passed files / 65 tests`; Vite production build passed; `git diff --check` passed.
+- **Residual risk**: Historical `PROTECTION_RECOVERY_FAILED` incident remains open for manual review; build retains the known >500kB chunk warning. No mainnet use and no risk/stop/take-profit/net-edge threshold changes.
+
+## 2026-07-30 — Strategy readiness gate after V2 execution closure
+
+- **Summary**: Added the current readiness report without changing strategy or risk parameters. The V2 Testnet execution chain is verified, but strategy promotion remains `NO_ACTIVE_STRATEGY` because the immutable baseline fails historical coverage and the required cost/validation evidence is incomplete.
+- **Evidence**: BTC/ETH 5m `0` bars; 1m roughly 14 days with gaps; higher timeframes roughly one year; required 42 months and frozen holdout unavailable. Technical legacy replay explicitly omits funding/latency/spread/partial-fill costs; current bootstrap helper is IID percentile.
+- **Next action**: Backfill through the existing data repository, generate a new immutable baseline, then implement dependent bootstrap and next-bar parity checks before reading holdout results.
+
+## 2026-07-30 — Phase 2 final drain acceptance and runtime restore
+
+- **Natural exchange exits**: RuntimeScheduler observed BTC stop actual order `24933450773` / trade `522947770` and ETH stop actual order `15006608596` / trade `309176628`, both reduce-only real Binance Testnet fills. No manual close, acceptance order, or direct cycle invocation was used.
+- **Persistence**: BTC/ETH positions ended `CLOSED`; both protection records ended `PROTECTION_FILLED`.
+- **Final reconciliation**: `scripts/check_binance_positions.py` reported Binance positions/orders `0/0`; live Runtime reported local open positions `0`, `HEALTHY`, zero mismatches.
+- **Restore**: Formal entry-control API returned `entry_enabled=true` with reason `phase2_final_acceptance_complete`; 5%/40x and all stop/take-profit/net-edge/strategy thresholds remained unchanged.
+
+## 2026-07-31 — Strategy Phase 1 next-bar execution parity
+
+- **Change**: Technical replay now evaluates signals on a closed bar and fills at the following bar's open/timestamp; signals with no following bar are not fabricated as `end_of_window` trades.
+- **Evidence**: `tests/services/test_technical_strategy_validation.py` `14 passed`; related validation tests `21 passed`; touched Ruff and production mypy passed. RED was reproduced for both next-bar and `end_at` boundary defects before implementation.
+- **Boundary**: `baseline-20260729-0000Z-r4` is retained as a pre-parity historical artifact; no new baseline or Final Holdout result was generated. Funding/spread/latency/partial-fill, input-hash parity, walk-forward ledger and dependent bootstrap remain open. No risk or promotion threshold changed.

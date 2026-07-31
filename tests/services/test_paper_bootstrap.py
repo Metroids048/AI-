@@ -511,6 +511,15 @@ def test_console_uses_a_separate_local_scheduler_process() -> None:
     assert "scheduler.start()" in scheduler
 
 
+def test_console_launches_v2_as_the_only_testnet_writer() -> None:
+    root = Path(__file__).resolve().parents[2]
+    launcher = (root / "scripts" / "launch-paper-console.ps1").read_text(encoding="utf-8")
+
+    assert '$env:BINANCE_USE_TESTNET = "true"' in launcher
+    assert '$env:LIVE_TRADING_ENABLED = "false"' in launcher
+    assert '$env:AUTOMATED_TRADING_ENGINE = "v2_active"' in launcher
+
+
 def test_console_defaults_to_a_nonblocked_api_port_and_forwards_it_to_vite() -> None:
     launcher_path = Path(__file__).resolve().parents[2] / "scripts" / "launch-paper-console.ps1"
     launcher = launcher_path.read_text(encoding="utf-8")

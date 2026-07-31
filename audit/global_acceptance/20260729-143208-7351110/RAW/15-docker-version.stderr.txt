@@ -1,0 +1,5 @@
+Start-Process: C:\Users\win\Desktop\AI--main\audit\global_acceptance\20260729-143208-7351110\PROBES\capture_phase0.ps1:42
+Line |
+  42 |          $process = Start-Process `
+     |                     ~~~~~~~~~~~~~~~
+     | This command cannot be run due to the error: 系统找不到指定的文件。

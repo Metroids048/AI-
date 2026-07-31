@@ -14,7 +14,20 @@ from services.automated_trading.application.entry_service import (
     EntryExecutionResult,
     EntryExecutionStatus,
 )
-from services.automated_trading.application.fact_persistence import persist_entry_and_protection
+from services.automated_trading.application.exit_service import (
+    ExitExecutionResult,
+    ExitExecutionStatus,
+    ExitReason,
+)
+from services.automated_trading.application.fact_persistence import (
+    persist_entry_and_protection,
+    persist_entry_intent_before_submission,
+    persist_entry_submission_result,
+    persist_exit_intent_before_submission,
+    persist_exit_result,
+    persist_exit_submission_result,
+    reconcile_closed_position_protections,
+)
 from services.automated_trading.domain.enums import (
     V2CandidateType,
     V2ExecutionMode,
@@ -30,6 +43,7 @@ from services.automated_trading.infrastructure.models import (
     V2ManagedPosition,
     V2ProtectionRecord,
 )
+from services.automated_trading.observability.decision_funnel import DecisionReasonCode
 
 
 @pytest.fixture
@@ -116,6 +130,133 @@ def test_persist_entry_and_protection_writes_full_chain(fact_db) -> None:
         session.close()
 
 
+def test_acknowledged_unfilled_order_is_durable_before_projection(fact_db) -> None:
+    persist_entry_intent_before_submission(
+        cycle_id="cycle-ack",
+        decision_id="decision-ack",
+        intent_id="intent-ack",
+        symbol="ETH/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 7, 29, 9, 30, tzinfo=UTC),
+        fencing_token="fence-ack",
+    )
+    session: Session = fact_db()
+    try:
+        intent = session.get(V2ExecutionIntent, "intent-ack")
+        assert intent is not None
+        assert intent.state == V2IntentState.EXCHANGE_SUBMITTING.value
+        assert list(session.scalars(select(V2ExchangeOrder))) == []
+    finally:
+        session.close()
+
+    persist_entry_submission_result(
+        intent_id="intent-ack",
+        leverage=40,
+        result=EntryExecutionResult(
+            status=EntryExecutionStatus.ACKNOWLEDGED_UNFILLED,
+            intent_state=V2IntentState.EXCHANGE_ACKNOWLEDGED,
+            client_order_id="A2E-ack-1",
+            exchange_order_id="14907989375",
+            reason_code=DecisionReasonCode.OK,
+            requested_quantity=Decimal("0.05"),
+            detail="order acknowledged with no confirmed fill",
+        ),
+    )
+
+    session = fact_db()
+    try:
+        intent = session.get(V2ExecutionIntent, "intent-ack")
+        assert intent is not None
+        assert intent.state == V2IntentState.EXCHANGE_ACKNOWLEDGED.value
+        order = session.scalar(select(V2ExchangeOrder))
+        assert order is not None
+        assert order.client_order_id == "A2E-ack-1"
+        assert order.exchange_order_id == "14907989375"
+        assert Decimal(str(order.quantity)) == Decimal("0.05")
+        assert list(session.scalars(select(V2ExchangeFill))) == []
+        assert list(session.scalars(select(V2ManagedPosition))) == []
+    finally:
+        session.close()
+
+
+def test_confirmed_delayed_fill_corrects_cancelled_intent(fact_db) -> None:
+    persist_entry_intent_before_submission(
+        cycle_id="cycle-delayed",
+        decision_id="decision-delayed",
+        intent_id="intent-delayed",
+        symbol="BTC/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 7, 30, 3, 0, tzinfo=UTC),
+        fencing_token="fence-delayed",
+    )
+    persist_entry_submission_result(
+        intent_id="intent-delayed",
+        leverage=40,
+        result=EntryExecutionResult(
+            status=EntryExecutionStatus.ACKNOWLEDGED_UNFILLED,
+            intent_state=V2IntentState.EXCHANGE_ACKNOWLEDGED,
+            client_order_id="A2E-delayed",
+            exchange_order_id="xo-delayed",
+            reason_code=DecisionReasonCode.OK,
+            requested_quantity=Decimal("0.0049"),
+        ),
+    )
+    session: Session = fact_db()
+    intent = session.get(V2ExecutionIntent, "intent-delayed")
+    assert intent is not None
+    intent.state = V2IntentState.CANCELLED.value
+    session.commit()
+    session.close()
+
+    persist_entry_and_protection(
+        cycle_id="cycle-delayed",
+        decision_id="decision-delayed",
+        intent_id="intent-delayed",
+        symbol="BTC/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 7, 30, 3, 0, tzinfo=UTC),
+        fencing_token="fence-delayed",
+        leverage=40,
+        entry_result=EntryExecutionResult(
+            status=EntryExecutionStatus.FILLED,
+            intent_state=V2IntentState.FILLED,
+            client_order_id="A2E-delayed",
+            exchange_order_id="xo-delayed",
+            trade_ids=("trade-delayed",),
+            reason_code=DecisionReasonCode.OK,
+            requested_quantity=Decimal("0.0049"),
+            filled_quantity=Decimal("0.0049"),
+            average_fill_price=Decimal("64159.9"),
+            total_fee=Decimal("0.1"),
+            fill_timestamp=datetime(2026, 7, 30, 3, 0, 14, tzinfo=UTC),
+        ),
+        position_id="pos-delayed",
+        protection_result=None,
+        stop_loss_price=None,
+        take_profit_price=None,
+        stop_client_order_id=None,
+        tp_client_order_id=None,
+    )
+
+    session = fact_db()
+    try:
+        intent = session.get(V2ExecutionIntent, "intent-delayed")
+        assert intent is not None
+        assert intent.state == V2IntentState.FILLED.value
+        assert session.get(V2ManagedPosition, "pos-delayed") is not None
+    finally:
+        session.close()
+
+
 def test_persist_skips_when_not_position_projectable(fact_db) -> None:
     entry = EntryExecutionResult(
         status=EntryExecutionStatus.UNKNOWN,
@@ -146,5 +287,330 @@ def test_persist_skips_when_not_position_projectable(fact_db) -> None:
     try:
         assert session.get(V2ExecutionIntent, "intent-skip") is None
         assert list(session.scalars(select(V2ManagedPosition))) == []
+    finally:
+        session.close()
+
+
+def test_persist_exit_result_writes_reduce_only_fill_and_closes_position(fact_db) -> None:
+    entry = EntryExecutionResult(
+        status=EntryExecutionStatus.FILLED,
+        intent_state=V2IntentState.FILLED,
+        client_order_id="A2E-exit-fact",
+        exchange_order_id="xo-entry-exit-fact",
+        trade_ids=("trade-entry-exit-fact",),
+        filled_quantity=Decimal("0.002"),
+        average_fill_price=Decimal("65000"),
+        total_fee=Decimal("0.13"),
+        fill_timestamp=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
+    )
+    persist_entry_and_protection(
+        cycle_id="cycle-entry-exit-fact",
+        decision_id="decision-entry-exit-fact",
+        intent_id="intent-entry-exit-fact",
+        symbol="BTC/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 7, 29, 11, 45, tzinfo=UTC),
+        fencing_token="fence-entry-exit-fact",
+        leverage=10,
+        entry_result=entry,
+        position_id="pos-entry-exit-fact",
+        protection_result=SimpleNamespace(
+            is_active=True,
+            stop_exchange_order_id="xo-stop-exit-fact",
+            tp_exchange_order_id="xo-tp-exit-fact",
+        ),
+        stop_loss_price=Decimal("63000"),
+        take_profit_price=Decimal("68000"),
+        stop_client_order_id="A2S-exit-fact",
+        tp_client_order_id="A2T-exit-fact",
+    )
+
+    persist_exit_result(
+        cycle_id="cycle-exit-fact",
+        position_id="pos-entry-exit-fact",
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        reason=ExitReason.TAKE_PROFIT,
+        result=ExitExecutionResult(
+            status=ExitExecutionStatus.CLOSED,
+            position_state=V2PositionState.CLOSED,
+            client_order_id="A2T-exit-fact",
+            exchange_order_id="xo-tp-exit-fact",
+            trade_ids=("trade-exit-fact",),
+            reduced_quantity=Decimal("0.002"),
+            average_fill_price=Decimal("68000"),
+            total_fee=Decimal("0.136"),
+            remaining_quantity=Decimal("0"),
+            fill_timestamp=datetime(2026, 7, 29, 13, 0, tzinfo=UTC),
+        ),
+        fencing_token="fence-exit-fact",
+    )
+
+    session: Session = fact_db()
+    try:
+        position = session.get(V2ManagedPosition, "pos-entry-exit-fact")
+        assert position is not None
+        assert position.state == V2PositionState.CLOSED.value
+        assert position.closed_at is not None
+        assert Decimal(str(position.realized_pnl)) == Decimal("5.7340")
+
+        exit_fill = session.scalar(select(V2ExchangeFill).where(V2ExchangeFill.trade_id == "trade-exit-fact"))
+        assert exit_fill is not None
+        assert exit_fill.reduce_only is True
+        assert exit_fill.exchange_order_id == "xo-tp-exit-fact"
+
+        protection = session.scalar(
+            select(V2ProtectionRecord).where(V2ProtectionRecord.position_id == "pos-entry-exit-fact")
+        )
+        assert protection is not None
+        assert protection.state == V2ProtectionState.PROTECTION_FILLED.value
+    finally:
+        session.close()
+
+
+def test_acknowledged_unfilled_exit_is_durable_before_fill(fact_db) -> None:
+    entry = EntryExecutionResult(
+        status=EntryExecutionStatus.FILLED,
+        intent_state=V2IntentState.FILLED,
+        client_order_id="A2E-exit-ack",
+        exchange_order_id="xo-entry-exit-ack",
+        trade_ids=("trade-entry-exit-ack",),
+        filled_quantity=Decimal("0.164"),
+        average_fill_price=Decimal("1919.51"),
+        total_fee=Decimal("0.12591985"),
+        fill_timestamp=datetime(2026, 7, 29, 9, 30, tzinfo=UTC),
+    )
+    persist_entry_and_protection(
+        cycle_id="cycle-entry-exit-ack",
+        decision_id="decision-entry-exit-ack",
+        intent_id="intent-entry-exit-ack",
+        symbol="ETH/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 7, 29, 9, 30, tzinfo=UTC),
+        fencing_token="fence-entry-exit-ack",
+        leverage=40,
+        entry_result=entry,
+        position_id="pos-exit-ack",
+        protection_result=SimpleNamespace(
+            is_active=True,
+            stop_exchange_order_id="xo-stop-exit-ack",
+            tp_exchange_order_id="xo-tp-exit-ack",
+        ),
+        stop_loss_price=Decimal("1900"),
+        take_profit_price=Decimal("1950"),
+        stop_client_order_id="A2S-exit-ack",
+        tp_client_order_id="A2T-exit-ack",
+    )
+
+    exit_intent_id = persist_exit_intent_before_submission(
+        cycle_id="cycle-exit-ack",
+        position_id="pos-exit-ack",
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        reason=ExitReason.PROTECTION_FAILURE_EMERGENCY,
+        client_order_id="A2X-exit-ack-2",
+        requested_quantity=Decimal("0.164"),
+        fencing_token="fence-exit-ack",
+        submitted_at=datetime(2026, 7, 29, 9, 50, tzinfo=UTC),
+    )
+
+    session: Session = fact_db()
+    try:
+        intent = session.get(V2ExecutionIntent, exit_intent_id)
+        assert intent is not None
+        assert intent.state == V2IntentState.EXCHANGE_SUBMITTING.value
+        order = session.scalar(select(V2ExchangeOrder).where(V2ExchangeOrder.client_order_id == "A2X-exit-ack-2"))
+        assert order is not None
+        assert order.exchange_order_id is None
+        position = session.get(V2ManagedPosition, "pos-exit-ack")
+        assert position is not None
+        assert position.state == V2PositionState.PROTECTED.value
+    finally:
+        session.close()
+
+    persist_exit_submission_result(
+        position_id="pos-exit-ack",
+        result=ExitExecutionResult(
+            status=ExitExecutionStatus.SUBMITTED_UNCONFIRMED,
+            position_state=V2PositionState.REDUCING,
+            client_order_id="A2X-exit-ack-2",
+            exchange_order_id="14909451503",
+            detail="order acknowledged with no confirmed fill",
+        ),
+    )
+
+    session = fact_db()
+    try:
+        intent = session.get(V2ExecutionIntent, exit_intent_id)
+        assert intent is not None
+        assert intent.state == V2IntentState.EXCHANGE_ACKNOWLEDGED.value
+        order = session.scalar(select(V2ExchangeOrder).where(V2ExchangeOrder.client_order_id == "A2X-exit-ack-2"))
+        assert order is not None
+        assert order.exchange_order_id == "14909451503"
+        assert (
+            list(
+                session.scalars(
+                    select(V2ExchangeFill).where(V2ExchangeFill.exchange_order_record_id == order.order_record_id)
+                )
+            )
+            == []
+        )
+        position = session.get(V2ManagedPosition, "pos-exit-ack")
+        assert position is not None
+        assert position.state == V2PositionState.REDUCING.value
+    finally:
+        session.close()
+
+
+def test_confirmed_exit_repairs_quarantined_projection_to_closed(fact_db) -> None:
+    entry = EntryExecutionResult(
+        status=EntryExecutionStatus.FILLED,
+        intent_state=V2IntentState.FILLED,
+        client_order_id="A2E-quarantine-repair",
+        exchange_order_id="xo-entry-quarantine-repair",
+        trade_ids=("trade-entry-quarantine-repair",),
+        filled_quantity=Decimal("0.164"),
+        average_fill_price=Decimal("1919.51"),
+        total_fee=Decimal("0.12591985"),
+        fill_timestamp=datetime(2026, 7, 29, 9, 30, tzinfo=UTC),
+    )
+    persist_entry_and_protection(
+        cycle_id="cycle-entry-quarantine-repair",
+        decision_id="decision-entry-quarantine-repair",
+        intent_id="intent-entry-quarantine-repair",
+        symbol="ETH/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 7, 29, 9, 30, tzinfo=UTC),
+        fencing_token="fence-entry-quarantine-repair",
+        leverage=40,
+        entry_result=entry,
+        position_id="pos-quarantine-repair",
+        protection_result=SimpleNamespace(
+            is_active=True,
+            stop_exchange_order_id="xo-stop-quarantine-repair",
+            tp_exchange_order_id="xo-tp-quarantine-repair",
+        ),
+        stop_loss_price=Decimal("1900"),
+        take_profit_price=Decimal("1950"),
+        stop_client_order_id="A2S-quarantine-repair",
+        tp_client_order_id="A2T-quarantine-repair",
+    )
+    session: Session = fact_db()
+    try:
+        position = session.get(V2ManagedPosition, "pos-quarantine-repair")
+        assert position is not None
+        position.state = V2PositionState.QUARANTINED.value
+        position.version += 1
+        session.commit()
+    finally:
+        session.close()
+
+    persist_exit_result(
+        cycle_id="cycle-exit-quarantine-repair",
+        position_id="pos-quarantine-repair",
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        reason=ExitReason.PROTECTION_FAILURE_EMERGENCY,
+        result=ExitExecutionResult(
+            status=ExitExecutionStatus.CLOSED,
+            position_state=V2PositionState.CLOSED,
+            client_order_id="A2X-quarantine-repair-2",
+            exchange_order_id="14909451503",
+            trade_ids=("308716592",),
+            reduced_quantity=Decimal("0.164"),
+            average_fill_price=Decimal("1918.5"),
+            total_fee=Decimal("0.1258536"),
+            remaining_quantity=Decimal("0"),
+            fill_timestamp=datetime(2026, 7, 29, 9, 50, 39, tzinfo=UTC),
+        ),
+        fencing_token="fence-exit-quarantine-repair",
+    )
+
+    session = fact_db()
+    try:
+        position = session.get(V2ManagedPosition, "pos-quarantine-repair")
+        assert position is not None
+        assert position.state == V2PositionState.CLOSED.value
+        assert position.closed_at is not None
+        exit_fill = session.scalar(select(V2ExchangeFill).where(V2ExchangeFill.trade_id == "308716592"))
+        assert exit_fill is not None
+        assert exit_fill.reduce_only is True
+        protection = session.scalar(
+            select(V2ProtectionRecord).where(V2ProtectionRecord.position_id == "pos-quarantine-repair")
+        )
+        assert protection is not None
+        assert protection.state == V2ProtectionState.PROTECTION_CANCELLED.value
+    finally:
+        session.close()
+
+
+def test_reconciliation_cancels_absent_protection_for_closed_position(fact_db) -> None:
+    entry = EntryExecutionResult(
+        status=EntryExecutionStatus.FILLED,
+        intent_state=V2IntentState.FILLED,
+        client_order_id="A2E-closed-protection",
+        exchange_order_id="xo-entry-closed-protection",
+        trade_ids=("trade-entry-closed-protection",),
+        filled_quantity=Decimal("0.01"),
+        average_fill_price=Decimal("65000"),
+        total_fee=Decimal("0.1"),
+        fill_timestamp=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+    )
+    persist_entry_and_protection(
+        cycle_id="cycle-closed-protection",
+        decision_id="decision-closed-protection",
+        intent_id="intent-closed-protection",
+        symbol="BTC/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+        fencing_token="fence-closed-protection",
+        leverage=40,
+        entry_result=entry,
+        position_id="pos-closed-protection",
+        protection_result=SimpleNamespace(
+            is_active=True,
+            stop_exchange_order_id="xo-stop-closed-protection",
+            tp_exchange_order_id="xo-tp-closed-protection",
+        ),
+        stop_loss_price=Decimal("64000"),
+        take_profit_price=Decimal("67000"),
+        stop_client_order_id="A2S-closed-protection",
+        tp_client_order_id="A2T-closed-protection",
+    )
+    session: Session = fact_db()
+    try:
+        position = session.get(V2ManagedPosition, "pos-closed-protection")
+        assert position is not None
+        position.state = V2PositionState.CLOSED.value
+        position.closed_at = datetime(2026, 7, 29, 10, 5, tzinfo=UTC)
+        position.version += 1
+        session.commit()
+    finally:
+        session.close()
+
+    changed = reconcile_closed_position_protections(
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        symbol="BTC/USDT",
+        exchange_open_order_ids=frozenset(),
+        observed_at=datetime(2026, 7, 29, 10, 10, tzinfo=UTC),
+    )
+
+    assert changed == 1
+    session = fact_db()
+    try:
+        protection = session.scalar(
+            select(V2ProtectionRecord).where(V2ProtectionRecord.position_id == "pos-closed-protection")
+        )
+        assert protection is not None
+        assert protection.state == V2ProtectionState.PROTECTION_CANCELLED.value
     finally:
         session.close()

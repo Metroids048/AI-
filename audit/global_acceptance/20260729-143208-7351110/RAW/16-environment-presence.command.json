@@ -1,0 +1,30 @@
+{
+  "command": "Inspect configured environment variable names for presence only",
+  "working_directory": "C:\\Users\\win\\Desktop\\AI--main",
+  "environment_variable_names": [
+    "AUTOMATED_TRADING_ENGINE",
+    "V2_TESTNET_CONTRACT_ENABLED",
+    "NATURAL_E2E_ENABLED",
+    "BINANCE_API_KEY",
+    "BINANCE_API_SECRET",
+    "BINANCE_HTTPS_PROXY",
+    "HTTPS_PROXY",
+    "PAPER_CONSOLE_DISABLE_LIVE_WS",
+    "DATABASE_URL"
+  ],
+  "started_at": "2026-07-29T14:37:05.4070987+08:00",
+  "ended_at": "2026-07-29T14:37:05.4071768+08:00",
+  "exit_code": 0,
+  "stdout": {
+    "AUTOMATED_TRADING_ENGINE": false,
+    "V2_TESTNET_CONTRACT_ENABLED": false,
+    "NATURAL_E2E_ENABLED": false,
+    "BINANCE_API_KEY": false,
+    "BINANCE_API_SECRET": false,
+    "BINANCE_HTTPS_PROXY": false,
+    "HTTPS_PROXY": false,
+    "PAPER_CONSOLE_DISABLE_LIVE_WS": false,
+    "DATABASE_URL": false
+  },
+  "stderr": ""
+}

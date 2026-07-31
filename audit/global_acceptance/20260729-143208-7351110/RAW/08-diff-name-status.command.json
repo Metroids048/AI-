@@ -1,0 +1,20 @@
+{
+  "command": "git diff --name-status 9afa16681e1525897ab03b89ad1febc37c30d807..HEAD",
+  "working_directory": "C:\\Users\\win\\Desktop\\AI--main",
+  "environment_variable_names": [
+    "AUTOMATED_TRADING_ENGINE",
+    "V2_TESTNET_CONTRACT_ENABLED",
+    "NATURAL_E2E_ENABLED",
+    "BINANCE_API_KEY",
+    "BINANCE_API_SECRET",
+    "BINANCE_HTTPS_PROXY",
+    "HTTPS_PROXY",
+    "PAPER_CONSOLE_DISABLE_LIVE_WS",
+    "DATABASE_URL"
+  ],
+  "started_at": "2026-07-29T14:37:03.2391338+08:00",
+  "ended_at": "2026-07-29T14:37:03.2961865+08:00",
+  "exit_code": 0,
+  "stdout": "M\t.github/agent/memory/task-history.md\nM\tapps/api/celery_app.py\nM\tapps/api/routers/automated_trading.py\nA\taudit/v2_closure/baseline.json\nA\taudit/v2_closure/baseline_pytest.txt\nA\taudit/v2_closure/gate1_database_integrity.json\nA\taudit/v2_closure/gate2_scheduler_fact_chain.json\nA\taudit/v2_closure/gate3_exit_recovery.json\nA\taudit/v2_closure/gate4_runtime_api_frontend.json\nA\taudit/v2_closure/gate5_status.json\nM\tfrontend/admin/src/pages/PaperConsole.jsx\nA\tmigrations/versions/0019_v2_database_integrity.py\nA\tmigrations/versions/0020_v2_protection_active_requires_xo.py\nA\tscripts/audit_v2_database_invariants.py\nM\tscripts/v2_shadow_run.py\nM\tservices/automated_trading/application/cycle_service.py\nA\tservices/automated_trading/application/fact_persistence.py\nA\tservices/automated_trading/application/recovery_executor.py\nM\tservices/automated_trading/domain/invariants.py\nM\tservices/automated_trading/infrastructure/models.py\nM\tservices/automated_trading/infrastructure/repository.py\nM\tservices/execution/bootstrap.py\nM\tservices/execution/scheduler.py\nM\tservices/execution/tasks.py\nA\tservices/execution/v2_scheduler_entry.py\nM\ttests/api/test_automated_trading_runtime_api.py\nA\ttests/audit/test_v2_runtime_requirements.py\nA\ttests/integration/test_v2_scheduler_entry_fact_chain.py\nM\ttests/services/test_automated_trading_cycle.py\nA\ttests/services/test_automated_trading_database_integrity.py\nA\ttests/services/test_automated_trading_fact_persistence.py\nM\ttests/services/test_automated_trading_repository.py\nM\ttests/services/test_database_schema.py\nM\t\"\\351\\241\\271\\347\\233\\256\\347\\237\\245\\350\\257\\206\\345\\272\\223/\\345\\274\\200\\346\\224\\276\\344\\272\\213\\351\\241\\271.md\"\n",
+  "stderr": null
+}

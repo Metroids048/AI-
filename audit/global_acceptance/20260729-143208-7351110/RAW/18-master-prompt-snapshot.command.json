@@ -1,0 +1,14 @@
+{
+  "command": "Copy docs/audit/AI-global-project-acceptance-audit-master-prompt.md to RAW/master-prompt.snapshot.md and compare SHA256",
+  "working_directory": "C:\\Users\\win\\Desktop\\AI--main",
+  "environment_variable_names": [],
+  "started_at": "2026-07-29T14:48:08.8280781+08:00",
+  "ended_at": "2026-07-29T14:48:08.9239575+08:00",
+  "exit_code": 0,
+  "stdout": {
+    "source_sha256": "1e17a1844bf53403936a5b2b1abeae21d529618c8fbbf5393a06af1d84bec341",
+    "snapshot_sha256": "1e17a1844bf53403936a5b2b1abeae21d529618c8fbbf5393a06af1d84bec341",
+    "identical": true
+  },
+  "stderr": ""
+}

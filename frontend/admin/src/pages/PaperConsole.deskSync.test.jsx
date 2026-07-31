@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { deskOrdersFromAccount, deskPositionsFromAccount } from "../pages/PaperConsole";
+import {
+  deskOrdersFromAccount,
+  deskOrdersFromRuntimeTruth,
+  deskPositionsFromAccount,
+  deskPositionsFromRuntimeTruth,
+} from "../pages/PaperConsole";
 
 describe("desk Binance sync mappers", () => {
   it("maps exchange positions for the Positions tab", () => {
@@ -72,5 +77,67 @@ describe("desk Binance sync mappers", () => {
     expect(rows.map((row) => row.gateway_order_id)).toEqual(["1", "2"]);
     expect(rows[0].entry_context.execution_kind).toBe("binance_open_order");
     expect(rows[0].created_at).toBe("2026-07-12T12:01:02Z");
+  });
+
+  it("does not leak legacy/account positions when V2 exchange truth is available and flat", () => {
+    const rows = deskPositionsFromRuntimeTruth(
+      { exchange: { available: true, positions: [] } },
+      {
+        connected: true,
+        positions: [{ symbol: "SOL/USDT:USDT", side: "short", quantity: 29 }],
+      },
+    );
+
+    expect(rows).toEqual([]);
+  });
+
+  it("maps V2 exchange positions and orders into the main desk", () => {
+    const positions = deskPositionsFromRuntimeTruth({
+      exchange: {
+        available: true,
+        observed_at: "2026-07-29T09:30:05Z",
+        positions: [
+          {
+            symbol: "ETH/USDT",
+            direction: "long",
+            quantity: "0.05",
+            entry_price: "1900",
+            mark_price: "1910",
+            leverage: 40,
+          },
+        ],
+      },
+    });
+    const orders = deskOrdersFromRuntimeTruth({
+      exchange: {
+        available: true,
+        timestamp: "2026-07-29T09:30:05Z",
+        open_orders: [
+          {
+            exchange_order_id: "stop-1",
+            symbol: "ETH/USDT",
+            side: "sell",
+            order_type: "stop_market",
+            status: "new",
+            quantity: "0.05",
+            reduce_only: true,
+          },
+        ],
+      },
+    });
+
+    expect(positions[0]).toMatchObject({
+      symbol: "ETH/USDT",
+      side: "long",
+      quantity: "0.05",
+      leverage: 40,
+      source: "binance_v2_reconciliation",
+    });
+    expect(orders[0]).toMatchObject({
+      gateway_order_id: "stop-1",
+      symbol: "ETH/USDT",
+      execution_status: "new",
+      gateway_name: "binance_usdt_perpetual",
+    });
   });
 });

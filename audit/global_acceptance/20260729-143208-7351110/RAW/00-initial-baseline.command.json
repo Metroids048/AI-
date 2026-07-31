@@ -1,0 +1,21 @@
+{
+  "command": "git status --short; git branch --show-current; git rev-parse HEAD; git log -1 --date=iso --pretty=format:%H%n%ad%n%s; git rev-parse --verify 9afa16681e1525897ab03b89ad1febc37c30d807",
+  "working_directory": "C:\\Users\\win\\Desktop\\AI--main",
+  "environment_variable_names": [
+    "AUTOMATED_TRADING_ENGINE",
+    "V2_TESTNET_CONTRACT_ENABLED",
+    "NATURAL_E2E_ENABLED",
+    "BINANCE_API_KEY",
+    "BINANCE_API_SECRET",
+    "BINANCE_HTTPS_PROXY",
+    "HTTPS_PROXY",
+    "PAPER_CONSOLE_DISABLE_LIVE_WS",
+    "DATABASE_URL"
+  ],
+  "started_at": null,
+  "ended_at": null,
+  "exit_code": 0,
+  "stdout": "?? docs/audit/AI-global-project-acceptance-audit-master-prompt.md\n---BRANCH---\nfix/v2-production-closure\n---HEAD---\n7351110595bc063f3db69afa1b5554cdb8de7d3a\n---LOG---\n7351110595bc063f3db69afa1b5554cdb8de7d3a\n2026-07-29 14:25:46 +0800\nfix: wire v2 active fact chain and keep gate5 blocked\n---OLD-BASELINE---\n9afa16681e1525897ab03b89ad1febc37c30d807",
+  "stderr": "",
+  "note": "Captured before the audit evidence directory was created; exact start/end timestamps were not available from the tool result and are intentionally null."
+}

@@ -1,0 +1,20 @@
+{
+  "command": "git log --oneline --decorate 9afa16681e1525897ab03b89ad1febc37c30d807..HEAD",
+  "working_directory": "C:\\Users\\win\\Desktop\\AI--main",
+  "environment_variable_names": [
+    "AUTOMATED_TRADING_ENGINE",
+    "V2_TESTNET_CONTRACT_ENABLED",
+    "NATURAL_E2E_ENABLED",
+    "BINANCE_API_KEY",
+    "BINANCE_API_SECRET",
+    "BINANCE_HTTPS_PROXY",
+    "HTTPS_PROXY",
+    "PAPER_CONSOLE_DISABLE_LIVE_WS",
+    "DATABASE_URL"
+  ],
+  "started_at": "2026-07-29T14:37:03.3016421+08:00",
+  "ended_at": "2026-07-29T14:37:03.3968789+08:00",
+  "exit_code": 0,
+  "stdout": "7351110 (HEAD -> fix/v2-production-closure, origin/fix/v2-production-closure) fix: wire v2 active fact chain and keep gate5 blocked\n3455234 docs: record gate1-4 closure commit sha\n4670245 fix: close v2 gates 1-4 wiring and mark gate5 blocked\n81b934f docs: record gate1 evidence commit sha\n0830a81 fix: enforce v2 execution facts and state transitions\n",
+  "stderr": null
+}

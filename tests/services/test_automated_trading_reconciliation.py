@@ -249,11 +249,13 @@ def test_protection_recorded_active_but_missing_at_exchange():
 
 def test_orphan_v2_client_order_requires_recovery_not_resubmit():
     """A V2-shaped client id with no local record must not trigger a blind resubmit."""
+    from services.automated_trading.domain.client_order_id import entry_client_order_id
+
     snapshot = _snapshot(
         orders=[
             ExchangeOrderSnapshot(
                 exchange_order_id="ex_777",
-                client_order_id="v2_entry_abc",
+                client_order_id=entry_client_order_id("intent-orphan"),
                 symbol="ETH/USDT",
                 side="buy",
                 order_type="market",

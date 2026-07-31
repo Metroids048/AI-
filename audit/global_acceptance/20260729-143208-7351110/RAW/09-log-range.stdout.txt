@@ -1,0 +1,5 @@
+7351110 (HEAD -> fix/v2-production-closure, origin/fix/v2-production-closure) fix: wire v2 active fact chain and keep gate5 blocked
+3455234 docs: record gate1-4 closure commit sha
+4670245 fix: close v2 gates 1-4 wiring and mark gate5 blocked
+81b934f docs: record gate1 evidence commit sha
+0830a81 fix: enforce v2 execution facts and state transitions

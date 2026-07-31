@@ -29,6 +29,8 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from services.automated_trading.domain.client_order_id import is_v2_client_order_id
+
 if TYPE_CHECKING:
     from services.automated_trading.infrastructure.market_snapshot_provider import (
         AuthoritativeAccountSnapshot,
@@ -81,6 +83,8 @@ class LocalPositionView:
     claim_keys: frozenset[str]
     has_active_protection: bool
     protection_exchange_order_ids: frozenset[str] = frozenset()
+    # (exchange_order_id, client_order_id, exit_reason)
+    protection_order_refs: tuple[tuple[str, str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -370,7 +374,7 @@ def reconcile(
         if client_id in local_state.known_client_order_ids:
             continue
 
-        if client_id.startswith(local_state.v2_client_order_prefix):
+        if is_v2_client_order_id(client_id):
             # A V2-shaped client id we have no local record for: recovery, never a blind resubmit.
             discrepancies.append(
                 Discrepancy(

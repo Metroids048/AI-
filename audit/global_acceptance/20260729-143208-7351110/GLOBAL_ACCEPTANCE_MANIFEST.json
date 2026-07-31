@@ -1,0 +1,129 @@
+{
+  "schema_version": "1.0",
+  "run_id": "20260729-143208-7351110",
+  "completed_at": "2026-07-29T14:39:19.6246374+08:00",
+  "repository": "C:/Users/win/Desktop/AI--main",
+  "old_audit_baseline": "9afa16681e1525897ab03b89ad1febc37c30d807",
+  "audit_head": "7351110595bc063f3db69afa1b5554cdb8de7d3a",
+  "branch": "fix/v2-production-closure",
+  "verdict": "REJECTED_INTEGRATION",
+  "one_sentence_judgment": "The pre-evidence worktree was dirty, so the required HEAD-only production acceptance audit stopped at Phase 0.",
+  "audit_execution_status": "COMPLETED_BY_MANDATORY_STOP",
+  "project_acceptance_status": "REJECTED",
+  "stop_condition": {
+    "code": "WORKTREE_DIRTY",
+    "phase": "0.1",
+    "evidence": "RAW/00-initial-baseline.command.json",
+    "audit_prompt_snapshot": "RAW/master-prompt.snapshot.md",
+    "audit_prompt_sha256": "1e17a1844bf53403936a5b2b1abeae21d529618c8fbbf5393a06af1d84bec341",
+    "pre_existing_status": [
+      "?? docs/audit/AI-global-project-acceptance-audit-master-prompt.md"
+    ]
+  },
+  "phases": {
+    "0": "FAIL_WORKTREE_DIRTY",
+    "1": "NOT_RUN_STOP_CONDITION",
+    "2": "NOT_RUN_STOP_CONDITION",
+    "3": "NOT_RUN_STOP_CONDITION",
+    "4": "NOT_RUN_STOP_CONDITION",
+    "5": "NOT_RUN_STOP_CONDITION",
+    "6": "NOT_RUN_STOP_CONDITION",
+    "7": "NOT_RUN_STOP_CONDITION",
+    "8": "NOT_RUN_STOP_CONDITION",
+    "9": "NOT_RUN_STOP_CONDITION",
+    "10": "NOT_RUN_STOP_CONDITION",
+    "11": "NOT_RUN_STOP_CONDITION",
+    "12": "NOT_RUN_STOP_CONDITION",
+    "13": "NOT_RUN_STOP_CONDITION"
+  },
+  "proof_types": {
+    "STATIC_CODE_REVIEW": "PARTIAL_BASELINE_AND_PATH_CLASSIFICATION_ONLY",
+    "UNIT": "NOT_RUN_STOP_CONDITION",
+    "REPOSITORY_INTEGRATION": "NOT_RUN_STOP_CONDITION",
+    "STRICT_FAKE_SCHEDULER_E2E": "NOT_RUN_STOP_CONDITION",
+    "SHADOW_REAL_DATA": "NOT_RUN_STOP_CONDITION",
+    "TESTNET_CONTRACT": "NOT_RUN_STOP_CONDITION",
+    "NATURAL_SCHEDULER_TESTNET": "NOT_RUN_STOP_CONDITION",
+    "FRONTEND_RUNTIME": "NOT_RUN_STOP_CONDITION",
+    "STRATEGY_RESEARCH_READINESS": "NOT_RUN_STOP_CONDITION"
+  },
+  "gate_status": {
+    "gate_1_database_integrity": "UNVERIFIED",
+    "gate_2_scheduler_fact_chain": "UNVERIFIED",
+    "gate_3_exit_recovery": "UNVERIFIED",
+    "gate_4_runtime_api_frontend": "UNVERIFIED",
+    "gate_5_shadow_contract_natural": "UNVERIFIED"
+  },
+  "strategy_readiness": "STRATEGY_OPTIMIZATION_BLOCKED_EXECUTION",
+  "score": {
+    "type": "verified_evidence_coverage",
+    "total": 0,
+    "maximum": 100,
+    "dimensions": {
+      "production_entry_single_writer": 0,
+      "exchange_first_fact_chain": 0,
+      "automatic_exit_protection": 0,
+      "recovery_reconciliation": 0,
+      "data_signal_observability": 0,
+      "ai_sampling_integration": 0,
+      "runtime_api_frontend_truth": 0,
+      "test_integrity_fault_injection": 0,
+      "operations_migrations_security": 0,
+      "strategy_research_readiness": 0
+    }
+  },
+  "environment": {
+    "python": "3.12.10",
+    "pip": "26.1.2",
+    "node": "24.16.0",
+    "npm": "11.13.0",
+    "pnpm": "11.9.0",
+    "docker": "NOT_FOUND",
+    "enumerated_runtime_variables_present": []
+  },
+  "findings": [
+    {
+      "severity": "P1",
+      "code": "DIRTY_ACCEPTANCE_BASELINE",
+      "evidence": [
+        "RAW/00-initial-baseline.command.json",
+        "RAW/01-git-status.command.json"
+      ]
+    },
+    {
+      "severity": "P2",
+      "code": "REAL_ENV_PREREQUISITES_ABSENT",
+      "evidence": [
+        "RAW/15-docker-version.command.json",
+        "RAW/16-environment-presence.command.json"
+      ]
+    }
+  ],
+  "deliverables": {
+    "GLOBAL_ACCEPTANCE_REPORT.md": {
+      "sha256": "631ec67e014aad9562fd024bfbb44d0045380bf19b0b6dbf66769a1adc8fb36a"
+    },
+    "STRATEGY_READINESS.md": {
+      "sha256": "2104e9aa4c5d4987a3340f215e9fb8b9408c0a6d96d6720546006c75ae0a9c77"
+    },
+    "NEXT_ACTION_PROMPT.md": {
+      "sha256": "245cc5a57a97487324c776b90ab29257fcfacb90e3fa107346fbdd63143ccd01"
+    }
+  },
+  "safety": {
+    "production_files_modified": false,
+    "orders_submitted": false,
+    "exchange_contacted": false,
+    "database_mutated": false,
+    "scheduler_started": false,
+    "frontend_started": false,
+    "secret_values_persisted": false,
+    "next_action_executed": false
+  },
+  "independent_review": {
+    "verdict": "NO_BLOCKING_OR_SUBSTANTIVE_FINDINGS",
+    "implementation_files_edited_by_reviewer": false,
+    "residual_prompt_snapshot_risk_addressed": true
+  },
+  "unique_next_action": "Obtain an operator-approved clean checkout, then rerun the complete Phase 0-13 audit under a new RUN_ID."
+}
