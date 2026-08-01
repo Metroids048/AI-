@@ -1758,3 +1758,169 @@ td {
     align-items: center;
   }
 }
+
+/* Trading Summary Hero */
+.trading-summary-hero {
+  background: linear-gradient(135deg, #0f1419 0%, #1a1f26 100%);
+  border: 1px solid #2a3441;
+  border-radius: 12px;
+  padding: 24px;
+  margin: 16px 0;
+}
+
+.trading-summary-heading h1 {
+  font-size: 28px;
+  font-weight: 600;
+  color: #f0b90b;
+  margin: 0 0 8px 0;
+}
+
+.trading-summary-subtitle {
+  font-size: 14px;
+  color: #8c99a6;
+  margin: 0 0 24px 0;
+}
+
+.trading-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.metric-label {
+  font-size: 13px;
+  color: #8c99a6;
+}
+
+.metric-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: #d8dee9;
+}
+
+.pnl-positive {
+  color: #0ecb81;
+}
+
+.pnl-negative {
+  color: #f6465d;
+}
+
+.trading-summary-status {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #2a3441;
+}
+
+.status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.status-label {
+  font-size: 12px;
+  color: #8c99a6;
+}
+
+.status-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: #d8dee9;
+}
+
+.status-active {
+  color: #0ecb81;
+}
+
+.status-inactive {
+  color: #8c99a6;
+}
+
+.status-connected {
+  color: #0ecb81;
+}
+
+.status-disconnected {
+  color: #f6465d;
+}
+
+.status-warning {
+  color: #fcd535;
+}
+
+.trading-summary-decision {
+  background: #1a1f26;
+  border: 1px solid #2a3441;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.trading-summary-decision h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f0b90b;
+  margin: 0 0 8px 0;
+}
+
+.decision-reason {
+  font-size: 13px;
+  color: #d8dee9;
+  margin: 0 0 6px 0;
+}
+
+.decision-time {
+  font-size: 12px;
+  color: #8c99a6;
+  margin: 0;
+}
+
+.trading-summary-actions {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #2a3441;
+}
+
+.trading-workspace-grid {
+  display: grid;
+  grid-template-columns: 70% 30%;
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.insight-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (max-width: 1000px) {
+  .trading-workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trading-summary-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 620px) {
+  .trading-summary-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .trading-summary-status {
+    gap: 16px;
+  }
+}

@@ -437,8 +437,9 @@ async def _stream_exchange_rest_poll(
 
 
 def _binance_exchange_stream_url(*, perp_symbol: str, timeframe: str) -> str:
+    """Trading-page market stream: kline only (no order book or trades)."""
     raw = stream_symbol(perp_symbol)
-    streams = "/".join([f"{raw}@kline_{timeframe}", f"{raw}@depth20@100ms", f"{raw}@trade"])
+    streams = f"{raw}@kline_{timeframe}"
     return f"{binance_usdm_ws_base().replace('/ws', '/stream')}?streams={streams}"
 
 
@@ -462,16 +463,6 @@ def _exchange_stream_event_from_binance_payload(
             "bar": bar,
             "payload": {**bar.model_dump(mode="json"), "closed": closed, "source": "binance_public_ws"},
         }
-    if "lastUpdateId" in event or "b" in event or "bids" in event:
-        return {
-            "event": "order_book",
-            "payload": _order_book_from_ws_event(event, symbol=perp_symbol).model_dump(mode="json"),
-        }
-    if event.get("e") == "trade" or ("p" in event and "q" in event):
-        trade = _trade_from_ws_event(event)
-        if trade is None:
-            return None
-        return {"event": "trade", "payload": trade.model_dump(mode="json")}
     return None
 
 

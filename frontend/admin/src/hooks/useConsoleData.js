@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { request, streamUrl } from "../api/client";
 
-const MAX_TRADES = 80;
 const LOCAL_CONSOLE_API_ONLY = import.meta.env.VITE_LOCAL_CONSOLE_API_ONLY === "true";
 const asArray = (value) => (Array.isArray(value) ? value : []);
 
@@ -19,8 +18,6 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     manualContext: null,
     fundingSignal: null,
     intelligenceSignal: null,
-    trades: null,
-    orderBook: null,
     decisionTrace: null,
     dataSources: null,
     orderSync: null,
@@ -46,8 +43,6 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
             snapshot: null,
             candles: [],
             latestKline: null,
-            trades: null,
-            orderBook: null,
             feedStatus: { status: "connecting", source: "websocket" },
             streamStatus: "connecting",
             loading: true,
@@ -156,16 +151,6 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
           current.streamStatus === "live" ? current.candleSnapshotVersion : current.candleSnapshotVersion + 1,
         error: "",
       }),
-      { reportError: false },
-    );
-    run(
-      `/api/v1/market/trades?${new URLSearchParams({ symbol: perpSymbol, limit: "50" }).toString()}`,
-      (current, payload) => ({ ...current, trades: payload ?? current.trades, error: "" }),
-      { reportError: false },
-    );
-    run(
-      `/api/v1/market/order-book?${new URLSearchParams({ symbol: perpSymbol, limit: "20" }).toString()}`,
-      (current, payload) => ({ ...current, orderBook: payload ?? current.orderBook, error: "" }),
       { reportError: false },
     );
     run(
@@ -330,8 +315,6 @@ function applyStreamMessage(current, message, selection) {
       snapshot: payload.snapshot ?? current.snapshot,
       candles: payload.ohlcv?.candles ?? current.candles,
       candleSnapshotVersion: current.candleSnapshotVersion + 1,
-      trades: payload.trades ?? current.trades,
-      orderBook: payload.order_book ?? current.orderBook,
       feedStatus: nextFeed,
       streamStatus: streamStatusFromFeed(nextFeed),
       loading: false,
@@ -350,27 +333,6 @@ function applyStreamMessage(current, message, selection) {
         perp_last_price: nextKline.close,
         latest_bar_at: nextKline.time ?? nextKline.timestamp,
       },
-      streamStatus: "live",
-    };
-  }
-  if (message?.event === "trade") {
-    const existing = Array.isArray(current.trades?.trades) ? current.trades.trades : [];
-    return {
-      ...current,
-      trades: {
-        symbol: selection.perpSymbol,
-        exchange: "binance",
-        data_status: "ok",
-        source: payload.source ?? "binance_public_ws",
-        trades: [payload, ...existing].slice(0, MAX_TRADES),
-      },
-      streamStatus: "live",
-    };
-  }
-  if (message?.event === "order_book") {
-    return {
-      ...current,
-      orderBook: payload,
       streamStatus: "live",
     };
   }

@@ -65,13 +65,19 @@ def test_exchange_stream_event_builders_handle_realtime_payloads() -> None:
     assert kline["event"] == "kline"
     assert kline["payload"]["closed"] is False
     assert kline["payload"]["close"] == "61100"
-    assert book is not None
-    assert book["event"] == "order_book"
-    assert book["payload"]["source"] == "binance_public_ws"
-    assert book["payload"]["bids"][0]["total"] == "0.1"
-    assert trade is not None
-    assert trade["event"] == "trade"
-    assert trade["payload"]["side"] == "buy"
+    # Order book and trade events are no longer processed
+    assert book is None
+    assert trade is None
+
+
+def test_binance_exchange_stream_url_subscribes_kline_only() -> None:
+    """WebSocket URL now subscribes to kline only (no depth or trade)."""
+    from apps.api.routers.market import _binance_exchange_stream_url
+
+    url = _binance_exchange_stream_url(perp_symbol="BTC/USDT:USDT", timeframe="1m")
+    assert "@kline_1m" in url
+    assert "@depth" not in url
+    assert "@trade" not in url
 
 
 def _bar(symbol: str, at: datetime, close: str) -> dict:

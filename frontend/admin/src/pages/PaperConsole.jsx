@@ -3,7 +3,8 @@ import { useSearchParams } from "react-router-dom";
 
 import { fetchPositions } from "../api/automatedTrading";
 import { request } from "../api/client";
-import { ExchangeVsLocal, RuntimeOverview, WhyNoTrade } from "../components/AutomatedTrading";
+import { WhyNoTrade } from "../components/AutomatedTrading";
+import { TradingSummaryHero } from "../components/TradingSummaryHero";
 import { AppShell } from "../components/Common";
 import { KlinePanel, MarketHeader } from "../components/MarketPanels";
 import { ExecutionAcceptancePanel, TradingRecordsWorkspace } from "../components/TradingRecordsWorkspace";
@@ -18,16 +19,11 @@ import {
   Top20MonitorPanel,
 } from "../components/RuntimePanels";
 import {
-  BinanceSyncHero,
   ExchangePositionHint,
   FundingPanel,
   MarketList,
-  ModeBanner,
-  OrderBookPanel,
   OrdersTable,
   PositionsTable,
-  RecentTradesPanel,
-  RuntimeControlPanel,
   TestnetAccountPanel,
   TradingTicket,
 } from "../components/TradingConsolePanels";
@@ -326,6 +322,17 @@ export function PaperConsole() {
     >
       {data.loading ? <div className="loading-line">正在加载交易台数据...</div> : null}
       {actionMessage ? <div className="action-line">{actionMessage}</div> : null}
+      <TradingSummaryHero
+        account={data.testnetAccount}
+        positions={deskPositions}
+        orders={deskOrders}
+        decisions={v2Runtime.snapshot?.latest_decisions ?? []}
+        tradingStatus={data.tradingStatus}
+        globalRiskStatus={v2Runtime.snapshot?.global_risk_status}
+        streamStatus={data.streamStatus}
+        selectedSymbol={symbol}
+        lastSuccessAt={v2Runtime.lastSuccessAt}
+      />
       <MarketList
         universe={data.universe}
         universeStatus={data.universeStatus}
@@ -340,16 +347,6 @@ export function PaperConsole() {
         feedStatus={data.feedStatus}
         onTimeframeChange={(nextTimeframe) => updateSelection({ timeframe: nextTimeframe })}
       />
-      <BinanceSyncHero account={data.testnetAccount} />
-      <div className="workspace-panel-grid">
-        <RuntimeOverview
-          snapshot={v2Runtime.snapshot}
-          error={v2Runtime.error}
-          lastSuccessAt={v2Runtime.lastSuccessAt}
-        />
-        <WhyNoTrade decisions={v2Runtime.snapshot?.latest_decisions ?? []} />
-        <ExchangeVsLocal positionsData={v2Positions} />
-      </div>
       <ExchangePositionHint
         positions={deskPositions}
         selectedSymbol={symbol}
@@ -367,30 +364,19 @@ export function PaperConsole() {
             streamStatus={data.streamStatus}
           />
         </div>
-        <div className="book-rail">
-          <OrderBookPanel orderBook={data.orderBook} symbol={perpSymbol} />
-          <RecentTradesPanel trades={data.trades} symbol={perpSymbol} />
-        </div>
-        <div className="ticket-rail">
-          <TradingTicket
-            symbol={symbol}
-            timeframe={timeframe}
-            mode={mode}
-            manualContext={data.manualContext}
-            latestPosition={latestPosition}
-            latestPrice={latestPrice}
-            onAction={handleAction}
-          />
+        <div className="insight-rail">
+          <WhyNoTrade decisions={v2Runtime.snapshot?.latest_decisions ?? []} />
         </div>
       </section>
       <TradingRecordsWorkspace tabs={[
         { id: "positions", label: "持仓", count: deskPositions.length, content: <PositionsTable positions={deskPositions} /> },
         { id: "orders", label: "订单", count: deskOrders.length, content: <OrdersTable orders={deskOrders} onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })} /> },
-        { id: "account", label: "币安账户", content: <><BinanceSyncHero account={data.testnetAccount} /><TestnetAccountPanel account={data.testnetAccount} /></> },
-        { id: "automation", label: "自动交易", content: <><ModeBanner status={data.tradingStatus} account={data.testnetAccount} /><div className="workspace-panel-grid"><RuntimeControlPanel streamStatus={data.streamStatus} tradingStatus={data.tradingStatus} mirrorToGateway={mirrorToGateway} onMirrorToggle={(enabled) => handleAction("toggleGatewayMirror", { enabled })} onRunCycle={() => handleAction("runAllCycles")} /><AutoSettingsPanel paperRunId={autoPaperRunId} autoSettings={autoSettings} onSave={(payload) => handleAction("saveAutoSettings", payload)} /><Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={data.tradingStatus} /><RejectionFunnelPanel summary={data.decisionTrace?.rejection_summary} /></div></> },
-        { id: "carry", label: "套利", content: <div className="workspace-panel-grid"><FundingPanel signal={data.fundingSignal} onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })} /><ExecutionAcceptancePanel fundingSignal={data.fundingSignal} onRunAcceptance={() => handleAction("testnetAcceptance")} onRunCarry={() => handleAction("carryExecution")} /></div> },
-        { id: "decision", label: "决策链", content: <div className="workspace-panel-grid"><DecisionDebugPanel decisionTrace={data.decisionTrace} /><MarketIntelligencePanel signal={data.intelligenceSignal} /></div> },
+        { id: "decisions", label: "决策详情", content: <div className="workspace-panel-grid"><DecisionDebugPanel decisionTrace={data.decisionTrace} /><MarketIntelligencePanel signal={data.intelligenceSignal} /></div> },
+        { id: "account", label: "账户详情", content: <TestnetAccountPanel account={data.testnetAccount} /> },
+        { id: "manual", label: "手动操作", content: <TradingTicket symbol={symbol} timeframe={timeframe} mode={mode} manualContext={data.manualContext} latestPosition={latestPosition} latestPrice={latestPrice} onAction={handleAction} /> },
+        { id: "automation", label: "策略设置", content: <div className="workspace-panel-grid"><AutoSettingsPanel paperRunId={autoPaperRunId} autoSettings={autoSettings} onSave={(payload) => handleAction("saveAutoSettings", payload)} /><Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={data.tradingStatus} /><RejectionFunnelPanel summary={data.decisionTrace?.rejection_summary} /></div> },
         { id: "risk-data", label: "风险与数据", content: <div className="workspace-panel-grid"><MessageSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} riskEvents={data.overview?.risk_events} /><DataSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} /><OrderSyncPanel orderSync={data.orderSync} /></div> },
+        { id: "carry", label: "套利工具", content: <div className="workspace-panel-grid"><FundingPanel signal={data.fundingSignal} onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })} /><ExecutionAcceptancePanel fundingSignal={data.fundingSignal} onRunAcceptance={() => handleAction("testnetAcceptance")} onRunCarry={() => handleAction("carryExecution")} /></div> },
       ]} />
     </AppShell>
   );
