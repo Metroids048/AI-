@@ -1,6 +1,10 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, describe, it, expect } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
 import { TradingSummaryHero } from "./TradingSummaryHero";
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("TradingSummaryHero", () => {
   it("renders main heading in Chinese", () => {
@@ -206,10 +210,10 @@ describe("TradingSummaryHero", () => {
     expect(screen.getByText(/BTC\/USDT/)).toBeTruthy();
   });
 
-  it("shows Binance testnet link when URL is available", () => {
+  it("always shows Binance testnet link using web_ui_url", () => {
     render(
       <TradingSummaryHero
-        account={{ connected: true, testnet_url: "https://testnet.binance.vision" }}
+        account={{ connected: true, web_ui_url: "https://testnet.binancefuture.com/en/futures/ETHUSDT" }}
         positions={[]}
         orders={[]}
         decisions={[]}
@@ -223,14 +227,14 @@ describe("TradingSummaryHero", () => {
 
     const link = screen.getByRole("link", { name: /打开币安模拟盘/ });
     expect(link).toBeTruthy();
-    expect(link.getAttribute("href")).toBe("https://testnet.binance.vision");
+    expect(link.getAttribute("href")).toBe("https://testnet.binancefuture.com/en/futures/ETHUSDT");
     expect(link.getAttribute("target")).toBe("_blank");
   });
 
-  it("does not show Binance link when URL is not available", () => {
+  it("keeps default Binance testnet link when account is disconnected", () => {
     render(
       <TradingSummaryHero
-        account={{ connected: true, wallet_balance: 10000 }}
+        account={{ connected: false, error: "binance credentials not configured" }}
         positions={[]}
         orders={[]}
         decisions={[]}
@@ -242,6 +246,27 @@ describe("TradingSummaryHero", () => {
       />
     );
 
-    expect(screen.queryByRole("link", { name: /打开币安模拟盘/ })).toBeNull();
+    const link = screen.getByRole("link", { name: /打开币安模拟盘/ });
+    expect(link.getAttribute("href")).toBe("https://testnet.binancefuture.com/en/futures/BTCUSDT");
+    expect(screen.getByText(/账户未接通：binance credentials not configured/)).toBeTruthy();
+  });
+
+  it("keeps default Binance testnet link when account is null", () => {
+    render(
+      <TradingSummaryHero
+        account={null}
+        positions={[]}
+        orders={[]}
+        decisions={[]}
+        tradingStatus={null}
+        globalRiskStatus={null}
+        streamStatus="offline"
+        selectedSymbol="BTC/USDT"
+        lastSuccessAt={null}
+      />
+    );
+
+    const link = screen.getByRole("link", { name: /打开币安模拟盘/ });
+    expect(link.getAttribute("href")).toBe("https://testnet.binancefuture.com/en/futures/BTCUSDT");
   });
 });

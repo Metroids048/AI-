@@ -2,6 +2,8 @@
  * 交易总览 Hero - 主页核心信息卡片
  * 展示账户、持仓、盈亏、策略状态等关键指标
  */
+const DEFAULT_BINANCE_TESTNET_URL = "https://testnet.binancefuture.com/en/futures/BTCUSDT";
+
 export function TradingSummaryHero({
   account,
   positions,
@@ -56,8 +58,9 @@ export function TradingSummaryHero({
   const decisionSymbol = latestDecision?.symbol || selectedSymbol;
   const decisionReasonText = latestDecision?.terminal_reason || "暂无决策";
 
-  // 币安模拟盘 URL
-  const binanceTestnetUrl = account?.testnet_url || null;
+  // 后端字段是 web_ui_url；断连时也必须保留默认可跳转入口（勿依赖错误字段 testnet_url）
+  const binanceTestnetUrl = account?.web_ui_url || DEFAULT_BINANCE_TESTNET_URL;
+  const connectionError = !isExchangeConnected && account?.error ? String(account.error) : null;
 
   return (
     <div className="trading-summary-hero">
@@ -134,18 +137,23 @@ export function TradingSummaryHero({
         </div>
       )}
 
-      {binanceTestnetUrl && (
-        <div className="trading-summary-actions">
-          <a
-            href={binanceTestnetUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-secondary btn-sm"
-          >
-            打开币安模拟盘
-          </a>
-        </div>
-      )}
+      <div className="trading-summary-actions">
+        <a
+          href={binanceTestnetUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="trading-summary-binance-link"
+        >
+          打开币安模拟盘
+        </a>
+        <span className="trading-summary-action-hint">
+          {isExchangeConnected
+            ? "用同一模拟账户对账；勿用主网 futures.binance.com"
+            : connectionError
+              ? `账户未接通：${connectionError}`
+              : "账户未接通时仍可先打开模拟盘网页；本平台需凭证+代理后才会同步余额"}
+        </span>
+      </div>
     </div>
   );
 }

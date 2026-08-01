@@ -1890,6 +1890,34 @@ td {
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid #2a3441;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.trading-summary-binance-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border: 1px solid #2f80ed;
+  border-radius: 6px;
+  background: #13243a;
+  color: #7ec8ff;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.trading-summary-binance-link:hover {
+  background: #1a3050;
+  color: #b8e0ff;
+}
+
+.trading-summary-action-hint {
+  color: #8c99a6;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  max-width: 42rem;
 }
 
 .trading-workspace-grid {
