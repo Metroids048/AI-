@@ -81,15 +81,12 @@ def _summary(trades: list[dict]) -> dict:
             "count": len(takeprofits),
             "above_2r_count": sum(float(item["mfe_r"]) > 2.0 for item in takeprofits),
             "above_2r_fraction": (
-                sum(float(item["mfe_r"]) > 2.0 for item in takeprofits) / len(takeprofits)
-                if takeprofits
-                else None
+                sum(float(item["mfe_r"]) > 2.0 for item in takeprofits) / len(takeprofits) if takeprofits else None
             ),
             "median": median([float(item["mfe_r"]) for item in takeprofits]) if takeprofits else None,
         },
         "recommendations": {
-            "test_trailing": len(takeprofits) >= 10
-            and (median([float(item["mfe_r"]) for item in takeprofits]) >= 3.0),
+            "test_trailing": len(takeprofits) >= 10 and (median([float(item["mfe_r"]) for item in takeprofits]) >= 3.0),
             "test_early_entry": len(losses) >= 10 and len(lagging_losses) / len(losses) >= 0.6,
         },
     }

@@ -7,6 +7,7 @@ import textwrap
 
 def _detect(source: str) -> list:
     from scripts.verify_config import _detect_orphan_bootstrap_configs
+
     return _detect_orphan_bootstrap_configs(source=textwrap.dedent(source))
 
 
@@ -64,8 +65,7 @@ def test_intentionally_excluded_not_flagged() -> None:
 def test_current_repo_finds_swing_orphan() -> None:
     """Integration: scan actual bootstrap.py; expect AUTO_PAPER_SWING_RULES as orphan."""
     from scripts.verify_config import _detect_orphan_bootstrap_configs
+
     result = _detect_orphan_bootstrap_configs()
     rules_names = [r[0] for r in result]
-    assert "AUTO_PAPER_SWING_RULES" in rules_names, (
-        f"Expected AUTO_PAPER_SWING_RULES in orphans, got: {rules_names}"
-    )
+    assert "AUTO_PAPER_SWING_RULES" in rules_names, f"Expected AUTO_PAPER_SWING_RULES in orphans, got: {rules_names}"

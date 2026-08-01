@@ -27,6 +27,12 @@ from services.automated_trading.infrastructure.runtime_lock import (
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.database import get_session_factory
 from services.execution.scheduler_coordination import SchedulerCoordinator
+from services.strategy_library.context import TIMEFRAME_DELTAS, MarketContext, MarketContextBuilder
+from services.strategy_library.proposal_pipeline import (
+    PROPOSAL_CONTEXT_WINDOW_LENGTHS,
+    proposal_pipeline_payload,
+    run_proposal_pipeline,
+)
 from shared.config import settings
 from shared.models.risk import PAPER_RUNTIME_LIMITS
 
@@ -34,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 V2_CYCLE_TIMEFRAME = "15m"
 AdapterFactory = Callable[[V2ExecutionMode], Any]
+MarketContextLoader = Callable[[str, datetime], MarketContext]
 
 
 def _slot_start(observed_at: datetime, interval_seconds: float) -> datetime:
@@ -88,6 +95,38 @@ def _load_v2_entry_timeframe(symbol: str, timeframe: str = V2_CYCLE_TIMEFRAME) -
         if closed_at(row) <= observed_at
     )
     return TimeframeView(timeframe=timeframe, bars=bars)
+
+
+def _load_v2_market_context(symbol: str, decision_time: datetime) -> MarketContext:
+    """Load one point-in-time research context without touching execution state."""
+
+    from services.data.repository import DataRepository
+
+    with get_session_factory()() as session:
+        repo = DataRepository(session)
+        bars_by_timeframe = {
+            timeframe: repo.list_ohlcv_bars(
+                symbol=symbol,
+                timeframe=timeframe,
+                end_at=decision_time - TIMEFRAME_DELTAS[timeframe],
+                limit=PROPOSAL_CONTEXT_WINDOW_LENGTHS[timeframe],
+            )
+            for timeframe in PROPOSAL_CONTEXT_WINDOW_LENGTHS
+        }
+        market_extras = repo.list_market_extras(symbol=symbol, end_at=decision_time, limit=1)
+    return MarketContextBuilder().build(
+        symbol=symbol,
+        decision_time=decision_time,
+        bars_by_timeframe=bars_by_timeframe,
+        market_extras=market_extras,
+        source_ids=("runtime_data_repository",),
+    )
+
+
+def _research_shadow_payload(context: MarketContext) -> dict[str, Any]:
+    """Produce the same canonical research output consumed by replay."""
+
+    return proposal_pipeline_payload(run_proposal_pipeline(context))
 
 
 def _ensure_v2_cycle(
@@ -197,6 +236,7 @@ def execute_v2_automated_trading_cycles(
     *,
     adapter_factory: AdapterFactory | None = None,
     timeframe_loader: Callable[[str, str], TimeframeView] | None = None,
+    market_context_loader: MarketContextLoader | None = None,
 ) -> dict[str, Any]:
     """Run one coordinated V2 cycle pass for BTC/USDT and ETH/USDT."""
     payload = dict(request_payload or {})
@@ -258,6 +298,7 @@ def execute_v2_automated_trading_cycles(
 
     build_adapter = adapter_factory or _default_adapter_factory
     load_timeframe = timeframe_loader or _load_v2_entry_timeframe
+    load_market_context = market_context_loader or _load_v2_market_context
     symbols = list(payload.get("symbols") or AUTO_SIMULATION_EXECUTION_SYMBOLS)
     timeframe = str(payload.get("timeframe") or V2_CYCLE_TIMEFRAME)
 
@@ -278,6 +319,16 @@ def execute_v2_automated_trading_cycles(
                 continue
 
             bar_timestamp = entry_timeframe.last_closed.timestamp if entry_timeframe.last_closed else bar_slot
+            research_shadow: dict[str, Any] | None = None
+            if config.v2_activation is EngineActivation.SHADOW:
+                try:
+                    research_shadow = _research_shadow_payload(load_market_context(symbol, bar_timestamp))
+                except Exception as exc:  # noqa: BLE001
+                    research_shadow = {
+                        "pipeline_version": "proposal-pipeline-v1",
+                        "status": "UNAVAILABLE",
+                        "rejection_reasons": {"market_context": f"{type(exc).__name__}: {exc}"},
+                    }
             decision_id = str(uuid.uuid4())
             try:
                 _ensure_v2_cycle(
@@ -321,6 +372,9 @@ def execute_v2_automated_trading_cycles(
                 task_failed = True
                 continue
 
+            funnel_payload = dict(result.funnel_payload)
+            if research_shadow is not None:
+                funnel_payload["research_shadow"] = research_shadow
             decision_id = _finalize_v2_cycle_decision(
                 cycle_id=cycle_id,
                 decision_id=decision_id,
@@ -329,7 +383,7 @@ def execute_v2_automated_trading_cycles(
                 bar_timestamp=bar_timestamp,
                 execution_mode=config.execution_mode,
                 fencing_token=cycle_fencing_token,
-                funnel_payload=result.funnel_payload,
+                funnel_payload=funnel_payload,
                 completed_at=datetime.now(UTC),
             )
             symbol_result.update(

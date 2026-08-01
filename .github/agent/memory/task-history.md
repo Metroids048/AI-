@@ -693,3 +693,11 @@
 - **Change**: Technical replay now evaluates signals on a closed bar and fills at the following bar's open/timestamp; signals with no following bar are not fabricated as `end_of_window` trades.
 - **Evidence**: `tests/services/test_technical_strategy_validation.py` `14 passed`; related validation tests `21 passed`; touched Ruff and production mypy passed. RED was reproduced for both next-bar and `end_at` boundary defects before implementation.
 - **Boundary**: `baseline-20260729-0000Z-r4` is retained as a pre-parity historical artifact; no new baseline or Final Holdout result was generated. Funding/spread/latency/partial-fill, input-hash parity, walk-forward ledger and dependent bootstrap remain open. No risk or promotion threshold changed.
+
+## 2026-07-31 — Strategy Phase 1 proposal pipeline and Gate 16 closure
+
+- **Change**: Added canonical typed hashing and one shared three-candidate proposal/selector pipeline for Replay and V2 Shadow. Replay now honors selector output, uses runtime-matched context windows, accumulates signed point-in-time funding settlements, and runs eight independent OOS windows with append-only candidate/window/symbol metrics.
+- **Data**: Rebuilt the isolated history database from checksummed Binance Vision files from 2023-01-01 through the frozen cutoff. Funding provenance comes from Binance Futures public history; Testnet sparse bars were not used.
+- **Boundary**: Fees read existing runtime config; spread/latency/partial fill remain `ASSUMED` and block promotion. No Final Holdout, DSR/PBO, bootstrap promotion evaluation, parameter tuning or threshold change. Verdict remains `NO_ACTIVE_STRATEGY`.
+- **Gate 16**: Real Binance Testnet entry `25631813075` / trade `523375938`, protection `1000000151515912` and `1000000151515916`, reduce-only exit `25631829915` / trade `523375957`; final BTC position/order counts `0/0`. Evidence is contract-only and `natural_strategy=false`; Gate 17 was not run.
+- **Artifact**: `artifacts/strategy_refactor/phase1-20260731-0000Z-r1` is the immutable Phase 1 evidence directory and records `holdout_results_accessed=false`.

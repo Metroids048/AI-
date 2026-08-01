@@ -17,9 +17,7 @@ class StrategySourceManifest(PlatformModel):
     name: str
     repo_url: str
     license: str
-    project_role: str = Field(
-        examples=["crypto_strategy_shapes", "research_framework", "llm_research_workflow"]
-    )
+    project_role: str = Field(examples=["crypto_strategy_shapes", "research_framework", "llm_research_workflow"])
     asset_categories: list[str] = Field(default_factory=list)
     crypto_relevance: str = Field(examples=["high", "medium", "low"])
     ingestion_status: str = "registered"

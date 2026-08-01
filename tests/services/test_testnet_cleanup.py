@@ -25,6 +25,7 @@ testnet_account_cleanup.__test__ = False  # type: ignore[attr-defined]
 # Helpers                                                                      #
 # --------------------------------------------------------------------------- #
 
+
 class _Settings:
     """Lightweight stand-in for shared.config.settings."""
 
@@ -100,6 +101,7 @@ class _FakeCleanupGateway:
 # Scenario 1: account already clean                                            #
 # --------------------------------------------------------------------------- #
 
+
 def test_cleanup_skips_when_account_is_already_clean() -> None:
     gateway = _FakeCleanupGateway()  # no positions, no orders
 
@@ -120,6 +122,7 @@ def test_cleanup_skips_when_account_is_already_clean() -> None:
 # Scenario 2: account has positions — cleanup succeeds                        #
 # --------------------------------------------------------------------------- #
 
+
 def test_cleanup_cancels_orders_and_closes_positions_then_confirms_clean() -> None:
     initial_orders = [
         {"id": "order-123", "symbol": "BTC/USDT:USDT", "algoId": ""},
@@ -134,9 +137,7 @@ def test_cleanup_cancels_orders_and_closes_positions_then_confirms_clean() -> No
         initial_positions=initial_positions,
     )
 
-    result = testnet_account_cleanup(
-        gateway, idempotency_key="test-cleanup", app_settings=_TESTNET_SETTINGS
-    )
+    result = testnet_account_cleanup(gateway, idempotency_key="test-cleanup", app_settings=_TESTNET_SETTINGS)
 
     assert result["skipped"] is False
     assert result["cancel_errors"] == []
@@ -170,6 +171,7 @@ def test_cleanup_cancels_orders_and_closes_positions_then_confirms_clean() -> No
 # --------------------------------------------------------------------------- #
 # Scenario 3: close request fails — function must raise (fail-closed)         #
 # --------------------------------------------------------------------------- #
+
 
 def test_cleanup_raises_when_position_close_fails() -> None:
     initial_positions = [
@@ -218,6 +220,7 @@ def test_cleanup_raises_when_confirmation_still_dirty_after_cleanup() -> None:
 # --------------------------------------------------------------------------- #
 # Scenario 4: non-Testnet environment — refuse immediately                    #
 # --------------------------------------------------------------------------- #
+
 
 def test_cleanup_refuses_when_binance_use_testnet_is_false() -> None:
     gateway = _FakeCleanupGateway()

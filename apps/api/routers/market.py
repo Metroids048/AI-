@@ -70,10 +70,7 @@ def _live_market_service(db: Session) -> MarketQueryService:
 def _live_market_reads_enabled() -> bool:
     """Keep the desktop API responsive while its scheduler refreshes persisted data."""
 
-    return (
-        settings.binance_live_market_enabled
-        and os.getenv("PAPER_CONSOLE_API_ONLY", "false").lower() != "true"
-    )
+    return settings.binance_live_market_enabled and os.getenv("PAPER_CONSOLE_API_ONLY", "false").lower() != "true"
 
 
 @router.get("/snapshot", response_model=MarketSnapshot)

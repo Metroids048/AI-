@@ -78,24 +78,39 @@ def test_candidate_selection_prefers_coverage_then_worst_symbol_expectancy_then_
     selected = select_best_candidate(
         [
             {
-                "candidate_id": "wide", "eligible": True, "symbol": "BTC/USDT",
-                "net_expectancy": 0.003, "signal_count": 10,
+                "candidate_id": "wide",
+                "eligible": True,
+                "symbol": "BTC/USDT",
+                "net_expectancy": 0.003,
+                "signal_count": 10,
             },
             {
-                "candidate_id": "wide", "eligible": True, "symbol": "ETH/USDT",
-                "net_expectancy": 0.001, "signal_count": 10,
+                "candidate_id": "wide",
+                "eligible": True,
+                "symbol": "ETH/USDT",
+                "net_expectancy": 0.001,
+                "signal_count": 10,
             },
             {
-                "candidate_id": "focused", "eligible": True, "symbol": "BTC/USDT",
-                "net_expectancy": 0.004, "signal_count": 3,
+                "candidate_id": "focused",
+                "eligible": True,
+                "symbol": "BTC/USDT",
+                "net_expectancy": 0.004,
+                "signal_count": 3,
             },
             {
-                "candidate_id": "focused", "eligible": True, "symbol": "ETH/USDT",
-                "net_expectancy": 0.002, "signal_count": 3,
+                "candidate_id": "focused",
+                "eligible": True,
+                "symbol": "ETH/USDT",
+                "net_expectancy": 0.002,
+                "signal_count": 3,
             },
             {
-                "candidate_id": "single", "eligible": True, "symbol": "BTC/USDT",
-                "net_expectancy": 0.02, "signal_count": 1,
+                "candidate_id": "single",
+                "eligible": True,
+                "symbol": "BTC/USDT",
+                "net_expectancy": 0.02,
+                "signal_count": 1,
             },
         ]
     )

@@ -43,9 +43,7 @@ def test_enabled_signals_keeps_registered_pandas_ta_signals() -> None:
         strategy_key="pandas-ta",
         source="test",
         core_thesis="adapter wiring",
-        rules=StrategyRules(
-            entry_rules={"enabled_signals": ["pandas_ta_supertrend", "pandas_ta_stoch_rsi"]}
-        ),
+        rules=StrategyRules(entry_rules={"enabled_signals": ["pandas_ta_supertrend", "pandas_ta_stoch_rsi"]}),
     )
 
     assert _enabled_signals(strategy, timeframe="15m") == {

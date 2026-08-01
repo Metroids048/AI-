@@ -18,6 +18,7 @@ from scripts.backfill_strategy_refactor_history import (
     _persisted_slice_is_complete,
     _validate_persisted_coverage,
     aggregate_complete_bars,
+    fetch_mainnet_funding_history,
     initialize_timeseries_database,
     iter_series_chunks,
     parse_vision_archive,
@@ -166,6 +167,29 @@ def test_mainnet_tail_client_never_falls_back_to_testnet_after_transient_failure
 
     assert len(calls) == 1
     assert calls[0].startswith("https://fapi.binance.com/fapi/v1/klines?")
+    assert "testnet" not in calls[0]
+
+
+def test_funding_history_uses_fixed_mainnet_origin_and_preserves_signed_rates(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_request(url: str):
+        calls.append(url)
+        return [
+            {"fundingTime": 1_672_531_200_000, "fundingRate": "0.0001"},
+            {"fundingTime": 1_672_560_000_000, "fundingRate": "-0.0002"},
+        ]
+
+    monkeypatch.setattr("scripts.backfill_strategy_refactor_history._request_json", fake_request)
+    extras = fetch_mainnet_funding_history(
+        symbol="BTC/USDT",
+        start_at=datetime(2023, 1, 1, tzinfo=UTC),
+        end_exclusive=datetime(2023, 1, 2, tzinfo=UTC),
+    )
+
+    assert [item.funding_rate for item in extras] == [Decimal("0.0001"), Decimal("-0.0002")]
+    assert len(calls) == 1
+    assert calls[0].startswith("https://fapi.binance.com/fapi/v1/fundingRate?")
     assert "testnet" not in calls[0]
 
 

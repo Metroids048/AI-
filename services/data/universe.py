@@ -21,6 +21,7 @@ def execution_scope_hash(symbols: Iterable[str] = AUTO_SIMULATION_EXECUTION_SYMB
     payload = json.dumps(normalized, ensure_ascii=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("ascii")).hexdigest()
 
+
 # ULTRA-AGGRESSIVE Paper testing: reduced from Top20 to Top10 (2026-07-15 v2)
 # Concentrating on highest-liquidity majors to maximize single-symbol exposure
 # and reduce correlation complexity. More concentrated = more decisive signals.

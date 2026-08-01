@@ -35,11 +35,13 @@ import sys
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from typing import Any
 
 EVIDENCE_DIR = Path("docs/evidence/automated_trading_v2")
+FILL_TIMEOUT_SECONDS = 30.0
+FILL_POLL_SECONDS = 0.5
 
 
 @dataclass
@@ -72,6 +74,7 @@ class ContractEvidence:
     exit_exchange_order_id: str | None = None
     exit_trade_ids: list[str] = field(default_factory=list)
     final_exchange_position_qty: str | None = None
+    final_exchange_open_orders: int | None = None
     network_calls: int = 0
     real_exchange_orders: int = 0
     steps: list[ContractStep] = field(default_factory=list)
@@ -106,9 +109,58 @@ def _hash_account(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()[:16]
 
 
+def _poll_fills(
+    adapter: Any,
+    *,
+    symbol: str,
+    exchange_order_id: str,
+    expected_quantity: Decimal,
+    timeout_seconds: float = FILL_TIMEOUT_SECONDS,
+    poll_seconds: float = FILL_POLL_SECONDS,
+) -> list[Any]:
+    """Poll an exchange order until at least one real fill is visible."""
+
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        fills = list(adapter.fetch_fills(symbol, exchange_order_id))
+        filled_quantity = sum((fill.filled_quantity for fill in fills), Decimal("0"))
+        if filled_quantity >= expected_quantity:
+            return fills
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"no fills for exchange order {exchange_order_id} within {timeout_seconds}s")
+        time.sleep(poll_seconds)
+
+
+def _symbol_state(snapshot: Any, symbol: str) -> tuple[Decimal, list[Any]]:
+    position = next((item for item in snapshot.positions if item.symbol == symbol), None)
+    quantity = Decimal(str(position.quantity)) if position is not None else Decimal("0")
+    orders = [item for item in snapshot.pending_orders if item.symbol == symbol]
+    return quantity, orders
+
+
+def _round_quantity_up_to_step(quantity: Decimal, step: Decimal) -> Decimal:
+    """Return the smallest valid step multiple that is not below quantity."""
+
+    if step <= 0:
+        raise ValueError("quantity step must be positive")
+    units = (quantity / step).to_integral_value(rounding=ROUND_CEILING)
+    return units * step
+
+
 def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
     """Execute the full contract sequence against real Binance Testnet."""
     evidence = ContractEvidence(symbol=symbol, started_at=datetime.now(UTC).isoformat())
+
+    if symbol != "BTC/USDT" or notional_usdt != Decimal("20"):
+        evidence.add(
+            ContractStep(
+                "authorized_scope",
+                False,
+                "Gate 16 is locked to BTC/USDT with target notional 20 USDT",
+            )
+        )
+        evidence.completed_at = datetime.now(UTC).isoformat()
+        return evidence
 
     ok, detail = _preflight()
     evidence.add(ContractStep("preflight", ok, detail))
@@ -127,11 +179,12 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
         SubmitProtectionOrders,
         SubmitReduceOnlyExit,
     )
+    from services.automated_trading.domain.enums import V2ExecutionMode
     from services.automated_trading.infrastructure.binance_adapter import (
         BinanceTestnetAdapter,
     )
 
-    adapter = BinanceTestnetAdapter()
+    adapter = BinanceTestnetAdapter(execution_mode=V2ExecutionMode.BINANCE_TESTNET)
     intent_id = f"contract-{int(time.time())}"
 
     # --- 2. Authoritative snapshot (server time + account identity) ---
@@ -139,14 +192,25 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
         snapshot = adapter.fetch_authoritative_snapshot()
         evidence.network_calls += 1
         evidence.exchange_server_time = snapshot.snapshot_timestamp.isoformat()
-        evidence.account_id_hash = _hash_account(str(snapshot.balance))
         evidence.add(
             ContractStep(
                 "authoritative_snapshot",
                 True,
-                f"server_time={evidence.exchange_server_time} equity={snapshot.equity}",
+                f"server_time={evidence.exchange_server_time}",
             )
         )
+        existing_qty, existing_orders = _symbol_state(snapshot, symbol)
+        exchange_flat = existing_qty == 0 and not existing_orders
+        evidence.add(
+            ContractStep(
+                "preflight_exchange_flat",
+                exchange_flat,
+                f"position={existing_qty} open_orders={len(existing_orders)}",
+            )
+        )
+        if not exchange_flat:
+            evidence.completed_at = datetime.now(UTC).isoformat()
+            return evidence
     except Exception as exc:  # noqa: BLE001
         evidence.add(ContractStep("authoritative_snapshot", False, f"{type(exc).__name__}: {exc}"))
         evidence.completed_at = datetime.now(UTC).isoformat()
@@ -174,152 +238,269 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
         evidence.completed_at = datetime.now(UTC).isoformat()
         return evidence
 
-    # --- 4. Minimal market entry ---
-    from services.automated_trading.application.entry_service import round_quantity_to_step
-
+    # --- 4. Minimal market entry and fail-safe lifecycle ---
     target_notional = max(notional_usdt, market.min_notional)
     raw_qty = target_notional / market.current_price
-    quantity = round_quantity_to_step(raw_qty, market.step_size)
+    quantity = _round_quantity_up_to_step(raw_qty, market.step_size)
     if quantity <= 0:
         evidence.add(ContractStep("entry_submit", False, "computed quantity rounds to zero"))
         evidence.completed_at = datetime.now(UTC).isoformat()
         return evidence
 
     entry_coid = entry_client_order_id(intent_id)
-    try:
-        receipt = adapter.submit_market_order(
-            SubmitEntryToExchange(
-                intent_id=intent_id,
-                quantity=quantity,
-                leverage=1,
-                client_order_id=entry_coid,
-            ),
-            symbol,
-            "buy",
-        )
-        evidence.network_calls += 1
-        evidence.real_exchange_orders += 1
-        evidence.entry_exchange_order_id = receipt.exchange_order_id
-        evidence.add(
-            ContractStep("entry_submit", True, f"exchange_order_id={receipt.exchange_order_id} qty={quantity}")
-        )
-    except Exception as exc:  # noqa: BLE001
-        evidence.add(ContractStep("entry_submit", False, f"{type(exc).__name__}: {exc}"))
-        evidence.completed_at = datetime.now(UTC).isoformat()
-        return evidence
-
-    # --- 5. Real fill receipt ---
+    receipt: Any | None = None
     avg_price: Decimal | None = None
     filled_qty = Decimal("0")
     try:
-        fills = adapter.fetch_fills(symbol, receipt.exchange_order_id)
-        evidence.network_calls += 1
-        trade_ids = [f.trade_id for f in fills]
-        filled_qty = sum((f.filled_quantity for f in fills), Decimal("0"))
-        notional = sum((f.filled_quantity * f.fill_price for f in fills), Decimal("0"))
-        avg_price = (notional / filled_qty) if filled_qty > 0 else None
-
-        evidence.entry_trade_ids = trade_ids
-        evidence.entry_filled_quantity = str(filled_qty)
-        evidence.entry_avg_fill_price = str(avg_price) if avg_price else None
-
-        good = bool(trade_ids) and filled_qty > 0 and avg_price is not None and avg_price > 0
-        evidence.add(
-            ContractStep(
-                "entry_fill_receipt",
-                good,
-                f"trade_ids={trade_ids} filled={filled_qty} avg_price={avg_price}",
-            )
-        )
-    except Exception as exc:  # noqa: BLE001
-        evidence.add(ContractStep("entry_fill_receipt", False, f"{type(exc).__name__}: {exc}"))
-
-    # --- 6. Protection orders (priced from the REAL fill) ---
-    if avg_price and avg_price > 0 and filled_qty > 0:
-        stop_price = (avg_price * Decimal("0.99")).quantize(market.tick_size)
-        target_price = (avg_price * Decimal("1.02")).quantize(market.tick_size)
         try:
-            stop_receipt, target_receipt = adapter.submit_protection(
-                SubmitProtectionOrders(
-                    position_id=intent_id,
-                    stop_loss_price=stop_price,
-                    take_profit_price=target_price,
-                    quantity=filled_qty,
-                    stop_client_order_id=stop_client_order_id(intent_id),
-                    take_profit_client_order_id=target_client_order_id(intent_id),
+            receipt = adapter.submit_market_order(
+                SubmitEntryToExchange(
+                    intent_id=intent_id,
+                    quantity=quantity,
+                    leverage=1,
+                    client_order_id=entry_coid,
                 ),
                 symbol,
-                "sell",
+                "buy",
             )
             evidence.network_calls += 1
             evidence.real_exchange_orders += 1
-            evidence.stop_exchange_order_id = stop_receipt.exchange_order_id if stop_receipt else None
-            evidence.take_profit_exchange_order_id = target_receipt.exchange_order_id if target_receipt else None
+            evidence.entry_exchange_order_id = receipt.exchange_order_id
+            evidence.add(
+                ContractStep("entry_submit", True, f"exchange_order_id={receipt.exchange_order_id} qty={quantity}")
+            )
+        except Exception as exc:  # noqa: BLE001
+            evidence.add(ContractStep("entry_submit", False, f"{type(exc).__name__}: {exc}"))
+            try:
+                receipt = adapter.query_order_by_client_id(symbol, entry_coid)
+                evidence.network_calls += 1
+                if receipt is not None:
+                    evidence.entry_exchange_order_id = receipt.exchange_order_id
+                    evidence.real_exchange_orders += 1
+                    evidence.add(
+                        ContractStep(
+                            "entry_submit_recovery",
+                            True,
+                            f"recovered exchange_order_id={receipt.exchange_order_id}",
+                        )
+                    )
+            except Exception as recovery_exc:  # noqa: BLE001
+                evidence.add(
+                    ContractStep(
+                        "entry_submit_recovery",
+                        False,
+                        f"{type(recovery_exc).__name__}: {recovery_exc}",
+                    )
+                )
+
+        # --- 5. Real fill receipt (bounded polling) ---
+        if receipt is not None:
+            try:
+                fills = _poll_fills(
+                    adapter,
+                    symbol=symbol,
+                    exchange_order_id=receipt.exchange_order_id,
+                    expected_quantity=quantity,
+                )
+                evidence.network_calls += 1
+                trade_ids = [fill.trade_id for fill in fills]
+                filled_qty = sum((fill.filled_quantity for fill in fills), Decimal("0"))
+                filled_notional = sum((fill.filled_quantity * fill.fill_price for fill in fills), Decimal("0"))
+                avg_price = (filled_notional / filled_qty) if filled_qty > 0 else None
+                evidence.entry_trade_ids = trade_ids
+                evidence.entry_filled_quantity = str(filled_qty)
+                evidence.entry_avg_fill_price = str(avg_price) if avg_price else None
+                good = bool(trade_ids) and filled_qty > 0 and avg_price is not None and avg_price > 0
+                evidence.add(
+                    ContractStep(
+                        "entry_fill_receipt",
+                        good,
+                        f"trade_ids={trade_ids} filled={filled_qty} avg_price={avg_price}",
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                evidence.add(ContractStep("entry_fill_receipt", False, f"{type(exc).__name__}: {exc}"))
+
+        # --- 6. Protection orders (priced from the REAL fill) ---
+        if avg_price and avg_price > 0 and filled_qty > 0:
+            stop_price = (avg_price * Decimal("0.99")).quantize(market.tick_size)
+            target_price = (avg_price * Decimal("1.02")).quantize(market.tick_size)
+            stop_coid = stop_client_order_id(intent_id)
+            target_coid = target_client_order_id(intent_id)
+            try:
+                stop_receipt, target_receipt = adapter.submit_protection(
+                    SubmitProtectionOrders(
+                        position_id=intent_id,
+                        stop_loss_price=stop_price,
+                        take_profit_price=target_price,
+                        stop_client_order_id=stop_coid,
+                        tp_client_order_id=target_coid,
+                    ),
+                    symbol,
+                    "sell",
+                    filled_qty,
+                )
+                evidence.network_calls += 1
+                evidence.real_exchange_orders += 1
+                evidence.stop_exchange_order_id = stop_receipt.exchange_order_id if stop_receipt else None
+                evidence.take_profit_exchange_order_id = target_receipt.exchange_order_id if target_receipt else None
+                evidence.add(
+                    ContractStep(
+                        "protection_submit",
+                        bool(evidence.stop_exchange_order_id),
+                        f"stop={evidence.stop_exchange_order_id} target={evidence.take_profit_exchange_order_id} "
+                        f"(stop_price={stop_price} from real fill {avg_price})",
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                evidence.add(ContractStep("protection_submit", False, f"{type(exc).__name__}: {exc}"))
+                for label, client_order_id in (("stop", stop_coid), ("take_profit", target_coid)):
+                    try:
+                        recovered = adapter.query_order_by_client_id(symbol, client_order_id)
+                        evidence.network_calls += 1
+                        if recovered is not None:
+                            if label == "stop":
+                                evidence.stop_exchange_order_id = recovered.exchange_order_id
+                            else:
+                                evidence.take_profit_exchange_order_id = recovered.exchange_order_id
+                            evidence.add(
+                                ContractStep(
+                                    f"recover_{label}",
+                                    True,
+                                    f"recovered exchange_order_id={recovered.exchange_order_id}",
+                                )
+                            )
+                    except Exception as recovery_exc:  # noqa: BLE001
+                        evidence.add(
+                            ContractStep(
+                                f"recover_{label}",
+                                False,
+                                f"{type(recovery_exc).__name__}: {recovery_exc}",
+                            )
+                        )
+
+        # --- 7. Normal reduce-only exit ---
+        if filled_qty > 0:
+            try:
+                exit_receipt = adapter.submit_reduce_only_exit(
+                    SubmitReduceOnlyExit(
+                        position_id=intent_id,
+                        exit_reason="testnet_contract_exit",
+                        reduce_quantity=filled_qty,
+                        client_order_id=exit_client_order_id(intent_id),
+                    ),
+                    symbol,
+                    "sell",
+                )
+                evidence.network_calls += 1
+                evidence.real_exchange_orders += 1
+                evidence.exit_exchange_order_id = exit_receipt.exchange_order_id
+                evidence.add(
+                    ContractStep("reduce_only_exit", True, f"exchange_order_id={exit_receipt.exchange_order_id}")
+                )
+                exit_fills = _poll_fills(
+                    adapter,
+                    symbol=symbol,
+                    exchange_order_id=exit_receipt.exchange_order_id,
+                    expected_quantity=filled_qty,
+                )
+                evidence.network_calls += 1
+                evidence.exit_trade_ids = [fill.trade_id for fill in exit_fills]
+                evidence.add(
+                    ContractStep(
+                        "exit_fill_receipt",
+                        bool(evidence.exit_trade_ids),
+                        f"trade_ids={evidence.exit_trade_ids}",
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                evidence.add(ContractStep("reduce_only_exit", False, f"{type(exc).__name__}: {exc}"))
+    finally:
+        # --- 8. Contract-scoped cleanup always runs ---
+        for label, oid in (
+            ("stop", evidence.stop_exchange_order_id),
+            ("take_profit", evidence.take_profit_exchange_order_id),
+        ):
+            if not oid:
+                continue
+            try:
+                adapter.cancel_order(symbol, oid)
+                evidence.network_calls += 1
+                evidence.add(ContractStep(f"cancel_{label}", True, f"cancelled {oid}"))
+            except Exception as exc:  # noqa: BLE001
+                evidence.add(ContractStep(f"cancel_{label}", False, f"{type(exc).__name__}: {exc}"))
+
+        try:
+            cleanup_snapshot = adapter.fetch_authoritative_snapshot()
+            evidence.network_calls += 1
+            remaining_qty, _ = _symbol_state(cleanup_snapshot, symbol)
+            if remaining_qty > 0 and evidence.entry_exchange_order_id:
+                cleanup_qty = remaining_qty
+                cleanup_receipt = adapter.submit_reduce_only_exit(
+                    SubmitReduceOnlyExit(
+                        position_id=intent_id,
+                        exit_reason="testnet_contract_compensation",
+                        reduce_quantity=cleanup_qty,
+                        client_order_id=exit_client_order_id(f"{intent_id}-cleanup"),
+                        is_emergency=True,
+                    ),
+                    symbol,
+                    "sell",
+                )
+                evidence.network_calls += 1
+                evidence.real_exchange_orders += 1
+                cleanup_fills = _poll_fills(
+                    adapter,
+                    symbol=symbol,
+                    exchange_order_id=cleanup_receipt.exchange_order_id,
+                    expected_quantity=cleanup_qty,
+                )
+                evidence.network_calls += 1
+                if evidence.exit_exchange_order_id is None:
+                    evidence.exit_exchange_order_id = cleanup_receipt.exchange_order_id
+                if not evidence.exit_trade_ids:
+                    evidence.exit_trade_ids = [fill.trade_id for fill in cleanup_fills]
+                evidence.add(
+                    ContractStep(
+                        "compensating_reduce_only_exit",
+                        bool(cleanup_fills),
+                        f"exchange_order_id={cleanup_receipt.exchange_order_id} qty={cleanup_qty}",
+                    )
+                )
+            elif remaining_qty < 0:
+                evidence.add(
+                    ContractStep(
+                        "compensating_reduce_only_exit",
+                        False,
+                        f"refused to touch unexpected external short position {remaining_qty}",
+                    )
+                )
+        except Exception as exc:  # noqa: BLE001
+            evidence.add(ContractStep("compensating_reduce_only_exit", False, f"{type(exc).__name__}: {exc}"))
+
+        # --- 9. Final exchange truth: both position and open orders are zero ---
+        try:
+            final_snapshot = adapter.fetch_authoritative_snapshot()
+            evidence.network_calls += 1
+            final_qty, final_orders = _symbol_state(final_snapshot, symbol)
+            evidence.final_exchange_position_qty = str(final_qty)
+            evidence.final_exchange_open_orders = len(final_orders)
             evidence.add(
                 ContractStep(
-                    "protection_submit",
-                    bool(evidence.stop_exchange_order_id),
-                    f"stop={evidence.stop_exchange_order_id} target={evidence.take_profit_exchange_order_id} "
-                    f"(stop_price={stop_price} from real fill {avg_price})",
+                    "final_position_zero",
+                    final_qty == 0,
+                    f"final exchange position = {final_qty}",
+                )
+            )
+            evidence.add(
+                ContractStep(
+                    "final_open_orders_zero",
+                    not final_orders,
+                    f"final exchange open orders = {len(final_orders)}",
                 )
             )
         except Exception as exc:  # noqa: BLE001
-            evidence.add(ContractStep("protection_submit", False, f"{type(exc).__name__}: {exc}"))
-
-    # --- 7. Reduce-only exit (always attempted: this is also the cleanup) ---
-    if filled_qty > 0:
-        try:
-            exit_receipt = adapter.submit_reduce_only_exit(
-                SubmitReduceOnlyExit(
-                    position_id=intent_id,
-                    quantity=filled_qty,
-                    client_order_id=exit_client_order_id(intent_id),
-                ),
-                symbol,
-                "sell",
-            )
-            evidence.network_calls += 1
-            evidence.real_exchange_orders += 1
-            evidence.exit_exchange_order_id = exit_receipt.exchange_order_id
-            evidence.add(ContractStep("reduce_only_exit", True, f"exchange_order_id={exit_receipt.exchange_order_id}"))
-
-            exit_fills = adapter.fetch_fills(symbol, exit_receipt.exchange_order_id)
-            evidence.network_calls += 1
-            evidence.exit_trade_ids = [f.trade_id for f in exit_fills]
-            evidence.add(
-                ContractStep(
-                    "exit_fill_receipt",
-                    bool(evidence.exit_trade_ids),
-                    f"trade_ids={evidence.exit_trade_ids}",
-                )
-            )
-        except Exception as exc:  # noqa: BLE001
-            evidence.add(ContractStep("reduce_only_exit", False, f"{type(exc).__name__}: {exc}"))
-
-    # --- 8. Cancel any residual protection ---
-    for label, oid in (
-        ("stop", evidence.stop_exchange_order_id),
-        ("take_profit", evidence.take_profit_exchange_order_id),
-    ):
-        if not oid:
-            continue
-        try:
-            adapter.cancel_order(symbol, oid)
-            evidence.network_calls += 1
-            evidence.add(ContractStep(f"cancel_{label}", True, f"cancelled {oid}"))
-        except Exception as exc:  # noqa: BLE001
-            evidence.add(ContractStep(f"cancel_{label}", False, f"{type(exc).__name__}: {exc}"))
-
-    # --- 9. Final position must be zero ---
-    try:
-        final_snapshot = adapter.fetch_authoritative_snapshot()
-        evidence.network_calls += 1
-        final_pos = next((p for p in final_snapshot.positions if p.symbol == symbol), None)
-        final_qty = Decimal(str(final_pos.quantity)) if final_pos else Decimal("0")
-        evidence.final_exchange_position_qty = str(final_qty)
-        evidence.add(ContractStep("final_position_zero", final_qty == 0, f"final exchange position = {final_qty}"))
-    except Exception as exc:  # noqa: BLE001
-        evidence.add(ContractStep("final_position_zero", False, f"{type(exc).__name__}: {exc}"))
+            evidence.add(ContractStep("final_exchange_truth", False, f"{type(exc).__name__}: {exc}"))
 
     evidence.completed_at = datetime.now(UTC).isoformat()
     evidence.overall_passed = all(step.passed for step in evidence.steps)

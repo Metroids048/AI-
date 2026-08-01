@@ -85,10 +85,7 @@ def test_resolve_falls_back_to_core_standard_without_dynamic_tiers() -> None:
 
 
 def test_atr_pct_from_daily_bars_needs_enough_history() -> None:
-    bars = [
-        {"high": 110 + i, "low": 100 + i, "close": 105 + i}
-        for i in range(20)
-    ]
+    bars = [{"high": 110 + i, "low": 100 + i, "close": 105 + i} for i in range(20)]
     assert atr_pct_from_daily_bars(bars[:5]) is None
     value = atr_pct_from_daily_bars(bars)
     assert value is not None and value > 0

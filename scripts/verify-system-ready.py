@@ -53,6 +53,7 @@ def check_redis():
     print("\n[2/6] 检查 Redis 连接...")
     try:
         import redis
+
         client = redis.from_url(settings.redis_url)
         client.ping()
         print("✓ Redis 连接正常")
@@ -68,6 +69,7 @@ def check_binance_api():
     print("\n[3/6] 检查 Binance API 连接...")
     try:
         from services.data.binance_client import BinanceCcxtClient
+
         client = BinanceCcxtClient()
         ticker = client.fetch_ticker("BTC/USDT")
         print(f"✓ Binance API 正常 (BTC/USDT: ${ticker['last']})")
@@ -83,6 +85,7 @@ def check_research_universe():
     print("\n[4/6] 检查 Top3 研究范围...")
     try:
         from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
+
         if len(AUTO_PAPER_RESEARCH_SYMBOLS) == 3:
             print(f"✓ Top3 研究范围正常 ({len(AUTO_PAPER_RESEARCH_SYMBOLS)} 个币种)")
             print(f"  标的: {', '.join(AUTO_PAPER_RESEARCH_SYMBOLS)}")
@@ -115,11 +118,7 @@ def check_signal_generation():
             # 测试信号生成
             pipeline = DecisionPipeline(data_repo=data_repo, strategy_repo=strategy_repo)
             result = pipeline.evaluate(
-                strategy=strategy,
-                symbol="BTC/USDT",
-                timeframe="15m",
-                enable_decision_veto=False,
-                relaxed_signals=False
+                strategy=strategy, symbol="BTC/USDT", timeframe="15m", enable_decision_veto=False, relaxed_signals=False
             )
 
             print(f"  confidence_multiplier: {result.confidence_multiplier}")

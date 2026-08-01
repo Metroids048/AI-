@@ -138,9 +138,7 @@ def resolve_asset_risk_tier(
         payload = mid.model_dump(mode="json") if isinstance(mid, AssetRiskTierSettings) else dict(mid)
         payload.setdefault("tier", "vol_mid")
         payload.setdefault("leverage", VOLATILITY_TIER_DEFAULTS["vol_mid"]["leverage"])
-        payload.setdefault(
-            "max_position_fraction", VOLATILITY_TIER_DEFAULTS["vol_mid"]["max_position_fraction"]
-        )
+        payload.setdefault("max_position_fraction", VOLATILITY_TIER_DEFAULTS["vol_mid"]["max_position_fraction"])
         return AssetRiskTierSettings.model_validate(payload)
     return AssetRiskTierSettings(
         tier="standard",

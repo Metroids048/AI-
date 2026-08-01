@@ -131,10 +131,7 @@ def testnet_account_cleanup(
         raw_symbol = str(order.get("symbol") or "")
         effective_id = algo_id if algo_id else order_id
         if not effective_id:
-            cancel_errors.append(
-                f"open_order[{idx}] has no identifiable id "
-                f"(symbol={raw_symbol!r}); cannot cancel"
-            )
+            cancel_errors.append(f"open_order[{idx}] has no identifiable id (symbol={raw_symbol!r}); cannot cancel")
             continue
         try:
             gateway.cancel_protection_order(symbol=raw_symbol, gateway_order_id=effective_id)
@@ -145,9 +142,7 @@ def testnet_account_cleanup(
 
     if cancel_errors:
         detail = "; ".join(cancel_errors)
-        raise RuntimeError(
-            f"testnet_account_cleanup: order cancellation failed — {detail}"
-        )
+        raise RuntimeError(f"testnet_account_cleanup: order cancellation failed — {detail}")
 
     # ------------------------------------------------------------------ #
     # Step 2: Close all open positions via ReduceOnly market orders.      #
@@ -197,9 +192,7 @@ def testnet_account_cleanup(
 
     if close_errors:
         detail = "; ".join(close_errors)
-        raise RuntimeError(
-            f"testnet_account_cleanup: position close failed — {detail}"
-        )
+        raise RuntimeError(f"testnet_account_cleanup: position close failed — {detail}")
 
     # ------------------------------------------------------------------ #
     # Step 3: Confirm the account is now clean.                           #

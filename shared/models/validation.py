@@ -12,9 +12,7 @@ from .base import PlatformModel
 
 class ValidationBenchmarkResult(PlatformModel):
     benchmark_name: str
-    benchmark_type: str = Field(
-        description="market_baseline / strict_random_control / vibe_benchmark / custom"
-    )
+    benchmark_type: str = Field(description="market_baseline / strict_random_control / vibe_benchmark / custom")
     baseline_return: float
     strategy_return: float
     excess_return: float
@@ -44,4 +42,3 @@ class HypothesisRecord(PlatformModel):
     status: str = "draft"
     created_at: datetime | None = None
     updated_at: datetime | None = None
-

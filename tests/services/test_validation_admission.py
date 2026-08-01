@@ -107,4 +107,3 @@ def test_validation_admission_requires_hypothesis_benchmark_oos_and_pod_evidence
     assert "missing_benchmark" in decision.failed_thresholds
     assert "missing_oos_evidence" in decision.failed_thresholds
     assert "missing_pod_risk" in decision.failed_thresholds
-

@@ -81,3 +81,39 @@ superseded because concurrent research-candidate commits changed the source
 tree during its replay.
 `r3` is retained but superseded because the repository-mandated generated
 pytest block was refreshed after its replay.
+
+## Phase 1 Closure (2026-07-31)
+
+Status remains `NO_ACTIVE_STRATEGY`. Runtime Shadow and research replay now
+share one canonical `MarketContext -> regime -> three proposals -> selector`
+pipeline and the same timeframe window lengths. Replay honors the selector,
+uses next-bar fills, and runs each of eight three-month OOS windows
+independently. Every candidate/window/symbol record is append-only and contains
+the observed metrics; there is no parameter optimization.
+
+The isolated research database was rebuilt from Binance Vision checksummed
+USDT-M archives for BTC/ETH from 2023-01-01 through the frozen cutoff. Each
+symbol contains 125,376 15m, 31,344 1h, 7,836 4h, and 376,128 5m bars with no
+incomplete aggregation buckets, plus 3,918 Binance funding observations.
+Provenance is
+`artifacts/strategy_refactor/history/phase1-history-20260729-provenance.json`.
+
+Funding is accumulated from signed settlement events during each holding
+period. Fees come from the existing runtime configuration. Spread, latency and
+partial fill remain explicit `ASSUMED` observations, so Phase 1 evidence is
+not promotion eligible. This phase does not run Final Holdout, DSR/PBO,
+bootstrap promotion evaluation, or strategy promotion.
+
+The immutable Phase 1 output is
+`artifacts/strategy_refactor/phase1-20260731-0000Z-r1`. Its manifest must
+report `holdout_results_accessed=false`, `status=NO_ACTIVE_STRATEGY`, and
+bind the code, data, configuration and pipeline hashes.
+
+Gate 16 separately verified the Binance Testnet contract with BTC/USDT at the
+exchange minimum notional and 1x leverage. Entry order `25631813075` / trade
+`523375938` and reduce-only exit order `25631829915` / trade `523375957`
+were real Testnet fills; final BTC position and open-order counts were both
+zero. Evidence:
+`docs/evidence/automated_trading_v2/testnet_contract_20260731T154212Z.json`.
+It is tagged `TESTNET_CONTRACT`, `natural_strategy=false`; Gate 17 was not
+run and the launcher remains `v2_shadow`.

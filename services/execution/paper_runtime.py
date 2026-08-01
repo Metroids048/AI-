@@ -113,7 +113,6 @@ class PaperRuntimeService:
             raise ValueError("paper run not found")
         return paper_run
 
-
     @staticmethod
     def _starting_equity(paper_run: PaperRun) -> float:
         return float(
@@ -122,11 +121,9 @@ class PaperRuntimeService:
             or 10_000.0
         )
 
-
     @staticmethod
     def _initial_equity(paper_run: PaperRun) -> float:
         return float(paper_run.execution_profile.get("account_equity") or 10_000.0)
-
 
 
 def _parse_datetime(value: object) -> datetime | None:

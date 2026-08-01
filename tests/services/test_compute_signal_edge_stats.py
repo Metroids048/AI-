@@ -108,13 +108,9 @@ class TestComputeAndWriteEdgeStats:
         assert result.artifact_path is not None
         assert result.selected_candidate_id == "trend_momentum_v1"
         written = json.loads(
-            (
-                tmp_path
-                / AUTO_PAPER_TECHNICAL_KEY
-                / "trend_momentum_v1"
-                / "BTCUSDT"
-                / "active.json"
-            ).read_text(encoding="utf-8")
+            (tmp_path / AUTO_PAPER_TECHNICAL_KEY / "trend_momentum_v1" / "BTCUSDT" / "active.json").read_text(
+                encoding="utf-8"
+            )
         )
         assert written["sample_count"] == 42
         assert written["win_rate"] == 0.6
@@ -162,7 +158,7 @@ class TestRefreshSignalEdgeStatsTask:
         import services.execution.tasks as tasks_module
         from services.strategy_library import NotificationRepository
 
-        monkeypatch.setattr(tasks_module, "get_session_factory", lambda: (lambda: db_session))
+        monkeypatch.setattr(tasks_module, "get_session_factory", lambda: lambda: db_session)
 
         def _fake_compute(**kwargs):  # noqa: ANN003
             from scripts.compute_signal_edge_stats import EdgeStatsComputationResult
@@ -192,7 +188,7 @@ class TestRefreshSignalEdgeStatsTask:
         import services.execution.tasks as tasks_module
         from services.strategy_library import NotificationRepository
 
-        monkeypatch.setattr(tasks_module, "get_session_factory", lambda: (lambda: db_session))
+        monkeypatch.setattr(tasks_module, "get_session_factory", lambda: lambda: db_session)
 
         def _fake_compute(**kwargs):  # noqa: ANN003
             from scripts.compute_signal_edge_stats import EdgeStatsComputationResult

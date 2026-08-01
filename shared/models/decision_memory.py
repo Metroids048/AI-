@@ -21,4 +21,3 @@ class DecisionMemoryEntry(PlatformModel):
     evidence_refs: list[str] = Field(default_factory=list)
     context_payload: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
-

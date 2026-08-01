@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 
 from services.data.binance import platform_symbol_to_binance_raw, spot_to_usdm_perp_symbol
 from services.data.repository import DataRepository, create_timeseries_schema, ohlcv_bars
-from shared.models import Exchange, OHLCVBar, Timeframe
+from shared.models import Exchange, MarketExtras, OHLCVBar, Timeframe
 
 VISION_BASE_URL = "https://data.binance.vision"
 MAINNET_FAPI_BASE_URL = "https://fapi.binance.com"
@@ -211,6 +211,52 @@ def _canonical_bar_hash(bars: Iterable[OHLCVBar]) -> str:
             ).encode()
         )
     return digest.hexdigest()
+
+
+def _canonical_funding_hash(extras: Iterable[MarketExtras]) -> str:
+    digest = hashlib.sha256()
+    for item in extras:
+        digest.update(f"{item.timestamp.isoformat()}\t{format(item.funding_rate or Decimal('0'), 'f')}\n".encode())
+    return digest.hexdigest()
+
+
+def fetch_mainnet_funding_history(*, symbol: str, start_at: datetime, end_exclusive: datetime) -> list[MarketExtras]:
+    """Fetch point-in-time funding from Binance's fixed public mainnet origin."""
+
+    raw_symbol = _raw_symbol(symbol)
+    cursor_ms = int(_utc(start_at).timestamp() * 1_000)
+    end_ms = int(_utc(end_exclusive).timestamp() * 1_000)
+    by_timestamp: dict[datetime, MarketExtras] = {}
+    while cursor_ms < end_ms:
+        query = urlencode(
+            {
+                "symbol": raw_symbol,
+                "startTime": cursor_ms,
+                "endTime": end_ms - 1,
+                "limit": 1000,
+            }
+        )
+        rows = _request_json(f"{MAINNET_FAPI_BASE_URL}/fapi/v1/fundingRate?{query}")
+        if not isinstance(rows, list) or not rows:
+            break
+        latest_ms = cursor_ms
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError("unexpected Binance funding response item")
+            timestamp_ms = int(row["fundingTime"])
+            timestamp = datetime.fromtimestamp(timestamp_ms / 1_000, tz=UTC)
+            if timestamp >= _utc(end_exclusive):
+                continue
+            by_timestamp[timestamp] = MarketExtras(
+                symbol=symbol,
+                time=timestamp,
+                funding_rate=Decimal(str(row["fundingRate"])),
+            )
+            latest_ms = max(latest_ms, timestamp_ms)
+        if latest_ms < cursor_ms or len(rows) < 1000:
+            break
+        cursor_ms = latest_ms + 1
+    return [by_timestamp[timestamp] for timestamp in sorted(by_timestamp)]
 
 
 def _validate_complete_bars(
@@ -1008,6 +1054,27 @@ def run_history_backfill(
                     }
                 )
 
+            funding = fetch_mainnet_funding_history(
+                symbol=symbol,
+                start_at=start_at,
+                end_exclusive=end_exclusive,
+            )
+            repository.store_market_extras(funding)
+            funding_record = {
+                "source": "BINANCE_USDT_M_MAINNET_PUBLIC_FUNDING_REST",
+                "source_url": MAINNET_FAPI_BASE_URL,
+                "sha256": _canonical_funding_hash(funding),
+                "symbol": symbol,
+                "timeframe": "8h_funding_event",
+                "start_at": start_at.isoformat(),
+                "end_exclusive": end_exclusive.isoformat(),
+                "rows": len(funding),
+                "storage_action": "upserted",
+            }
+            source_records.append(funding_record)
+            if progress is not None:
+                progress({"stage": "funding_import", **funding_record})
+
             _validate_persisted_coverage(
                 session,
                 symbol=symbol,
@@ -1032,6 +1099,7 @@ def run_history_backfill(
         "source_policy": {
             "primary": "Binance Vision USDT-M official archives with official SHA-256 checksums",
             "tail": "https://fapi.binance.com public klines; fixed origin; no Testnet fallback",
+            "funding": "https://fapi.binance.com public funding events; fixed origin; content SHA-256 recorded",
             "derived": "1m first/max/min/last/sum aggregation; incomplete buckets omitted",
         },
         "sources": source_records,

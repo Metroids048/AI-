@@ -5,7 +5,7 @@ import runpy
 from pathlib import Path
 
 
-def test_isolated_scheduler_enforces_v2_testnet_writer_environment(
+def test_isolated_scheduler_enforces_v2_shadow_environment(
     monkeypatch,
 ) -> None:
     for name in (
@@ -25,7 +25,7 @@ def test_isolated_scheduler_enforces_v2_testnet_writer_environment(
 
     assert os.environ["POSTGRES_URL"] == "sqlite:///C:/runtime.db"
     assert os.environ["APP_ENV"] == "development"
-    assert os.environ["AUTOMATED_TRADING_ENGINE"] == "v2_active"
+    assert os.environ["AUTOMATED_TRADING_ENGINE"] == "v2_shadow"
     assert os.environ["BINANCE_USE_TESTNET"] == "true"
     assert os.environ["LIVE_TRADING_ENABLED"] == "false"
     assert os.environ["BINANCE_LIVE_WS_ENABLED"] == "false"

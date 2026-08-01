@@ -21,17 +21,23 @@ from services.automated_trading.application.decision_service import BarView, Tim
 from services.automated_trading.domain.enums import V2ExecutionMode
 from services.automated_trading.infrastructure.models import (
     Base,
+    V2ExchangeOrder,
     V2ExecutionCycle,
     V2ExecutionDecision,
+    V2ExecutionIntent,
+    V2ManagedPosition,
 )
 from services.automated_trading.infrastructure.runtime_lock import EngineActivation, EngineActivationConfig
 from services.execution import tasks as tasks_mod
 from services.execution.scheduler import SchedulerCoordinator
 from services.execution.v2_scheduler_entry import (
     _load_v2_entry_timeframe,
+    _load_v2_market_context,
     execute_v2_automated_trading_cycles,
     resolve_scheduler_v2_jobs,
 )
+from services.strategy_library.context import TIMEFRAME_DELTAS
+from services.strategy_library.proposal_pipeline import PROPOSAL_CONTEXT_WINDOW_LENGTHS
 
 
 @pytest.fixture
@@ -177,6 +183,30 @@ def test_v2_timeframe_loader_excludes_current_unclosed_bar(monkeypatch) -> None:
     assert timeframe.last_closed.close == Decimal("65050")
 
 
+def test_v2_market_context_loader_uses_shared_replay_window_lengths(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeDataRepository:
+        def __init__(self, _session) -> None:
+            pass
+
+        def list_ohlcv_bars(self, **kwargs):  # noqa: ANN003, ANN201
+            calls.append(kwargs)
+            return []
+
+        def list_market_extras(self, **_kwargs):  # noqa: ANN003, ANN201
+            return []
+
+    decision_time = datetime(2026, 7, 29, 8, 0, tzinfo=UTC)
+    monkeypatch.setattr("services.execution.v2_scheduler_entry.get_session_factory", lambda: lambda: nullcontext())
+    monkeypatch.setattr("services.data.repository.DataRepository", FakeDataRepository)
+
+    _load_v2_market_context("BTC/USDT", decision_time)
+
+    assert {str(call["timeframe"]): int(call["limit"]) for call in calls} == PROPOSAL_CONTEXT_WINDOW_LENGTHS
+    assert all(call["end_at"] == decision_time - TIMEFRAME_DELTAS[str(call["timeframe"])] for call in calls)
+
+
 def test_v2_active_scheduler_persists_entry_fact_chain(v2_db, monkeypatch, caplog) -> None:
     """Formal entry must persist Cycle+Decision; verified via a fresh Session."""
     caplog.set_level(logging.INFO, logger="services.execution.v2_scheduler_entry")
@@ -232,6 +262,54 @@ def test_v2_active_scheduler_persists_entry_fact_chain(v2_db, monkeypatch, caplo
         assert len(cycles) >= 1
         assert len(decisions) >= 1
         assert decisions[0].cycle_id == cycles[0].cycle_id
+    finally:
+        session.close()
+
+
+def test_v2_shadow_persists_research_payload_without_execution_facts(v2_db, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.resolve_engine_activation",
+        lambda _settings: EngineActivationConfig(
+            v2_activation=EngineActivation.SHADOW,
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            allow_legacy_writer=True,
+            warnings=[],
+        ),
+    )
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry._research_shadow_payload",
+        lambda _context: {"pipeline_version": "proposal-pipeline-v1", "context_hash": "a" * 64},
+    )
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.run_automated_trading_cycle",
+        lambda request, _adapter: SimpleNamespace(
+            funnel_payload={
+                "terminal_stage": "NO_CANDIDATE",
+                "reason_code": "technical_signals_insufficient",
+                "candidate_key": None,
+            },
+            reconciliation_status=SimpleNamespace(value="HEALTHY"),
+            entry_submitted=False,
+            errors=[],
+        ),
+    )
+
+    result = execute_v2_automated_trading_cycles(
+        {"symbols": ["BTC/USDT"], "interval_seconds": 60, "scheduler_instance_id": "shadow-research"},
+        adapter_factory=_fake_adapter,
+        timeframe_loader=lambda _symbol, _tf: _bars(),
+        market_context_loader=lambda _symbol, _time: MagicMock(),
+    )
+
+    assert result["status"] == "completed"
+    session: Session = v2_db()
+    try:
+        decision = session.scalar(select(V2ExecutionDecision))
+        assert decision is not None
+        assert decision.payload["research_shadow"]["context_hash"] == "a" * 64
+        assert session.scalar(select(V2ExecutionIntent)) is None
+        assert session.scalar(select(V2ExchangeOrder)) is None
+        assert session.scalar(select(V2ManagedPosition)) is None
     finally:
         session.close()
 

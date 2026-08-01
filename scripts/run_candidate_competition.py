@@ -171,11 +171,7 @@ def main() -> int:
         ),
         encoding="utf-8",
     )
-    combinations = [
-        (candidate_id, symbol, market_data[symbol])
-        for candidate_id in candidate_ids
-        for symbol in symbols
-    ]
+    combinations = [(candidate_id, symbol, market_data[symbol]) for candidate_id in candidate_ids for symbol in symbols]
     with ProcessPoolExecutor(max_workers=min(3, len(combinations))) as executor:
         futures = {
             executor.submit(_run_combination, candidate_id, symbol, symbol_data, 80): (candidate_id, symbol)

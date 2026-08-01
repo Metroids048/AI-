@@ -146,8 +146,9 @@ class TestRunTradeReview:
 
     def test_oppose_bias_sets_advisory_veto(self) -> None:
         mock_msg = MagicMock()
-        oppose_payload = '{"bias": "oppose", "confidence": 0.8, "risk_flags": ["high_vol"], "summary": "risky"}'
-        mock_msg.content = [MagicMock(text=oppose_payload)]
+        mock_msg.content = [
+            MagicMock(text='{"bias": "oppose", "confidence": 0.8, "risk_flags": ["high_vol"], "summary": "risky"}')
+        ]
         mock_msg.usage.input_tokens = 20
         mock_msg.usage.output_tokens = 30
 

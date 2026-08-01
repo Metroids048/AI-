@@ -164,8 +164,7 @@ def test_funding_arbitrage_signal_rejects_negative_net_edge(api_client, db_sessi
     )
 
     response = api_client.get(
-        "/api/v1/market/funding-arbitrage-signal"
-        "?symbol=BTC/USDT&perp_symbol=BTC/USDT:USDT&fee_bps=8&slippage_bps=6"
+        "/api/v1/market/funding-arbitrage-signal?symbol=BTC/USDT&perp_symbol=BTC/USDT:USDT&fee_bps=8&slippage_bps=6"
     )
 
     assert response.status_code == 200
@@ -214,8 +213,7 @@ def test_funding_arbitrage_signal_rejects_when_four_leg_costs_exceed_funding_inc
     )
 
     response = api_client.get(
-        "/api/v1/market/funding-arbitrage-signal"
-        "?symbol=BTC/USDT&perp_symbol=BTC/USDT:USDT&fee_bps=4&slippage_bps=2"
+        "/api/v1/market/funding-arbitrage-signal?symbol=BTC/USDT&perp_symbol=BTC/USDT:USDT&fee_bps=4&slippage_bps=2"
     )
 
     assert response.status_code == 200

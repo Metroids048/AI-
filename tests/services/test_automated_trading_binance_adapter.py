@@ -455,6 +455,34 @@ def test_query_order_by_client_id_finds_open_order():
     mock_client.fetch_closed_orders.assert_not_called()
 
 
+def test_query_order_by_client_id_finds_open_algo_order():
+    """USDM conditional orders are recoverable from Binance's algo endpoint."""
+    mock_client = MagicMock()
+    mock_client.fapiPrivateGetOpenAlgoOrders.return_value = [
+        {
+            "algoId": "1000000151515912",
+            "clientAlgoId": "client_abc",
+            "symbol": "BTCUSDT",
+            "side": "SELL",
+            "orderType": "STOP_MARKET",
+            "quantity": "0.001",
+            "triggerPrice": "50000.0",
+            "algoStatus": "NEW",
+        }
+    ]
+
+    adapter = _adapter_with_mock_client(mock_client)
+    receipt = adapter.query_order_by_client_id("BTC/USDT", "client_abc")
+
+    assert receipt is not None
+    assert receipt.exchange_order_id == "1000000151515912"
+    assert receipt.client_order_id == "client_abc"
+    assert receipt.order_type == "stop_market"
+    assert receipt.quantity == Decimal("0.001")
+    mock_client.fapiPrivateGetOpenAlgoOrders.assert_called_once_with({"symbol": "BTCUSDT"})
+    mock_client.fetch_open_orders.assert_not_called()
+
+
 def test_query_order_by_client_id_falls_back_to_closed_orders():
     """A filled order that already left the open book is still recoverable."""
     mock_client = MagicMock()

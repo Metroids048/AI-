@@ -249,9 +249,7 @@ class TestCorrelationThreshold:
             stoploss_price=Decimal("98"),
         )
 
-        strict_paper_run = _paper_run(
-            execution_profile={"account_equity": 10_000, "correlation_peer_threshold": 0.999}
-        )
+        strict_paper_run = _paper_run(execution_profile={"account_equity": 10_000, "correlation_peer_threshold": 0.999})
         strict_state = generator._build_risk_state(
             paper_run=strict_paper_run,
             strategy=strategy,

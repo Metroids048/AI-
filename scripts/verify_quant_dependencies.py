@@ -87,6 +87,7 @@ def verify_backtrader() -> bool:
     # 验证核心类存在
     try:
         import backtrader as bt
+
         _ = bt.Strategy
         print("    ✓ Strategy 基类可用")
         return True

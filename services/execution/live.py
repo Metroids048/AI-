@@ -158,9 +158,7 @@ class LiveExecutionService:
             raise ValueError("validation backtest run not found")
         hypothesis_id = backtest.validation_methodology.get("hypothesis_id")
         hypothesis = (
-            HypothesisRepository(self.review_repo.session).get_hypothesis(hypothesis_id)
-            if hypothesis_id
-            else None
+            HypothesisRepository(self.review_repo.session).get_hypothesis(hypothesis_id) if hypothesis_id else None
         )
         gate = self.validation_admission.assess_backtest_run(run=backtest, hypothesis=hypothesis)
         if not gate.passed:

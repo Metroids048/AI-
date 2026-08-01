@@ -4,6 +4,8 @@ import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import joblib
+
 from services.strategy_library.meta_label_model import (
     FEATURE_NAMES,
     MetaLabelModelArtifact,
@@ -251,7 +253,6 @@ class TestPredictWinProbability:
         assert result is None
 
     def test_returns_probability_for_a_real_trained_estimator(self, tmp_path) -> None:
-        joblib = __import__("joblib")
         from sklearn.linear_model import LogisticRegression
 
         estimator = LogisticRegression()

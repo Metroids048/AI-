@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ def estimate_round_trip_cost_bps(
     maker_fee_bps: Decimal = Decimal("2"),
     taker_fee_bps: Decimal = Decimal("4"),
     min_slippage_bps: Decimal = Decimal("1"),
+    position_side: Literal["long", "short"] | None = None,
 ) -> CostBreakdown:
     """Estimate two-leg carry trade costs without order-book depth.
 
@@ -47,7 +49,8 @@ def estimate_round_trip_cost_bps(
     entry_basis_bps = abs(perp_entry - spot_entry) / spot_entry * Decimal("10000")
     exit_basis_bps = abs(perp_exit - spot_exit) / spot_exit * Decimal("10000")
     slippage_bps = max(min_slippage_bps, (entry_basis_bps + exit_basis_bps) / Decimal("2"))
-    funding_bps = -abs(funding_rate) * Decimal("10000")
+    effective_side = position_side or ("short" if funding_rate > 0 else "long")
+    funding_bps = (funding_rate if effective_side == "long" else -funding_rate) * Decimal("10000")
     return CostBreakdown(
         fee_bps=fee_bps,
         slippage_bps=slippage_bps,

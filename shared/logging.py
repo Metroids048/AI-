@@ -72,9 +72,7 @@ class RedactingFormatter(logging.Formatter):
                 setattr(record, key, _REDACTED)
         # Redact sensitive values inside the message args mapping
         if isinstance(record.args, dict):
-            record.args = {
-                k: (_REDACTED if _is_sensitive(k) else v) for k, v in record.args.items()
-            }
+            record.args = {k: (_REDACTED if _is_sensitive(k) else v) for k, v in record.args.items()}
         return super().format(record)
 
 

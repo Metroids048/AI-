@@ -8,10 +8,10 @@ import os
 
 
 def configure_scheduler_environment(database_url: str) -> None:
-    """Configure the isolated scheduler as the V2 Testnet writer."""
+    """Configure the isolated scheduler with V2 running in shadow mode."""
     os.environ["POSTGRES_URL"] = database_url
     os.environ["APP_ENV"] = "development"
-    os.environ["AUTOMATED_TRADING_ENGINE"] = "v2_active"
+    os.environ["AUTOMATED_TRADING_ENGINE"] = "v2_shadow"
     os.environ["BINANCE_USE_TESTNET"] = "true"
     os.environ["LIVE_TRADING_ENABLED"] = "false"
     if not os.environ.get("BINANCE_HTTPS_PROXY") and not os.environ.get("BINANCE_HTTP_PROXY"):

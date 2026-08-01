@@ -18,7 +18,7 @@ class CryptoFactorGenerator:
         windows = ", ".join(str(window) for window in plan.windows) or "none"
         group_aliases = ", ".join(f"{raw}->{mapped}" for raw, mapped in plan.group_aliases.items()) or "none"
         expression = repr(plan.raw_expression)
-        return f'''import pandas as pd
+        return f"""import pandas as pd
 
 # Ported WorldQuant methodology for crypto research.
 # operators: {operators}
@@ -33,7 +33,7 @@ def compute_factor(frame: pd.DataFrame) -> pd.Series:
     signal = evaluate_alpha_expression(expression, frame)
     signal.name = "ported_alpha_signal"
     return signal
-'''
+"""
 
     def operators_catalog(self) -> list[AlphaOperator]:
         """Operators currently supported by the crypto port."""

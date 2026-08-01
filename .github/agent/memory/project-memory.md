@@ -618,3 +618,12 @@
 - Regression evidence: focused replay tests `14 passed`; related validation tests `21 passed`; touched Ruff and production mypy passed.
 - The corrected `baseline-20260729-0000Z-r4` remains a historical pre-parity artifact and must not be treated as source-hash-current after this code change. No new baseline or Final Holdout result was generated.
 - Remaining Phase 1 work: shared point-in-time MarketSnapshot/features, live/replay input-hash parity, funding/spread/latency/partial-fill costs, per-window walk-forward ledgers, and dependent/block bootstrap. Do not tune thresholds or read Holdout results.
+
+## Strategy Phase 1 proposal closure and Gate 16 contract (2026-07-31)
+
+- Runtime V2 Shadow and replay share one canonical proposal pipeline, selector semantics, canonical hash and `2/2/80/80/80` context windows. Shadow persists only `research_shadow`; it creates no execution intent/order/position.
+- The isolated Binance Vision research database contains BTC/ETH 5m/15m/1h/4h through the frozen cutoff with verified checksums and 3,918 funding events per symbol. Provenance: `artifacts/strategy_refactor/history/phase1-history-20260729-provenance.json`.
+- Eight independent three-month OOS windows use a preceding twelve-month train boundary, 80-bar purge and 24-hour embargo. The append-only ledger records real candidate/window/symbol metrics; no parameter tuning, Final Holdout, DSR/PBO, bootstrap promotion test or promotion is run.
+- Funding uses signed settlement events; fee provenance is existing runtime config. Spread, latency and partial fill remain `ASSUMED`, therefore all Phase 1 results remain not promotion eligible and the final verdict is `NO_ACTIVE_STRATEGY`.
+- Immutable artifact: `artifacts/strategy_refactor/phase1-20260731-0000Z-r1`; it binds source/data/config/pipeline hashes and records `holdout_results_accessed=false`.
+- Gate 16 Testnet contract passed with entry `25631813075` / trade `523375938`, reduce-only exit `25631829915` / trade `523375957`, and final BTC positions/orders `0/0`. This is `TESTNET_CONTRACT`, `natural_strategy=false`, not strategy evidence. Gate 17 was not run; launcher stays `v2_shadow`.

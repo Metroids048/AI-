@@ -35,9 +35,7 @@ def _exception_record(*, filename: str) -> logging.LogRecord:
 def test_asyncio_filter_drops_only_third_party_websocket_tracebacks() -> None:
     configure_external_library_loggers()
 
-    websocket_record = _exception_record(
-        filename="C:/runtime/site-packages/websockets/asyncio/client.py"
-    )
+    websocket_record = _exception_record(filename="C:/runtime/site-packages/websockets/asyncio/client.py")
     application_record = _exception_record(filename="C:/app/services/execution/runtime.py")
 
     assert _WEBSOCKET_TRANSPORT_TRACEBACK_FILTER in logging.getLogger("asyncio").filters

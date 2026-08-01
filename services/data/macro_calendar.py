@@ -64,8 +64,10 @@ class MacroCalendarService:
     def _within_pause_window(event: dict[str, Any]) -> bool:
         scheduled_at = _parse_datetime(event["scheduled_at"])
         now = datetime.now(UTC)
-        return scheduled_at - timedelta(minutes=settings.macro_event_pause_before_minutes) <= now <= (
-            scheduled_at + timedelta(minutes=settings.macro_event_pause_after_minutes)
+        return (
+            scheduled_at - timedelta(minutes=settings.macro_event_pause_before_minutes)
+            <= now
+            <= (scheduled_at + timedelta(minutes=settings.macro_event_pause_after_minutes))
         )
 
 

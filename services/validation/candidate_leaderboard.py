@@ -164,7 +164,7 @@ def run_candidate_leaderboard(
         wanted = set(symbols)
         market_data = {symbol: frames for symbol, frames in market_data.items() if symbol in wanted}
 
-    start_at, end_at = (date_range or (None, None))
+    start_at, end_at = date_range or (None, None)
 
     # Run each candidate through replay
     results: list[tuple[StrategyCandidate, ReplayMetrics]] = []

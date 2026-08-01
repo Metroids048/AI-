@@ -199,11 +199,7 @@ class MarketQueryService:
         # A hedged carry round trip has four fills: spot/perpetual entry and exit.
         # Basis is mark-to-market risk, not realized funding income.
         round_trip_cost_bps = 4 * (fee_bps + slippage_bps)
-        estimated_net = (
-            funding_bps - round_trip_cost_bps
-            if funding_bps is not None
-            else None
-        )
+        estimated_net = funding_bps - round_trip_cost_bps if funding_bps is not None else None
         rejection_reasons: list[str] = []
         if snapshot.data_status != "ok":
             rejection_reasons.append(f"market_data_{snapshot.data_status}")

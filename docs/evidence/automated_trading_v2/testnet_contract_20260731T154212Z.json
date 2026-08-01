@@ -1,0 +1,110 @@
+{
+  "proof_type": "TESTNET_CONTRACT",
+  "natural_strategy": false,
+  "symbol": "BTC/USDT",
+  "started_at": "2026-07-31T15:41:46.786306+00:00",
+  "completed_at": "2026-07-31T15:42:12.847980+00:00",
+  "account_id_hash": "10f80c863f5fd2a5",
+  "exchange_server_time": "2026-07-31T15:41:58.103685+00:00",
+  "entry_exchange_order_id": "25631813075",
+  "entry_trade_ids": [
+    "523375938"
+  ],
+  "entry_avg_fill_price": "62740.0",
+  "entry_filled_quantity": "0.0008",
+  "stop_exchange_order_id": "1000000151515912",
+  "take_profit_exchange_order_id": "1000000151515916",
+  "exit_exchange_order_id": "25631829915",
+  "exit_trade_ids": [
+    "523375957"
+  ],
+  "final_exchange_position_qty": "0",
+  "final_exchange_open_orders": 0,
+  "network_calls": 11,
+  "real_exchange_orders": 3,
+  "steps": [
+    {
+      "name": "preflight",
+      "passed": true,
+      "detail": "preflight ok",
+      "data": {}
+    },
+    {
+      "name": "authoritative_snapshot",
+      "passed": true,
+      "detail": "server_time=2026-07-31T15:41:58.103685+00:00 equity=7075.64937836",
+      "data": {}
+    },
+    {
+      "name": "preflight_exchange_flat",
+      "passed": true,
+      "detail": "position=0 open_orders=0",
+      "data": {}
+    },
+    {
+      "name": "market_rules",
+      "passed": true,
+      "detail": "price=62690.7 tick=0.1 step=0.0001 min_notional=50.0",
+      "data": {
+        "tick_size": "0.1",
+        "step_size": "0.0001",
+        "min_notional": "50.0"
+      }
+    },
+    {
+      "name": "entry_submit",
+      "passed": true,
+      "detail": "exchange_order_id=25631813075 qty=0.0008",
+      "data": {}
+    },
+    {
+      "name": "entry_fill_receipt",
+      "passed": true,
+      "detail": "trade_ids=['523375938'] filled=0.0008 avg_price=62740.0",
+      "data": {}
+    },
+    {
+      "name": "protection_submit",
+      "passed": true,
+      "detail": "stop=1000000151515912 target=1000000151515916 (stop_price=62112.6 from real fill 62740.0)",
+      "data": {}
+    },
+    {
+      "name": "reduce_only_exit",
+      "passed": true,
+      "detail": "exchange_order_id=25631829915",
+      "data": {}
+    },
+    {
+      "name": "exit_fill_receipt",
+      "passed": true,
+      "detail": "trade_ids=['523375957']",
+      "data": {}
+    },
+    {
+      "name": "cancel_stop",
+      "passed": true,
+      "detail": "cancelled 1000000151515912",
+      "data": {}
+    },
+    {
+      "name": "cancel_take_profit",
+      "passed": true,
+      "detail": "cancelled 1000000151515916",
+      "data": {}
+    },
+    {
+      "name": "final_position_zero",
+      "passed": true,
+      "detail": "final exchange position = 0",
+      "data": {}
+    },
+    {
+      "name": "final_open_orders_zero",
+      "passed": true,
+      "detail": "final exchange open orders = 0",
+      "data": {}
+    }
+  ],
+  "overall_passed": true
+}

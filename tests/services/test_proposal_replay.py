@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 from services.strategy_library.context import MarketContext, MarketContextBuilder
 from services.strategy_library.proposals import EntryTrigger, InvalidationRule, StrategyProposal, TargetRule
@@ -94,6 +95,31 @@ def test_replay_rejects_next_bar_when_price_drift_exceeds_proposal_limit() -> No
     assert metrics.rejected_price_drift == 1
 
 
+def test_replay_only_enters_selector_selected_candidate() -> None:
+    decision_time = datetime(2025, 1, 1, 1, 0, tzinfo=UTC)
+    context = _context(decision_time)
+    selected = _proposal(context)
+
+    def pipeline(_context: MarketContext) -> SimpleNamespace:
+        return SimpleNamespace(selection=SimpleNamespace(selected=selected))
+
+    rejected = ProposalReplayRunner().replay(
+        strategy_id="other_candidate",
+        contexts=[context],
+        next_entry_bars=[_bar(decision_time, open_="100", high="106", low="99", close="105")],
+        pipeline=pipeline,
+    )
+    accepted = ProposalReplayRunner().replay(
+        strategy_id="proposal_pipeline",
+        contexts=[context],
+        next_entry_bars=[_bar(decision_time, open_="100", high="106", low="99", close="105")],
+        pipeline=pipeline,
+    )
+
+    assert rejected.total_proposals == 0
+    assert accepted.total_proposals == 1
+
+
 def test_replay_uses_stop_first_when_a_bar_hits_stop_and_target() -> None:
     decision_time = datetime(2025, 1, 1, 1, 0, tzinfo=UTC)
     contexts = [_context(decision_time), _context(decision_time + timedelta(minutes=15))]
@@ -111,3 +137,100 @@ def test_replay_uses_stop_first_when_a_bar_hits_stop_and_target() -> None:
 
     assert metrics.total_trades == 1
     assert metrics.trades[0].exit_reason == "stop_loss"
+
+
+def test_funding_cost_respects_side_and_rate_sign() -> None:
+    decision_time = datetime(2025, 1, 1, 1, 0, tzinfo=UTC)
+    contexts = [_context(decision_time), _context(decision_time + timedelta(hours=8))]
+    bars = [
+        _bar(decision_time, open_="100", high="101", low="99", close="100"),
+        _bar(decision_time + timedelta(hours=8), open_="100", high="101", low="99", close="100"),
+    ]
+
+    def proposal_for(side: str):  # noqa: ANN202
+        def generate(context: MarketContext) -> StrategyProposal | None:
+            if context.decision_time != decision_time:
+                return None
+            proposal = _proposal(context)
+            if side == "long":
+                return proposal
+            return proposal.model_copy(
+                update={
+                    "side": "short",
+                    "invalidation": InvalidationRule(
+                        stop_price=Decimal("105"), extreme_price=Decimal("105"), reason="test"
+                    ),
+                    "targets": (TargetRule(label="target", price=Decimal("95"), quantity_fraction=Decimal("1")),),
+                }
+            )
+
+        return generate
+
+    cost = ReplayCostModel(
+        partial_fill_fraction=Decimal("1"),
+        funding_rate_per_interval=Decimal("0.001"),
+        funding_rate_available=True,
+    )
+    long_metrics = ProposalReplayRunner(cost_model=cost).replay(
+        strategy_id="research", contexts=contexts, next_entry_bars=bars, generator=proposal_for("long")
+    )
+    short_metrics = ProposalReplayRunner(cost_model=cost).replay(
+        strategy_id="research", contexts=contexts, next_entry_bars=bars, generator=proposal_for("short")
+    )
+
+    assert long_metrics.trades[0].funding_cost == Decimal("0.001")
+    assert short_metrics.trades[0].funding_cost == Decimal("-0.001")
+    assert short_metrics.trades[0].net_return > long_metrics.trades[0].net_return
+
+
+def test_missing_funding_remains_unavailable_and_blocks_promotion_evidence() -> None:
+    decision_time = datetime(2025, 1, 1, 1, 0, tzinfo=UTC)
+    metrics = ProposalReplayRunner().replay(
+        strategy_id="research",
+        contexts=[_context(decision_time)],
+        next_entry_bars=[_bar(decision_time, open_="100", high="106", low="99", close="105")],
+        generator=_proposal,
+    )
+
+    assert metrics.funding_rate_available is False
+    assert metrics.cost_provenance["funding_rate_per_interval"] == "UNAVAILABLE"
+    assert metrics.promotion_observations_complete is False
+    assert metrics.trades[0].funding_cost is None
+
+
+def test_funding_cost_sums_observed_settlement_events_during_holding_period() -> None:
+    decision_time = datetime(2025, 1, 1, 1, 0, tzinfo=UTC)
+    contexts = [_context(decision_time), _context(decision_time + timedelta(hours=8))]
+    bars = [
+        _bar(decision_time, open_="100", high="101", low="99", close="100"),
+        _bar(decision_time + timedelta(hours=8), open_="100", high="101", low="99", close="100"),
+    ]
+    cost = ReplayCostModel(
+        partial_fill_fraction=Decimal("1"),
+        funding_points=(
+            (decision_time - timedelta(hours=1), Decimal("0.009")),
+            (decision_time + timedelta(hours=4), Decimal("0.001")),
+            (decision_time + timedelta(hours=8), Decimal("-0.002")),
+        ),
+    )
+
+    metrics = ProposalReplayRunner(cost_model=cost).replay(
+        strategy_id="research",
+        contexts=contexts,
+        next_entry_bars=bars,
+        generator=lambda context: _proposal(context) if context.decision_time == decision_time else None,
+    )
+
+    assert metrics.trades[0].funding_cost == Decimal("-0.001")
+
+
+def test_assumed_execution_costs_block_promotion_even_with_observed_funding() -> None:
+    cost = ReplayCostModel(
+        funding_points=((datetime(2025, 1, 1, tzinfo=UTC), Decimal("0.001")),),
+    )
+
+    assert cost.funding_provenance == "OBSERVED"
+    assert cost.spread_provenance == "ASSUMED"
+    assert cost.latency_provenance == "ASSUMED"
+    assert cost.partial_fill_provenance == "ASSUMED"
+    assert cost.promotion_observations_complete is False

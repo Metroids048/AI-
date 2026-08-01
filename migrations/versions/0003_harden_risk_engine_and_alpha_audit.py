@@ -24,9 +24,7 @@ def upgrade() -> None:
         batch_op.alter_column("max_total_exposure", existing_type=sa.Float(), server_default="0.50")
         batch_op.add_column(sa.Column("consecutive_loss_limit", sa.Integer(), nullable=False, server_default="4"))
         batch_op.add_column(sa.Column("api_failure_limit", sa.Integer(), nullable=False, server_default="3"))
-        batch_op.add_column(
-            sa.Column("api_failure_window_minutes", sa.Integer(), nullable=False, server_default="10")
-        )
+        batch_op.add_column(sa.Column("api_failure_window_minutes", sa.Integer(), nullable=False, server_default="10"))
 
     op.execute(sa.text("UPDATE risk_profiles SET max_symbol_exposure = 0.10 WHERE max_symbol_exposure = 0.20"))
     op.execute(sa.text("UPDATE risk_profiles SET max_total_exposure = 0.50 WHERE max_total_exposure = 0.60"))

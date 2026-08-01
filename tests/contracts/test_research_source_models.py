@@ -14,9 +14,7 @@ def test_strategy_source_manifest_captures_license_and_rag_refs() -> None:
         crypto_relevance="high",
         rag_asset_refs=["research_source/open_source_strategy_library/assets/freqtrade/source_summary.md"],
         license_policy="distilled_research_only",
-        asset_allowlist=[
-            {"path": "README.md", "asset_type": "documentation", "extraction_tags": ["backtesting"]}
-        ],
+        asset_allowlist=[{"path": "README.md", "asset_type": "documentation", "extraction_tags": ["backtesting"]}],
         strategy_extraction_targets=["trend_following"],
         license_notes="research reference only",
     )

@@ -623,12 +623,12 @@ def generate_pandas_ta_signal(
     """
     if ta is None:
         raise ImportError(
-            "pandas-ta is not installed. Run: pip install -e '.[quant]' " "or pip install pandas-ta>=0.3.14b"
+            "pandas-ta is not installed. Run: pip install -e '.[quant]' or pip install pandas-ta>=0.3.14b"
         )
 
     if name not in PANDAS_TA_SIGNAL_REGISTRY:
         raise ValueError(
-            f"Unknown pandas-ta indicator: {name}. " f"Available: {', '.join(PANDAS_TA_SIGNAL_REGISTRY.keys())}"
+            f"Unknown pandas-ta indicator: {name}. Available: {', '.join(PANDAS_TA_SIGNAL_REGISTRY.keys())}"
         )
 
     config = PANDAS_TA_SIGNAL_REGISTRY[name]

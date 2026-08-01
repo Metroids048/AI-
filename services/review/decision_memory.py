@@ -32,4 +32,3 @@ class DecisionMemoryService:
         if payload.created_at is None:
             payload = payload.model_copy(update={"created_at": datetime.now(UTC)})
         return self.repository.create_entry(payload)
-

@@ -132,11 +132,7 @@ def run_audit(*, database_url: str, lookback_days: int = 14) -> ExposureAuditRep
         oversized = 0
         empty_book = 0
         for row in report.sample_rows:
-            if (
-                row.account_equity
-                and row.requested_notional
-                and row.requested_notional / row.account_equity > 0.25
-            ):
+            if row.account_equity and row.requested_notional and row.requested_notional / row.account_equity > 0.25:
                 oversized += 1
             if (row.open_positions or 0) == 0 and (row.symbol_exposure or 0) == 0:
                 empty_book += 1
@@ -156,9 +152,7 @@ def run_audit(*, database_url: str, lookback_days: int = 14) -> ExposureAuditRep
                 f"{high_exposure_with_low_equity} rejections show high total_exposure with low equity — "
                 "position notional is inflated relative to denominator (equity sync bug)."
             )
-        if report.by_code.get("max_total_exposure_exceeded", 0) > report.by_code.get(
-            "max_symbol_exposure_exceeded", 0
-        ):
+        if report.by_code.get("max_total_exposure_exceeded", 0) > report.by_code.get("max_symbol_exposure_exceeded", 0):
             report.diagnosis.append(
                 "max_total_exposure_exceeded dominates — check ghost open positions or cumulative "
                 "exposure not cleared after closes."

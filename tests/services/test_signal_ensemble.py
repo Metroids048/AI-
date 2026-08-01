@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import joblib
 import pytest
 
 from services.strategy_library.ensemble import SignalEnsembleService
@@ -55,8 +56,7 @@ def test_meta_label_takes_bet_for_positive_history_and_rejects_future_samples() 
         ensemble_id="ensemble-1",
         signal_time=signal_time,
         training_samples=[
-            MetaLabelSample(sample_time=signal_time - timedelta(days=index + 1), net_return=0.01)
-            for index in range(20)
+            MetaLabelSample(sample_time=signal_time - timedelta(days=index + 1), net_return=0.01) for index in range(20)
         ],
     )
 
@@ -95,7 +95,6 @@ def test_meta_label_rejects_cold_start_even_when_short_history_is_positive() -> 
 def test_meta_label_uses_trained_model_probability_when_active_model_exists(tmp_path, monkeypatch) -> None:
     import json
 
-    import joblib
     from sklearn.linear_model import LogisticRegression
 
     import services.strategy_library.meta_label_model as meta_label_model_module
@@ -168,8 +167,7 @@ def test_meta_label_falls_back_to_rule_based_when_no_active_model(tmp_path, monk
         ensemble_id="ensemble-no-model",
         signal_time=signal_time,
         training_samples=[
-            MetaLabelSample(sample_time=signal_time - timedelta(days=index + 1), net_return=0.01)
-            for index in range(20)
+            MetaLabelSample(sample_time=signal_time - timedelta(days=index + 1), net_return=0.01) for index in range(20)
         ],
         strategy_key="strategy_without_a_model",
         model_features={"atr_percent": 0.01},

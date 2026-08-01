@@ -17,10 +17,31 @@ from typing import Literal
 
 from services.strategy_library.context import MarketContext
 from services.strategy_library.exit.adaptive_exit import build_adaptive_exit
+from services.strategy_library.proposal_pipeline import ProposalPipelineResult, run_proposal_pipeline
 from services.strategy_library.proposals import StrategyProposal
 from shared.models import OHLCVBar
 
 ProposalGenerator = Callable[[MarketContext], StrategyProposal | None]
+ProposalPipeline = Callable[[MarketContext], ProposalPipelineResult]
+CostProvenance = Literal["OBSERVED", "CONFIGURED", "ASSUMED", "UNAVAILABLE"]
+
+
+@dataclass(frozen=True)
+class CostObservation:
+    """Versioned value/provenance pair used by replay cost evidence."""
+
+    name: str
+    value: Decimal | None
+    provenance: CostProvenance
+    source_id: str
+    observed_at: datetime | None = None
+    schema_version: str = "cost-observation-v1"
+
+    def __post_init__(self) -> None:
+        if self.provenance == "UNAVAILABLE" and self.value is not None:
+            raise ValueError("UNAVAILABLE cost observations cannot contain a value")
+        if self.provenance != "UNAVAILABLE" and self.value is None:
+            raise ValueError("available cost observations require a value")
 
 
 @dataclass(frozen=True)
@@ -39,6 +60,14 @@ class ReplayCostModel:
     funding_rate_per_interval: Decimal = Decimal("0")
     funding_interval_hours: Decimal = Decimal("8")
     funding_rate_available: bool = False
+    fee_provenance: CostProvenance = "CONFIGURED"
+    spread_provenance: CostProvenance = "ASSUMED"
+    latency_provenance: CostProvenance = "ASSUMED"
+    partial_fill_provenance: CostProvenance = "ASSUMED"
+    funding_provenance: CostProvenance = "UNAVAILABLE"
+    funding_source_id: str = "market_extras"
+    funding_points: tuple[tuple[datetime, Decimal], ...] = ()
+    funding_observations_complete: bool = True
 
     def __post_init__(self) -> None:
         if self.taker_fee_bps_per_side < 0 or self.spread_bps_per_side < 0 or self.latency_slippage_bps_per_side < 0:
@@ -47,6 +76,18 @@ class ReplayCostModel:
             raise ValueError("partial_fill_fraction must be in (0, 1]")
         if self.funding_interval_hours <= 0:
             raise ValueError("funding_interval_hours must be positive")
+        if self.funding_points and self.funding_observations_complete and self.funding_provenance == "UNAVAILABLE":
+            object.__setattr__(self, "funding_provenance", "OBSERVED")
+        if self.funding_points and self.funding_observations_complete and not self.funding_rate_available:
+            object.__setattr__(self, "funding_rate_available", True)
+        if (
+            self.funding_rate_available
+            and self.funding_observations_complete
+            and self.funding_provenance == "UNAVAILABLE"
+        ):
+            object.__setattr__(self, "funding_provenance", "OBSERVED")
+        if not self.funding_rate_available and self.funding_provenance != "UNAVAILABLE":
+            raise ValueError("missing funding must retain UNAVAILABLE provenance")
 
     @property
     def entry_impact_bps(self) -> Decimal:
@@ -57,6 +98,82 @@ class ReplayCostModel:
         return Decimal("2") * (
             self.taker_fee_bps_per_side + self.spread_bps_per_side + self.latency_slippage_bps_per_side
         )
+
+    @property
+    def observations(self) -> tuple[CostObservation, ...]:
+        return (
+            CostObservation(
+                "taker_fee_bps_per_side", self.taker_fee_bps_per_side, self.fee_provenance, "runtime_config"
+            ),
+            CostObservation(
+                "spread_bps_per_side", self.spread_bps_per_side, self.spread_provenance, "replay_assumption"
+            ),
+            CostObservation(
+                "latency_slippage_bps_per_side",
+                self.latency_slippage_bps_per_side,
+                self.latency_provenance,
+                "replay_assumption",
+            ),
+            CostObservation(
+                "partial_fill_fraction", self.partial_fill_fraction, self.partial_fill_provenance, "replay_assumption"
+            ),
+            CostObservation(
+                "funding_rate_per_interval",
+                (
+                    self.funding_points[-1][1]
+                    if self.funding_points and self.funding_provenance != "UNAVAILABLE"
+                    else self.funding_rate_per_interval
+                    if self.funding_rate_available and self.funding_provenance != "UNAVAILABLE"
+                    else None
+                ),
+                self.funding_provenance,
+                self.funding_source_id,
+            ),
+        )
+
+    @property
+    def promotion_observations_complete(self) -> bool:
+        return all(observation.provenance in {"OBSERVED", "CONFIGURED"} for observation in self.observations)
+
+    def funding_cost_between(
+        self,
+        *,
+        opened_at: datetime,
+        closed_at: datetime,
+        side: Literal["long", "short"],
+        filled_fraction: Decimal,
+    ) -> Decimal | None:
+        """Sum signed funding only at observed settlement timestamps."""
+
+        if self.funding_provenance == "UNAVAILABLE":
+            return None
+        if self.funding_points and self.funding_observations_complete:
+            if not any(observed_at <= opened_at for observed_at, _ in self.funding_points):
+                return None
+            signed = Decimal("1") if side == "long" else Decimal("-1")
+            return sum(
+                (
+                    rate * signed * filled_fraction
+                    for observed_at, rate in self.funding_points
+                    if opened_at < observed_at <= closed_at
+                ),
+                Decimal("0"),
+            )
+        if not self.funding_rate_available:
+            return None
+        hold_hours = Decimal(str((closed_at - opened_at).total_seconds() / 3600))
+        signed_rate = self.funding_rate_per_interval if side == "long" else -self.funding_rate_per_interval
+        return signed_rate * max(Decimal("0"), hold_hours / self.funding_interval_hours) * filled_fraction
+
+    def funding_rate_at(self, timestamp: datetime) -> Decimal | None:
+        """Return the latest point-in-time funding observation at ``timestamp``."""
+
+        if self.funding_provenance == "UNAVAILABLE":
+            return None
+        if self.funding_points:
+            eligible = [value for observed_at, value in self.funding_points if observed_at <= timestamp]
+            return eligible[-1] if eligible else None
+        return self.funding_rate_per_interval if self.funding_rate_available else None
 
 
 @dataclass(frozen=True)
@@ -76,7 +193,7 @@ class ProposalReplayTrade:
     gross_return: Decimal
     net_return: Decimal
     fees_and_impact_bps: Decimal
-    funding_cost: Decimal
+    funding_cost: Decimal | None
     target_labels_hit: tuple[str, ...]
 
 
@@ -94,6 +211,11 @@ class ProposalReplayMetrics:
     net_return: float
     max_drawdown: float
     funding_rate_available: bool
+    promotion_observations_complete: bool
+    cost_provenance: dict[str, CostProvenance]
+    proposal_counts: dict[str, int]
+    expired_proposal_counts: dict[str, int]
+    rejected_price_drift_counts: dict[str, int]
     trades: tuple[ProposalReplayTrade, ...]
 
 
@@ -111,6 +233,7 @@ class _OpenProposalPosition:
     target_labels_hit: list[str] = field(default_factory=list)
     last_exit_price: Decimal | None = None
     bars_held: int = 0
+    funding_rate: Decimal | None = None
 
 
 def _directional_return(*, side: str, entry: Decimal, exit_price: Decimal) -> Decimal:
@@ -142,7 +265,8 @@ class ProposalReplayRunner:
         strategy_id: str,
         contexts: Iterable[MarketContext],
         next_entry_bars: Iterable[OHLCVBar],
-        generator: ProposalGenerator,
+        generator: ProposalGenerator | None = None,
+        pipeline: ProposalPipeline = run_proposal_pipeline,
     ) -> ProposalReplayMetrics:
         """Replay contexts ordered by their closed 15m decision time.
 
@@ -156,6 +280,9 @@ class ProposalReplayRunner:
         total_proposals = 0
         expired = 0
         drift_rejected = 0
+        proposal_counts: dict[str, int] = {}
+        expired_counts: dict[str, int] = {}
+        drift_counts: dict[str, int] = {}
 
         last_bar: OHLCVBar | None = None
         missing = object()
@@ -172,15 +299,27 @@ class ProposalReplayRunner:
                     position = None
 
             if position is None:
-                proposal = generator(context)
+                if generator is not None:
+                    proposal = generator(context)
+                else:
+                    selected = pipeline(context).selection.selected
+                    proposal = (
+                        selected
+                        if strategy_id == "proposal_pipeline"
+                        or (selected is not None and selected.strategy_id == strategy_id)
+                        else None
+                    )
                 if proposal is not None:
                     total_proposals += 1
+                    proposal_counts[proposal.strategy_id] = proposal_counts.get(proposal.strategy_id, 0) + 1
                     if entry_bar.timestamp >= proposal.expires_at:
                         expired += 1
+                        expired_counts[proposal.strategy_id] = expired_counts.get(proposal.strategy_id, 0) + 1
                         continue
-                    position = self._open(proposal=proposal, bar=entry_bar)
+                    position = self._open(proposal=proposal, bar=entry_bar, context=context)
                     if position is None:
                         drift_rejected += 1
+                        drift_counts[proposal.strategy_id] = drift_counts.get(proposal.strategy_id, 0) + 1
                     else:
                         # A market order fills at this new bar's open, so the rest
                         # of that bar may legitimately hit protection or targets.
@@ -216,10 +355,17 @@ class ProposalReplayRunner:
             net_return=float(sum(returns, Decimal("0"))),
             max_drawdown=float(_drawdown(returns)),
             funding_rate_available=self.cost_model.funding_rate_available,
+            promotion_observations_complete=self.cost_model.promotion_observations_complete,
+            cost_provenance={observation.name: observation.provenance for observation in self.cost_model.observations},
+            proposal_counts=proposal_counts,
+            expired_proposal_counts=expired_counts,
+            rejected_price_drift_counts=drift_counts,
             trades=tuple(trades),
         )
 
-    def _open(self, *, proposal: StrategyProposal, bar: OHLCVBar) -> _OpenProposalPosition | None:
+    def _open(
+        self, *, proposal: StrategyProposal, bar: OHLCVBar, context: MarketContext
+    ) -> _OpenProposalPosition | None:
         expected = proposal.entry_trigger.reference_price
         drift_bps = abs(bar.open - expected) / expected * Decimal("10000")
         if drift_bps > proposal.entry_trigger.max_price_drift_bps:
@@ -308,11 +454,14 @@ class ProposalReplayRunner:
             * position.remaining_fraction
         )
         exit_cost = self.cost_model.taker_fee_bps_per_side / Decimal("10000") * position.remaining_fraction
-        hold_hours = Decimal(str((closed_at - position.opened_at).total_seconds() / 3600))
-        funding_intervals = max(Decimal("0"), hold_hours / self.cost_model.funding_interval_hours)
-        funding = abs(self.cost_model.funding_rate_per_interval) * funding_intervals * position.filled_fraction
+        funding = self.cost_model.funding_cost_between(
+            opened_at=position.opened_at,
+            closed_at=closed_at,
+            side=position.proposal.side,
+            filled_fraction=position.filled_fraction,
+        )
         gross = position.realized_gross + remaining_gross
-        cost = position.realized_cost + exit_cost + funding
+        cost = position.realized_cost + exit_cost + (funding or Decimal("0"))
         return ProposalReplayTrade(
             proposal_id=position.proposal.proposal_id,
             strategy_id=position.proposal.strategy_id,

@@ -95,9 +95,7 @@ def _load_or_backfill(*, days: int, end_at: datetime) -> MarketData:
     return market_data
 
 
-def _load_stored(
-    *, days: int, end_at: datetime, symbols: tuple[str, ...] = AUTO_PAPER_RESEARCH_SYMBOLS
-) -> MarketData:
+def _load_stored(*, days: int, end_at: datetime, symbols: tuple[str, ...] = AUTO_PAPER_RESEARCH_SYMBOLS) -> MarketData:
     start_at = end_at - timedelta(days=days)
     market_data: MarketData = {}
     with get_session_factory()() as session:
@@ -150,9 +148,7 @@ def main() -> int:
         candidate=candidate,
         market_data=market_data,
     )
-    default_output = (
-        root / "docs" / "audits" / f"{datetime.now(UTC).date().isoformat()}-top20-technical-validation.md"
-    )
+    default_output = root / "docs" / "audits" / f"{datetime.now(UTC).date().isoformat()}-top20-technical-validation.md"
     output = args.output or default_output
     TechnicalStrategyValidationService.write_audit(report, output)
     print(output)

@@ -35,9 +35,7 @@ def get_console_overview(
         run_id = run.paper_run_id or ""
         if not run_id:
             continue
-        open_positions.extend(
-            execution_repo.list_latest_positions_for_run(run_type="paper", run_id=run_id)
-        )
+        open_positions.extend(execution_repo.list_latest_positions_for_run(run_type="paper", run_id=run_id))
     open_positions.sort(key=lambda item: item.snapshot_time, reverse=True)
     # One row per symbol for the desk — mirrored runs must not triple-count.
     deduped_positions = []

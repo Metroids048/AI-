@@ -233,7 +233,7 @@ function Ensure-Runtime {
     $env:APP_ENV = "development"
     $env:BINANCE_USE_TESTNET = "true"
     $env:LIVE_TRADING_ENABLED = "false"
-    $env:AUTOMATED_TRADING_ENGINE = "v2_active"
+    $env:AUTOMATED_TRADING_ENGINE = "v2_shadow"
     $env:RUNTIME_SCHEDULER_MODE = "inprocess"
     $env:RUNTIME_SCHEDULER_AUTOSTART = "true"
     $env:BINANCE_LIVE_UNIVERSE_ENABLED = "true"

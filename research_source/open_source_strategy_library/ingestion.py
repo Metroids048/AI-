@@ -214,31 +214,34 @@ class OpenSourceStrategyLibrary:
         source_dir = self.asset_root / source.source_id
         source_dir.mkdir(parents=True, exist_ok=True)
         summary_path = source_dir / "source_summary.md"
-        body = "\n".join(
-            [
-                f"# {source.name}",
-                "",
-                f"- Source ID: `{source.source_id}`",
-                f"- Repository: {source.repo_url}",
-                f"- License: {source.license}",
-                f"- License policy: `{source.license_policy}`",
-                f"- Project role: {source.project_role}",
-                f"- Crypto relevance: {source.crypto_relevance}",
-                f"- Asset categories: {', '.join(source.asset_categories)}",
-                f"- Extraction targets: {', '.join(source.strategy_extraction_targets) or 'research_note'}",
-                f"- License notes: {source.license_notes or 'not specified'}",
-                "",
-                "## Research Boundary",
-                "",
-                "This source is ingested as E-level research data. It can seed StrategyIdea records "
-                "and RAG context, but external runtime code must not bypass platform validation, "
-                "risk, review, or paper/live gates.",
-                "",
-                "## Source Notes",
-                "",
-                source.source_notes or "",
-            ]
-        ).strip() + "\n"
+        body = (
+            "\n".join(
+                [
+                    f"# {source.name}",
+                    "",
+                    f"- Source ID: `{source.source_id}`",
+                    f"- Repository: {source.repo_url}",
+                    f"- License: {source.license}",
+                    f"- License policy: `{source.license_policy}`",
+                    f"- Project role: {source.project_role}",
+                    f"- Crypto relevance: {source.crypto_relevance}",
+                    f"- Asset categories: {', '.join(source.asset_categories)}",
+                    f"- Extraction targets: {', '.join(source.strategy_extraction_targets) or 'research_note'}",
+                    f"- License notes: {source.license_notes or 'not specified'}",
+                    "",
+                    "## Research Boundary",
+                    "",
+                    "This source is ingested as E-level research data. It can seed StrategyIdea records "
+                    "and RAG context, but external runtime code must not bypass platform validation, "
+                    "risk, review, or paper/live gates.",
+                    "",
+                    "## Source Notes",
+                    "",
+                    source.source_notes or "",
+                ]
+            ).strip()
+            + "\n"
+        )
         summary_path.write_text(body, encoding="utf-8")
         return _asset_from_path(
             source,
@@ -303,8 +306,7 @@ class OpenSourceStrategyLibrary:
             "license_policy": source.license_policy,
             "updated_at": datetime.now(UTC).isoformat(),
             "assets": [
-                item.model_dump(mode="json")
-                for item in sorted(merged.values(), key=lambda asset: asset.local_path)
+                item.model_dump(mode="json") for item in sorted(merged.values(), key=lambda asset: asset.local_path)
             ],
             "failed_assets": [item.model_dump(mode="json") for item in failed_assets],
         }

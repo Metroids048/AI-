@@ -359,6 +359,40 @@ class BinanceTestnetAdapter:
         client = self._ensure_gateway()
 
         try:
+
+            def receipt_from_algo(order_data: dict[str, Any]) -> ExchangeOrderReceipt:
+                return ExchangeOrderReceipt(
+                    exchange_order_id=str(
+                        order_data.get("algoId") or order_data.get("orderId") or order_data.get("id") or ""
+                    ),
+                    client_order_id=str(order_data.get("clientAlgoId") or order_data.get("clientOrderId") or ""),
+                    symbol=_canonical_symbol(str(order_data.get("symbol") or symbol)),
+                    side=str(order_data.get("side") or "").lower(),
+                    order_type=str(order_data.get("orderType") or order_data.get("type") or "conditional").lower(),
+                    quantity=Decimal(str(order_data.get("quantity") or order_data.get("origQty") or 0)),
+                    price=(
+                        Decimal(
+                            str(
+                                order_data.get("triggerPrice") or order_data.get("stopPrice") or order_data.get("price")
+                            )
+                        )
+                        if order_data.get("triggerPrice") or order_data.get("stopPrice") or order_data.get("price")
+                        else None
+                    ),
+                    status=str(order_data.get("algoStatus") or order_data.get("status") or "new").lower(),
+                    acknowledged_at=datetime.now(UTC),
+                )
+
+            # USDM conditional SL/TP orders are Binance algo orders and do not
+            # appear in CCXT's fetch_open_orders/fetch_closed_orders results.
+            fetch_open_algo_orders = getattr(client, "fapiPrivateGetOpenAlgoOrders", None)
+            if callable(fetch_open_algo_orders):
+                algo_orders = fetch_open_algo_orders({"symbol": symbol.replace("/", "").split(":", 1)[0]})
+                for order_data in algo_orders or []:
+                    candidate = str(order_data.get("clientAlgoId") or order_data.get("clientOrderId") or "")
+                    if candidate == client_order_id:
+                        return receipt_from_algo(order_data)
+
             # Binance requires fetching all open orders and filtering
             # (no direct client_order_id query in CCXT)
             open_orders = client.fetch_open_orders(symbol)

@@ -99,7 +99,9 @@ def run_compose_smoke(*, project_root: Path, keep_running: bool = False) -> Comp
                     headers={"Authorization": f"Bearer {_admin_token(project_root)}"},
                 ),
                 timeout=10,
-            ).read().decode("utf-8")
+            )
+            .read()
+            .decode("utf-8")
         )
         database = deps.get("dependencies", {}).get("database", {})
         if database.get("status") != "ok":

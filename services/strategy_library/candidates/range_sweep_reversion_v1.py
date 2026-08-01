@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from datetime import timedelta
 from decimal import Decimal
 from typing import Literal
 
 from pydantic import Field
 
+from services.strategy_library.canonical import canonical_hash
 from services.strategy_library.context import ClosedBar, FrozenContract, MarketContext
 from services.strategy_library.proposals import EntryTrigger, InvalidationRule, StrategyProposal, TargetRule
 from services.strategy_library.regime.scorer_v2 import RegimeScore
@@ -39,7 +38,7 @@ def _feature_hash(
         "config": config.model_dump(mode="json"),
         "side": side,
     }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return canonical_hash(payload)
 
 
 def _proposal(
