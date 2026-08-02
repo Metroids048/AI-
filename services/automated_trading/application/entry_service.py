@@ -131,8 +131,8 @@ def evaluate_entry(
         blocks.append((DecisionReasonCode.RECONCILIATION_UNAVAILABLE, "exchange truth unavailable; cannot add risk"))
     elif runtime.reconciliation_status is ReconciliationStatus.RECOVERY_REQUIRED:
         blocks.append((DecisionReasonCode.RECOVERY_REQUIRED, "recovery must complete before new entry"))
-    elif runtime.reconciliation_status is ReconciliationStatus.DEGRADED:
-        blocks.append((DecisionReasonCode.RECONCILIATION_DEGRADED, "reconciliation is DEGRADED"))
+    # DEGRADED: per-symbol entry_blocked_symbols handles the affected symbol below;
+    # unaffected symbols (e.g. BTC when only ETH is quarantined) are allowed through.
 
     if runtime.recovery_entry_blocked:
         blocks.append((DecisionReasonCode.RECOVERY_REQUIRED, "recovery pass has not cleared the entry block"))
