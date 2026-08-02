@@ -152,7 +152,7 @@ class PaperSignalGenerator:
                 strategy=strategy,
                 symbol=symbol,
             )
-            requested_notional = float(min_notional)
+            requested_notional = max(float(min_notional), float(reference_price) * 0.0015)
         risk_state = self._build_risk_state(
             paper_run=paper_run,
             strategy=strategy,

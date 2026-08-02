@@ -114,7 +114,6 @@ def test_healthy_context_approves_entry() -> None:
     [
         (ReconciliationStatus.UNAVAILABLE, DecisionReasonCode.RECONCILIATION_UNAVAILABLE),
         (ReconciliationStatus.RECOVERY_REQUIRED, DecisionReasonCode.RECOVERY_REQUIRED),
-        (ReconciliationStatus.DEGRADED, DecisionReasonCode.RECONCILIATION_DEGRADED),
     ],
 )
 def test_unhealthy_reconciliation_blocks_entry(status, expected) -> None:
@@ -123,6 +122,15 @@ def test_unhealthy_reconciliation_blocks_entry(status, expected) -> None:
 
     assert not result.approved
     assert expected in {code for code, _ in result.blocks}
+
+
+def test_degraded_reconciliation_allows_unaffected_symbol() -> None:
+    """DEGRADED only blocks the quarantined symbol via entry_blocked_symbols, not all symbols."""
+    result = evaluate_entry(
+        build_candidate(), healthy_runtime(reconciliation_status=ReconciliationStatus.DEGRADED), build_snapshot()
+    )
+
+    assert result.approved
 
 
 def test_entry_kill_switch_blocks_entry() -> None:
@@ -168,14 +176,14 @@ def test_all_blocks_are_reported_not_just_the_first() -> None:
     """An operator should see every blocker at once."""
     runtime = healthy_runtime(
         entry_kill_switch_active=True,
-        reconciliation_status=ReconciliationStatus.DEGRADED,
+        reconciliation_status=ReconciliationStatus.RECOVERY_REQUIRED,
         daily_trade_limit_reached=True,
     )
     result = evaluate_entry(build_candidate(), runtime, build_snapshot())
 
     codes = {code for code, _ in result.blocks}
     assert DecisionReasonCode.ENTRY_KILL_SWITCH_ACTIVE in codes
-    assert DecisionReasonCode.RECONCILIATION_DEGRADED in codes
+    assert DecisionReasonCode.RECOVERY_REQUIRED in codes
     assert DecisionReasonCode.DAILY_TRADE_LIMIT_REACHED in codes
 
 
