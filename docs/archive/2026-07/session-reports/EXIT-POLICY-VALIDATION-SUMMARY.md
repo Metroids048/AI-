@@ -18,7 +18,7 @@
 ### 文档（3 个文件，1295 行）
 - ✅ `docs/technical-validation-framework.md` (567 行)
 - ✅ `docs/exit-policy-validation-runbook.md` (200 行)
-- ✅ `docs/DELIVERY-REPORT.md` (528 行)
+- ✅ `docs/archive/2026-07/session-reports/DELIVERY-REPORT.md` (528 行)
 - ✅ `README.md` (更新，新增引导章节)
 
 ---
@@ -93,7 +93,7 @@ print(report.to_markdown())
 | [README.md](../README.md#退出策略验证框架2026-07-14-交付) | 所有人 | 快速开始 + 核心发现 |
 | [technical-validation-framework.md](technical-validation-framework.md) | 架构师/维护者 | 完整架构 + 模块 8-15 指引 |
 | [exit-policy-validation-runbook.md](exit-policy-validation-runbook.md) | 运维/策略研究员 | 日常操作 + 故障排查 |
-| [DELIVERY-REPORT.md](DELIVERY-REPORT.md) | 项目经理/审计 | 验收结果 + 风险评估 |
+| [DELIVERY-REPORT.md](archive/2026-07/session-reports/DELIVERY-REPORT.md) | 项目经理/审计 | 验收结果 + 风险评估 |
 
 ---
 

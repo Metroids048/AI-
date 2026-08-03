@@ -21,7 +21,7 @@
 - **文件**:
   - `services/strategy_library/technical/pandas_ta_adapter.py` (580行)
   - `tests/test_pandas_ta_adapter.py` (175行)
-  - `docs/stage1-pandas-ta-adapter-acceptance.md` (验收文档)
+  - `stage1-pandas-ta-adapter-acceptance.md` (验收文档)
 - **实现内容**:
   - 注册了9个pandas-ta指标的适配器
   - 统一转换为 `TradeSignal` 格式
@@ -156,7 +156,7 @@ tests/test_candidate_registry.py
 tests/test_candidate_leaderboard.py
 
 scripts/verify_quant_dependencies.py
-docs/stage1-pandas-ta-adapter-acceptance.md
+stage1-pandas-ta-adapter-acceptance.md
 
 .temp_design_pandas_ta_adapter.md  # 临时设计文档
 ```

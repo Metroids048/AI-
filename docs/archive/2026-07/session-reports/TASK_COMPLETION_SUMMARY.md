@@ -103,9 +103,9 @@ event = self.data_repo.store_risk_event(RiskEvent(..., expires_at=expires_at))
 12. `scripts/enable_entry_with_external_positions.py` - 启用共存标志
 
 ### 文档（3份）
-1. `docs/BINANCE_AUTO_TRADING_DIAGNOSIS_2026-07-25.md` - 诊断过程
-2. `docs/BINANCE_AUTO_TRADING_SUMMARY_2026-07-25.md` - 排查总结
-3. `docs/FINAL_ACCEPTANCE_REPORT_2026-07-25.md` - **验收报告**
+1. `BINANCE_AUTO_TRADING_DIAGNOSIS_2026-07-25.md` - 诊断过程
+2. `BINANCE_AUTO_TRADING_SUMMARY_2026-07-25.md` - 排查总结（仍在 docs/）
+3. `FINAL_ACCEPTANCE_REPORT_2026-07-25.md` - **验收报告**
 
 ---
 

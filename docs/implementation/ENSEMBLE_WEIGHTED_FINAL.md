@@ -17,7 +17,7 @@
 **文件**: `services/strategy_library/ensemble/service.py`
 **函数**: `_resolve_allowed_direction()` (行255-307)
 **修改行数**: +22行代码逻辑
-**备份**: `service.py.backup` 已创建
+**备份**: 历史 `service.py.backup` 已在 2026-08 结构收口中移除；回滚请用 git 历史
 
 ### 核心变更
 
@@ -186,12 +186,8 @@ tail -f logs/paper_scheduler.log | grep -i "ensemble\|candidate"
 如果C版本表现劣于A版本：
 
 ```bash
-# 方案1: Git回滚
-git checkout services/strategy_library/ensemble/service.py
-
-# 方案2: 使用备份
-cp services/strategy_library/ensemble/service.py.backup \
-   services/strategy_library/ensemble/service.py
+# Git 回滚（历史 backup 文件已移除）
+git checkout -- services/strategy_library/ensemble/service.py
 
 # 重启服务
 python -m scripts.run_paper_scheduler
@@ -230,11 +226,11 @@ services/strategy_library/ensemble/service.py  (核心修改)
 
 ### 新增
 ```
-services/strategy_library/ensemble/service.py.backup  (备份)
 docs/implementation/CURRENT_TRADING_FLOW.md           (链路说明)
 docs/implementation/ENSEMBLE_WEIGHTED_MINIMAL.md     (实施文档)
 docs/implementation/ENSEMBLE_WEIGHTED_FINAL.md       (本文档)
-scripts/compare_ensemble_before_after.py             (对比脚本)
+scripts/archive/2026-08-ops-checks/compare_ensemble_before_after.py  (对比脚本；已归档)
+# 注：历史 service.py.backup 已在结构收口中移除；回滚用 git
 ```
 
 ### 待废弃（暂不删除）

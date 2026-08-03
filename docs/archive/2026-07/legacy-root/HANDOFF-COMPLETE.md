@@ -38,8 +38,8 @@
 **文档**:
 - [technical-validation-framework.md](docs/technical-validation-framework.md): 完整架构 + 模块 8-15 指引
 - [exit-policy-validation-runbook.md](docs/exit-policy-validation-runbook.md): 日常运维手册
-- [DELIVERY-REPORT.md](docs/DELIVERY-REPORT.md): 验收报告
-- [EXIT-POLICY-VALIDATION-SUMMARY.md](docs/EXIT-POLICY-VALIDATION-SUMMARY.md): 执行摘要
+- [DELIVERY-REPORT.md](../session-reports/DELIVERY-REPORT.md): 验收报告
+- [EXIT-POLICY-VALIDATION-SUMMARY.md](../session-reports/EXIT-POLICY-VALIDATION-SUMMARY.md): 执行摘要
 - [README.md](README.md#退出策略验证框架2026-07-14-交付): 快速开始指引
 
 **Git**: `c8637b0` (主要实现) + `f187d57` + `831568b` (文档)
@@ -313,8 +313,8 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 | [README.md § 退出策略验证框架](README.md#退出策略验证框架2026-07-14-交付) | 快速开始 + 核心发现 |
 | [technical-validation-framework.md](docs/technical-validation-framework.md) | 完整架构 + 模块 8-15 指引 |
 | [exit-policy-validation-runbook.md](docs/exit-policy-validation-runbook.md) | 日常运维手册 |
-| [DELIVERY-REPORT.md](docs/DELIVERY-REPORT.md) | 验收报告 |
-| [EXIT-POLICY-VALIDATION-SUMMARY.md](docs/EXIT-POLICY-VALIDATION-SUMMARY.md) | 执行摘要 |
+| [DELIVERY-REPORT.md](../session-reports/DELIVERY-REPORT.md) | 验收报告 |
+| [EXIT-POLICY-VALIDATION-SUMMARY.md](../session-reports/EXIT-POLICY-VALIDATION-SUMMARY.md) | 执行摘要 |
 | [chan-theory-integration-guide.md](docs/chan-theory-integration-guide.md) | 缠论集成指引 |
 | [task_plan.md](task_plan.md) | 模块 0-5 设计决策记录（原文档） |
 

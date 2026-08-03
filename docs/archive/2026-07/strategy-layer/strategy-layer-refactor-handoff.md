@@ -26,9 +26,9 @@
 - scripts/verify_quant_dependencies.py
 
 文档：
-- docs/stage1-pandas-ta-adapter-acceptance.md
-- docs/strategy-layer-refactor-progress-report.md
-- docs/strategy-layer-refactor-handoff.md（本文件）
+- stage1-pandas-ta-adapter-acceptance.md
+- strategy-layer-refactor-progress-report.md
+- strategy-layer-refactor-handoff.md（本文件）
 ```
 
 ### ⏳ 待完成的步骤
@@ -178,8 +178,8 @@ for entry in leaderboard.entries:
 
 ### 📚 相关文档
 
-- **完整进度报告**：`docs/strategy-layer-refactor-progress-report.md`
-- **阶段1验收文档**：`docs/stage1-pandas-ta-adapter-acceptance.md`
+- **完整进度报告**：`strategy-layer-refactor-progress-report.md`
+- **阶段1验收文档**：`stage1-pandas-ta-adapter-acceptance.md`
 - **原始方案**：在任务描述中（用户提供的重构方案文档）
 
 ### 🔗 关键代码入口
@@ -267,4 +267,4 @@ with open("leaderboard_report.json", "w") as f:
 **如有问题，可从以下入口开始调试：**
 1. 运行 `python scripts/verify_quant_dependencies.py` 检查依赖
 2. 运行 `python -m pytest tests/test_candidate_registry.py -v` 验证注册表
-3. 查看 `docs/strategy-layer-refactor-progress-report.md` 了解详情
+3. 查看 `strategy-layer-refactor-progress-report.md` 了解详情

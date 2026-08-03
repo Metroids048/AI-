@@ -193,7 +193,7 @@
 12. `scripts/list_tables.py` - 列出数据库表
 
 ### 新增的文档
-1. `docs/BINANCE_AUTO_TRADING_DIAGNOSIS_2026-07-25.md` - 诊断报告
+1. `docs/archive/2026-07/session-reports/BINANCE_AUTO_TRADING_DIAGNOSIS_2026-07-25.md` - 诊断报告
 
 ---
 

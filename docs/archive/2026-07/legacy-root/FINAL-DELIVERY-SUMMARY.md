@@ -55,8 +55,8 @@ python -m scripts.compare_exit_policies_cli \
 **文档**: 
 - [技术架构](docs/technical-validation-framework.md)
 - [运维手册](docs/exit-policy-validation-runbook.md)
-- [交付报告](docs/DELIVERY-REPORT.md)
-- [执行摘要](docs/EXIT-POLICY-VALIDATION-SUMMARY.md)
+- [交付报告](../session-reports/DELIVERY-REPORT.md)
+- [执行摘要](../session-reports/EXIT-POLICY-VALIDATION-SUMMARY.md)
 
 ### 2. 生命周期审计（模块 10）
 
@@ -185,7 +185,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 | [technical-validation-framework.md](docs/technical-validation-framework.md) | 完整架构 + 模块 8-15 指引 |
 | [exit-policy-validation-runbook.md](docs/exit-policy-validation-runbook.md) | 日常运维 |
 | [chan-theory-integration-guide.md](docs/chan-theory-integration-guide.md) | 缠论实施指引 |
-| [DELIVERY-REPORT.md](docs/DELIVERY-REPORT.md) | 模块 7 验收报告 |
+| [DELIVERY-REPORT.md](../session-reports/DELIVERY-REPORT.md) | 模块 7 验收报告 |
 | [task_plan.md](task_plan.md) | 模块 0-5 设计决策（原文档） |
 
 ---

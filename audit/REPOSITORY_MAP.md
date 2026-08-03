@@ -17,7 +17,7 @@
 
 ## 重复实现与边界
 
-当前存在 `services/strategy_library/ensemble/service.py.backup`、`scripts/archive/`、`docs/archive/` 等历史实现。它们被纳入审计搜索，但不作为当前事实。运行时同时存在桌面外部 scheduler、API in-process scheduler、Celery task 配置；compose 校验脚本要求 paper/live 使用 Celery 模式，桌面脚本则显式使用独立 local scheduler。
+当前存在 `scripts/archive/`、`docs/archive/` 等历史实现（含已归档的 ops 探针）。它们被纳入审计搜索，但不作为当前事实。运行时同时存在桌面外部 scheduler、API in-process scheduler、Celery task 配置；compose 校验脚本要求 paper/live 使用 Celery 模式，桌面脚本则显式使用独立 local scheduler。
 
 ## 运行证据
 

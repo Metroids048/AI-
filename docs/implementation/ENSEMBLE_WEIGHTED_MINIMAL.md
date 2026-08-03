@@ -5,7 +5,7 @@
 **唯一修改文件**: `services/strategy_library/ensemble/service.py`
 **唯一修改函数**: `_resolve_allowed_direction()` (行255-284)
 **修改行数**: ~50行
-**备份文件**: `services/strategy_library/ensemble/service.py.backup`
+**备份文件**: 历史 `service.py.backup` 已移除；回滚请用 git 历史
 
 ## 修改内容
 
@@ -118,7 +118,7 @@ pytest tests/services/test_ensemble.py -v
 
 ```bash
 # 运行对比脚本（需实现完整）
-python -m scripts.compare_ensemble_before_after \
+python scripts/archive/2026-08-ops-checks/compare_ensemble_before_after.py \
     --symbol BTC/USDT \
     --lookback-days 7
 ```
@@ -155,12 +155,8 @@ python -m scripts.compare_ensemble_before_after \
 如果C版本表现不如A：
 
 ```bash
-# 方案1: Git回滚
-git checkout services/strategy_library/ensemble/service.py
-
-# 方案2: 使用备份
-cp services/strategy_library/ensemble/service.py.backup \
-   services/strategy_library/ensemble/service.py
+# Git 回滚（历史 backup 文件已移除）
+git checkout -- services/strategy_library/ensemble/service.py
 
 # 重启服务
 python -m scripts.run_paper_scheduler
@@ -195,10 +191,10 @@ if weighted_score <= -0.25:  # 原-0.35
 └── services/strategy_library/ensemble/service.py  (~50行)
 
 新增:
-├── services/strategy_library/ensemble/service.py.backup  (备份)
-├── scripts/compare_ensemble_before_after.py              (对比脚本)
+├── scripts/archive/2026-08-ops-checks/compare_ensemble_before_after.py  (对比脚本；已归档)
 ├── docs/implementation/CURRENT_TRADING_FLOW.md          (链路说明)
 └── docs/implementation/ENSEMBLE_WEIGHTED_MINIMAL.md     (本文档)
+# 注：历史 service.py.backup 已在结构收口中移除；回滚用 git
 
 未修改但需废弃:
 ├── services/strategy_library/regime/       (五层架构，暂不使用)
