@@ -36,8 +36,10 @@ from services.execution.v2_scheduler_entry import (
     execute_v2_automated_trading_cycles,
     resolve_scheduler_v2_jobs,
 )
+from services.strategy_library import ConfigSnapshotRepository, PaperRunRepository, StrategyRepository
 from services.strategy_library.context import TIMEFRAME_DELTAS
 from services.strategy_library.proposal_pipeline import PROPOSAL_CONTEXT_WINDOW_LENGTHS
+from shared.models import ConfigSnapshot, PaperRun, StrategyCreate, StrategyRules
 
 
 @pytest.fixture
@@ -262,6 +264,112 @@ def test_v2_active_scheduler_persists_entry_fact_chain(v2_db, monkeypatch, caplo
         assert len(cycles) >= 1
         assert len(decisions) >= 1
         assert decisions[0].cycle_id == cycles[0].cycle_id
+    finally:
+        session.close()
+
+
+def test_v2_scheduler_uses_operator_profile_after_next_cycle_activation(v2_db, monkeypatch) -> None:
+    """S-201/S-202/S-203: API-owned profile becomes V2's next-cycle input."""
+    session: Session = v2_db()
+    try:
+        paper_repo = PaperRunRepository(session)
+        config_repo = ConfigSnapshotRepository(session)
+        strategy = StrategyRepository(session).create_strategy(
+            StrategyCreate(
+                strategy_key="v2-directional-profile",
+                source="test",
+                core_thesis="test V2 operator profile consumption",
+                rules=StrategyRules(),
+            )
+        )
+        initial_profile = {
+            "strategy_lane": "directional",
+            "risk_per_trade": 0.05,
+            "max_leverage": 40,
+            "simulation_sampling_fallback_enabled": True,
+        }
+        run = paper_repo.create_paper_run(
+            PaperRun(
+                strategy_id=strategy.strategy_id,
+                paper_status="running",
+                execution_profile=initial_profile,
+            )
+        )
+        assert run.paper_run_id is not None
+        initial = config_repo.create_snapshot(
+            ConfigSnapshot.create(
+                paper_run_id=run.paper_run_id,
+                config={"execution_profile": initial_profile},
+                created_by="test-bootstrap",
+                effective_cycle_id="INITIAL",
+            ),
+            base_config_hash=None,
+        )
+        operator_profile = {
+            **initial_profile,
+            "risk_per_trade": 0.012,
+            "max_leverage": 7,
+            "order_notional_usdt": 123,
+            "max_symbol_exposure": 0.11,
+            "simulation_sampling_fallback_enabled": False,
+        }
+        paper_repo.update_paper_run(run.paper_run_id, execution_profile=operator_profile)
+        config_repo.create_snapshot(
+            ConfigSnapshot.create(
+                paper_run_id=run.paper_run_id,
+                config={"execution_profile": operator_profile},
+                created_by="test-operator-save",
+                effective_cycle_id="NEXT_CYCLE",
+                previous_snapshot_id=initial.config_snapshot_id,
+            ),
+            base_config_hash=initial.config_hash,
+        )
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.resolve_engine_activation",
+        lambda _settings: EngineActivationConfig(
+            v2_activation=EngineActivation.ACTIVE,
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            allow_legacy_writer=False,
+            warnings=[],
+        ),
+    )
+    captured_requests = []
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.run_automated_trading_cycle",
+        lambda request, _adapter: (
+            captured_requests.append(request)
+            or SimpleNamespace(
+                funnel_payload={"terminal_stage": "SAMPLING_DISABLED", "reason_code": "SAMPLING_FALLBACK_DISABLED"},
+                reconciliation_status=SimpleNamespace(value="HEALTHY"),
+                entry_submitted=False,
+                errors=[],
+            )
+        ),
+    )
+
+    execute_v2_automated_trading_cycles(
+        {"symbols": ["BTC/USDT"], "interval_seconds": 60, "scheduler_instance_id": "operator-profile"},
+        adapter_factory=_fake_adapter,
+        timeframe_loader=lambda _symbol, _tf: _bars(),
+    )
+
+    assert captured_requests
+    request = captured_requests[0]
+    assert request.risk_per_trade == Decimal("0.012")
+    assert request.max_leverage == 7
+    assert request.order_notional_usdt == Decimal("123")
+    assert request.max_position_fraction == Decimal("0.11")
+    assert request.sampling_fallback_enabled is False
+
+    session = v2_db()
+    try:
+        active = ConfigSnapshotRepository(session).get_active(run.paper_run_id)
+        assert active is not None
+        assert active.config["execution_profile"] == operator_profile
+        assert ConfigSnapshotRepository(session).get_pending(run.paper_run_id) is None
     finally:
         session.close()
 

@@ -101,6 +101,8 @@ class CycleRequest:
     now: datetime
     risk_per_trade: Decimal = Decimal("0.01")
     max_leverage: int = 10
+    order_notional_usdt: Decimal | None = None
+    max_position_fraction: Decimal = Decimal("0.05")
     account_equity: Decimal = Decimal("10000")
     open_position_symbols: frozenset[str] = frozenset()
     already_evaluated_bars: frozenset[datetime] = frozenset()
@@ -113,6 +115,8 @@ class CycleRequest:
     # Persist Intent/Order/Fill/Position when True (scheduler / armed runs).
     persist_facts: bool = False
     decision_id: str | None = None
+    # Sampling requires an explicit operator opt-in.  The safe default is off.
+    sampling_fallback_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -437,10 +441,12 @@ def _fetch_step_size(adapter, symbol: str) -> Decimal:
 
 
 def _calculate_quantity(request: CycleRequest, snapshot: AuthoritativeAccountSnapshot) -> Decimal:
-    """Risk-based position sizing: risk_per_trade * equity / entry_price."""
+    """Resolve requested notional from operator settings, then apply exposure cap."""
     equity = max(snapshot.equity, Decimal("1"))
-    notional = equity * request.risk_per_trade
-    return notional
+    notional = (
+        request.order_notional_usdt if request.order_notional_usdt is not None else equity * request.risk_per_trade
+    )
+    return min(notional, equity * request.max_position_fraction)
 
 
 def _persist_reconciliation_fact(
@@ -1261,6 +1267,14 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                     except Exception as exc:  # noqa: BLE001
                         result.record_error(f"exit fill persistence failed: {exc}")
 
+    if not request.sampling_fallback_enabled:
+        result.funnel_payload = {
+            "terminal_stage": "SAMPLING_DISABLED",
+            "reason_code": "SAMPLING_FALLBACK_DISABLED",
+            "execution_policy": "SAMPLING_DISABLED",
+        }
+        return result
+
     decision_context = DecisionContext(
         cycle_id=request.cycle_id,
         symbol=request.symbol,
@@ -1284,6 +1298,13 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
 
     candidate = outcome.candidate
     assert candidate is not None
+
+    # Sampling is diagnostic evidence only.  Its candidate contract already
+    # declares it non-promotable, so it must not create an intent, submit an
+    # exchange order, or project a position even when V2 is ACTIVE.
+    if candidate.non_promotable:
+        result.funnel_payload["execution_policy"] = "DECISION_TRACE_ONLY"
+        return result
 
     entry_enabled = True if not request.persist_facts else _runtime_entry_enabled()
     result.entry_blocked_by_runtime_control = request.persist_facts and not entry_enabled

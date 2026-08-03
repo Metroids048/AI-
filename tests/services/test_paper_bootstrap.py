@@ -158,6 +158,7 @@ def test_bootstrap_creates_carry_and_directional_runs(db_session, monkeypatch) -
     assert carry_run.execution_profile.get("mirror_to_gateway") is False
     assert technical_run.execution_profile.get("mirror_to_gateway") is True
     assert carry_run.execution_profile.get("cost_gate_verified") is False
+    assert technical_run.execution_profile.get("simulation_sampling_fallback_enabled") is False
     assert carry_run.selection_basis == "fixed_operator_top20"
     assert carry_run.candidate_symbols == list(DEFAULT_BINANCE_TOP20)
 
@@ -300,6 +301,42 @@ def test_bootstrap_preserves_verified_directional_simulation_authorization(db_se
     assert refreshed.execution_profile.get("execution_mode") == "binance_testnet"
     assert refreshed.execution_profile.get("testnet_acceptance_verified_at") == "2026-07-12T00:00:00+00:00"
     assert refreshed.execution_profile.get("max_symbols") == 2
+
+
+def test_bootstrap_preserves_operator_directional_settings_across_restart(db_session, monkeypatch) -> None:
+    """S-201: startup refreshes structure but never replaces saved operator fields."""
+    import services.execution.bootstrap as bootstrap_module
+    from services.strategy_library import PaperRunRepository
+
+    monkeypatch.setattr(settings, "binance_api_key", "key")
+    monkeypatch.setattr(settings, "binance_api_secret", "secret")
+    monkeypatch.setattr(
+        bootstrap_module,
+        "resolve_auto_paper_technical_evidence",
+        lambda: (AUTO_PAPER_TECHNICAL_RULES, tuple(AUTO_PAPER_RESEARCH_SYMBOLS)),
+    )
+
+    run_id = bootstrap_auto_trading_technical_paper_run()
+    assert run_id is not None
+    repo = PaperRunRepository(db_session)
+    run = repo.get_paper_run(run_id)
+    assert run is not None
+    operator_values = {
+        "max_leverage": 7,
+        "risk_per_trade": 0.012,
+        "order_notional_usdt": 123,
+        "max_symbol_exposure": 0.11,
+        "max_total_exposure": 0.33,
+        "simulation_sampling_fallback_enabled": False,
+    }
+    repo.update_paper_run(run_id, execution_profile={**run.execution_profile, **operator_values})
+
+    assert bootstrap_auto_trading_technical_paper_run() == run_id
+
+    refreshed = repo.get_paper_run(run_id)
+    assert refreshed is not None
+    assert {key: refreshed.execution_profile[key] for key in operator_values} == operator_values
+    assert refreshed.execution_profile["universe_assets"]
 
 
 def test_bootstrap_rearms_stale_directional_run_from_existing_exact_acceptance(db_session, monkeypatch) -> None:

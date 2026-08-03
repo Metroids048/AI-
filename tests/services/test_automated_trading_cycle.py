@@ -15,6 +15,7 @@ from services.automated_trading.application.cycle_service import (
     CycleRequest,
     CycleResult,
     LocalStateLoadResult,
+    _calculate_quantity,
     _project_confirmed_protection_exits,
     _recover_confirmed_v2_exit_gaps,
     run_automated_trading_cycle,
@@ -164,6 +165,7 @@ def build_request(**overrides) -> CycleRequest:
         "engine_activation": EngineActivation.ACTIVE,
         "fencing_token": "btcusdt@BINANCE_TESTNET@default@20260728@abc12345",
         "now": CYCLE_NOW,
+        "sampling_fallback_enabled": True,
     }
     defaults.update(overrides)
     return CycleRequest(**defaults)
@@ -197,16 +199,53 @@ def test_shadow_mode_never_submits_to_exchange() -> None:
     assert not result.entry_submitted
 
 
-def test_active_mode_with_signal_submits_and_protects() -> None:
-    """Gate 10: an approved candidate goes Entry→Protection in full."""
+def test_active_sampling_candidate_is_decision_trace_only() -> None:
+    """S-105: non-promotable sampling must not obtain position authority."""
     adapter = build_adapter_with_successful_cycle()
     result = run_automated_trading_cycle(build_request(), adapter)
 
-    adapter.submit_market_order.assert_called_once()
-    adapter.submit_protection.assert_called_once()
-    assert result.entry_submitted
-    assert result.position_projected
-    assert result.protection_active
+    adapter.submit_market_order.assert_not_called()
+    adapter.submit_protection.assert_not_called()
+    assert not result.entry_submitted
+    assert not result.position_projected
+    assert not result.protection_active
+    assert result.funnel_payload["execution_policy"] == "DECISION_TRACE_ONLY"
+
+
+def test_sampling_fallback_is_disabled_by_default() -> None:
+    """S-101: an absent operator opt-in must not evaluate the sampling lane."""
+    adapter = build_adapter_with_successful_cycle()
+
+    result = run_automated_trading_cycle(build_request(sampling_fallback_enabled=False), adapter)
+
+    adapter.submit_market_order.assert_not_called()
+    assert result.funnel_payload["execution_policy"] == "SAMPLING_DISABLED"
+
+
+def test_risk_sizing_has_no_price_linked_sampling_floor() -> None:
+    """S-104: V2 risk sizing is a notional, never reference_price * 0.0015."""
+    request = build_request(risk_per_trade=Decimal("0.0015"))
+
+    btc_notional = _calculate_quantity(request, _snapshot())
+    eth_notional = _calculate_quantity(build_request(symbol="ETH/USDT", risk_per_trade=Decimal("0.0015")), _snapshot())
+
+    assert btc_notional == Decimal("15")
+    assert eth_notional == Decimal("15")
+
+
+def test_operator_fixed_notional_has_precedence_then_respects_exposure_cap() -> None:
+    """S-202: order_notional_usdt is a notional, not a margin or fallback hint."""
+    request = build_request(
+        risk_per_trade=Decimal("0.05"),
+        order_notional_usdt=Decimal("123"),
+        max_position_fraction=Decimal("0.11"),
+    )
+
+    assert _calculate_quantity(request, _snapshot()) == Decimal("123")
+    assert _calculate_quantity(
+        build_request(order_notional_usdt=Decimal("2000"), max_position_fraction=Decimal("0.11")),
+        _snapshot(),
+    ) == Decimal("1100")
 
 
 def test_flat_market_never_enters() -> None:

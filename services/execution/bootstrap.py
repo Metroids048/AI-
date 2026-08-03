@@ -33,6 +33,30 @@ OPERATOR_EXPERIENCE_STRATEGY_KEY = "operator_experience_4h_15m_v1"
 LINK_VERIFICATION_STRATEGY_KEY = "link_verification_fixed_notional"
 LINK_VERIFICATION_RUNTIME_KEY = "link_verification"
 
+# Operator settings are persisted through the existing PaperRun API. Bootstrap
+# may refresh derived runtime structure, but it must not replace any of these
+# explicit values on service restart (including falsey values such as False).
+OPERATOR_AUTO_SETTING_KEYS = (
+    "risk_per_trade",
+    "max_leverage",
+    "order_notional_usdt",
+    "max_open_positions",
+    "max_symbol_exposure",
+    "max_total_exposure",
+    "daily_loss_limit",
+    "weekly_loss_limit",
+    "hard_stop_drawdown_limit",
+    "asset_risk_tiers",
+    "correlation_peer_threshold",
+    "correlated_peer_count_limit",
+    "correlated_cluster_exposure_limit",
+    "net_directional_exposure_limit",
+    "llm_veto_enabled",
+    "market_intelligence_enabled",
+    "simulation_sampling_fallback_enabled",
+    "auto_settings_updated_at",
+)
+
 # Medium-risk auto-trading preset for Top20 + funding carry admission.
 # Fee/slippage assumptions below are calibrated to real Binance USDM regular-user
 # rates (maker 2bps / taker 5bps, see https://www.binance.com/en/fee/futureFee) plus
@@ -548,11 +572,9 @@ def _ensure_auto_paper_run(
             "universe_assets": universe_assets,
             "llm_veto_enabled": True,
             "market_intelligence_enabled": True,
-            # When the OOS-validated primary is silent, the armed BTC/ETH
-            # Testnet lane may evaluate the existing relaxed candidate solely
-            # to collect exchange-fill samples.  Mainnet and local-only Paper
-            # paths can never use this fallback.
-            "simulation_sampling_fallback_enabled": strategy_lane == "directional",
+            # Sampling is explicitly opt-in. It may retain decision evidence,
+            # but must not become a default execution path on a fresh run.
+            "simulation_sampling_fallback_enabled": False,
             "entry_enabled": bool(rules["entry_rules"].get("manifest_entry_enabled", True)),
             "entry_disabled_reason": rules["entry_rules"].get("manifest_error"),
         }
@@ -583,13 +605,14 @@ def _ensure_auto_paper_run(
                 )
             if preserve_testnet_authorization:
                 preserved_keys.extend(("acceptance_symbols", "acceptance_scope_hash"))
+            operator_preserved = {key: previous[key] for key in OPERATOR_AUTO_SETTING_KEYS if key in previous}
             preserved = {key: previous[key] for key in preserved_keys if key in previous}
             if "execution_mode" in preserved:
                 preserved["execution_mode"] = resolve_execution_mode(
                     str(preserved["execution_mode"]),
                     migration=True,
                 ).value
-            profile = {**previous, **execution_profile, **preserved}
+            profile = {**previous, **execution_profile, **operator_preserved, **preserved}
             if force_paper_only and not preserve_testnet_authorization:
                 for key in ("testnet_acceptance_verified_at", "acceptance_symbols", "acceptance_scope_hash"):
                     profile.pop(key, None)

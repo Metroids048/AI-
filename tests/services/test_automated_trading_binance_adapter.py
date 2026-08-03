@@ -255,13 +255,49 @@ def test_submit_market_order_returns_exchange_receipt():
     assert receipt.side == "buy"
     assert receipt.quantity == Decimal("0.1")
 
+    mock_client.set_leverage.assert_called_once_with(10, "BTC/USDT")
     mock_client.create_order.assert_called_once_with(
         symbol="BTC/USDT",
         type="market",
         side="buy",
         amount=0.1,
-        params={"newClientOrderId": "client_abc", "leverage": 10},
+        params={"newClientOrderId": "client_abc"},
     )
+
+
+def test_submit_market_order_configures_leverage_before_submission() -> None:
+    """S-102: an entry may be submitted only after leverage setup succeeds."""
+    command = SubmitEntryToExchange(
+        intent_id="intent_leverage",
+        quantity=Decimal("0.1"),
+        leverage=7,
+        client_order_id="client_leverage",
+    )
+    mock_client = MagicMock()
+    mock_client.create_order.return_value = {"id": "exchange_order_789", "status": "filled"}
+
+    _adapter_with_mock_client(mock_client).submit_market_order(command, "BTC/USDT", "buy")
+
+    mock_client.set_leverage.assert_called_once_with(7, "BTC/USDT")
+    mock_client.create_order.assert_called_once()
+    assert "leverage" not in mock_client.create_order.call_args.kwargs["params"]
+
+
+def test_submit_market_order_rejects_when_leverage_setup_fails() -> None:
+    """S-102: failed leverage setup is fail-closed and never reaches create_order."""
+    command = SubmitEntryToExchange(
+        intent_id="intent_leverage_failure",
+        quantity=Decimal("0.1"),
+        leverage=7,
+        client_order_id="client_leverage_failure",
+    )
+    mock_client = MagicMock()
+    mock_client.set_leverage.side_effect = RuntimeError("leverage endpoint unavailable")
+
+    with pytest.raises(BinanceAdapterUnavailable, match="leverage configuration failed"):
+        _adapter_with_mock_client(mock_client).submit_market_order(command, "BTC/USDT", "buy")
+
+    mock_client.create_order.assert_not_called()
 
 
 def test_submit_market_order_failure_raises_and_returns_no_receipt():

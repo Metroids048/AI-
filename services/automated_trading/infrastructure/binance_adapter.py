@@ -309,6 +309,15 @@ class BinanceTestnetAdapter:
         client = self._ensure_gateway()
 
         try:
+            # Binance futures applies leverage through its dedicated endpoint;
+            # including it in create_order params is not a verified substitute.
+            # Fail before an entry is submitted when this prerequisite cannot be
+            # established. Reduce-only exits use their own submission path.
+            try:
+                client.set_leverage(command.leverage, symbol)
+            except Exception as exc:
+                raise BinanceAdapterUnavailable(f"leverage configuration failed: {exc}") from exc
+
             order_response = client.create_order(
                 symbol=symbol,
                 type="market",
@@ -316,7 +325,6 @@ class BinanceTestnetAdapter:
                 amount=float(command.quantity),
                 params={
                     "newClientOrderId": command.client_order_id,
-                    "leverage": command.leverage,
                 },
             )
 
@@ -332,6 +340,8 @@ class BinanceTestnetAdapter:
                 acknowledged_at=datetime.now(UTC),
             )
 
+        except BinanceAdapterUnavailable:
+            raise
         except Exception as e:
             logger.error(
                 "Failed to submit market order %s %s %s: %s",

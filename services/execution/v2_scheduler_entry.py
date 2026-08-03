@@ -10,13 +10,14 @@ import logging
 import os
 import socket
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 from services.automated_trading.application.cycle_service import CycleRequest, run_automated_trading_cycle
 from services.automated_trading.application.decision_service import BarView, TimeframeView
+from services.automated_trading.application.operator_profile import V2ExecutionSettings, resolve_v2_execution_settings
 from services.automated_trading.domain.enums import V2ExecutionMode
 from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
 from services.automated_trading.infrastructure.runtime_lock import (
@@ -34,7 +35,6 @@ from services.strategy_library.proposal_pipeline import (
     run_proposal_pipeline,
 )
 from shared.config import settings
-from shared.models.risk import PAPER_RUNTIME_LIMITS
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +182,37 @@ def _load_already_evaluated_bars(
     )
 
 
+def _load_v2_operator_execution_settings(*, symbol: str, cycle_id: str) -> V2ExecutionSettings:
+    """Load the single running directional profile and activate NEXT_CYCLE once.
+
+    The existing PaperRun/ConfigSnapshot pair remains the sole operator-facing
+    store. V2 only consumes it; it never regenerates, overwrites, or mirrors a
+    second profile.
+    """
+    from services.strategy_library import ConfigSnapshotRepository, PaperRunRepository
+
+    with get_session_factory()() as session:
+        paper_repo = PaperRunRepository(session)
+        running_directional = [
+            run
+            for run in paper_repo.list_paper_runs()
+            if run.paper_status == "running" and run.execution_profile.get("strategy_lane") == "directional"
+        ]
+        if not running_directional:
+            return resolve_v2_execution_settings(symbol, None)
+        if len(running_directional) != 1:
+            raise RuntimeError("ambiguous running directional PaperRun; V2 entry configuration is fail-closed")
+
+        run = running_directional[0]
+        assert run.paper_run_id is not None
+        snapshots = ConfigSnapshotRepository(session)
+        snapshots.activate_pending(run.paper_run_id, cycle_id=cycle_id)
+        active = snapshots.get_active(run.paper_run_id)
+        active_profile = active.config.get("execution_profile") if active is not None else None
+        profile = active_profile if isinstance(active_profile, Mapping) else run.execution_profile
+        return resolve_v2_execution_settings(symbol, profile)
+
+
 def _finalize_v2_cycle_decision(
     *,
     cycle_id: str,
@@ -311,6 +342,13 @@ def execute_v2_automated_trading_cycles(
             cycle_fencing_token = f"{lease_name}:{fencing_token}:{symbol}:{cycle_id}"
             symbol_result: dict[str, Any] = {"symbol": symbol, "cycle_id": cycle_id}
             try:
+                operator_settings = _load_v2_operator_execution_settings(symbol=symbol, cycle_id=cycle_id)
+            except Exception as exc:  # noqa: BLE001
+                symbol_result.update({"status": "error", "error": f"operator_profile_unavailable: {exc}"})
+                symbol_results.append(symbol_result)
+                task_failed = True
+                continue
+            try:
                 entry_timeframe = load_timeframe(symbol, timeframe)
             except Exception as exc:  # noqa: BLE001
                 symbol_result.update({"status": "error", "error": f"market_data_unavailable: {exc}"})
@@ -354,8 +392,10 @@ def execute_v2_automated_trading_cycles(
                 engine_activation=config.v2_activation,
                 fencing_token=cycle_fencing_token,
                 now=now,
-                risk_per_trade=Decimal(str(PAPER_RUNTIME_LIMITS["risk_per_trade"])),
-                max_leverage=int(PAPER_RUNTIME_LIMITS["max_leverage"]),
+                risk_per_trade=operator_settings.risk_per_trade,
+                max_leverage=operator_settings.max_leverage,
+                order_notional_usdt=operator_settings.order_notional_usdt,
+                max_position_fraction=operator_settings.max_position_fraction,
                 already_evaluated_bars=_load_already_evaluated_bars(
                     symbol=symbol,
                     timeframe=timeframe,
@@ -363,6 +403,7 @@ def execute_v2_automated_trading_cycles(
                 ),
                 persist_facts=config.v2_activation is EngineActivation.ACTIVE,
                 decision_id=decision_id,
+                sampling_fallback_enabled=operator_settings.sampling_fallback_enabled,
             )
             try:
                 result = run_automated_trading_cycle(request, adapter)

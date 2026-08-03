@@ -196,6 +196,23 @@ def test_price_drift_beyond_ceiling_blocks_entry_without_chasing() -> None:
     assert result.drift_bps is not None and result.drift_bps > result.drift_ceiling_bps
 
 
+def test_strict_drift_limits_reject_range_that_a_relaxed_100bps_limit_would_allow(monkeypatch) -> None:
+    """S-103: keep V2 at 20bps / 0.25 ATR, not the legacy 100bps widening."""
+    from services.automated_trading.application import entry_service
+
+    candidate = build_candidate(max_entry_drift_bps=Decimal("100"))
+    snapshot = build_snapshot(current_price="50400")  # 80 bps from 50000.
+
+    strict = evaluate_entry(candidate, healthy_runtime(), snapshot)
+    assert not strict.approved
+    assert strict.reason_code is DecisionReasonCode.PRICE_DRIFT_EXCEEDED
+
+    monkeypatch.setattr(entry_service, "MIN_DRIFT_CEILING_BPS", Decimal("100"))
+    monkeypatch.setattr(entry_service, "ATR_DRIFT_FRACTION", Decimal("0.40"))
+    relaxed = evaluate_entry(candidate, healthy_runtime(), snapshot)
+    assert relaxed.approved
+
+
 def test_small_drift_is_allowed() -> None:
     # 50000 -> 50050 is 10 bps, inside the 20 bps floor.
     result = evaluate_entry(build_candidate(), healthy_runtime(), build_snapshot(current_price="50050"))
