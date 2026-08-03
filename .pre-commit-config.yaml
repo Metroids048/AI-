@@ -1,3 +1,7 @@
+# Install both commit and push hooks:
+#   pre-commit install --install-hooks -t pre-commit -t pre-push
+default_install_hook_types: [pre-commit, pre-push]
+
 repos:
   # Keep ruff >=0.13 so UP038 (isinstance tuple→union) stays gone — old 0.6.x
   # fought local ruff 0.15+ and repeatedly blocked commits on the same files.
@@ -55,3 +59,13 @@ repos:
         language: system
         pass_filenames: false
         files: ^\.(agents|claude|cursor)/skills/verify-work/SKILL\.md$
+
+      # Blocks the "commit failed but push succeeded" empty-push pattern:
+      # if the worktree is still dirty, there is nothing new to publish yet.
+      - id: refuse-push-dirty-worktree
+        name: refuse push when worktree has uncommitted changes
+        entry: python scripts/prepush_refuse_dirty_worktree.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
