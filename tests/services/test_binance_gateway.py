@@ -652,6 +652,64 @@ def test_binance_gateway_exposes_perp_carry_leg_adapter() -> None:
     assert client.created_orders[1]["params"]["reduceOnly"] is True
 
 
+def test_binance_gateway_entry_fails_closed_when_leverage_setup_fails() -> None:
+    class FailingLeverageClient(StubCcxtClient):
+        def set_leverage(self, leverage, symbol):  # noqa: ANN001
+            self.leverage_calls.append((leverage, symbol))
+            raise RuntimeError("test leverage failure")
+
+    client = FailingLeverageClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+
+    with pytest.raises(ValueError, match="LEVERAGE_CONFIGURATION_FAILED"):
+        gateway.submit_order(
+            live_run_id="live-run-1",
+            order_request=ExecutionOrderRequest(
+                strategy_id="strategy-1",
+                symbol="BTC/USDT",
+                direction=TradeSide.LONG,
+                entry_context={
+                    "order_type": "market",
+                    "quantity": 0.01,
+                    "requested_leverage": 5,
+                },
+            ),
+        )
+
+    assert client.leverage_calls == [(5, "BTC/USDT:USDT")]
+    assert client.created_orders == []
+
+
+def test_binance_gateway_close_only_skips_leverage_setup() -> None:
+    class FailingLeverageClient(StubCcxtClient):
+        def set_leverage(self, leverage, symbol):  # noqa: ANN001
+            self.leverage_calls.append((leverage, symbol))
+            raise RuntimeError("close must never configure leverage")
+
+    client = FailingLeverageClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
+
+    submitted = gateway.submit_order(
+        live_run_id="live-run-1",
+        order_request=ExecutionOrderRequest(
+            strategy_id="strategy-1",
+            symbol="BTC/USDT",
+            direction=TradeSide.LONG,
+            entry_context={
+                "order_type": "market",
+                "quantity": 0.01,
+                "requested_leverage": 5,
+                "close_only_mode": True,
+            },
+        ),
+    )
+
+    assert submitted["gateway_order_id"] == "binance-order-1"
+    assert client.leverage_calls == []
+    assert len(client.created_orders) == 1
+    assert client.created_orders[0]["params"]["reduceOnly"] is True
+
+
 def test_binance_gateway_close_only_inverts_position_side() -> None:
     client = StubCcxtClient()
     gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)

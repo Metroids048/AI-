@@ -1173,6 +1173,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                     for intent in local_state.intents
                 ),
             )
+            recovery_errors: tuple[str, ...] = ()
             if recovery.actions:
                 step_size = _fetch_step_size(adapter, request.symbol)
                 recovery_exec = execute_recovery_actions(
@@ -1182,14 +1183,26 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                     local_state=local_state,
                     step_size=step_size,
                 )
-                if recovery_exec.errors:
-                    result.record_error(f"recovery execution errors: {recovery_exec.errors}")
-            if recovery.entry_blocked:
+                recovery_errors = tuple(str(error) for error in recovery_exec.errors)
+                if recovery_errors:
+                    result.record_error(f"recovery execution errors: {recovery_errors}")
+            blocked_globally = entry_blocked_local or recon.status in {
+                ReconciliationStatus.UNAVAILABLE,
+                ReconciliationStatus.RECOVERY_REQUIRED,
+            }
+            blocked_for_symbol = blocked_globally or request.symbol in recon.entry_blocked_symbols
+            if recovery.entry_blocked or blocked_for_symbol:
                 logger.info(
-                    "[cycle %s %s] reconciliation=%s; entry blocked",
+                    "[cycle %s %s] reconciliation=%s entry_blocked_for_symbol=%s "
+                    "blocked_symbols=%s discrepancy_codes=%s recovery_actions=%s recovery_errors=%s",
                     request.cycle_id,
                     request.symbol,
                     recon.status.value,
+                    str(blocked_for_symbol).lower(),
+                    sorted(recon.entry_blocked_symbols),
+                    sorted(discrepancy.code.value for discrepancy in recon.discrepancies),
+                    sorted(action.action_type.value for action in recovery.actions),
+                    list(recovery_errors),
                 )
 
     # Exits: only ALREADY_FLAT handling, forced_exit_reason, or emergency — never blind TIME_EXIT.

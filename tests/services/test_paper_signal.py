@@ -68,6 +68,78 @@ class TestSizingSentinelLogging:
             stoploss_price=Decimal("80"),
         ) == pytest.approx(2_500.0)
 
+    def test_operator_profile_leverage_overrides_strategy_without_asset_tiers(self, db_session) -> None:
+        strategy = _strategy(position_rules={"max_leverage": 5, "max_position_fraction": 0.5})
+        paper_run = _paper_run(
+            execution_profile={
+                "account_equity": 10_000,
+                "max_leverage": 40,
+                "max_symbol_exposure": 0.5,
+            }
+        )
+        generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
+
+        assert (
+            generator._requested_leverage(
+                strategy=strategy,
+                paper_run=paper_run,
+                symbol="BTC/USDT",
+            )
+            == 40
+        )
+
+    def test_operator_fixed_notional_overrides_strategy_fixed_notional(self, db_session) -> None:
+        strategy = _strategy(
+            position_rules={
+                "order_notional_usdt": 999,
+                "max_position_fraction": 0.5,
+            }
+        )
+        paper_run = _paper_run(
+            execution_profile={
+                "account_equity": 10_000,
+                "order_notional_usdt": 123,
+                "max_symbol_exposure": 0.5,
+            }
+        )
+        generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
+
+        notional = generator._requested_notional(
+            strategy=strategy,
+            paper_run=paper_run,
+            symbol="BTC/USDT",
+            requested_leverage=1.0,
+        )
+
+        assert notional == pytest.approx(123.0)
+
+    def test_operator_risk_per_trade_overrides_strategy_risk_per_trade(self, db_session) -> None:
+        strategy = _strategy(
+            position_rules={
+                "risk_per_trade": 0.05,
+                "max_position_fraction": 0.5,
+            }
+        )
+        paper_run = _paper_run(
+            execution_profile={
+                "account_equity": 10_000,
+                "risk_per_trade": 0.01,
+                "max_symbol_exposure": 0.5,
+            }
+        )
+        generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
+
+        notional = generator._requested_notional(
+            strategy=strategy,
+            paper_run=paper_run,
+            symbol="BTC/USDT",
+            requested_leverage=1.0,
+            reference_price=Decimal("100"),
+            stoploss_price=Decimal("80"),
+        )
+
+        assert notional == pytest.approx(500.0)
+
     def test_logs_warning_when_notional_falls_below_sane_fraction(self, caplog, db_session) -> None:
         strategy = _strategy(position_rules={"notional_usdt": 10.0})
         paper_run = _paper_run()

@@ -1,0 +1,116 @@
+From b2f25e756fd4dac1e6bdf58a9161d153ee15d01c Mon Sep 17 00:00:00 2001
+From: OpenAI ChatGPT <chatgpt@openai.com>
+Date: Tue, 4 Aug 2026 07:36:17 +0000
+Subject: [PATCH 6/7] test(legacy-writer): lock operator profile through API
+ snapshot path
+
+---
+ tests/api/test_paper_runtime_api.py | 78 +++++++++++++++++++++++++++++
+ 1 file changed, 78 insertions(+)
+
+diff --git a/tests/api/test_paper_runtime_api.py b/tests/api/test_paper_runtime_api.py
+index adde15e..fece497 100644
+--- a/tests/api/test_paper_runtime_api.py
++++ b/tests/api/test_paper_runtime_api.py
+@@ -5,10 +5,13 @@ from decimal import Decimal
+
+ from services.data import DataRepository
+ from services.data.service import DEFAULT_BINANCE_TOP20
++from services.execution.paper_signal import PaperSignalGenerator
+ from services.strategy_library import (
++    ConfigSnapshotRepository,
+     DecisionEventRepository,
+     ExecutionRepository,
+     HypothesisRepository,
++    PaperRunRepository,
+     RiskProfileRepository,
+     StrategyRepository,
+     ValidationRepository,
+@@ -26,6 +29,8 @@ from shared.models import (
+     OrderExecution,
+     PodRiskReport,
+     RiskProfile,
++    StrategyRules,
++    StrategyUpdate,
+     ValidationBenchmarkResult,
+ )
+
+@@ -331,6 +336,79 @@ def test_paper_run_auto_settings_updates_profile_and_strategy_rules(api_client,
+     assert snapshots["items"][-1]["config"]["execution_profile"]["max_leverage"] == 5
+
+
++def test_operator_settings_remain_authoritative_after_strategy_rules_drift(api_client, db_session) -> None:
++    strategy_id, paper_run_id = _create_validated_paper_run(api_client, db_session)
++    RiskProfileRepository(db_session).create_profile(RiskProfile(risk_profile_id="operator-authority-risk"))
++    attached = api_client.patch(
++        f"/api/v1/execution/paper-runs/{paper_run_id}/execution-profile",
++        json={"risk_profile_id": "operator-authority-risk"},
++    )
++    assert attached.status_code == 200
++
++    saved = api_client.patch(
++        f"/api/v1/execution/paper-runs/{paper_run_id}/auto-settings",
++        json={
++            "execution_mode": "binance_testnet",
++            "max_leverage": 7,
++            "risk_per_trade": 0.012,
++            "order_notional_usdt": 123,
++            "max_open_positions": 2,
++            "max_symbols": 2,
++            "max_symbol_exposure": 0.5,
++            "max_total_exposure": 0.8,
++            "daily_loss_limit": 0.04,
++            "weekly_loss_limit": 0.08,
++            "hard_stop_drawdown_limit": 0.2,
++            "strategy_lanes": ["directional"],
++            "stoploss": {"fixed_bps": 250},
++            "takeprofit": {"risk_reward": 2.0},
++            "llm_veto_enabled": False,
++            "market_intelligence_enabled": False,
++        },
++    )
++    assert saved.status_code == 200
++
++    strategy_repo = StrategyRepository(db_session)
++    strategy = strategy_repo.get_strategy(strategy_id)
++    assert strategy is not None
++    drifted_rules = StrategyRules(
++        entry_rules=strategy.rules.entry_rules,
++        exit_rules=strategy.rules.exit_rules,
++        stoploss_rules=strategy.rules.stoploss_rules,
++        takeprofit_rules=strategy.rules.takeprofit_rules,
++        position_rules={
++            **strategy.rules.position_rules,
++            "max_leverage": 5,
++            "order_notional_usdt": 999,
++            "risk_per_trade": 0.05,
++            "max_position_fraction": 0.5,
++        },
++    )
++    updated = strategy_repo.update_strategy(strategy_id, StrategyUpdate(rules=drifted_rules))
++    assert updated is not None
++
++    paper_run = PaperRunRepository(db_session).get_paper_run(paper_run_id)
++    assert paper_run is not None
++    pending = ConfigSnapshotRepository(db_session).get_pending(paper_run_id)
++    assert pending is not None
++    assert pending.config["execution_profile"]["max_leverage"] == 7
++    assert pending.config["execution_profile"]["order_notional_usdt"] == 123
++    assert pending.config["execution_profile"]["risk_per_trade"] == 0.012
++
++    generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
++    assert generator._requested_leverage(
++        strategy=updated,
++        paper_run=paper_run,
++        symbol="BTC/USDT",
++    ) == 7
++    assert generator._requested_notional(
++        strategy=updated,
++        paper_run=paper_run,
++        symbol="BTC/USDT",
++        requested_leverage=7,
++    ) == 123
++
++
+ def test_order_sync_reconciles_non_btc_orders_across_fixed_top20(api_client, db_session, monkeypatch) -> None:
+     from apps.api.routers import runs as runs_router

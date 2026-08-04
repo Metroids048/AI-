@@ -34,13 +34,14 @@ LEGACY_FROZEN_MODULES = (
 )
 
 # Frozen size ceilings, captured 2026-07-28 at the V2 rebuild baseline.
-# Raising any of these numbers requires an explicit operator decision: it means
-# new logic was added to a file the freeze declares closed.
+# The operator explicitly approved a narrow 2026-08-04 exception for the active
+# legacy writer: operator-profile authority, entry fail-closed safeguards, and
+# non-promotable sampling containment. No other frozen module ceiling changed.
 LEGACY_FROZEN_LINE_CEILINGS = {
-    "services/execution/paper_cycle_orchestrator.py": 2668,
+    "services/execution/paper_cycle_orchestrator.py": 2691,
     "services/execution/paper_exchange_execution.py": 1675,
     "services/execution/paper_order_lifecycle.py": 420,
-    "services/execution/paper_signal.py": 1179,
+    "services/execution/paper_signal.py": 1194,
 }
 
 V2_PACKAGE_DIR = REPO_ROOT / "services" / "automated_trading"

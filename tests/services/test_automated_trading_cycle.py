@@ -6,6 +6,7 @@ that only accepts valid V2 submissions and refuses any legacy paper call.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -270,7 +271,7 @@ def test_unhealthy_snapshot_fetch_returns_unavailable() -> None:
     assert result.errors
 
 
-def test_degraded_reconciliation_is_persisted_and_executes_external_quarantine(monkeypatch) -> None:
+def test_degraded_reconciliation_is_persisted_and_executes_external_quarantine(monkeypatch, caplog) -> None:
     from services.automated_trading.application import cycle_service
 
     external_position = ExchangePositionSnapshot(
@@ -295,9 +296,14 @@ def test_degraded_reconciliation_is_persisted_and_executes_external_quarantine(m
     monkeypatch.setattr(cycle_service, "_persist_reconciliation_fact", persist_reconciliation, raising=False)
     monkeypatch.setattr(cycle_service, "execute_recovery_actions", execute_recovery)
 
+    caplog.set_level(logging.INFO, logger="services.automated_trading.application.cycle_service")
     result = run_automated_trading_cycle(build_request(persist_facts=True), adapter)
 
     assert result.reconciliation_status.value == "DEGRADED"
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("entry_blocked_for_symbol=true" in message for message in messages)
+    assert any("blocked_symbols=['BTC/USDT']" in message for message in messages)
+    assert any("discrepancy_codes=['EXTERNAL_POSITION_UNCLAIMABLE']" in message for message in messages)
     persist_reconciliation.assert_called_once()
     actions = execute_recovery.call_args.args[0]
     assert any(action.action_type is RecoveryActionType.QUARANTINE_EXTERNAL_POSITION for action in actions)

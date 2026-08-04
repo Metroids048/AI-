@@ -1,0 +1,77 @@
+From e6b7e2ecc7a9d20236cc52e46b84a30791a01714 Mon Sep 17 00:00:00 2001
+From: OpenAI ChatGPT <chatgpt@openai.com>
+Date: Tue, 4 Aug 2026 07:25:44 +0000
+Subject: [PATCH 3/7] fix(legacy-writer): restore strict entry drift limits
+
+---
+ shared/config.py                       |  4 +--
+ tests/services/test_execution_truth.py | 45 ++++++++++++++++++++++++++
+ 2 files changed, 47 insertions(+), 2 deletions(-)
+ create mode 100644 tests/services/test_execution_truth.py
+
+diff --git a/shared/config.py b/shared/config.py
+index a69bc93..634b3b5 100644
+--- a/shared/config.py
++++ b/shared/config.py
+@@ -73,8 +73,8 @@ class Settings(BaseSettings):
+     execution_default_order_type: str = "limit"
+     execution_limit_slippage_bps: float = 5.0
+     pretrade_max_decision_age_seconds: int = 75
+-    pretrade_min_price_drift_bps: float = 100.0
+-    pretrade_atr_drift_fraction: float = 0.40
++    pretrade_min_price_drift_bps: float = 20.0
++    pretrade_atr_drift_fraction: float = 0.25
+     market_data_heartbeat_seconds: int = 60
+     market_data_stale_seconds: int = 120
+     # Gatekeeper order-freshness threshold (previously hardcoded to 2h).
+diff --git a/tests/services/test_execution_truth.py b/tests/services/test_execution_truth.py
+new file mode 100644
+index 0000000..b1fc57a
+--- /dev/null
++++ b/tests/services/test_execution_truth.py
+@@ -0,0 +1,45 @@
++from __future__ import annotations
++
++from datetime import UTC, datetime, timedelta
++from decimal import Decimal
++
++import pytest
++
++from services.execution.execution_truth import validate_pretrade_snapshot
++from shared.config import settings
++from shared.models import PretradeMarketSnapshot
++
++
++def _snapshot(*, mark_price: str, atr: str = "0.1") -> PretradeMarketSnapshot:
++    now = datetime.now(UTC)
++    return PretradeMarketSnapshot(
++        server_time=now,
++        bid=Decimal(mark_price) - Decimal("0.01"),
++        ask=Decimal(mark_price) + Decimal("0.01"),
++        mark_price=Decimal(mark_price),
++        decision_bar_close_time=now - timedelta(seconds=10),
++        decision_age_seconds=10,
++        atr=Decimal(atr),
++        tick_size=Decimal("0.01"),
++        step_size=Decimal("0.001"),
++    )
++
++
++def test_legacy_pretrade_defaults_match_frozen_strict_limits() -> None:
++    assert settings.pretrade_min_price_drift_bps == 20.0
++    assert settings.pretrade_atr_drift_fraction == 0.25
++
++
++def test_legacy_pretrade_rejects_fifty_bps_drift() -> None:
++    with pytest.raises(ValueError, match="PRETRADE_PRICE_DRIFT"):
++        validate_pretrade_snapshot(
++            _snapshot(mark_price="100.50"),
++            decision_reference=Decimal("100"),
++        )
++
++
++def test_legacy_pretrade_accepts_exact_twenty_bps_boundary() -> None:
++    assert validate_pretrade_snapshot(
++        _snapshot(mark_price="100.20"),
++        decision_reference=Decimal("100"),
++    ) == Decimal("0.002")

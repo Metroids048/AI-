@@ -152,7 +152,7 @@ class PaperSignalGenerator:
                 strategy=strategy,
                 symbol=symbol,
             )
-            requested_notional = max(float(min_notional), float(reference_price) * 0.0015)
+            requested_notional = float(min_notional)
         risk_state = self._build_risk_state(
             paper_run=paper_run,
             strategy=strategy,
@@ -899,12 +899,16 @@ class PaperSignalGenerator:
 
     @staticmethod
     def _requested_leverage(*, strategy: StrategyContract, paper_run: PaperRun, symbol: str) -> float:
-        tier = resolve_asset_risk_tier(symbol, paper_run.execution_profile.get("asset_risk_tiers"))
-        if paper_run.execution_profile.get("asset_risk_tiers"):
-            return tier.leverage
+        execution_profile = paper_run.execution_profile
+        tiers = execution_profile.get("asset_risk_tiers")
+        if isinstance(tiers, dict) and tiers:
+            return float(resolve_asset_risk_tier(symbol, tiers).leverage)
+        if "max_leverage" in execution_profile and execution_profile["max_leverage"] is not None:
+            return float(execution_profile["max_leverage"])
         position_rules = strategy.rules.position_rules
-        leverage = position_rules.get("max_leverage") or paper_run.execution_profile.get("max_leverage") or 1.0
-        return float(leverage)
+        if "max_leverage" in position_rules and position_rules["max_leverage"] is not None:
+            return float(position_rules["max_leverage"])
+        return 1.0
 
     def _requested_notional(
         self,
@@ -940,15 +944,25 @@ class PaperSignalGenerator:
         if profile_cap is not None:
             hard_fraction_cap = max(0.01, min(hard_fraction_cap, float(profile_cap)))
 
+        execution_profile = paper_run.execution_profile
         sizing_basis = "fallback_equity_fraction"
-        if "notional_usdt" in position_rules:
+        if "order_notional_usdt" in execution_profile and execution_profile["order_notional_usdt"] is not None:
+            sizing_basis = "operator_order_notional_usdt"
+            notional = float(execution_profile["order_notional_usdt"]) * max(confidence_multiplier, 0.0)
+        elif "notional_usdt" in position_rules and position_rules["notional_usdt"] is not None:
             sizing_basis = "notional_usdt"
             notional = float(position_rules["notional_usdt"]) * max(confidence_multiplier, 0.0)
-        elif "order_notional_usdt" in position_rules:
+        elif "order_notional_usdt" in position_rules and position_rules["order_notional_usdt"] is not None:
             sizing_basis = "order_notional_usdt"
             notional = float(position_rules["order_notional_usdt"]) * max(confidence_multiplier, 0.0)
-        elif "risk_per_trade" in position_rules:
-            risk_per_trade = float(paper_run.execution_profile.get("risk_per_trade", position_rules["risk_per_trade"]))
+        elif ("risk_per_trade" in execution_profile and execution_profile["risk_per_trade"] is not None) or (
+            "risk_per_trade" in position_rules and position_rules["risk_per_trade"] is not None
+        ):
+            risk_per_trade = float(
+                execution_profile["risk_per_trade"]
+                if "risk_per_trade" in execution_profile and execution_profile["risk_per_trade"] is not None
+                else position_rules["risk_per_trade"]
+            )
             risk_budget = account_equity * risk_per_trade
             stop_distance = (
                 abs(float(reference_price - stoploss_price))

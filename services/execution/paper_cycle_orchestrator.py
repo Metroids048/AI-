@@ -1037,6 +1037,10 @@ class PaperCycleOrchestrator:
                 }
             )
             decision_trace = dict(base_order.entry_context.get("decision_pipeline", {}))
+            sampling_signal = bool(
+                base_order.entry_context.get("testnet_sampling_mode")
+                or base_order.entry_context.get("evidence_class") == "NON_PROMOTABLE_PIPELINE_SAMPLE"
+            )
             if current_position is None and not bool(base_order.entry_context.get("paper_order_should_trade", True)):
                 skipped_symbols += 1
                 if cycle_key not in new_processed_keys:
@@ -1056,6 +1060,21 @@ class PaperCycleOrchestrator:
             if cycle_key not in new_processed_keys:
                 new_processed_keys.append(cycle_key)
             reference_price = float(latest_bar.close)
+
+            if current_position is None and sampling_signal:
+                skipped_symbols += 1
+                actions.append(
+                    PaperRuntimeAction(
+                        symbol=symbol,
+                        action="skip_non_promotable_sampling",
+                        direction=base_order.direction,
+                        reason="sampling candidate is decision-trace-only and cannot create a formal position",
+                        reference_price=reference_price,
+                        idempotency_key=cycle_key,
+                        decision_trace=decision_trace,
+                    )
+                )
+                continue
 
             if current_position is not None:
                 levels = self._resolve_protective_levels(
@@ -1205,7 +1224,11 @@ class PaperCycleOrchestrator:
                     )
                     continue
 
-                if rank_dropout or (request.close_on_opposite_signal and current_position.side != base_order.direction):
+                if rank_dropout or (
+                    not sampling_signal
+                    and request.close_on_opposite_signal
+                    and current_position.side != base_order.direction
+                ):
                     close_order = self._close_order_request(
                         base_order=base_order,
                         current_position=current_position,

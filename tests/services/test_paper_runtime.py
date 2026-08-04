@@ -215,6 +215,126 @@ def test_runtime_stoploss_wins_when_stoploss_and_takeprofit_hit_same_bar(db_sess
     assert result.actions[0].reference_price == 95.0
 
 
+def test_sampling_opposite_signal_does_not_close_managed_position(db_session, monkeypatch) -> None:
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "binance_auto_execute", True)
+    monkeypatch.setattr(settings, "binance_use_testnet", True)
+    monkeypatch.setattr(settings, "live_trading_enabled", False)
+
+    class ManagedLongGateway:
+        capability = type("Cap", (), {"gateway_name": "binance_usdt_perpetual"})()
+
+        def __init__(self) -> None:
+            self.submitted: list[ExecutionOrderRequest] = []
+
+        def reconcile(self, *, live_run_id: str) -> dict:
+            del live_run_id
+            return {
+                "open_positions": [
+                    {
+                        "symbol": "BTC/USDT:USDT",
+                        "contracts": 1.0,
+                        "side": "long",
+                        "entry_price": 100.0,
+                        "mark_price": 96.0,
+                    }
+                ],
+                "open_orders": [
+                    {"symbol": "BTCUSDT", "orderType": "STOP_MARKET", "reduceOnly": True},
+                    {"symbol": "BTCUSDT", "orderType": "TAKE_PROFIT_MARKET", "reduceOnly": True},
+                ],
+            }
+
+        def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
+            del live_run_id
+            self.submitted.append(order_request)
+            raise AssertionError("sampling opposite signal must not submit an exit")
+
+    gateway = ManagedLongGateway()
+    runtime, paper_run = _runtime_with_position(
+        db_session,
+        side=TradeSide.LONG,
+        stop_price=90.0,
+        take_price=120.0,
+        mirror_to_gateway=True,
+        gateway=gateway,
+    )
+    profile = {
+        **paper_run.execution_profile,
+        "strategy_lane": "directional",
+        "execution_mode": "binance_testnet",
+        "mirror_to_gateway": True,
+        "cost_gate_verified": True,
+        "simulation_sampling_fallback_enabled": True,
+        "acceptance_symbols": ["BTC/USDT", "ETH/USDT"],
+        "acceptance_scope_hash": execution_scope_hash(),
+    }
+    PaperRunRepository(db_session).update_paper_run(
+        paper_run.paper_run_id or "",
+        execution_profile=profile,
+    )
+    _store_bar(db_session, low=95, high=101, close=96)
+    latest = DataRepository(db_session).get_latest_ohlcv_bar(symbol="BTC/USDT", timeframe="1h")
+    assert latest is not None
+
+    def _starved_primary(**_kwargs) -> DecisionPipelineResult:
+        return DecisionPipelineResult(
+            direction=None,
+            should_trade=False,
+            reason="multi_timeframe_disagreement",
+            reference_price=Decimal("96"),
+            bar_time=latest.timestamp,
+            signals=[],
+            ensemble=None,
+            meta_label=None,
+            veto_result=None,
+            confidence_multiplier=1.0,
+            atr=1.0,
+            volatility_context={},
+            trace={"pipeline_status": "multi_timeframe_disagreement", "strategy_lane": "directional"},
+        )
+
+    def _sampling_short(**_kwargs) -> DecisionPipelineResult:
+        return DecisionPipelineResult(
+            direction=TradeSide.SHORT,
+            should_trade=True,
+            reason="testnet_sampling_lane_signal",
+            reference_price=Decimal("96"),
+            bar_time=latest.timestamp,
+            signals=[],
+            ensemble=None,
+            meta_label=None,
+            veto_result=None,
+            confidence_multiplier=1.0,
+            atr=1.0,
+            volatility_context={"sampling": True},
+            trace={
+                "pipeline_status": "testnet_sampling_signal",
+                "strategy_lane": "directional",
+                "testnet_sampling_mode": True,
+                "evidence_class": "NON_PROMOTABLE_PIPELINE_SAMPLE",
+            },
+        )
+
+    monkeypatch.setattr(runtime.signal_generator.decision_pipeline, "evaluate", _starved_primary)
+    monkeypatch.setattr(runtime.signal_generator, "_sampling_lane_decision", _sampling_short)
+
+    result = runtime.run_cycle(
+        paper_run_id=paper_run.paper_run_id or "",
+        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
+    )
+
+    assert result.closed_positions == 0
+    assert result.open_position_symbols == ["BTC/USDT"]
+    assert result.actions[0].action == "hold_long"
+    assert gateway.submitted == []
+    position = ExecutionRepository(db_session).list_latest_positions_for_run(
+        run_type="paper", run_id=paper_run.paper_run_id or ""
+    )[0]
+    assert position.quantity == 1.0
+
+
 def test_runtime_stoploss_wins_over_opposite_signal_hit_on_same_bar(db_session, monkeypatch) -> None:
     """Protective triggers must be honored before an opposite-direction signal
     close, even when both fire on the same bar. Forces the decision pipeline to
@@ -2059,10 +2179,8 @@ def test_exchange_first_partial_takeprofit_submits_before_local_projection(db_se
     assert refreshed.paper_metrics_summary["gross_realized_pnl_total"] == 5.25
 
 
-def test_directional_sampling_fallback_reaches_exchange_fill_and_local_projection(db_session, monkeypatch) -> None:
-    """A starved primary directional decision must reach the Testnet gateway
-    through the bounded fallback and project only the confirmed exchange fill.
-    """
+def test_directional_sampling_fallback_is_decision_only_and_never_projects_position(db_session, monkeypatch) -> None:
+    """A non-promotable sampling decision must stop before intent, gateway, and position projection."""
     from shared.config import settings
 
     class FilledDirectionalGateway:
@@ -2248,18 +2366,14 @@ def test_directional_sampling_fallback_reaches_exchange_fill_and_local_projectio
     )
 
     assert calls == 1
-    assert len(gateway.submitted) == 1
-    assert result.opened_positions == 1
+    assert gateway.submitted == []
+    assert result.opened_positions == 0
     assert result.rejected_orders == 0
-    assert result.actions[0].action == "open_long"
-    orders = ExecutionRepository(db_session).list_orders()
-    assert len(orders) == 1
-    assert orders[0].gateway_order_id == "directional-natural-1"
-    assert orders[0].gateway_status == "filled"
-    assert orders[0].entry_context["exchange_fill_confirmed"] is True
+    assert result.skipped_symbols == 1
+    assert result.actions[0].action == "skip_non_promotable_sampling"
+    assert result.actions[0].decision_trace["evidence_class"] == "NON_PROMOTABLE_PIPELINE_SAMPLE"
+    assert ExecutionRepository(db_session).list_orders() == []
     positions = ExecutionRepository(db_session).list_latest_positions_for_run(
         run_type="paper", run_id=paper_run.paper_run_id or ""
     )
-    assert len(positions) == 1
-    assert positions[0].entry_price == 100.5
-    assert positions[0].quantity > 0
+    assert positions == []

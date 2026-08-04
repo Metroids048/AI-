@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -368,16 +369,23 @@ def test_sampling_fallback_is_separated_from_primary_strategy_performance(monkey
     monkeypatch.setattr(
         generator,
         "_sampling_lane_decision",
-        lambda **_kwargs: _decision(
-            should_trade=True,
-            reason="testnet_sampling_lane_signal",
-            candidate_id="testnet_sampling_lane_v1",
+        lambda **_kwargs: replace(
+            _decision(
+                should_trade=True,
+                reason="testnet_sampling_lane_signal",
+                candidate_id="testnet_sampling_lane_v1",
+            ),
+            reference_price=Decimal("60000"),
         ),
     )
     run = PaperRun(
         paper_run_id="run-directional",
         strategy_id=strategy.strategy_id,
-        execution_profile={**_armed_profile(), "account_equity": 10_000},
+        execution_profile={
+            **_armed_profile(),
+            "account_equity": 10_000,
+            "min_notional_usdt": 50,
+        },
     )
 
     order = generator.generate_order(
@@ -391,6 +399,7 @@ def test_sampling_fallback_is_separated_from_primary_strategy_performance(monkey
     assert order.entry_context["strategy_performance_eligible"] is False
     assert order.entry_context["sampling_performance_eligible"] is True
     assert order.entry_context["order_type"] == "market"
+    assert order.entry_context["requested_notional"] == 50.0
 
 
 def test_testnet_sampling_bypasses_only_prevalidation_edge_gate(monkeypatch) -> None:

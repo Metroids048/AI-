@@ -1,0 +1,292 @@
+From 52b9055c6e72ac310bf8b9b4581e025490782913 Mon Sep 17 00:00:00 2001
+From: OpenAI ChatGPT <chatgpt@openai.com>
+Date: Tue, 4 Aug 2026 07:30:52 +0000
+Subject: [PATCH 4/7] fix(legacy-writer): keep sampling decision-only
+
+---
+ .../execution/paper_cycle_orchestrator.py     |  25 ++-
+ services/execution/paper_signal.py            |   2 +-
+ .../test_directional_sampling_fallback.py     |  19 ++-
+ tests/services/test_paper_runtime.py          | 143 ++++++++++++++++--
+ 4 files changed, 167 insertions(+), 22 deletions(-)
+
+diff --git a/services/execution/paper_cycle_orchestrator.py b/services/execution/paper_cycle_orchestrator.py
+index bd9f767..fd93a65 100644
+--- a/services/execution/paper_cycle_orchestrator.py
++++ b/services/execution/paper_cycle_orchestrator.py
+@@ -1037,6 +1037,10 @@ class PaperCycleOrchestrator:
+                 }
+             )
+             decision_trace = dict(base_order.entry_context.get("decision_pipeline", {}))
++            sampling_signal = bool(
++                base_order.entry_context.get("testnet_sampling_mode")
++                or base_order.entry_context.get("evidence_class") == "NON_PROMOTABLE_PIPELINE_SAMPLE"
++            )
+             if current_position is None and not bool(base_order.entry_context.get("paper_order_should_trade", True)):
+                 skipped_symbols += 1
+                 if cycle_key not in new_processed_keys:
+@@ -1057,6 +1061,21 @@ class PaperCycleOrchestrator:
+                 new_processed_keys.append(cycle_key)
+             reference_price = float(latest_bar.close)
+
++            if current_position is None and sampling_signal:
++                skipped_symbols += 1
++                actions.append(
++                    PaperRuntimeAction(
++                        symbol=symbol,
++                        action="skip_non_promotable_sampling",
++                        direction=base_order.direction,
++                        reason="sampling candidate is decision-trace-only and cannot create a formal position",
++                        reference_price=reference_price,
++                        idempotency_key=cycle_key,
++                        decision_trace=decision_trace,
++                    )
++                )
++                continue
++
+             if current_position is not None:
+                 levels = self._resolve_protective_levels(
+                     paper_run=paper_run,
+@@ -1205,7 +1224,11 @@ class PaperCycleOrchestrator:
+                     )
+                     continue
+
+-                if rank_dropout or (request.close_on_opposite_signal and current_position.side != base_order.direction):
++                if rank_dropout or (
++                    not sampling_signal
++                    and request.close_on_opposite_signal
++                    and current_position.side != base_order.direction
++                ):
+                     close_order = self._close_order_request(
+                         base_order=base_order,
+                         current_position=current_position,
+diff --git a/services/execution/paper_signal.py b/services/execution/paper_signal.py
+index c5a1a6b..e9d339b 100644
+--- a/services/execution/paper_signal.py
++++ b/services/execution/paper_signal.py
+@@ -152,7 +152,7 @@ class PaperSignalGenerator:
+                 strategy=strategy,
+                 symbol=symbol,
+             )
+-            requested_notional = max(float(min_notional), float(reference_price) * 0.0015)
++            requested_notional = float(min_notional)
+         risk_state = self._build_risk_state(
+             paper_run=paper_run,
+             strategy=strategy,
+diff --git a/tests/services/test_directional_sampling_fallback.py b/tests/services/test_directional_sampling_fallback.py
+index 145d060..da0b6f5 100644
+--- a/tests/services/test_directional_sampling_fallback.py
++++ b/tests/services/test_directional_sampling_fallback.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+
++from dataclasses import replace
+ from datetime import UTC, datetime, timedelta
+ from decimal import Decimal
+
+@@ -368,16 +369,23 @@ def test_sampling_fallback_is_separated_from_primary_strategy_performance(monkey
+     monkeypatch.setattr(
+         generator,
+         "_sampling_lane_decision",
+-        lambda **_kwargs: _decision(
+-            should_trade=True,
+-            reason="testnet_sampling_lane_signal",
+-            candidate_id="testnet_sampling_lane_v1",
++        lambda **_kwargs: replace(
++            _decision(
++                should_trade=True,
++                reason="testnet_sampling_lane_signal",
++                candidate_id="testnet_sampling_lane_v1",
++            ),
++            reference_price=Decimal("60000"),
+         ),
+     )
+     run = PaperRun(
+         paper_run_id="run-directional",
+         strategy_id=strategy.strategy_id,
+-        execution_profile={**_armed_profile(), "account_equity": 10_000},
++        execution_profile={
++            **_armed_profile(),
++            "account_equity": 10_000,
++            "min_notional_usdt": 50,
++        },
+     )
+
+     order = generator.generate_order(
+@@ -391,6 +399,7 @@ def test_sampling_fallback_is_separated_from_primary_strategy_performance(monkey
+     assert order.entry_context["strategy_performance_eligible"] is False
+     assert order.entry_context["sampling_performance_eligible"] is True
+     assert order.entry_context["order_type"] == "market"
++    assert order.entry_context["requested_notional"] == 50.0
+
+
+ def test_testnet_sampling_bypasses_only_prevalidation_edge_gate(monkeypatch) -> None:
+diff --git a/tests/services/test_paper_runtime.py b/tests/services/test_paper_runtime.py
+index 53feefa..889e624 100644
+--- a/tests/services/test_paper_runtime.py
++++ b/tests/services/test_paper_runtime.py
+@@ -215,6 +215,125 @@ def test_runtime_stoploss_wins_when_stoploss_and_takeprofit_hit_same_bar(db_sess
+     assert result.actions[0].reference_price == 95.0
+
+
++def test_sampling_opposite_signal_does_not_close_managed_position(db_session, monkeypatch) -> None:
++    from shared.config import settings
++
++    monkeypatch.setattr(settings, "binance_auto_execute", True)
++    monkeypatch.setattr(settings, "binance_use_testnet", True)
++    monkeypatch.setattr(settings, "live_trading_enabled", False)
++    class ManagedLongGateway:
++        capability = type("Cap", (), {"gateway_name": "binance_usdt_perpetual"})()
++
++        def __init__(self) -> None:
++            self.submitted: list[ExecutionOrderRequest] = []
++
++        def reconcile(self, *, live_run_id: str) -> dict:
++            del live_run_id
++            return {
++                "open_positions": [
++                    {
++                        "symbol": "BTC/USDT:USDT",
++                        "contracts": 1.0,
++                        "side": "long",
++                        "entry_price": 100.0,
++                        "mark_price": 96.0,
++                    }
++                ],
++                "open_orders": [
++                    {"symbol": "BTCUSDT", "orderType": "STOP_MARKET", "reduceOnly": True},
++                    {"symbol": "BTCUSDT", "orderType": "TAKE_PROFIT_MARKET", "reduceOnly": True},
++                ],
++            }
++
++        def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:
++            del live_run_id
++            self.submitted.append(order_request)
++            raise AssertionError("sampling opposite signal must not submit an exit")
++
++    gateway = ManagedLongGateway()
++    runtime, paper_run = _runtime_with_position(
++        db_session,
++        side=TradeSide.LONG,
++        stop_price=90.0,
++        take_price=120.0,
++        mirror_to_gateway=True,
++        gateway=gateway,
++    )
++    profile = {
++        **paper_run.execution_profile,
++        "strategy_lane": "directional",
++        "execution_mode": "binance_testnet",
++        "mirror_to_gateway": True,
++        "cost_gate_verified": True,
++        "simulation_sampling_fallback_enabled": True,
++        "acceptance_symbols": ["BTC/USDT", "ETH/USDT"],
++        "acceptance_scope_hash": execution_scope_hash(),
++    }
++    PaperRunRepository(db_session).update_paper_run(
++        paper_run.paper_run_id or "",
++        execution_profile=profile,
++    )
++    _store_bar(db_session, low=95, high=101, close=96)
++    latest = DataRepository(db_session).get_latest_ohlcv_bar(symbol="BTC/USDT", timeframe="1h")
++    assert latest is not None
++
++    def _starved_primary(**_kwargs) -> DecisionPipelineResult:
++        return DecisionPipelineResult(
++            direction=None,
++            should_trade=False,
++            reason="multi_timeframe_disagreement",
++            reference_price=Decimal("96"),
++            bar_time=latest.timestamp,
++            signals=[],
++            ensemble=None,
++            meta_label=None,
++            veto_result=None,
++            confidence_multiplier=1.0,
++            atr=1.0,
++            volatility_context={},
++            trace={"pipeline_status": "multi_timeframe_disagreement", "strategy_lane": "directional"},
++        )
++
++    def _sampling_short(**_kwargs) -> DecisionPipelineResult:
++        return DecisionPipelineResult(
++            direction=TradeSide.SHORT,
++            should_trade=True,
++            reason="testnet_sampling_lane_signal",
++            reference_price=Decimal("96"),
++            bar_time=latest.timestamp,
++            signals=[],
++            ensemble=None,
++            meta_label=None,
++            veto_result=None,
++            confidence_multiplier=1.0,
++            atr=1.0,
++            volatility_context={"sampling": True},
++            trace={
++                "pipeline_status": "testnet_sampling_signal",
++                "strategy_lane": "directional",
++                "testnet_sampling_mode": True,
++                "evidence_class": "NON_PROMOTABLE_PIPELINE_SAMPLE",
++            },
++        )
++
++    monkeypatch.setattr(runtime.signal_generator.decision_pipeline, "evaluate", _starved_primary)
++    monkeypatch.setattr(runtime.signal_generator, "_sampling_lane_decision", _sampling_short)
++
++    result = runtime.run_cycle(
++        paper_run_id=paper_run.paper_run_id or "",
++        request=PaperRuntimeCycleRequest(symbols=["BTC/USDT"], timeframe="1h", enable_decision_veto=False),
++    )
++
++    assert result.closed_positions == 0
++    assert result.open_position_symbols == ["BTC/USDT"]
++    assert result.actions[0].action == "hold_long"
++    assert gateway.submitted == []
++    position = ExecutionRepository(db_session).list_latest_positions_for_run(
++        run_type="paper", run_id=paper_run.paper_run_id or ""
++    )[0]
++    assert position.quantity == 1.0
++
++
+ def test_runtime_stoploss_wins_over_opposite_signal_hit_on_same_bar(db_session, monkeypatch) -> None:
+     """Protective triggers must be honored before an opposite-direction signal
+     close, even when both fire on the same bar. Forces the decision pipeline to
+@@ -2059,10 +2178,8 @@ def test_exchange_first_partial_takeprofit_submits_before_local_projection(db_se
+     assert refreshed.paper_metrics_summary["gross_realized_pnl_total"] == 5.25
+
+
+-def test_directional_sampling_fallback_reaches_exchange_fill_and_local_projection(db_session, monkeypatch) -> None:
+-    """A starved primary directional decision must reach the Testnet gateway
+-    through the bounded fallback and project only the confirmed exchange fill.
+-    """
++def test_directional_sampling_fallback_is_decision_only_and_never_projects_position(db_session, monkeypatch) -> None:
++    """A non-promotable sampling decision must stop before intent, gateway, and position projection."""
+     from shared.config import settings
+
+     class FilledDirectionalGateway:
+@@ -2248,18 +2365,14 @@ def test_directional_sampling_fallback_reaches_exchange_fill_and_local_projectio
+     )
+
+     assert calls == 1
+-    assert len(gateway.submitted) == 1
+-    assert result.opened_positions == 1
++    assert gateway.submitted == []
++    assert result.opened_positions == 0
+     assert result.rejected_orders == 0
+-    assert result.actions[0].action == "open_long"
+-    orders = ExecutionRepository(db_session).list_orders()
+-    assert len(orders) == 1
+-    assert orders[0].gateway_order_id == "directional-natural-1"
+-    assert orders[0].gateway_status == "filled"
+-    assert orders[0].entry_context["exchange_fill_confirmed"] is True
++    assert result.skipped_symbols == 1
++    assert result.actions[0].action == "skip_non_promotable_sampling"
++    assert result.actions[0].decision_trace["evidence_class"] == "NON_PROMOTABLE_PIPELINE_SAMPLE"
++    assert ExecutionRepository(db_session).list_orders() == []
+     positions = ExecutionRepository(db_session).list_latest_positions_for_run(
+         run_type="paper", run_id=paper_run.paper_run_id or ""
+     )
+-    assert len(positions) == 1
+-    assert positions[0].entry_price == 100.5
+-    assert positions[0].quantity > 0
++    assert positions == []

@@ -652,18 +652,20 @@ class BinanceUsdtPerpetualGateway:
         )
         if not gateway_symbol_available(gateway=self, symbol=order_request.symbol):
             raise ValueError(f"symbol_not_found: {order_request.symbol}")
+        close_only = bool(
+            order_request.trade_intent is not None and order_request.trade_intent.action.value in {"CLOSE", "REDUCE"}
+        ) or bool(order_request.entry_context.get("close_only_mode") or order_request.entry_context.get("reduce_only"))
         requested_leverage = float(order_request.entry_context.get("requested_leverage") or 0)
-        if requested_leverage >= 1:
-            with contextlib.suppress(Exception):
+        if not close_only and requested_leverage >= 1:
+            try:
                 self.set_leverage(symbol=order_request.symbol, leverage=requested_leverage)
+            except Exception as exc:
+                raise ValueError(f"LEVERAGE_CONFIGURATION_FAILED: {exc}") from exc
         quantity = (
             float(normalized_order.quantity)
             if normalized_order is not None
             else _resolve_gateway_quantity(client=self.client, symbol=symbol, order_request=order_request)
         )
-        close_only = bool(
-            order_request.trade_intent is not None and order_request.trade_intent.action.value in {"CLOSE", "REDUCE"}
-        ) or bool(order_request.entry_context.get("close_only_mode") or order_request.entry_context.get("reduce_only"))
         if normalized_order is not None:
             side = normalized_order.side.value.lower()
         else:

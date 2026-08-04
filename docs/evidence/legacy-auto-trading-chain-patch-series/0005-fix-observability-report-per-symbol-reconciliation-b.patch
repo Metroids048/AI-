@@ -1,0 +1,90 @@
+From 7fdaca36c740751e9c6f8baa9fa64450b0a6465a Mon Sep 17 00:00:00 2001
+From: OpenAI ChatGPT <chatgpt@openai.com>
+Date: Tue, 4 Aug 2026 07:33:10 +0000
+Subject: [PATCH 5/7] fix(observability): report per-symbol reconciliation
+ blocks
+
+---
+ .../application/cycle_service.py              | 21 +++++++++++++++----
+ .../services/test_automated_trading_cycle.py  |  8 ++++++-
+ 2 files changed, 24 insertions(+), 5 deletions(-)
+
+diff --git a/services/automated_trading/application/cycle_service.py b/services/automated_trading/application/cycle_service.py
+index 5225106..b5e5535 100644
+--- a/services/automated_trading/application/cycle_service.py
++++ b/services/automated_trading/application/cycle_service.py
+@@ -1173,6 +1173,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
+                     for intent in local_state.intents
+                 ),
+             )
++            recovery_errors: tuple[str, ...] = ()
+             if recovery.actions:
+                 step_size = _fetch_step_size(adapter, request.symbol)
+                 recovery_exec = execute_recovery_actions(
+@@ -1182,14 +1183,26 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
+                     local_state=local_state,
+                     step_size=step_size,
+                 )
+-                if recovery_exec.errors:
+-                    result.record_error(f"recovery execution errors: {recovery_exec.errors}")
+-            if recovery.entry_blocked:
++                recovery_errors = tuple(str(error) for error in recovery_exec.errors)
++                if recovery_errors:
++                    result.record_error(f"recovery execution errors: {recovery_errors}")
++            blocked_globally = entry_blocked_local or recon.status in {
++                ReconciliationStatus.UNAVAILABLE,
++                ReconciliationStatus.RECOVERY_REQUIRED,
++            }
++            blocked_for_symbol = blocked_globally or request.symbol in recon.entry_blocked_symbols
++            if recovery.entry_blocked or blocked_for_symbol:
+                 logger.info(
+-                    "[cycle %s %s] reconciliation=%s; entry blocked",
++                    "[cycle %s %s] reconciliation=%s entry_blocked_for_symbol=%s "
++                    "blocked_symbols=%s discrepancy_codes=%s recovery_actions=%s recovery_errors=%s",
+                     request.cycle_id,
+                     request.symbol,
+                     recon.status.value,
++                    str(blocked_for_symbol).lower(),
++                    sorted(recon.entry_blocked_symbols),
++                    sorted(discrepancy.code.value for discrepancy in recon.discrepancies),
++                    sorted(action.action_type.value for action in recovery.actions),
++                    list(recovery_errors),
+                 )
+
+     # Exits: only ALREADY_FLAT handling, forced_exit_reason, or emergency — never blind TIME_EXIT.
+diff --git a/tests/services/test_automated_trading_cycle.py b/tests/services/test_automated_trading_cycle.py
+index 33e8dd1..1a406e5 100644
+--- a/tests/services/test_automated_trading_cycle.py
++++ b/tests/services/test_automated_trading_cycle.py
+@@ -6,6 +6,7 @@ that only accepts valid V2 submissions and refuses any legacy paper call.
+
+ from __future__ import annotations
+
++import logging
+ from datetime import UTC, datetime, timedelta
+ from decimal import Decimal
+ from types import SimpleNamespace
+@@ -270,7 +271,7 @@ def test_unhealthy_snapshot_fetch_returns_unavailable() -> None:
+     assert result.errors
+
+
+-def test_degraded_reconciliation_is_persisted_and_executes_external_quarantine(monkeypatch) -> None:
++def test_degraded_reconciliation_is_persisted_and_executes_external_quarantine(monkeypatch, caplog) -> None:
+     from services.automated_trading.application import cycle_service
+
+     external_position = ExchangePositionSnapshot(
+@@ -295,9 +296,14 @@ def test_degraded_reconciliation_is_persisted_and_executes_external_quarantine(m
+     monkeypatch.setattr(cycle_service, "_persist_reconciliation_fact", persist_reconciliation, raising=False)
+     monkeypatch.setattr(cycle_service, "execute_recovery_actions", execute_recovery)
+
++    caplog.set_level(logging.INFO, logger="services.automated_trading.application.cycle_service")
+     result = run_automated_trading_cycle(build_request(persist_facts=True), adapter)
+
+     assert result.reconciliation_status.value == "DEGRADED"
++    messages = [record.getMessage() for record in caplog.records]
++    assert any("entry_blocked_for_symbol=true" in message for message in messages)
++    assert any("blocked_symbols=['BTC/USDT']" in message for message in messages)
++    assert any("discrepancy_codes=['EXTERNAL_POSITION_UNCLAIMABLE']" in message for message in messages)
+     persist_reconciliation.assert_called_once()
+     actions = execute_recovery.call_args.args[0]
+     assert any(action.action_type is RecoveryActionType.QUARANTINE_EXTERNAL_POSITION for action in actions)
