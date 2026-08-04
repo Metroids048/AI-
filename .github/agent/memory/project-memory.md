@@ -1,5 +1,12 @@
 # Project Memory
 
+## Gate 16 preserves manual Testnet baseline (2026-08-04)
+
+- `scripts/verify_automated_trading_testnet_contract.py` no longer requires an empty BTC account. It snapshots the operator-owned position and open orders, adds the contract increment in the same direction for Binance one-way mode, and restores the exact baseline instead of flattening the symbol.
+- Real proof: baseline `BTC short 0.0105`; entry `27941708499` / trade `524311879` for `0.0008`; stop/target `1000000155928815` / `1000000155928828`; exit `27941708544` / trade `524311888`; final baseline `short 0.0105`, new open orders `0`.
+- The active directional PaperRun now has `allow_entry_with_unmanaged_positions=true`. Manual/external positions remain unmanaged and excluded from strategy attribution; this flag does not adopt them.
+- Evidence is `TESTNET_CONTRACT`, `natural_strategy=false`; it does not replace natural Scheduler strategy evidence.
+
 ## Strategy core refactor Gate 0/1 baseline (updated 2026-07-30)
 
 - Current-folder audit is frozen at `docs/audits/2026-07-29-strategy-refactor-audit.md`: V2 actually runs `testnet_sampling_v2` on 15m and emits V2 `TradeCandidate`; the legacy active manifest still points to `trend_momentum_v1` on the 4h/1h/15m path.

@@ -11,8 +11,8 @@ Two layers live here:
    "默认 CI 跳过真实网络测试".
 
 Gate 16 requires real order ids, real trade ids, protection from the real fill,
-a real reduce-only exit, and a final zeroed position — and still forbids
-claiming the natural strategy loop works.
+a real reduce-only exit, and restoration of the pre-run exchange baseline —
+and still forbids claiming the natural strategy loop works.
 """
 
 from __future__ import annotations
@@ -28,10 +28,13 @@ import pytest
 from scripts.verify_automated_trading_testnet_contract import (
     ContractEvidence,
     ContractStep,
+    _contract_excess_quantity,
+    _position_matches_baseline,
     _preflight,
     run_contract,
     write_evidence,
 )
+from services.automated_trading.infrastructure.market_snapshot_provider import ExchangePositionSnapshot
 
 CONTRACT_ENABLED = os.getenv("V2_TESTNET_CONTRACT_ENABLED", "false").lower() == "true"
 requires_testnet = pytest.mark.skipif(
@@ -145,6 +148,59 @@ class TestEvidenceContract:
         assert len(evidence.steps) == 2
         assert [s.passed for s in evidence.steps] == [True, False]
 
+    def test_cleanup_preserves_preexisting_manual_long_baseline(self) -> None:
+        position = ExchangePositionSnapshot(
+            symbol="BTC/USDT",
+            direction="long",
+            quantity=Decimal("0.0113"),
+            entry_price=Decimal("63000"),
+            mark_price=Decimal("63100"),
+            unrealized_pnl=Decimal("1"),
+            leverage=1,
+        )
+
+        assert _contract_excess_quantity(
+            position,
+            baseline_direction="long",
+            baseline_quantity=Decimal("0.0105"),
+            contract_direction="long",
+        ) == Decimal("0.0008")
+
+    def test_cleanup_preserves_preexisting_manual_short_baseline(self) -> None:
+        position = ExchangePositionSnapshot(
+            symbol="BTC/USDT",
+            direction="short",
+            quantity=Decimal("0.0113"),
+            entry_price=Decimal("63000"),
+            mark_price=Decimal("62900"),
+            unrealized_pnl=Decimal("1"),
+            leverage=1,
+        )
+
+        assert _contract_excess_quantity(
+            position,
+            baseline_direction="short",
+            baseline_quantity=Decimal("0.0105"),
+            contract_direction="short",
+        ) == Decimal("0.0008")
+
+    def test_final_position_matches_manual_baseline(self) -> None:
+        position = ExchangePositionSnapshot(
+            symbol="BTC/USDT",
+            direction="long",
+            quantity=Decimal("0.0105"),
+            entry_price=Decimal("63000"),
+            mark_price=Decimal("63100"),
+            unrealized_pnl=Decimal("1"),
+            leverage=1,
+        )
+
+        assert _position_matches_baseline(
+            position,
+            baseline_direction="long",
+            baseline_quantity=Decimal("0.0105"),
+        )
+
 
 # ---------------------------------------------------------------------------
 # Real network contract (skipped by default)
@@ -171,7 +227,11 @@ class TestRealTestnetContract:
         assert evidence.exit_trade_ids, "no real exit trade id"
 
         assert evidence.final_exchange_position_qty is not None
-        assert Decimal(evidence.final_exchange_position_qty) == 0, "final exchange position is not flat"
+        assert evidence.baseline_exchange_position_qty is not None
+        assert Decimal(evidence.final_exchange_position_qty) == Decimal(evidence.baseline_exchange_position_qty), (
+            "final exchange position did not return to its pre-contract baseline"
+        )
+        assert evidence.final_new_open_orders == 0, "contract left new open orders behind"
 
         assert evidence.overall_passed, [s.name for s in evidence.steps if not s.passed]
 

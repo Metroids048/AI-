@@ -4,7 +4,7 @@
 Proves the *infrastructure* contract with real network calls: credentials,
 server time, market rules, a minimal market entry, real order id, real trade
 id, fill receipt, stop/take-profit submission, reduce-only exit, and a final
-zeroed position.
+position restored to the pre-run exchange baseline.
 
 This is explicitly NOT proof that the natural strategy loop works. The emitted
 evidence is tagged:
@@ -18,7 +18,8 @@ Safety:
 - Requires V2_TESTNET_CONTRACT_ENABLED=true and real Testnet credentials.
 - Refuses to run if mainnet is configured in any way.
 - Uses the smallest viable notional.
-- Always attempts compensating cleanup on failure (cancel orders, flatten).
+- Preserves pre-existing manual position quantity and open orders as baseline.
+- Always attempts compensating cleanup on failure (cancel contract orders, restore baseline).
 - Never writes credentials into the evidence bundle.
 
 Usage:
@@ -65,6 +66,10 @@ class ContractEvidence:
     completed_at: str = ""
     account_id_hash: str | None = None
     exchange_server_time: str | None = None
+    baseline_exchange_position_direction: str | None = None
+    baseline_exchange_position_qty: str | None = None
+    baseline_exchange_open_orders: int | None = None
+    contract_direction: str | None = None
     entry_exchange_order_id: str | None = None
     entry_trade_ids: list[str] = field(default_factory=list)
     entry_avg_fill_price: str | None = None
@@ -75,6 +80,7 @@ class ContractEvidence:
     exit_trade_ids: list[str] = field(default_factory=list)
     final_exchange_position_qty: str | None = None
     final_exchange_open_orders: int | None = None
+    final_new_open_orders: int | None = None
     network_calls: int = 0
     real_exchange_orders: int = 0
     steps: list[ContractStep] = field(default_factory=list)
@@ -131,11 +137,45 @@ def _poll_fills(
         time.sleep(poll_seconds)
 
 
-def _symbol_state(snapshot: Any, symbol: str) -> tuple[Decimal, list[Any]]:
+def _symbol_state(snapshot: Any, symbol: str) -> tuple[Any | None, list[Any]]:
     position = next((item for item in snapshot.positions if item.symbol == symbol), None)
-    quantity = Decimal(str(position.quantity)) if position is not None else Decimal("0")
     orders = [item for item in snapshot.pending_orders if item.symbol == symbol]
-    return quantity, orders
+    return position, orders
+
+
+def _contract_excess_quantity(
+    position: Any | None,
+    *,
+    baseline_direction: str | None,
+    baseline_quantity: Decimal,
+    contract_direction: str,
+) -> Decimal:
+    """Return only the contract quantity added above the account baseline.
+
+    On Binance one-way mode, manual and automated lots share one aggregate
+    exchange position. Gate 16 therefore adds risk in the baseline direction
+    and cleanup restores the exact pre-run quantity instead of flattening.
+    """
+    if position is None:
+        return Decimal("0")
+    direction = str(position.direction)
+    quantity = Decimal(str(position.quantity))
+    if direction != contract_direction:
+        return Decimal("0")
+    if baseline_direction is not None and direction != baseline_direction:
+        return Decimal("0")
+    return max(Decimal("0"), quantity - baseline_quantity)
+
+
+def _position_matches_baseline(
+    position: Any | None,
+    *,
+    baseline_direction: str | None,
+    baseline_quantity: Decimal,
+) -> bool:
+    if position is None:
+        return baseline_direction is None and baseline_quantity == 0
+    return str(position.direction) == baseline_direction and Decimal(str(position.quantity)) == baseline_quantity
 
 
 def _round_quantity_up_to_step(quantity: Decimal, step: Decimal) -> Decimal:
@@ -187,6 +227,13 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
     adapter = BinanceTestnetAdapter(execution_mode=V2ExecutionMode.BINANCE_TESTNET)
     intent_id = f"contract-{int(time.time())}"
 
+    baseline_direction: str | None = None
+    baseline_quantity = Decimal("0")
+    baseline_order_ids: set[str] = set()
+    contract_direction = "long"
+    entry_side = "buy"
+    exit_side = "sell"
+
     # --- 2. Authoritative snapshot (server time + account identity) ---
     try:
         snapshot = adapter.fetch_authoritative_snapshot()
@@ -199,16 +246,28 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
                 f"server_time={evidence.exchange_server_time}",
             )
         )
-        existing_qty, existing_orders = _symbol_state(snapshot, symbol)
-        exchange_flat = existing_qty == 0 and not existing_orders
+        existing_position, existing_orders = _symbol_state(snapshot, symbol)
+        if existing_position is not None:
+            baseline_direction = str(existing_position.direction)
+            baseline_quantity = Decimal(str(existing_position.quantity))
+        contract_direction = baseline_direction or "long"
+        entry_side = "buy" if contract_direction == "long" else "sell"
+        exit_side = "sell" if contract_direction == "long" else "buy"
+        baseline_order_ids = {str(item.exchange_order_id) for item in existing_orders}
+        evidence.baseline_exchange_position_direction = baseline_direction
+        evidence.baseline_exchange_position_qty = str(baseline_quantity)
+        evidence.baseline_exchange_open_orders = len(existing_orders)
+        evidence.contract_direction = contract_direction
+        compatible_baseline = contract_direction in {"long", "short"}
         evidence.add(
             ContractStep(
-                "preflight_exchange_flat",
-                exchange_flat,
-                f"position={existing_qty} open_orders={len(existing_orders)}",
+                "preflight_exchange_baseline",
+                compatible_baseline,
+                f"direction={baseline_direction} position={baseline_quantity} contract={contract_direction} "
+                f"open_orders={len(existing_orders)}; contract restores this baseline",
             )
         )
-        if not exchange_flat:
+        if not compatible_baseline:
             evidence.completed_at = datetime.now(UTC).isoformat()
             return evidence
     except Exception as exc:  # noqa: BLE001
@@ -261,7 +320,7 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
                     client_order_id=entry_coid,
                 ),
                 symbol,
-                "buy",
+                entry_side,
             )
             evidence.network_calls += 1
             evidence.real_exchange_orders += 1
@@ -323,8 +382,12 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
 
         # --- 6. Protection orders (priced from the REAL fill) ---
         if avg_price and avg_price > 0 and filled_qty > 0:
-            stop_price = (avg_price * Decimal("0.99")).quantize(market.tick_size)
-            target_price = (avg_price * Decimal("1.02")).quantize(market.tick_size)
+            if contract_direction == "long":
+                stop_price = (avg_price * Decimal("0.99")).quantize(market.tick_size)
+                target_price = (avg_price * Decimal("1.02")).quantize(market.tick_size)
+            else:
+                stop_price = (avg_price * Decimal("1.01")).quantize(market.tick_size)
+                target_price = (avg_price * Decimal("0.98")).quantize(market.tick_size)
             stop_coid = stop_client_order_id(intent_id)
             target_coid = target_client_order_id(intent_id)
             try:
@@ -337,7 +400,7 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
                         tp_client_order_id=target_coid,
                     ),
                     symbol,
-                    "sell",
+                    exit_side,
                     filled_qty,
                 )
                 evidence.network_calls += 1
@@ -390,7 +453,7 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
                         client_order_id=exit_client_order_id(intent_id),
                     ),
                     symbol,
-                    "sell",
+                    exit_side,
                 )
                 evidence.network_calls += 1
                 evidence.real_exchange_orders += 1
@@ -433,9 +496,14 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
         try:
             cleanup_snapshot = adapter.fetch_authoritative_snapshot()
             evidence.network_calls += 1
-            remaining_qty, _ = _symbol_state(cleanup_snapshot, symbol)
-            if remaining_qty > 0 and evidence.entry_exchange_order_id:
-                cleanup_qty = remaining_qty
+            remaining_position, _ = _symbol_state(cleanup_snapshot, symbol)
+            cleanup_qty = _contract_excess_quantity(
+                remaining_position,
+                baseline_direction=baseline_direction,
+                baseline_quantity=baseline_quantity,
+                contract_direction=contract_direction,
+            )
+            if cleanup_qty > 0 and evidence.entry_exchange_order_id:
                 cleanup_receipt = adapter.submit_reduce_only_exit(
                     SubmitReduceOnlyExit(
                         position_id=intent_id,
@@ -445,7 +513,7 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
                         is_emergency=True,
                     ),
                     symbol,
-                    "sell",
+                    exit_side,
                 )
                 evidence.network_calls += 1
                 evidence.real_exchange_orders += 1
@@ -467,12 +535,22 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
                         f"exchange_order_id={cleanup_receipt.exchange_order_id} qty={cleanup_qty}",
                     )
                 )
-            elif remaining_qty < 0:
+            elif not _position_matches_baseline(
+                remaining_position,
+                baseline_direction=baseline_direction,
+                baseline_quantity=baseline_quantity,
+            ):
+                current_direction = str(remaining_position.direction) if remaining_position is not None else None
+                current_quantity = (
+                    Decimal(str(remaining_position.quantity)) if remaining_position is not None else Decimal("0")
+                )
                 evidence.add(
                     ContractStep(
                         "compensating_reduce_only_exit",
                         False,
-                        f"refused to touch unexpected external short position {remaining_qty}",
+                        "refused to alter external baseline mismatch: "
+                        f"expected={baseline_direction}:{baseline_quantity} "
+                        f"actual={current_direction}:{current_quantity}",
                     )
                 )
         except Exception as exc:  # noqa: BLE001
@@ -482,21 +560,30 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
         try:
             final_snapshot = adapter.fetch_authoritative_snapshot()
             evidence.network_calls += 1
-            final_qty, final_orders = _symbol_state(final_snapshot, symbol)
+            final_position, final_orders = _symbol_state(final_snapshot, symbol)
+            final_qty = Decimal(str(final_position.quantity)) if final_position is not None else Decimal("0")
             evidence.final_exchange_position_qty = str(final_qty)
             evidence.final_exchange_open_orders = len(final_orders)
+            final_new_orders = [item for item in final_orders if str(item.exchange_order_id) not in baseline_order_ids]
+            evidence.final_new_open_orders = len(final_new_orders)
             evidence.add(
                 ContractStep(
-                    "final_position_zero",
-                    final_qty == 0,
-                    f"final exchange position = {final_qty}",
+                    "final_position_baseline_restored",
+                    _position_matches_baseline(
+                        final_position,
+                        baseline_direction=baseline_direction,
+                        baseline_quantity=baseline_quantity,
+                    ),
+                    f"final={getattr(final_position, 'direction', None)}:{final_qty} "
+                    f"baseline={baseline_direction}:{baseline_quantity}",
                 )
             )
             evidence.add(
                 ContractStep(
-                    "final_open_orders_zero",
-                    not final_orders,
-                    f"final exchange open orders = {len(final_orders)}",
+                    "final_contract_open_orders_zero",
+                    not final_new_orders,
+                    f"final open orders={len(final_orders)} baseline={len(baseline_order_ids)} "
+                    f"new={len(final_new_orders)}",
                 )
             )
         except Exception as exc:  # noqa: BLE001

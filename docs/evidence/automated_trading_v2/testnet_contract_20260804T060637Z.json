@@ -1,0 +1,46 @@
+{
+  "proof_type": "TESTNET_CONTRACT",
+  "natural_strategy": false,
+  "symbol": "BTC/USDT",
+  "started_at": "2026-08-04T06:06:14.883699+00:00",
+  "completed_at": "2026-08-04T06:06:37.135791+00:00",
+  "account_id_hash": null,
+  "exchange_server_time": "2026-08-04T06:06:37.135791+00:00",
+  "baseline_exchange_position_direction": "short",
+  "baseline_exchange_position_qty": "0.0105",
+  "baseline_exchange_open_orders": 0,
+  "entry_exchange_order_id": null,
+  "entry_trade_ids": [],
+  "entry_avg_fill_price": null,
+  "entry_filled_quantity": null,
+  "stop_exchange_order_id": null,
+  "take_profit_exchange_order_id": null,
+  "exit_exchange_order_id": null,
+  "exit_trade_ids": [],
+  "final_exchange_position_qty": null,
+  "final_exchange_open_orders": null,
+  "final_new_open_orders": null,
+  "network_calls": 1,
+  "real_exchange_orders": 0,
+  "steps": [
+    {
+      "name": "preflight",
+      "passed": true,
+      "detail": "preflight ok",
+      "data": {}
+    },
+    {
+      "name": "authoritative_snapshot",
+      "passed": true,
+      "detail": "server_time=2026-08-04T06:06:37.135791+00:00",
+      "data": {}
+    },
+    {
+      "name": "preflight_exchange_baseline",
+      "passed": false,
+      "detail": "direction=short position=0.0105 open_orders=0; contract restores this baseline",
+      "data": {}
+    }
+  ],
+  "overall_passed": false
+}

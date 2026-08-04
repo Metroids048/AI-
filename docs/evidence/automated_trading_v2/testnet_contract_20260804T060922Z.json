@@ -1,0 +1,115 @@
+{
+  "proof_type": "TESTNET_CONTRACT",
+  "natural_strategy": false,
+  "symbol": "BTC/USDT",
+  "started_at": "2026-08-04T06:08:37.384849+00:00",
+  "completed_at": "2026-08-04T06:09:22.813476+00:00",
+  "account_id_hash": null,
+  "exchange_server_time": "2026-08-04T06:09:09.120147+00:00",
+  "baseline_exchange_position_direction": "short",
+  "baseline_exchange_position_qty": "0.0105",
+  "baseline_exchange_open_orders": 0,
+  "contract_direction": "short",
+  "entry_exchange_order_id": "27941708499",
+  "entry_trade_ids": [
+    "524311879"
+  ],
+  "entry_avg_fill_price": "63814.8",
+  "entry_filled_quantity": "0.0008",
+  "stop_exchange_order_id": "1000000155928815",
+  "take_profit_exchange_order_id": "1000000155928828",
+  "exit_exchange_order_id": "27941708544",
+  "exit_trade_ids": [
+    "524311888"
+  ],
+  "final_exchange_position_qty": "0.0105",
+  "final_exchange_open_orders": 0,
+  "final_new_open_orders": 0,
+  "network_calls": 11,
+  "real_exchange_orders": 3,
+  "steps": [
+    {
+      "name": "preflight",
+      "passed": true,
+      "detail": "preflight ok",
+      "data": {}
+    },
+    {
+      "name": "authoritative_snapshot",
+      "passed": true,
+      "detail": "server_time=2026-08-04T06:09:09.120147+00:00",
+      "data": {}
+    },
+    {
+      "name": "preflight_exchange_baseline",
+      "passed": true,
+      "detail": "direction=short position=0.0105 contract=short open_orders=0; contract restores this baseline",
+      "data": {}
+    },
+    {
+      "name": "market_rules",
+      "passed": true,
+      "detail": "price=63815.0 tick=0.1 step=0.0001 min_notional=50.0",
+      "data": {
+        "tick_size": "0.1",
+        "step_size": "0.0001",
+        "min_notional": "50.0"
+      }
+    },
+    {
+      "name": "entry_submit",
+      "passed": true,
+      "detail": "exchange_order_id=27941708499 qty=0.0008",
+      "data": {}
+    },
+    {
+      "name": "entry_fill_receipt",
+      "passed": true,
+      "detail": "trade_ids=['524311879'] filled=0.0008 avg_price=63814.8",
+      "data": {}
+    },
+    {
+      "name": "protection_submit",
+      "passed": true,
+      "detail": "stop=1000000155928815 target=1000000155928828 (stop_price=64452.9 from real fill 63814.8)",
+      "data": {}
+    },
+    {
+      "name": "reduce_only_exit",
+      "passed": true,
+      "detail": "exchange_order_id=27941708544",
+      "data": {}
+    },
+    {
+      "name": "exit_fill_receipt",
+      "passed": true,
+      "detail": "trade_ids=['524311888']",
+      "data": {}
+    },
+    {
+      "name": "cancel_stop",
+      "passed": true,
+      "detail": "cancelled 1000000155928815",
+      "data": {}
+    },
+    {
+      "name": "cancel_take_profit",
+      "passed": true,
+      "detail": "cancelled 1000000155928828",
+      "data": {}
+    },
+    {
+      "name": "final_position_baseline_restored",
+      "passed": true,
+      "detail": "final=short:0.0105 baseline=short:0.0105",
+      "data": {}
+    },
+    {
+      "name": "final_contract_open_orders_zero",
+      "passed": true,
+      "detail": "final open orders=0 baseline=0 new=0",
+      "data": {}
+    }
+  ],
+  "overall_passed": true
+}

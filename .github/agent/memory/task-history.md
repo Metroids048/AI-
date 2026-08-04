@@ -1,5 +1,12 @@
 # Task History
 
+### [TASK-V2-GATE16-MANUAL-BASELINE] Preserve manual Testnet positions during contract proof
+- **Date**: 2026-08-04
+- **Type**: Automated Trading V2 / Testnet execution evidence
+- **Summary**: Resumed Gate 16 from the failed opt-in preflight. The contract verifier incorrectly required BTC to be flat and its compensating cleanup could flatten an operator-owned position. Changed the verifier to snapshot the pre-run position/open-order baseline, follow the existing position direction in Binance one-way mode, submit protection/exit only for the contract increment, cancel only contract-owned orders, and require the final exchange state to return to the original baseline. Enabled the existing `allow_entry_with_unmanaged_positions` operator flag on the active directional PaperRun and restarted the standard local console stack.
+- **Real evidence**: BTC manual baseline remained `short 0.0105`; contract entry `27941708499` / trade `524311879` added `0.0008`; protection orders `1000000155928815` and `1000000155928828`; reduce-only exit `27941708544` / trade `524311888`; final BTC position restored to `short 0.0105`, final new open orders `0`. Evidence: `docs/evidence/automated_trading_v2/testnet_contract_20260804T060922Z.json`.
+- **Safety**: Mainnet stayed disabled. The verifier did not adopt, close, or attach protection to the manual baseline. `natural_strategy=false`; this remains infrastructure-contract evidence only.
+
 ### [TASK-STRATEGY-READINESS-02] Complete history, freeze corrected baseline, reject legacy candidate
 - **Date**: 2026-07-30
 - **Type**: Strategy readiness / deterministic validation
