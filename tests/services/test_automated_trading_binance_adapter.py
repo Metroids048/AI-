@@ -324,16 +324,18 @@ def test_fetch_fills_returns_tuple_of_fill_receipts():
     mock_client.fetch_my_trades.return_value = [
         {
             "id": "trade_1",
+            "order": "exchange_order_456",
             "amount": "0.05",
             "price": "50000.0",
-            "fee": {"cost": "2.5"},
+            "fee": {"cost": "2.5", "currency": "USDT"},
             "timestamp": 1700000000000,
         },
         {
             "id": "trade_2",
+            "order": "exchange_order_456",
             "amount": "0.05",
             "price": "50100.0",
-            "fee": {"cost": "2.5"},
+            "fee": {"cost": "2.5", "currency": "USDT"},
             "timestamp": 1700000001000,
         },
     ]
@@ -366,9 +368,10 @@ def test_fetch_fills_resolves_algo_order_to_actual_filled_order() -> None:
         [
             {
                 "id": "309068467",
+                "order": "14984144295",
                 "amount": "0.164",
                 "price": "1909.35",
-                "fee": {"cost": "0.12525336"},
+                "fee": {"cost": "0.12525336", "currency": "USDT"},
                 "timestamp": 1785381075368,
             }
         ],

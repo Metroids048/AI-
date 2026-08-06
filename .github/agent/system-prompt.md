@@ -16,4 +16,3 @@
 - 将平台降级为单脚本量化机器人
 - 省略 Validation Layer / Risk Engine / Review Layer
 - 让 WorldQuant 或单一策略源主导系统架构
-

@@ -1,7 +1,7 @@
 # Carry策略Delta-Neutral修复方案
 
-**日期**: 2026-07-15  
-**优先级**: P0（结构性缺陷修复）  
+**日期**: 2026-07-15
+**优先级**: P0（结构性缺陷修复）
 **状态**: 设计中
 
 ## 问题描述
@@ -38,7 +38,7 @@ class HedgedLeg(PlatformModel):
     direction: TradeSide
     order_type: OrderType
     is_spot: bool = False  # True=现货, False=永续
-    
+
 class ExecutionOrderRequest(PlatformModel):
     # 原有字段...
     hedged_legs: list[HedgedLeg] | None = None  # None=单腿, 非空=多腿对冲
@@ -99,7 +99,7 @@ class CarryOrderRequest(PlatformModel):
 
 ## 推荐方案
 
-**短期（本次修复）**：方案B - 策略内部协调  
+**短期（本次修复）**：方案B - 策略内部协调
 **中期（层3候选注册表完成后）**：方案A - 双腿订单模型
 
 理由：
@@ -114,7 +114,7 @@ class CarryOrderRequest(PlatformModel):
 ```python
 def _carry_decision(...) -> DecisionPipelineResult:
     # ... 现有逻辑 ...
-    
+
     # 新增：对冲腿信息
     hedge_leg = None
     if should_trade:
@@ -127,7 +127,7 @@ def _carry_decision(...) -> DecisionPipelineResult:
             "is_spot": True,
             "reason": "delta_neutral_hedge",
         }
-    
+
     return DecisionPipelineResult(
         # ...
         trace={
@@ -145,7 +145,7 @@ def _carry_decision(...) -> DecisionPipelineResult:
 def execute_order(self, order_request: ExecutionOrderRequest):
     # 下主腿（永续）
     main_leg_result = self._place_order(...)
-    
+
     # 检查是否需要对冲腿
     hedge_leg = order_request.entry_context.get("hedge_leg")
     if hedge_leg and main_leg_result.success:
@@ -159,7 +159,7 @@ def execute_order(self, order_request: ExecutionOrderRequest):
             # 回滚主腿
             self._cancel_or_close(main_leg_result.order_id)
             return ExecutionResult(success=False, reason="hedge_leg_failed")
-    
+
     return main_leg_result
 ```
 

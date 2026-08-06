@@ -165,6 +165,37 @@ def test_external_position_without_identity_is_quarantined():
     assert result.discrepancies[0].code is DiscrepancyCode.EXTERNAL_POSITION_UNCLAIMABLE
 
 
+def test_explicit_external_baseline_is_preserved_without_adoption():
+    """An operator-captured baseline remains external and does not block Entry."""
+    snapshot = _snapshot(positions=[_exchange_position(quantity="0.1")])
+    local = LocalStateView(external_baseline_positions={"BTC/USDT:long": Decimal("0.1")})
+
+    result = reconcile(snapshot, local, reconciled_at=NOW)
+
+    assert result.status is ReconciliationStatus.HEALTHY
+    assert result.discrepancies == ()
+    assert result.entry_allowed_for("BTC/USDT") is True
+
+
+def test_managed_quantity_is_checked_above_external_baseline():
+    """A managed entry may add quantity, but the baseline is never attributed to it."""
+    snapshot = _snapshot(positions=[_exchange_position(quantity="0.2")])
+    local = LocalStateView(
+        positions=(_local_position(quantity="0.1"),),
+        external_baseline_positions={"BTC/USDT:long": Decimal("0.1")},
+    )
+
+    result = reconcile(
+        snapshot,
+        local,
+        reconciled_at=NOW,
+        exchange_position_claim_refs={"BTC/USDT:long": frozenset({"pos_1"})},
+    )
+
+    assert result.status is ReconciliationStatus.HEALTHY
+    assert result.entry_allowed_for("BTC/USDT") is True
+
+
 def test_symbol_proximity_alone_does_not_claim_position():
     """Ownership requires identity; same symbol/direction/quantity is not enough."""
     snapshot = _snapshot(positions=[_exchange_position()])

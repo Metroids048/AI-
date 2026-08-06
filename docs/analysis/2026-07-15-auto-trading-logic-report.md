@@ -1,7 +1,7 @@
 # 7x24小时自动开平单逻辑详细报告
 
-**生成时间**: 2026-07-15  
-**系统版本**: Phase 0 完成 + P1落地  
+**生成时间**: 2026-07-15
+**系统版本**: Phase 0 完成 + P1落地
 **报告目的**: 详细梳理当前币安模拟盘自动交易逻辑、策略配置、风控机制和修改方法
 
 ---
@@ -48,7 +48,7 @@ PaperRuntimeService.run_cycle()
 ## 二、三大策略通道 (Strategy Lanes)
 
 ### 2.1 Directional Lane (方向性交易)
-**策略Key**: `auto_paper_mature_templates`  
+**策略Key**: `auto_paper_mature_templates`
 **核心逻辑**: 多时间框架技术指标融合
 
 #### 信号生成器 (8个)
@@ -89,7 +89,7 @@ protection_timeframe = "1m"    # 止损/止盈保护
 ---
 
 ### 2.2 Carry Lane (资金费率套利)
-**策略Key**: `auto_paper_btc_funding`  
+**策略Key**: `auto_paper_btc_funding`
 **核心逻辑**: 做空高费率永续合约,同时做多现货对冲
 
 #### 入场条件
@@ -120,13 +120,13 @@ hedge_order = {
 - **标准交易对**: 5bps taker, 3bps滑点
 - **往返成本**: 2 × (fee + slippage) = 12-16 bps
 
-**当前状态**: ❌ 未开单  
+**当前状态**: ❌ 未开单
 **原因**: 真实资金费率0.3-1 bps/8h,无法覆盖12bps往返成本
 
 ---
 
 ### 2.3 Cross-Sectional Carry (跨截面套利)
-**策略Key**: `auto_paper_cross_sectional_carry`  
+**策略Key**: `auto_paper_cross_sectional_carry`
 **核心逻辑**: 做空Top3高费率币种,做多Top3低费率币种
 
 #### 排名机制
@@ -134,10 +134,10 @@ hedge_order = {
 def compute_funding_rank_snapshot():
     # 获取所有Top20的最新资金费率
     ranked = sorted(symbols, key=lambda s: get_funding_rate(s))
-    
+
     long_basket = ranked[:3]   # 费率最低的3个(可能为负)
     short_basket = ranked[-3:]  # 费率最高的3个
-    
+
     return {
         symbol: {
             "basket_side": "long_candidate" if in long_basket else "short_candidate",
@@ -151,7 +151,7 @@ def compute_funding_rank_snapshot():
 - **排名滑出**: 当某币种不再位于Top3/Bottom3时自动平仓
 - **再平衡**: 每8小时重新排名
 
-**当前状态**: ❌ 研究候选,未启用  
+**当前状态**: ❌ 研究候选,未启用
 **原因**: 历史回测显示17.4%胜率,-46.7%累计收益 (2026-07-13审计)
 
 ---
@@ -202,32 +202,32 @@ AUTO_PAPER_TECHNICAL_RULES = {
     "entry_rules": {
         # 多时间框架模型
         "direction_timeframe": "4h",
-        "state_timeframe": "1h", 
+        "state_timeframe": "1h",
         "entry_timeframe": "15m",
-        
+
         # 信号配置
         "direction_signals": ["dow_trend", "ema_trend", "adx", "mtf_ma"],
         "entry_signals": ["macd", "price_action", "rsi", "vwap", "bollinger", "fvg"],
-        
+
         # MetaLabel阈值
         "meta_label_min_win_rate": 0.50,
-        
+
         # 费用假设 (真实Binance费率)
         "core_fee_bps": 5.0,        # BTC/ETH/SOL taker费率
         "core_slippage_bps": 1.0,
         "standard_fee_bps": 5.0,
         "standard_slippage_bps": 3.0,
     },
-    
+
     "stoploss_rules": {
         "atr_multiple": 2.0,
         "fixed_bps": 250
     },
-    
+
     "takeprofit_rules": {
         "risk_reward": 2.0  # 固定2R止盈
     },
-    
+
     "position_rules": {
         "risk_per_trade": 0.025,                      # 2.5%
         "max_portfolio_initial_risk_fraction": 0.15, # 15%
@@ -248,7 +248,7 @@ AUTO_PAPER_STRATEGY_RULES = {
         "fee_bps": 5.0,
         "slippage_bps": 3.0
     },
-    
+
     "position_rules": {
         "risk_per_trade": 0.015,    # 1.5%
         "max_leverage": 15,
@@ -363,7 +363,7 @@ LIMIT 20;
 
 **查看持仓状态**:
 ```sql
-SELECT symbol, side, quantity, entry_price, mark_price, 
+SELECT symbol, side, quantity, entry_price, mark_price,
        (mark_price - entry_price) * quantity AS unrealized_pnl
 FROM position_snapshots
 WHERE run_type = 'paper'
@@ -373,7 +373,7 @@ ORDER BY snapshot_time DESC;
 
 **查看账户权益历史**:
 ```sql
-SELECT paper_run_id, 
+SELECT paper_run_id,
        paper_metrics_summary->>'account_equity' AS equity,
        paper_metrics_summary->>'net_realized_pnl_total' AS realized_pnl,
        paper_metrics_summary->>'last_cycle_at' AS last_cycle
@@ -410,8 +410,8 @@ curl http://localhost:8016/api/v1/console/paper-status/your-paper-run-id \
 **诊断步骤**:
 1. 检查`decision_snapshots`表,查看`pipeline_status`分布:
    ```sql
-   SELECT pipeline_status, COUNT(*) 
-   FROM decision_snapshots 
+   SELECT pipeline_status, COUNT(*)
+   FROM decision_snapshots
    WHERE cycle_time > NOW() - INTERVAL '24 hours'
    GROUP BY pipeline_status;
    ```
@@ -456,22 +456,22 @@ curl http://localhost:8016/api/v1/console/paper-status/your-paper-run-id \
 根据2026-07-13和2026-07-14的真实数据审计(TASK-059, ADR-063):
 
 **三种策略形态的实际表现**:
-1. **Directional (方向性)**: 
+1. **Directional (方向性)**:
    - OOS净期望: -0.23%
    - 结论: 8指标融合后扣除6bps成本仍为负
 
-2. **Single-Symbol Carry (单币种资金费率)**: 
+2. **Single-Symbol Carry (单币种资金费率)**:
    - 真实资金费率: 0.3-1 bps/8h
    - 往返成本: 12bps
    - 结论: 收益无法覆盖成本
 
-3. **Cross-Sectional Carry (跨截面套利)**: 
+3. **Cross-Sectional Carry (跨截面套利)**:
    - 历史胜率: 17.4%
    - 累计收益: -46.7%
    - 结论: 未启用,研究候选阶段
 
 ### 8.2 系统行为判定
-✅ **代码正常运行**: 
+✅ **代码正常运行**:
 - RuntimeScheduler每60秒正常触发
 - 数据新鲜度检查通过
 - 信号生成流程完整
@@ -492,7 +492,7 @@ curl http://localhost:8016/api/v1/console/paper-status/your-paper-run-id \
 ## 九、下一步建议
 
 ### 9.1 策略优化方向
-1. **开发新策略形态**: 
+1. **开发新策略形态**:
    - 1d/4h中期Swing策略 (已注册未验证)
    - 波动率突破策略
    - 流动性挖矿策略
@@ -508,16 +508,16 @@ curl http://localhost:8016/api/v1/console/paper-status/your-paper-run-id \
    - 社媒情绪分析
 
 ### 9.2 不应采取的行动
-❌ **放宽成本门槛**: 保持`net_edge_after_cost`规则,避免长期亏损  
-❌ **跳过验证层**: 新策略必须先通过历史回测  
-❌ **取消止损规则**: 违反AGENTS.md强制要求  
+❌ **放宽成本门槛**: 保持`net_edge_after_cost`规则,避免长期亏损
+❌ **跳过验证层**: 新策略必须先通过历史回测
+❌ **取消止损规则**: 违反AGENTS.md强制要求
 ❌ **人工干预开单**: 破坏系统化交易原则
 
 ### 9.3 监控建议
 1. **每日查看拒绝原因分布**:
    ```sql
-   SELECT rejection_codes, COUNT(*) 
-   FROM order_executions 
+   SELECT rejection_codes, COUNT(*)
+   FROM order_executions
    WHERE created_at > NOW() - INTERVAL '1 day'
    GROUP BY rejection_codes;
    ```
@@ -531,10 +531,10 @@ curl http://localhost:8016/api/v1/console/paper-status/your-paper-run-id \
 ## 十、总结
 
 ### 10.1 当前状态
-✅ **机械执行**: 完整,7x24稳定运行  
-✅ **风控体系**: 22条门禁,fail-closed设计  
-✅ **数据完整**: Top20 OHLCV、资金费率、技术指标齐全  
-✅ **Binance对接**: Testnet镜像执行正常  
+✅ **机械执行**: 完整,7x24稳定运行
+✅ **风控体系**: 22条门禁,fail-closed设计
+✅ **数据完整**: Top20 OHLCV、资金费率、技术指标齐全
+✅ **Binance对接**: Testnet镜像执行正常
 ❌ **盈利能力**: 三种策略形态均未通过成本门槛
 
 ### 10.2 核心认知
@@ -550,8 +550,8 @@ curl http://localhost:8016/api/v1/console/paper-status/your-paper-run-id \
 
 ---
 
-**报告作者**: Claude (Kiro AI Development Environment)  
-**参考文档**: 
+**报告作者**: Claude (Kiro AI Development Environment)
+**参考文档**:
 - `.github/agent/memory/decisions-log.md` (ADR-058至ADR-064)
 - `.github/agent/memory/project-memory.md`
 - `.github/agent/memory/task-history.md` (TASK-059, TASK-061)

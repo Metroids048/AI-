@@ -2,15 +2,15 @@
 
 ## 问题描述
 
-**发现时间**: 2026-07-15  
-**严重程度**: CRITICAL  
+**发现时间**: 2026-07-15
+**严重程度**: CRITICAL
 **影响范围**: Carry 策略 100% 无法开单
 
 ### 根本原因
 
 `_create_hedge_order_request` 和 `_mark_position_as_hedged` 这两个方法因为**缩进错误**被嵌套在模块级函数 `_parse_datetime` 内部，而不是作为 `PaperRuntimeService` 类的方法存在。
 
-**文件位置**: `services/execution/paper_runtime.py`  
+**文件位置**: `services/execution/paper_runtime.py`
 **错误行号**: 2133-2204 (修复前)
 
 ### 实际影响
@@ -53,7 +53,7 @@ def _parse_datetime(value: object) -> datetime | None:
 # PaperRuntimeService 类内部 (约1986行之后)
 class PaperRuntimeService:
     # ... 其他方法 ...
-    
+
     def _create_hedge_order_request(  # ← 现在是类的方法
         self,
         ...
@@ -203,7 +203,7 @@ python -m mypy services/ shared/
 
 ---
 
-**修复人员**: AI Assistant  
-**审查状态**: 待人工确认  
-**优先级**: CRITICAL  
+**修复人员**: AI Assistant
+**审查状态**: 待人工确认
+**优先级**: CRITICAL
 **状态**: 已修复，待验证

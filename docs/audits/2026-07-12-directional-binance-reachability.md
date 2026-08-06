@@ -10,7 +10,7 @@
 
 **仅本地记账**
 
-方向性自动 paper run 已武装且全局 env 允许镜像，但该 run 下近期订单 **没有** `gateway_order_id`。  
+方向性自动 paper run 已武装且全局 env 允许镜像，但该 run 下近期订单 **没有** `gateway_order_id`。
 Testnet 上可见的成交/持仓，主要来自 **验收脚本路径**（`acceptance_action` / 无 `decision_pipeline`），不能证明方向性 DecisionPipeline 自动开仓已触达交易所。
 
 ## 1. 代码路径（当前，非旧诊断文档）
@@ -32,7 +32,7 @@ Testnet 上可见的成交/持仓，主要来自 **验收脚本路径**（`accep
 
 ### `_trace`（`services/execution/decision_pipeline.py`）
 
-仍 **不写入** `strategy_lane`。采样 keys：`pipeline_status`, `signals`, `ensemble`, `meta_label`, `veto_result`, `volatility`。  
+仍 **不写入** `strategy_lane`。采样 keys：`pipeline_status`, `signals`, `ensemble`, `meta_label`, `veto_result`, `volatility`。
 Carry 仍在 `paper_signal.py` 显式写 `strategy_lane: "carry"`。
 
 ### `default_mirror_to_gateway()`（`bootstrap.py`）
@@ -84,8 +84,8 @@ Carry 仍在 `paper_signal.py` 显式写 `strategy_lane: "carry"`。
 
 ## 4. 后续（不在本阶段改）
 
-1. Phase B：`_trace` 写入 `strategy_lane`（默认 `directional`），便于订单溯源。  
-2. 排查方向性 run 有本地订单却无 gateway 的原因（历史未武装窗口、当时 `pipeline_status` 缺失、或 gateway 提交失败）。  
+1. Phase B：`_trace` 写入 `strategy_lane`（默认 `directional`），便于订单溯源。
+2. 排查方向性 run 有本地订单却无 gateway 的原因（历史未武装窗口、当时 `pipeline_status` 缺失、或 gateway 提交失败）。
 3. Validation OOS 未过门槛前，不把机械触达当成策略准入。
 
 ## 原始探针产物

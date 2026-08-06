@@ -11,7 +11,9 @@ The result carries the funnel record so callers can persist it.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -129,6 +131,25 @@ class LocalStateLoadResult:
     exchange_position_claim_refs: dict[str, frozenset[str]] = field(default_factory=dict)
 
 
+def _load_external_baseline_positions() -> dict[str, Decimal]:
+    """Load an explicit, Testnet-only baseline captured before active startup."""
+    if os.getenv("V2_ALLOW_UNMANAGED_EXTERNAL_POSITIONS", "false").lower() != "true":
+        return {}
+    raw = os.getenv("V2_EXTERNAL_BASELINE_JSON", "").strip()
+    if not raw:
+        raise ValueError("V2_EXTERNAL_BASELINE_JSON is required when unmanaged baseline mode is enabled")
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("V2_EXTERNAL_BASELINE_JSON must be a JSON object")
+    baseline: dict[str, Decimal] = {}
+    for key, value in payload.items():
+        quantity = Decimal(str(value))
+        if quantity <= 0:
+            raise ValueError(f"external baseline quantity must be positive: {key}")
+        baseline[str(key)] = quantity
+    return baseline
+
+
 @dataclass
 class CycleResult:
     """Mutable result accumulated during one cycle."""
@@ -149,6 +170,16 @@ class CycleResult:
         self.errors.append(msg)
 
 
+def _sampling_execution_allowed(request: CycleRequest, candidate: TradeCandidate) -> bool:
+    """Allow the bounded sampling lane to submit only to active Testnet V2."""
+    return (
+        candidate.non_promotable
+        and request.persist_facts
+        and request.execution_mode is V2ExecutionMode.BINANCE_TESTNET
+        and request.engine_activation is EngineActivation.ACTIVE
+    )
+
+
 def _build_local_state(
     adapter,
     execution_mode: V2ExecutionMode,
@@ -161,6 +192,7 @@ def _build_local_state(
     Unit / shadow rehearsal paths pass fail_closed=False and fall back to empty.
     """
     try:
+        external_baseline_positions = _load_external_baseline_positions()
         from sqlalchemy import select
 
         from services.automated_trading.infrastructure.models import (
@@ -302,6 +334,7 @@ def _build_local_state(
                 positions=tuple(positions),
                 intents=intents,
                 known_client_order_ids=frozenset(known_client_order_ids),
+                external_baseline_positions=external_baseline_positions,
             ),
             exchange_position_claim_refs=exchange_position_claim_refs,
         )
@@ -1312,12 +1345,40 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
     candidate = outcome.candidate
     assert candidate is not None
 
-    # Sampling is diagnostic evidence only.  Its candidate contract already
-    # declares it non-promotable, so it must not create an intent, submit an
-    # exchange order, or project a position even when V2 is ACTIVE.
-    if candidate.non_promotable:
+    # Sampling remains non-promotable, but an explicitly armed Testnet
+    # sampling fallback is allowed to exercise the real Exchange-First lane.
+    # This is the bounded Gate 17 canary path: it can never run in SHADOW,
+    # local Paper, or Mainnet, and its fills stay excluded from promotion
+    # metrics by the SAMPLING candidate type.
+    sampling_execution_allowed = _sampling_execution_allowed(request, candidate)
+    if candidate.non_promotable and not sampling_execution_allowed:
         result.funnel_payload["execution_policy"] = "DECISION_TRACE_ONLY"
         return result
+    if sampling_execution_allowed:
+        result.funnel_payload["execution_policy"] = "TESTNET_SAMPLING_EXECUTION"
+
+        # Binance one-way mode aggregates positions by symbol.  An external
+        # baseline can therefore only be extended in the same direction;
+        # submitting the opposite side would reduce or flip the operator's
+        # unmanaged position instead of creating an attributable increment.
+        baseline_directions = {
+            key.rsplit(":", 1)[-1]
+            for key, quantity in _load_external_baseline_positions().items()
+            if key.startswith(f"{request.symbol}:") and quantity > 0
+        }
+        if baseline_directions and candidate.direction not in baseline_directions:
+            _append_funnel_stage(
+                result.funnel_payload,
+                stage="RISK_APPROVED",
+                outcome="REJECTED",
+                reason_code=DecisionReasonCode.UNMANAGED_EXTERNAL_POSITION.value,
+                metrics={
+                    "detail": "external baseline direction conflict",
+                    "baseline_directions": "|".join(sorted(baseline_directions)),
+                    "candidate_direction": candidate.direction,
+                },
+            )
+            return result
 
     entry_enabled = True if not request.persist_facts else _runtime_entry_enabled()
     result.entry_blocked_by_runtime_control = request.persist_facts and not entry_enabled

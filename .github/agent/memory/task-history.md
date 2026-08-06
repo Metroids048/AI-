@@ -708,3 +708,126 @@
 - **Boundary**: Fees read existing runtime config; spread/latency/partial fill remain `ASSUMED` and block promotion. No Final Holdout, DSR/PBO, bootstrap promotion evaluation, parameter tuning or threshold change. Verdict remains `NO_ACTIVE_STRATEGY`.
 - **Gate 16**: Real Binance Testnet entry `25631813075` / trade `523375938`, protection `1000000151515912` and `1000000151515916`, reduce-only exit `25631829915` / trade `523375957`; final BTC position/order counts `0/0`. Evidence is contract-only and `natural_strategy=false`; Gate 17 was not run.
 - **Artifact**: `artifacts/strategy_refactor/phase1-20260731-0000Z-r1` is the immutable Phase 1 evidence directory and records `holdout_results_accessed=false`.
+
+## 2026-08-03 — Frozen v2.0 Legacy Active Writer root-cause repair
+
+- **Runtime truth**: PRE-000 reconfirmed production launchers pin `v2_shadow`; activation is `SHADOW`, legacy remains the writer, and both legacy/V2-shadow scheduler jobs are registered. Invalid modes fail instead of remapping.
+- **Fixes**: Corrected operator profile precedence, made legacy sampling trace-only with no entry/opposite-close authority, made entry leverage setup fail closed, and restored legacy drift defaults to `20bps / 0.25 ATR`. Production changes are limited to the four frozen-plan whitelist files.
+- **Chain evidence**: One Active contract reads both production launcher flags, starts `RuntimeScheduler`, invokes its registered legacy runner, and proves execution-profile API -> NEXT_CYCLE snapshot -> Gatekeeper -> real `BinanceUsdtPerpetualGateway` code -> leverage -> fake exchange fill/protection receipts -> local position. It separately proves sampling and V2 SHADOW have zero exchange/position side effects. No real Binance request was made.
+- **Verification**: legacy target set `114 passed`; V2/runtime set `63 passed`; full `pytest -q` `1282 passed, 16 skipped, 2 warnings`; Ruff clean; mypy clean for 219 files. Legacy freeze ceilings remain unchanged and pass.
+- **Boundary**: A-504 real Binance Testnet canary remains unexecuted pending explicit authorization; no branch, commit, push, migration, engine switch, DB/config mutation, or V2 production edit.
+
+## 2026-08-04 — Legacy natural Scheduler proof observer
+
+- **Change**: Added `scripts/verify_legacy_natural_automated_trading_cycle.py`, a read-only `v2_shadow`/legacy-writer observer with immutable baseline capture, provenance checks, V2 shadow zero-network-order guard, resumable session artifacts, and strict entry -> fill -> protection -> reduce-only exit -> reconciliation state transitions.
+- **Evidence**: Added 23 focused tests covering clean-symbol selection, safety/preflight blockers, exchange fill/protection truth, provenance contamination, V2 baseline safety, incomplete exchange reads, timeout/resume, final reconciliation, and evidence serialization. Full repository `1325 passed, 7 skipped, 7 warnings`; Ruff and mypy passed (`219` source files).
+- **Boundary**: No trading business code, strategy, risk value, engine setting, database state, branch, or exchange write was changed. A live smoke run from a non-launcher shell correctly stopped at `BLOCKED_PREFLIGHT` because its engine was `legacy`; the one-click launcher remains required for the real natural observation.
+
+## 2026-08-05 — QuantDinger selective Shadow bridge and fill normalization
+
+- **Change**: Added a static AST-only QuantDinger 5.0.1 Strategy API V2 manifest bridge with source hash, static symbols/timeframe/warmup/factor/protection discovery. It converts validated BTC/ETH research signals only into `RESEARCH` + `SHADOW` + non-promotable V2 candidates. Both Entry Gate and Entry submission reject those candidates before any exchange call. Added deterministic CCXT and Binance `ORDER_TRADE_UPDATE` fill normalization, `(exchange_order_id, trade_id)` de-duplication, and fail-closed handling unless the exchange supplies order ID, fee amount and USDT fee currency.
+- **Verification**: Targeted bridge/entry/adapter tests `77 passed`; full repository `1345 passed, 7 skipped, 7 warnings`; full Ruff and mypy passed for 222 source files. No Testnet network call, scheduler start, source code execution, risk configuration change, or local position write occurred.
+- **Boundary**: Existing V2 Binance Testnet writer remains authoritative; no QuantDinger mainnet/live, local ledger, grid, multi-exchange execution, UI or branding was introduced. Strategy promotion and real natural open/protect/reduce-only exit evidence remain separate follow-up gates.
+
+## 2026-08-05 — QuantDinger Shadow event and differential-replay boundary
+
+- **Change**: Added hash-bound, strict-schema parsing for externally produced Shadow signals and replay artifacts. Shadow candidates now produce an observable V2 funnel that terminates at `SHADOW_MODE_NO_SUBMIT` before intent/exchange stages. Differential replay requires an aligned signal candle and entry exactly one declared timeframe later, with finite non-negative `Decimal` tolerances; it binds artifact source/version, manifest hash, timeframe, and minimum warmup.
+- **Verification**: Focused bridge/replay/entry/funnel validation `79 passed`; final full `pytest -q` `1353 passed, 16 skipped, 2 warnings`; `ruff check .` passed; `mypy` passed for `223` source files. Independent read-only review found no remaining new Exchange-First bypass, Shadow bypass, or replay-consistency bypass after the fixes.
+- **Boundary**: No QuantDinger source execution, scheduler start, Testnet request, local position write, active-manifest promotion, risk/lever/stop/net-edge change, mainnet, grid, multi-exchange execution, UI, or branding. This is validation and Shadow observability only; it is not OOS performance evidence or real natural Testnet strategy acceptance.
+
+## 2026-08-05 — QuantDinger isolated source runtime and real replay artifact (superseded)
+
+- **Change**: Added the bounded offline/Shadow child-process runtime and CLI
+  artifact path. The parser now accepts only the required artifact fields plus
+  the explicitly reviewed CLI metadata (`strategy_id`, `strategy_version`,
+  `signals`, `rejected_events`) and still rejects unknown fields. Shadow replay
+  exit reasons use the existing local `stoploss`/`takeprofit` vocabulary.
+- **Historical evidence (superseded)**: This entry recorded the first run before
+  duplicate-target, entry-bar, and artifact-contract fixes. Its 320/319/321
+  counts must not be used as the current acceptance evidence; see the later
+  `artifact refresh and contract closure` entry for the current hash and counts.
+- **Verification**: QuantDinger focused tests `16 passed`; source Ruff and
+  mypy passed; the real CLI and comparison both exited 0. The mismatch is
+  retained as a parity blocker and is not promotion or Testnet strategy proof.
+- **Boundary**: No API/Scheduler source execution, exchange request, local
+  position write, risk/config change, active-manifest promotion, or Mainnet
+  path was introduced.
+
+## 2026-08-05 — QuantDinger artifact refresh and contract closure
+
+- **Change**: Fixed the CLI artifact to emit the complete strict signal
+  metadata contract, canonicalized external symbols at signal and replay
+  ingestion boundaries, and added regression coverage for `BTCUSDT`/lowercase
+  symbols and artifact self-parsing. Moved disposable Shadow evidence under
+  ignored `.cache/quantdinger/`.
+- **Real evidence**: Re-ran the CLI against the 320-bar BTC/USDT 15m Binance
+  Vision development window. Hash
+  `41025a9fbeb963fec18229dabcbd5944267eae8574ce1f9864f5b5ce5456a169`;
+  1 signal, 1 next-bar replay trade, 145 duplicate-target rejections; exit
+  reason `takeprofit`. Artifact parser passed. The refreshed comparison has 0
+  local trades and 1 unmatched external trade because no authoritative local
+  replay payload was preserved for this run, so it is explicitly not promotion
+  evidence.
+- **Verification**: Focused QuantDinger tests `32 passed`; full `pytest -q`
+  `1368 passed, 7 skipped, 7 warnings`; `ruff check .` passed; `mypy` passed
+  for 225 source files; `git diff --check` passed.
+- **Boundary**: No Binance/Testnet request, scheduler execution, local
+  position write, active-manifest promotion, or risk/threshold change.
+
+## 2026-08-05 — Gate 17 natural Testnet acceptance remains blocked
+
+- **Evidence**: Ran the repository's official natural Scheduler observer. It
+  fail-closed before any exchange call because `V2_NATURAL_E2E_ENABLED` was not
+  true and no project API/Scheduler listener was active. Evidence:
+  `docs/evidence/automated_trading_v2/natural_cycle_20260805T145750Z.json`.
+- **Result**: `GATE 17 NOT PASSED`; no cycle, candidate, intent, exchange order,
+  protection order, exit, or reconciliation evidence exists for this session.
+- **Boundary**: Enabling the real Testnet observation path requires the
+  operator-controlled runtime launch/configuration and is not performed by the
+  Shadow integration task. The QuantDinger bridge therefore remains
+  `PARTIAL/BLOCKED` for overall acceptance even though its code and offline
+  artifact contract are verified.
+
+## 2026-08-06 — Gate 17 sampling execution boundary and baseline preservation
+
+- **Change**: Fixed the V2 cycle's sampling candidate path so an explicitly
+  armed `v2_active` Binance Testnet run can submit the non-promotable sampling
+  fallback through the normal Exchange-First receipt/protection flow. Shadow,
+  local Paper, and unpersisted/unit runs remain decision-trace-only. Added a
+  same-direction guard for captured external BTC/ETH baselines so a one-way
+  Binance account cannot reduce or reverse an operator position. Updated the
+  Gate 17 observer wording to require restoration to the captured baseline.
+- **Verification**: Focused V2 tests `75 passed, 1 skipped`; full `pytest -q`
+  `1373 passed, 7 skipped`; `ruff check .` passed; configured `mypy` passed for
+  `225` source files; `git diff --check` passed. Active API/Scheduler was
+  restarted with `v2_active`, Testnet, and baseline-preservation mode. The
+  official 60-minute natural observer ran with real Binance snapshots and
+  ended `GATE 17 NOT PASSED` because no same-direction natural Entry occurred;
+  no exchange write was made and the captured baseline stayed
+  `BTC/USDT:short=0.5302`, `ETH/USDT:short=6.814`.
+- **Boundary**: No manual position was closed, no risk/leverage/stop/take-profit
+  or threshold value changed, no Mainnet path was enabled, and no mock or
+  acceptance order was counted as evidence. Gate 17 remains OPEN pending a
+  real same-direction Entry -> protection -> natural Exit -> baseline restore.
+
+## 2026-08-06 — Gate 17 runtime authorization and natural observation continuation
+
+- **Change**: Added explicit `V2_NATURAL_E2E_ENABLED=true` propagation to the
+  `-EnableNaturalTestnet` launcher path; the flag authorizes only the official
+  read-only observer and does not enable exchange submission. Tightened the
+  observer's symbol type narrowing after mypy found an `Any` lookup issue.
+- **Runtime evidence**: Restarted the API and isolated V2 Scheduler through the
+  launcher. Runtime is `ACTIVE / BINANCE_TESTNET`, `entry_enabled=true`, and
+  reconciliation `HEALTHY`; the preserved external baseline remains
+  `BTC/USDT:short=0.5302`, `ETH/USDT:short=6.814`. The 17:45 and 18:00 natural
+  closed-bar cycles produced real LONG candidates and correctly rejected them
+  as `UNMANAGED_EXTERNAL_POSITION`; no intent, order, fill, or position was
+  written. An 8-hour official observer is running in a separate read-only
+  process and has passed preflight.
+- **Verification**: Focused `56 passed, 1 skipped`; full `1373 passed, 7
+  skipped, 7 warnings`; Ruff clean; mypy clean for 225 source files; diff
+  check clean. Gate 17 is still OPEN because no same-direction natural Entry
+  has occurred yet.
+- **Boundary**: No user position, order, credential, risk value, leverage,
+  stop/take-profit, strategy threshold, Mainnet path, or acceptance shortcut
+  was changed.

@@ -138,13 +138,13 @@ cursor.execute('SELECT auto_trading_settings FROM paper_runs WHERE paper_status 
 3. ✅ **明确告诉用户**：
    ```
    配置修改完成！但必须重启才能生效。
-   
+
    请立即执行：
    1. 运行 完全重启系统.cmd
    2. 等待系统启动完成
    3. 运行 python scripts/verify_config.py
    4. 将验证结果告诉我
-   
+
    在你确认重启前，我不能声明任务完成。
    ```
 4. ✅ 等待用户回复验证结果

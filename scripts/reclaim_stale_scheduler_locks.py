@@ -12,7 +12,7 @@ from pathlib import Path
 def _alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
-    except OSError:
+    except (OSError, SystemError):
         return False
     return True
 
@@ -25,7 +25,11 @@ def main(db_path: str) -> int:
     now = datetime.now(UTC).replace(tzinfo=None).isoformat(sep=" ")
     released = 0
     for lease_name, pid in list(conn.execute("SELECT lease_name, process_id FROM scheduler_leases")):
-        if _alive(int(pid)):
+        try:
+            owner_pid = int(pid)
+        except (TypeError, ValueError, OverflowError, SystemError):
+            owner_pid = -1
+        if owner_pid > 0 and _alive(owner_pid):
             continue
         conn.execute(
             "DELETE FROM scheduler_leases WHERE lease_name=? AND process_id=?",
@@ -35,7 +39,11 @@ def main(db_path: str) -> int:
     for cycle_id, pid in list(
         conn.execute("SELECT scheduler_cycle_id, process_id FROM scheduler_cycles WHERE status='claimed'")
     ):
-        if _alive(int(pid)):
+        try:
+            owner_pid = int(pid)
+        except (TypeError, ValueError, OverflowError, SystemError):
+            owner_pid = -1
+        if owner_pid > 0 and _alive(owner_pid):
             continue
         conn.execute(
             "UPDATE scheduler_cycles SET status=?, completed_at=?, failure_reason=? WHERE scheduler_cycle_id=?",

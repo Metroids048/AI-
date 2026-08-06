@@ -105,6 +105,10 @@ class LocalStateView:
     intents: tuple[LocalIntentView, ...] = ()
     known_client_order_ids: frozenset[str] = frozenset()
     v2_client_order_prefix: str = "v2_"
+    # Explicit operator-captured external Testnet baseline. When present, a
+    # same-direction exchange position may exceed a managed V2 position by
+    # exactly this quantity; the baseline is never attributed to the strategy.
+    external_baseline_positions: dict[str, Decimal] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -247,6 +251,7 @@ def reconcile(
     # --- Exchange positions -> local claim ---
     for exch_pos in snapshot.positions:
         key = f"{exch_pos.symbol}:{exch_pos.direction}"
+        baseline_quantity = local_state.external_baseline_positions.get(key)
         refs = claim_refs.get(key, frozenset())
         claimed = _claim_exchange_position(
             exchange_symbol=exch_pos.symbol,
@@ -256,6 +261,11 @@ def reconcile(
         )
 
         if claimed is None:
+            # An explicitly captured same-direction baseline is allowed to
+            # remain unmanaged. Any unrecorded quantity/direction remains
+            # quarantined and blocks Entry.
+            if baseline_quantity is not None and abs(exch_pos.quantity - baseline_quantity) <= QUANTITY_TOLERANCE:
+                continue
             # Unclaimable: quarantine, block Entry for the symbol, never auto-close.
             discrepancies.append(
                 Discrepancy(
@@ -289,13 +299,15 @@ def reconcile(
             )
             entry_blocked.add(exch_pos.symbol)
 
-        if abs(claimed.quantity - exch_pos.quantity) > QUANTITY_TOLERANCE:
+        expected_quantity = claimed.quantity + (baseline_quantity or Decimal("0"))
+        if abs(expected_quantity - exch_pos.quantity) > QUANTITY_TOLERANCE:
             discrepancies.append(
                 Discrepancy(
                     code=DiscrepancyCode.QUANTITY_MISMATCH,
                     symbol=exch_pos.symbol,
                     detail=(
-                        f"local quantity {claimed.quantity} vs exchange {exch_pos.quantity} "
+                        f"local quantity {claimed.quantity} + external baseline {baseline_quantity or 0} "
+                        f"vs exchange {exch_pos.quantity} "
                         f"for position {claimed.position_id}"
                     ),
                     local_position_id=claimed.position_id,

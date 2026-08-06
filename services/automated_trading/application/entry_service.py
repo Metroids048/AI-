@@ -27,8 +27,9 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from services.automated_trading.application.reconciliation_service import ReconciliationStatus
+from services.automated_trading.domain.candidates import CandidateLane
 from services.automated_trading.domain.client_order_id import entry_client_order_id
-from services.automated_trading.domain.enums import V2ExecutionMode, V2IntentState
+from services.automated_trading.domain.enums import V2CandidateType, V2ExecutionMode, V2IntentState
 from services.automated_trading.infrastructure.runtime_lock import EngineActivation
 from services.automated_trading.observability.decision_funnel import DecisionReasonCode
 
@@ -117,6 +118,11 @@ def evaluate_entry(
     silently passed.
     """
     blocks: list[tuple[DecisionReasonCode, str]] = []
+
+    # Research adapters may construct a candidate for differential replay and
+    # funnel observability, but research is never an execution permission.
+    if candidate.lane == CandidateLane.SHADOW or candidate.candidate_type is V2CandidateType.RESEARCH:
+        blocks.append((DecisionReasonCode.SHADOW_MODE_NO_SUBMIT, "research candidate is shadow-only"))
 
     # --- Engine activation ---
     if runtime.engine_activation is EngineActivation.DISABLED:
@@ -340,6 +346,19 @@ def execute_entry(
     from services.automated_trading.infrastructure.binance_adapter import BinanceAdapterUnavailable
 
     client_order_id = entry_client_order_id(intent_id)
+
+    # Keep the no-submit boundary local to the submission service as well as
+    # the Gate.  A future caller must not be able to bypass it by supplying an
+    # incorrectly approved EntryGateResult.
+    if candidate.lane == CandidateLane.SHADOW or candidate.candidate_type is V2CandidateType.RESEARCH:
+        return EntryExecutionResult(
+            status=EntryExecutionStatus.NOT_ATTEMPTED,
+            intent_state=V2IntentState.INTENT_CREATED,
+            client_order_id=client_order_id,
+            reason_code=DecisionReasonCode.SHADOW_MODE_NO_SUBMIT,
+            detail="research candidate is shadow-only; no submission attempted",
+            requested_quantity=quantity,
+        )
 
     if not gate_result.approved:
         return EntryExecutionResult(

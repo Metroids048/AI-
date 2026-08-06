@@ -22,7 +22,7 @@ Evidence required by Gate 17 (all must be real and present):
     cycle_id, decision_id, candidate_id, intent_id,
     entry exchange_order_id, entry trade_ids, position_group_id,
     stop/tp exchange_order_ids, exit trigger, exit exchange_order_id,
-    exit trade_ids, final exchange position = 0,
+    exit trade_ids, final exchange position = captured baseline quantity,
     final local position = CLOSED, reconciliation = HEALTHY
 
 Usage:
@@ -41,6 +41,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 EVIDENCE_DIR = Path("docs/evidence/automated_trading_v2")
@@ -90,6 +91,7 @@ class NaturalCycleEvidence:
     exit_trade_ids: list[str] = field(default_factory=list)
 
     # Final state
+    baseline_exchange_position_qty: str = "0"
     final_exchange_position_qty: str | None = None
     final_local_position_state: str | None = None
     final_reconciliation_status: str | None = None
@@ -114,7 +116,7 @@ class NaturalCycleEvidence:
         if self.final_exchange_position_qty is None:
             return False
         try:
-            if Decimal(self.final_exchange_position_qty) != 0:
+            if Decimal(self.final_exchange_position_qty) != Decimal(self.baseline_exchange_position_qty):
                 return False
         except Exception:  # noqa: BLE001
             return False
@@ -153,8 +155,9 @@ class NaturalCycleEvidence:
             "exit_trade_ids": bool(self.exit_trade_ids),
             "final_local_position_state==CLOSED": self.final_local_position_state == "CLOSED",
             "final_reconciliation==HEALTHY": self.final_reconciliation_status == "HEALTHY",
-            "final_exchange_position==0": (
-                self.final_exchange_position_qty is not None and Decimal(self.final_exchange_position_qty) == 0
+            "final_exchange_position==captured_baseline": (
+                self.final_exchange_position_qty is not None
+                and Decimal(self.final_exchange_position_qty) == Decimal(self.baseline_exchange_position_qty)
             ),
             "no_acceptance_shortcut": not self.used_acceptance_shortcut,
             "no_manual_intervention": not self.used_manual_intervention,
@@ -201,13 +204,126 @@ def _flag_forbidden_source(evidence: NaturalCycleEvidence, *values: str | None) 
 
 def _poll_v2_state() -> dict[str, Any]:
     """Read current V2 runtime state from the repository (observation only)."""
-    from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
+    from sqlalchemy import select
+
+    from services.automated_trading.domain.enums import V2ExecutionMode
+    from services.automated_trading.infrastructure.models import (
+        V2ExchangeFill,
+        V2ExchangeOrder,
+        V2ExecutionCycle,
+        V2ExecutionDecision,
+        V2ExecutionEvent,
+        V2ExecutionIntent,
+        V2ManagedPosition,
+        V2ProtectionRecord,
+        V2ReconciliationSnapshot,
+    )
     from services.database import get_session_factory
 
     with get_session_factory()() as session:
-        repo = AutomatedTradingRepository(session)
+        positions = session.scalars(
+            select(V2ManagedPosition)
+            .where(V2ManagedPosition.execution_mode == V2ExecutionMode.BINANCE_TESTNET.value)
+            .order_by(V2ManagedPosition.projected_at.desc())
+            .limit(50)
+        )
+        position_views: list[SimpleNamespace] = []
+        for position in positions:
+            entry_intent = session.get(V2ExecutionIntent, position.intent_id)
+            entry_order = session.get(V2ExchangeOrder, position.order_record_id)
+            if entry_intent is None or entry_order is None:
+                continue
+
+            entry_fills = tuple(
+                session.scalars(
+                    select(V2ExchangeFill)
+                    .where(
+                        V2ExchangeFill.exchange_order_record_id == position.order_record_id,
+                        V2ExchangeFill.reduce_only.is_(False),
+                    )
+                    .order_by(V2ExchangeFill.exchange_event_time.asc())
+                )
+            )
+            protection = session.scalar(
+                select(V2ProtectionRecord)
+                .where(V2ProtectionRecord.position_id == position.position_id)
+                .order_by(V2ProtectionRecord.created_at.desc())
+                .limit(1)
+            )
+            exit_rows = tuple(
+                session.execute(
+                    select(V2ExecutionIntent, V2ExchangeOrder)
+                    .join(V2ExchangeOrder, V2ExchangeOrder.intent_id == V2ExecutionIntent.intent_id)
+                    .where(V2ExecutionIntent.candidate_key.like(f"exit:{position.position_id}:%"))
+                    .order_by(V2ExchangeOrder.created_at.desc())
+                ).all()
+            )
+            exit_intent, exit_order = exit_rows[0] if exit_rows else (None, None)
+            exit_fills = tuple(
+                session.scalars(
+                    select(V2ExchangeFill)
+                    .where(
+                        V2ExchangeFill.exchange_order_record_id
+                        == (exit_order.order_record_id if exit_order is not None else ""),
+                        V2ExchangeFill.reduce_only.is_(True),
+                    )
+                    .order_by(V2ExchangeFill.exchange_event_time.asc())
+                )
+            )
+            close_event = session.scalar(
+                select(V2ExecutionEvent)
+                .where(
+                    V2ExecutionEvent.aggregate_id == position.position_id,
+                    V2ExecutionEvent.event_type.in_(
+                        ("PositionClosed", "QuarantinedProjectionCorrectedFromConfirmedExit")
+                    ),
+                )
+                .order_by(V2ExecutionEvent.occurred_at.desc())
+                .limit(1)
+            )
+            cycle = session.get(V2ExecutionCycle, entry_intent.cycle_id)
+            decision = session.get(V2ExecutionDecision, entry_intent.decision_id) if entry_intent.decision_id else None
+            exit_reason = None
+            if exit_intent is not None:
+                exit_reason = exit_intent.candidate_key.rsplit(":", 1)[-1]
+            if not exit_reason and close_event is not None:
+                exit_reason = close_event.event_payload.get("reason") or close_event.event_payload.get("exit_reason")
+
+            position_views.append(
+                SimpleNamespace(
+                    position_id=position.position_id,
+                    projected_at=position.projected_at,
+                    symbol=position.symbol,
+                    state=position.state,
+                    strategy_id=entry_intent.candidate_key,
+                    candidate_id=entry_intent.candidate_key,
+                    lane=entry_intent.candidate_type,
+                    cycle_id=entry_intent.cycle_id,
+                    decision_id=entry_intent.decision_id,
+                    intent_id=entry_intent.intent_id,
+                    entry_intent_id=entry_intent.intent_id,
+                    exchange_entry_order_id=entry_order.exchange_order_id,
+                    average_entry_price=entry_order.average_fill_price,
+                    entry_trade_ids=[fill.trade_id for fill in entry_fills],
+                    stop_exchange_order_id=(protection.stop_exchange_order_id if protection else None),
+                    take_profit_exchange_order_id=(protection.tp_exchange_order_id if protection else None),
+                    exit_trigger=exit_reason,
+                    exchange_exit_order_id=(exit_order.exchange_order_id if exit_order else None),
+                    exit_trade_ids=[fill.trade_id for fill in exit_fills],
+                    decision_payload=(decision.payload if decision else {}),
+                    cycle_symbol=(cycle.symbol if cycle else None),
+                )
+            )
+
+        latest_reconciliation = session.scalar(
+            select(V2ReconciliationSnapshot)
+            .where(V2ReconciliationSnapshot.execution_mode == V2ExecutionMode.BINANCE_TESTNET.value)
+            .order_by(V2ReconciliationSnapshot.captured_at.desc())
+            .limit(1)
+        )
         return {
-            "positions": repo.get_open_positions(None) if hasattr(repo, "get_open_positions") else [],
+            "positions": position_views,
+            "latest_reconciliation": latest_reconciliation,
             "repo": None,  # never hold a session outside the block
         }
 
@@ -222,6 +338,22 @@ def observe_natural_cycle(symbol_filter: str | None, timeout_minutes: int, poll_
         evidence.completed_at = datetime.now(UTC).isoformat()
         return evidence
 
+    observation_started_at = datetime.now(UTC)
+    baseline_by_symbol: dict[str, Decimal] = {}
+    try:
+        from services.automated_trading.domain.enums import V2ExecutionMode
+        from services.automated_trading.infrastructure.binance_adapter import BinanceTestnetAdapter
+
+        baseline_snapshot = BinanceTestnetAdapter(
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET
+        ).fetch_authoritative_snapshot()
+        for baseline_position in baseline_snapshot.positions:
+            baseline_by_symbol[baseline_position.symbol] = Decimal(str(baseline_position.quantity))
+        evidence.note(f"captured exchange baseline: {baseline_by_symbol or 'flat'}")
+    except Exception as exc:  # noqa: BLE001
+        evidence.note(f"exchange baseline capture failed: {type(exc).__name__}: {exc}")
+        evidence.completed_at = datetime.now(UTC).isoformat()
+        return evidence
     deadline = time.time() + timeout_minutes * 60
     evidence.note(f"observing for up to {timeout_minutes} minutes; polling every {poll_seconds}s")
     evidence.note("NOTE: this script only observes. It never opens, closes, or mutates anything.")
@@ -241,7 +373,15 @@ def observe_natural_cycle(symbol_filter: str | None, timeout_minutes: int, poll_
 
         positions = state.get("positions") or []
         for pos in positions:
+            projected_at = getattr(pos, "projected_at", None)
+            if projected_at is not None:
+                if projected_at.tzinfo is None:
+                    projected_at = projected_at.replace(tzinfo=UTC)
+                if projected_at < observation_started_at:
+                    continue
             pos_symbol = getattr(pos, "symbol", None)
+            if not isinstance(pos_symbol, str):
+                continue
             if symbol_filter and pos_symbol != symbol_filter:
                 continue
 
@@ -251,17 +391,21 @@ def observe_natural_cycle(symbol_filter: str | None, timeout_minutes: int, poll_
 
             state_value = getattr(pos, "state", None)
 
-            if not saw_entry and state_value in ("POSITION_PROJECTED", "PROTECTED"):
+            if not saw_entry and state_value in ("POSITION_PROJECTED", "PROTECTED", "REDUCING", "CLOSED"):
                 saw_entry = True
                 evidence.symbol = pos_symbol
+                evidence.baseline_exchange_position_qty = str(baseline_by_symbol.get(pos_symbol, Decimal("0")))
                 evidence.strategy_id = strategy_id
                 evidence.lane = lane
                 evidence.position_group_id = getattr(pos, "position_id", None)
                 evidence.cycle_id = getattr(pos, "cycle_id", None)
+                evidence.decision_id = getattr(pos, "decision_id", None)
+                evidence.candidate_id = getattr(pos, "candidate_id", None)
                 evidence.intent_id = getattr(pos, "entry_intent_id", None)
                 evidence.entry_exchange_order_id = getattr(pos, "exchange_entry_order_id", None)
                 avg = getattr(pos, "average_entry_price", None)
                 evidence.entry_avg_fill_price = str(avg) if avg is not None else None
+                evidence.entry_trade_ids = list(getattr(pos, "entry_trade_ids", ()) or ())
                 evidence.note(
                     f"natural ENTRY observed: {pos_symbol} state={state_value} "
                     f"order_id={evidence.entry_exchange_order_id}"
@@ -272,11 +416,17 @@ def observe_natural_cycle(symbol_filter: str | None, timeout_minutes: int, poll_
                 evidence.take_profit_exchange_order_id = getattr(pos, "take_profit_exchange_order_id", None)
                 evidence.note(f"real PROTECTION observed: stop={evidence.stop_exchange_order_id}")
 
+            if saw_entry and not evidence.stop_exchange_order_id and getattr(pos, "stop_exchange_order_id", None):
+                evidence.stop_exchange_order_id = getattr(pos, "stop_exchange_order_id", None)
+                evidence.take_profit_exchange_order_id = getattr(pos, "take_profit_exchange_order_id", None)
+                evidence.note(f"real PROTECTION observed: stop={evidence.stop_exchange_order_id}")
+
             if saw_entry and state_value == "CLOSED" and not saw_exit:
                 saw_exit = True
                 evidence.final_local_position_state = "CLOSED"
-                evidence.exit_trigger = getattr(pos, "exit_reason", None)
+                evidence.exit_trigger = getattr(pos, "exit_trigger", None)
                 evidence.exit_exchange_order_id = getattr(pos, "exchange_exit_order_id", None)
+                evidence.exit_trade_ids = list(getattr(pos, "exit_trade_ids", ()) or ())
                 evidence.note(
                     f"natural EXIT observed: trigger={evidence.exit_trigger} order_id={evidence.exit_exchange_order_id}"
                 )
@@ -292,32 +442,31 @@ def observe_natural_cycle(symbol_filter: str | None, timeout_minutes: int, poll_
         evidence.completed_at = datetime.now(UTC).isoformat()
         return evidence
 
-    # Final exchange truth must confirm flat.
+    # Final exchange truth must restore the captured external baseline. A
+    # non-zero baseline is valid when the operator preserves an unmanaged
+    # Testnet position; only the V2 increment must be gone.
     try:
+        from services.automated_trading.domain.enums import V2ExecutionMode
         from services.automated_trading.infrastructure.binance_adapter import BinanceTestnetAdapter
 
-        adapter = BinanceTestnetAdapter()
+        adapter = BinanceTestnetAdapter(execution_mode=V2ExecutionMode.BINANCE_TESTNET)
         snapshot = adapter.fetch_authoritative_snapshot()
         pos = next((p for p in snapshot.positions if p.symbol == evidence.symbol), None)
         qty = Decimal(str(pos.quantity)) if pos else Decimal("0")
         evidence.final_exchange_position_qty = str(qty)
-        evidence.note(f"final exchange position: {qty}")
+        evidence.note(f"final exchange position: {qty} (baseline={evidence.baseline_exchange_position_qty})")
     except Exception as exc:  # noqa: BLE001
         evidence.note(f"final exchange read failed: {type(exc).__name__}: {exc}")
 
-    # Final reconciliation must be HEALTHY.
+    # Final reconciliation must be a recent persisted Testnet snapshot. Do not
+    # derive HEALTHY from an empty local view: that can hide missing local facts.
     try:
-        from services.automated_trading.application.reconciliation_service import (
-            LocalStateView,
-            reconcile,
-        )
-        from services.automated_trading.infrastructure.binance_adapter import BinanceTestnetAdapter
-
-        adapter = BinanceTestnetAdapter()
-        snapshot = adapter.fetch_authoritative_snapshot()
-        result = reconcile(snapshot, LocalStateView())
-        evidence.final_reconciliation_status = result.status.value
-        evidence.note(f"final reconciliation: {result.status.value}")
+        reconciliation = _poll_v2_state().get("latest_reconciliation")
+        if reconciliation is not None:
+            evidence.final_reconciliation_status = reconciliation.status
+            evidence.note(f"final reconciliation: {reconciliation.status}")
+        else:
+            evidence.note("final reconciliation failed: no persisted Testnet snapshot")
     except Exception as exc:  # noqa: BLE001
         evidence.note(f"final reconciliation failed: {type(exc).__name__}: {exc}")
 

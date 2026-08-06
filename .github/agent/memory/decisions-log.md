@@ -668,3 +668,46 @@
 - Decision: Runtime execution mode is exactly `local_paper` or `binance_testnet`. Local Paper accepts only `SimulatedFill` and projects `PAPER_SIMULATION_ONLY`; Testnet requires an immutable `ExchangeFillReceipt` with Client/Exchange order IDs and trade IDs before `MANAGED_STRATEGY` projection. Reconciliation is typed and fail-closed for entries, reduce-risk exits use a separate validation boundary, and CloseOnly quantity is capped by the fresh exchange position and rounded down only. Legacy unverifiable managed records are retained as `LEGACY_UNVERIFIED` / reconciliation-required evidence.
 - Sampling exception: The exact BTC/ETH Testnet-only lane may use the locked 15m EMA50/MACD-histogram/RSI/ATR rule solely as `NON_PROMOTABLE_PIPELINE_SAMPLE`. It remains exchange-first, 1x, bounded to one position per symbol, four entries per day and a 60-minute cooldown. It cannot contribute to Manifest/OOS/promotion evidence or run on mainnet/local Paper.
 - Consequences: Local rows, mocks, acceptance traffic and strategy reference prices are never exchange proof. A Testnet position without a receipt is an invalid state, reconciliation unavailability blocks all new BTC/ETH entries while reduce-risk exits remain available, and protection becomes ACTIVE only with confirmed exchange protection IDs.
+
+## ADR-079: QuantDinger concepts are Shadow-only adapters, never an execution replacement
+
+- Date: 2026-08-05
+- Status: accepted
+- Context: QuantDinger 5.0.1 provides useful Strategy API V2 manifest discovery and execution-event normalization concepts, but its live/mainnet and local-ledger model conflicts with the project's Exchange-First Testnet V2 invariant.
+- Decision: Preserve `services/automated_trading/` as the sole Binance Testnet writer. Add only a static AST-based source manifest and a `RESEARCH` / `SHADOW` / non-promotable candidate bridge under `services/strategy_library/adapters/`; both Entry Gate and submission service reject Shadow/research candidates. Normalize CCXT fills behind the existing Binance adapter, de-duplicating by exchange order ID plus trade ID and failing closed unless order ID, fee amount and USDT fee currency are all exchange-supplied.
+- Consequences: BTC/ETH execution scope and all risk, leverage, protection and net-edge settings remain unchanged. No QuantDinger source executes, and no QuantDinger live/mainnet, grid, multi-exchange execution, local ledger, frontend or branding enters the product. Existing technical validation remains promotion authority; a real natural Binance Testnet scheduler lifecycle still needs separate fresh evidence.
+
+### ADR-079 Addendum — Shadow artifacts must prove source and next-bar semantics
+
+- Date: 2026-08-05
+- Decision: External Shadow signals and replay artifacts are accepted only as explicit, strict-schema data with a matching compiled manifest hash. Replay artifacts must retain source/version, manifest timeframe and at least the declared warmup; every replay entry must be exactly the next aligned bar after the declared signal close. Price and fee tolerances must be finite non-negative `Decimal` values.
+- Consequences: A stale, malformed, future-looking, delayed, or arbitrarily tolerant external artifact fails closed before it can be reported as a parity result. Shadow funnel observation ends with `SHADOW_MODE_NO_SUBMIT`; it cannot create a V2 intent or reach an exchange stage.
+
+### ADR-079 Addendum 2 — Source execution is isolated and parity findings remain non-promotable
+
+- Date: 2026-08-05
+- Decision: Permit only the explicit offline/Shadow CLI to execute reviewed
+  QuantDinger source in a bounded child process. The child receives historical
+  bars and a signal-capture API only; it has no imports, exchange client,
+  credentials, database, position ledger, or order writer. The API/Scheduler
+  never imports or executes the source.
+- Historical evidence from the initial implementation is retained only as an
+  archived diagnostic; it is superseded by the refreshed artifact below.
+- Consequence: The mismatch report is a parity diagnostic and blocks
+  promotion; it does not grant execution permission or change any risk,
+  leverage, protection, cost, or active-manifest setting.
+
+### ADR-079 Addendum 3 — Refreshed artifact evidence remains non-promotable
+
+- Date: 2026-08-05
+- Evidence: The reviewed protected-entry Shadow source was rerun on 320 BTC/USDT
+  15m Binance Vision bars. Artifact hash
+  `41025a9fbeb963fec18229dabcbd5944267eae8574ce1f9864f5b5ce5456a169`
+  produced 1 de-duplicated signal, 1 next-bar replay trade, and 145 rejected
+  duplicate targets. Artifact parsing passed. The available differential report
+  has 0 authoritative local trades and 1 unmatched external trade because the
+  local replay payload was not preserved for this rerun; its status is
+  `NOT_PROMOTION_EVIDENCE`.
+- Consequence: This refresh proves the corrected artifact contract and basic
+  position semantics only. It does not prove parity, OOS quality, promotion, or
+  natural Binance Testnet execution.

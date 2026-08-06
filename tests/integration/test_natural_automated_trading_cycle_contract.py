@@ -17,17 +17,33 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from scripts.verify_natural_automated_trading_cycle import (
     NaturalCycleEvidence,
     _flag_forbidden_source,
+    _poll_v2_state,
     _preflight,
     observe_natural_cycle,
     write_evidence,
+)
+from services.automated_trading.infrastructure.models import (
+    Base,
+    V2ExchangeFill,
+    V2ExchangeOrder,
+    V2ExecutionCycle,
+    V2ExecutionDecision,
+    V2ExecutionEvent,
+    V2ExecutionIntent,
+    V2ManagedPosition,
+    V2ProtectionRecord,
+    V2ReconciliationSnapshot,
 )
 
 E2E_ENABLED = os.getenv("V2_NATURAL_E2E_ENABLED", "false").lower() == "true"
@@ -245,6 +261,193 @@ class TestPreflightAndProofType:
         serialised = json.dumps(json.loads(path.read_text(encoding="utf-8"))).lower()
         for secret_key in ("api_key", "api_secret", "secret"):
             assert secret_key not in serialised
+
+    def test_poll_includes_closed_position_and_reconstructs_exchange_facts(self, tmp_path: Path, monkeypatch) -> None:
+        """Gate 17 must retain a CLOSED position long enough to prove the full chain."""
+        engine = create_engine(f"sqlite:///{tmp_path / 'natural.db'}")
+        Base.metadata.create_all(engine)
+        factory = sessionmaker(bind=engine, expire_on_commit=False)
+        now = datetime.now(UTC)
+        with factory() as session:
+            session.add(
+                V2ExecutionCycle(
+                    cycle_id="cycle-closed",
+                    symbol="BTC/USDT",
+                    timeframe="15m",
+                    bar_timestamp=now,
+                    execution_mode="BINANCE_TESTNET",
+                    fencing_token="fence-closed",
+                )
+            )
+            session.add(
+                V2ExecutionDecision(
+                    decision_id="decision-closed",
+                    cycle_id="cycle-closed",
+                    candidate_key="testnet_sampling_v2",
+                    payload={},
+                )
+            )
+            session.add(
+                V2ExecutionIntent(
+                    intent_id="intent-entry-closed",
+                    cycle_id="cycle-closed",
+                    decision_id="decision-closed",
+                    symbol="BTC/USDT",
+                    direction="long",
+                    candidate_key="testnet_sampling_v2",
+                    candidate_type="SAMPLING",
+                    execution_mode="BINANCE_TESTNET",
+                    decision_bar_timestamp=now,
+                    state="FILLED",
+                )
+            )
+            session.add(
+                V2ExchangeOrder(
+                    order_record_id="order-entry-closed",
+                    intent_id="intent-entry-closed",
+                    client_order_id="client-entry-closed",
+                    exchange_order_id="exchange-entry-closed",
+                    quantity=1,
+                    leverage=1,
+                    average_fill_price=100,
+                    filled_quantity=1,
+                    trade_ids={"trade_ids": ["trade-entry-closed"]},
+                    created_at=now,
+                )
+            )
+            session.add(
+                V2ExchangeFill(
+                    fill_id="fill-entry-closed",
+                    intent_id="intent-entry-closed",
+                    exchange_order_record_id="order-entry-closed",
+                    account_id="binance_testnet",
+                    exchange_order_id="exchange-entry-closed",
+                    trade_id="trade-entry-closed",
+                    symbol="BTC/USDT",
+                    side="BUY",
+                    reduce_only=False,
+                    filled_quantity=1,
+                    fill_price=100,
+                    commission=0,
+                    commission_asset="USDT",
+                    exchange_event_time=now,
+                    received_at=now,
+                    raw_hash="hash-entry-closed",
+                )
+            )
+            session.add(
+                V2ManagedPosition(
+                    position_id="position-closed",
+                    intent_id="intent-entry-closed",
+                    order_record_id="order-entry-closed",
+                    symbol="BTC/USDT",
+                    direction="long",
+                    execution_mode="BINANCE_TESTNET",
+                    quantity=1,
+                    entry_price=100,
+                    entry_fee=0,
+                    state="CLOSED",
+                    projected_at=now,
+                    closed_at=now,
+                )
+            )
+            session.add(
+                V2ProtectionRecord(
+                    protection_id="protection-closed",
+                    position_id="position-closed",
+                    stop_loss_price=99,
+                    take_profit_price=102,
+                    stop_client_order_id="client-stop-closed",
+                    tp_client_order_id="client-tp-closed",
+                    stop_exchange_order_id="exchange-stop-closed",
+                    tp_exchange_order_id="exchange-tp-closed",
+                    state="PROTECTION_FILLED",
+                    created_at=now,
+                )
+            )
+            session.add(
+                V2ExecutionIntent(
+                    intent_id="intent-exit-closed",
+                    cycle_id="cycle-closed",
+                    symbol="BTC/USDT",
+                    direction="long",
+                    candidate_key="exit:position-closed:TAKE_PROFIT",
+                    candidate_type="SAMPLING",
+                    execution_mode="BINANCE_TESTNET",
+                    decision_bar_timestamp=now,
+                    state="FILLED",
+                )
+            )
+            session.add(
+                V2ExchangeOrder(
+                    order_record_id="order-exit-closed",
+                    intent_id="intent-exit-closed",
+                    client_order_id="client-exit-closed",
+                    exchange_order_id="exchange-exit-closed",
+                    quantity=1,
+                    leverage=1,
+                    average_fill_price=102,
+                    filled_quantity=1,
+                    trade_ids={"trade_ids": ["trade-exit-closed"]},
+                    created_at=now,
+                )
+            )
+            session.add(
+                V2ExchangeFill(
+                    fill_id="fill-exit-closed",
+                    intent_id="intent-exit-closed",
+                    exchange_order_record_id="order-exit-closed",
+                    account_id="binance_testnet",
+                    exchange_order_id="exchange-exit-closed",
+                    trade_id="trade-exit-closed",
+                    symbol="BTC/USDT",
+                    side="SELL",
+                    reduce_only=True,
+                    filled_quantity=1,
+                    fill_price=102,
+                    commission=0,
+                    commission_asset="USDT",
+                    exchange_event_time=now,
+                    received_at=now,
+                    raw_hash="hash-exit-closed",
+                )
+            )
+            session.add(
+                V2ExecutionEvent(
+                    event_id="event-closed",
+                    aggregate_id="position-closed",
+                    aggregate_type="POSITION",
+                    event_type="PositionClosed",
+                    event_payload={"reason": "TAKE_PROFIT"},
+                    occurred_at=now,
+                )
+            )
+            session.add(
+                V2ReconciliationSnapshot(
+                    snapshot_id="snapshot-closed",
+                    cycle_id="cycle-closed",
+                    execution_mode="BINANCE_TESTNET",
+                    exchange_positions={},
+                    exchange_open_orders={},
+                    local_positions={},
+                    discrepancies={},
+                    status="HEALTHY",
+                    captured_at=now,
+                )
+            )
+            session.commit()
+
+        monkeypatch.setattr("services.database.get_session_factory", lambda: factory)
+        state = _poll_v2_state()
+        position = state["positions"][0]
+        assert position.state == "CLOSED"
+        assert position.entry_trade_ids == ["trade-entry-closed"]
+        assert position.stop_exchange_order_id == "exchange-stop-closed"
+        assert position.exchange_exit_order_id == "exchange-exit-closed"
+        assert position.exit_trade_ids == ["trade-exit-closed"]
+        assert position.exit_trigger == "TAKE_PROFIT"
+        assert state["latest_reconciliation"].status == "HEALTHY"
+        engine.dispose()
 
 
 # ---------------------------------------------------------------------------

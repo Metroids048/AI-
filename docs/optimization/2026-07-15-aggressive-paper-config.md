@@ -1,7 +1,7 @@
 # 激进优化实施报告 - Paper测试专用配置
 
-**生成时间**: 2026-07-15  
-**优化目标**: 以开单为核心，最大化交易样本采集  
+**生成时间**: 2026-07-15
+**优化目标**: 以开单为核心，最大化交易样本采集
 **环境**: Binance Testnet / Paper模拟盘
 
 ---
@@ -45,13 +45,13 @@
 # Directional策略
 "meta_label_min_win_rate": 0.42  # Was 0.50
 
-# Swing策略  
+# Swing策略
 "meta_label_min_win_rate": 0.42  # Was 0.50
 ```
 
-**理论期望**: 42% × 2R = 0.84  
-**成本**: -0.06 (6bps往返)  
-**净期望**: 0.78 (低于盈亏平衡)  
+**理论期望**: 42% × 2R = 0.84
+**成本**: -0.06 (6bps往返)
+**净期望**: 0.78 (低于盈亏平衡)
 **目的**: 产生足够样本，而非追求立即盈利
 
 ---
@@ -125,12 +125,12 @@ def medium_risk_profile() -> RiskProfile:
 
 即使在激进配置下，以下规则**完全保留**：
 
-✅ **强制止损** - 每笔订单必须有止损，无止损拒绝  
-✅ **成本门槛** - `net_edge_after_cost`逻辑保留（虽然42%阈值会让更多候选通过）  
-✅ **相关性风控** - 高相关持仓限制、相关性簇曝光上限  
-✅ **数据新鲜度** - 2小时K线过期拒绝开单  
-✅ **Martingale检测** - 加仓幅度>2×现有曝光拒绝  
-✅ **回撤硬停** - 达到30%回撤强制停止所有交易  
+✅ **强制止损** - 每笔订单必须有止损，无止损拒绝
+✅ **成本门槛** - `net_edge_after_cost`逻辑保留（虽然42%阈值会让更多候选通过）
+✅ **相关性风控** - 高相关持仓限制、相关性簇曝光上限
+✅ **数据新鲜度** - 2小时K线过期拒绝开单
+✅ **Martingale检测** - 加仓幅度>2×现有曝光拒绝
+✅ **回撤硬停** - 达到30%回撤强制停止所有交易
 
 ---
 
@@ -204,17 +204,17 @@ tail -f logs/paper_runtime.log
 ### 每日检查 (必做)
 ```sql
 -- 1. 今日订单统计
-SELECT 
+SELECT
     execution_status,
     COUNT(*) as count,
     COUNT(CASE WHEN rejection_codes LIKE '%net_edge_after_cost%' THEN 1 END) as cost_rejections
-FROM order_executions 
+FROM order_executions
 WHERE created_at > datetime('now', '-1 day')
 GROUP BY execution_status;
 
 -- 2. 今日开单记录
-SELECT symbol, side, notional, created_at 
-FROM order_executions 
+SELECT symbol, side, notional, created_at
+FROM order_executions
 WHERE execution_status = 'accepted'
   AND created_at > datetime('now', '-1 day')
 ORDER BY created_at DESC;
@@ -222,13 +222,13 @@ ORDER BY created_at DESC;
 -- 3. 当前持仓
 SELECT symbol, side, quantity, entry_price, unrealized_pnl
 FROM position_snapshots
-WHERE run_type = 'paper' 
+WHERE run_type = 'paper'
   AND ABS(quantity) > 0
 ORDER BY snapshot_time DESC
 LIMIT 10;
 
 -- 4. 累计盈亏
-SELECT 
+SELECT
     paper_run_id,
     paper_metrics_summary->>'account_equity' as equity,
     paper_metrics_summary->>'net_realized_pnl_total' as realized_pnl,
@@ -282,7 +282,7 @@ WHERE paper_status = 'running';
 
 ---
 
-**报告生成**: 2026-07-15  
-**配置状态**: AGGRESSIVE Paper testing (Testnet only)  
-**风险等级**: 高 (测试专用)  
+**报告生成**: 2026-07-15
+**配置状态**: AGGRESSIVE Paper testing (Testnet only)
+**风险等级**: 高 (测试专用)
 **下次评估**: 2026-07-22

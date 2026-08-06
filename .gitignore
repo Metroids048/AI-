@@ -46,6 +46,7 @@ Thumbs.db
 /.local_runtime_ledger.db.*
 /.strategy_refactor_history.db
 /.cache/strategy_refactor_history/
+/.cache/quantdinger/
 *.db.backup*
 *.sqlite
 *.sqlite3

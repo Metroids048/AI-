@@ -1,5 +1,22 @@
 # Project Memory
 
+# QuantDinger isolated source runtime evidence (2026-08-05, refreshed)
+
+- The Shadow bridge now has an explicit bounded child-process runtime and CLI
+  artifact path. API/Scheduler processes never execute external source; the
+  child receives historical bars and signal-capture APIs only, with no imports,
+  credentials, exchange clients, databases, positions, or order writers.
+- Real development-window evidence: BTC/USDT 15m Binance Vision history from
+  2025-01-01 through 2025-01-08 (320 bars) generated artifact hash
+  `41025a9fbeb963fec18229dabcbd5944267eae8574ce1f9864f5b5ce5456a169`, 1
+  de-duplicated signal and 1 next-bar replay trade; 145 duplicate-target
+  events were rejected. Artifact parsing passed and the replay exited by
+  `takeprofit`. The refreshed differential report has 0 local trades and 1
+  unmatched external trade because no authoritative local replay payload was
+  preserved for this rerun; it is explicitly `NOT_PROMOTION_EVIDENCE`.
+- This is a parity diagnostic only. The external source remains Shadow-only,
+  active-manifest promotion is blocked, and no Binance/Testnet write occurred.
+
 ## Gate 16 preserves manual Testnet baseline (2026-08-04)
 
 - `scripts/verify_automated_trading_testnet_contract.py` no longer requires an empty BTC account. It snapshots the operator-owned position and open orders, adds the contract increment in the same direction for Binance one-way mode, and restores the exact baseline instead of flattening the symbol.
@@ -634,3 +651,33 @@
 - Funding uses signed settlement events; fee provenance is existing runtime config. Spread, latency and partial fill remain `ASSUMED`, therefore all Phase 1 results remain not promotion eligible and the final verdict is `NO_ACTIVE_STRATEGY`.
 - Immutable artifact: `artifacts/strategy_refactor/phase1-20260731-0000Z-r1`; it binds source/data/config/pipeline hashes and records `holdout_results_accessed=false`.
 - Gate 16 Testnet contract passed with entry `25631813075` / trade `523375938`, reduce-only exit `25631829915` / trade `523375957`, and final BTC positions/orders `0/0`. This is `TESTNET_CONTRACT`, `natural_strategy=false`, not strategy evidence. Gate 17 was not run; launcher stays `v2_shadow`.
+
+## Gate 17 sampling execution boundary and preserved external baseline (2026-08-06)
+
+- V2 sampling candidates remain `SAMPLING`/non-promotable, but the active
+  Binance Testnet lane now permits their real Exchange-First submission only
+  when facts are persisted, execution mode is `BINANCE_TESTNET`, and activation
+  is `ACTIVE`. Shadow, local Paper, and unit runs remain trace-only.
+- When `V2_ALLOW_UNMANAGED_EXTERNAL_POSITIONS=true`, a captured baseline is
+  preserved and only a same-direction V2 increment is eligible. Opposite-side
+  candidates are rejected with `UNMANAGED_EXTERNAL_POSITION` because the
+  account is treated as one-way; no code path may reduce or reverse the
+  operator's baseline to create a Gate 17 sample.
+- Official natural observer evidence at
+  `docs/evidence/automated_trading_v2/natural_cycle_20260805T172437Z.json`
+  ran for 60 minutes with `ACTIVE`/Testnet/healthy reconciliation but timed
+  out without a same-direction natural Entry. Baseline remained
+  `BTC/USDT:short=0.5302` and `ETH/USDT:short=6.814`; Gate 17 is still open.
+
+## Gate 17 runtime authorization continuation (2026-08-06)
+
+- Launcher `-EnableNaturalTestnet` now propagates the explicit observer-only
+  `V2_NATURAL_E2E_ENABLED` flag; default Shadow launch removes it.
+- After restart, the live API and isolated Scheduler are healthy in
+  `ACTIVE/BINANCE_TESTNET` mode with `entry_enabled=true`, and the official
+  observer is running read-only. Real 15m cycles at 17:45 and 18:00 UTC
+  reached Sampling candidates but were LONG while the preserved Binance
+  one-way baseline is SHORT, so they were fail-closed as
+  `UNMANAGED_EXTERNAL_POSITION` with zero exchange writes.
+- Gate 17 remains OPEN until a natural same-direction short entry completes
+  the full receipt/protection/reduce-only-exit/baseline-restore chain.

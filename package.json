@@ -11,4 +11,3 @@
     "admin:lint": "npm --workspace frontend/admin run lint"
   }
 }
-

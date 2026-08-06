@@ -1,6 +1,6 @@
 # 代码修复验证报告
 
-**日期**: 2026-07-15  
+**日期**: 2026-07-15
 **状态**: ✅ 代码修改已完成并验证，等待服务重启
 
 ---
@@ -19,8 +19,8 @@ $ grep -n "bootstrap_auto_trading_swing_paper_run()" services/execution/bootstra
 800:    bootstrap_auto_trading_swing_paper_run()  # Module 11: medium-term swing (disabled research)
 ```
 
-✅ **函数已创建**: Line 676  
-✅ **已加入调度列表**: Line 800  
+✅ **函数已创建**: Line 676
+✅ **已加入调度列表**: Line 800
 ✅ **配置不再是死配置**
 
 ---
@@ -44,10 +44,10 @@ $ grep -n "bootstrap_auto_trading_swing_paper_run()" services/execution/bootstra
 
 **新文件**: `services/strategy_library/technical/chan_theory.py`
 
-✅ 完整的函数签名和文档  
-✅ 优雅降级逻辑（未安装 chan.py 时返回空列表）  
-⏸️ 需要 vendor Vespa314/chan.py  
-⏸️ 需要运行回测验证  
+✅ 完整的函数签名和文档
+✅ 优雅降级逻辑（未安装 chan.py 时返回空列表）
+⏸️ 需要 vendor Vespa314/chan.py
+⏸️ 需要运行回测验证
 
 ---
 
@@ -77,7 +77,7 @@ psycopg.OperationalError: failed to resolve host 'timescaledb': [Errno 11001] ge
    # 如果使用 Docker Compose:
    cd c:/Users/win/Desktop/AI--main
    docker-compose up -d timescaledb
-   
+
    # 或者启动本地 PostgreSQL 服务
    ```
 
@@ -107,7 +107,7 @@ psycopg.OperationalError: failed to resolve host 'timescaledb': [Errno 11001] ge
    session = get_session_factory()()
    repo = DecisionSnapshotRepository(session)
    snapshots = repo.list_snapshots(since=datetime.now(UTC) - timedelta(hours=24), limit=5000)
-   
+
    print(f'总快照数: {len(snapshots)}')
    print(Counter(s.pipeline_status for s in snapshots))
    ```

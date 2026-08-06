@@ -2,7 +2,11 @@ param(
     [int]$ApiPort = 8016,
     [int]$FrontendPort = 5173,
     [string]$DatabasePath = ".local_paper_console.db",
-    [bool]$OpenBrowser = $true
+    [bool]$OpenBrowser = $true,
+    [ValidateSet("v2_shadow", "v2_active")]
+    [string]$AutomatedTradingEngine = "v2_shadow",
+    [switch]$EnableNaturalTestnet,
+    [switch]$PreserveExternalTestnetBaseline
 )
 
 # One-click launcher - same pattern as 辅助面试/scripts/launch-experience.ps1
@@ -126,16 +130,30 @@ function Test-ProjectListener([int]$Port) {
 }
 
 function Stop-RecordedScheduler {
-    if (-not (Test-Path -LiteralPath $SchedulerPidFile)) { return }
-    $recordedPid = (Get-Content -LiteralPath $SchedulerPidFile -Raw).Trim()
-    if ($recordedPid -match '^\d+$') {
-        $ownerInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $recordedPid" -ErrorAction SilentlyContinue
-        if ([string]$ownerInfo.CommandLine -match "run-local-paper-scheduler\.py") {
-            Write-Step "stopping prior local scheduler (pid $recordedPid)"
-            Stop-ProcessTree -RootPid ([int]$recordedPid)
+    if (Test-Path -LiteralPath $SchedulerPidFile) {
+        $recordedPid = (Get-Content -LiteralPath $SchedulerPidFile -Raw).Trim()
+        if ($recordedPid -match '^\d+$') {
+            $ownerInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $recordedPid" -ErrorAction SilentlyContinue
+            if ([string]$ownerInfo.CommandLine -match "run-local-paper-scheduler\.py") {
+                Write-Step "stopping prior local scheduler (pid $recordedPid)"
+                Stop-ProcessTree -RootPid ([int]$recordedPid)
+            }
         }
+        Remove-Item -LiteralPath $SchedulerPidFile -Force -ErrorAction SilentlyContinue
     }
-    Remove-Item -LiteralPath $SchedulerPidFile -Force -ErrorAction SilentlyContinue
+    # A previous launcher can leave a child scheduler alive after its recorded
+    # parent exits. Reclaim every process for this exact command so only one
+    # writer can publish scheduler-state.json.
+    $orphanSchedulers = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.ProcessId -ne $PID -and
+            [string]$_.CommandLine -match "run-local-paper-scheduler\.py" -and
+            [string]$_.CommandLine -match [regex]::Escape($Root)
+        }
+    foreach ($orphan in $orphanSchedulers) {
+        Write-Step "stopping orphan local scheduler (pid $($orphan.ProcessId))"
+        Stop-ProcessTree -RootPid ([int]$orphan.ProcessId)
+    }
     # Expire same-host leases/claims owned by dead PIDs so the next launch is not
     # stuck in standby_not_leader / duplicate_slot_skipped until TTL elapses.
     try {
@@ -164,6 +182,20 @@ function Test-SchedulerHealthy {
     }
     catch {
         return $false
+    }
+}
+
+function Stop-ProjectApiProcesses {
+    $apiProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.ProcessId -ne $PID -and
+            [string]$_.CommandLine -match "apps\.api\.(main|local_server)" -and
+            [string]$_.CommandLine -match "--local-console" -and
+            [string]$_.CommandLine -match "--port\s+$ApiPort"
+        }
+    foreach ($apiProcess in $apiProcesses) {
+        Write-Step "stopping orphan local API (pid $($apiProcess.ProcessId))"
+        Stop-ProcessTree -RootPid ([int]$apiProcess.ProcessId)
     }
 }
 
@@ -233,7 +265,40 @@ function Ensure-Runtime {
     $env:APP_ENV = "development"
     $env:BINANCE_USE_TESTNET = "true"
     $env:LIVE_TRADING_ENABLED = "false"
+    # Keep the safe default visible in source and only opt into active mode
+    # when the caller explicitly requests it.
     $env:AUTOMATED_TRADING_ENGINE = "v2_shadow"
+    if ($AutomatedTradingEngine -eq "v2_active") {
+        $env:AUTOMATED_TRADING_ENGINE = $AutomatedTradingEngine
+    }
+    if ($AutomatedTradingEngine -eq "v2_active" -and -not $EnableNaturalTestnet) {
+        throw "v2_active requires -EnableNaturalTestnet; daily launcher remains Shadow by default."
+    }
+    if ($EnableNaturalTestnet) {
+        # Arm only the explicit Gate 17 observer authorization. This flag does
+        # not enable order submission; V2_ACTIVE and the persisted entry gate
+        # remain the independent execution controls.
+        $env:V2_NATURAL_E2E_ENABLED = "true"
+    }
+    else {
+        Remove-Item Env:V2_NATURAL_E2E_ENABLED -ErrorAction SilentlyContinue
+    }
+    if ($PreserveExternalTestnetBaseline -and $AutomatedTradingEngine -ne "v2_active") {
+        throw "-PreserveExternalTestnetBaseline is only valid with v2_active."
+    }
+    if ($PreserveExternalTestnetBaseline) {
+        $env:V2_ALLOW_UNMANAGED_EXTERNAL_POSITIONS = "true"
+        $baselineJson = & $env:AGENT_PYTHON (Join-Path $Root "scripts\capture_testnet_external_baseline.py") --json
+        if ($LASTEXITCODE -ne 0 -or -not $baselineJson) {
+            throw "Failed to capture the Testnet external position baseline."
+        }
+        $env:V2_EXTERNAL_BASELINE_JSON = ($baselineJson | Select-Object -Last 1).ToString().Trim()
+        Write-Step "preserving explicit Testnet external baseline: $($env:V2_EXTERNAL_BASELINE_JSON)"
+    }
+    else {
+        Remove-Item Env:V2_ALLOW_UNMANAGED_EXTERNAL_POSITIONS -ErrorAction SilentlyContinue
+        Remove-Item Env:V2_EXTERNAL_BASELINE_JSON -ErrorAction SilentlyContinue
+    }
     $env:RUNTIME_SCHEDULER_MODE = "inprocess"
     $env:RUNTIME_SCHEDULER_AUTOSTART = "true"
     $env:BINANCE_LIVE_UNIVERSE_ENABLED = "true"
@@ -255,6 +320,15 @@ function Initialize-LocalDatabase {
 $apiReady = Test-EndpointReady $ApiHealthUrl
 $frontendReady = Test-EndpointReady "http://127.0.0.1:$FrontendPort/"
 
+# The API loads AUTOMATED_TRADING_ENGINE at process start. A v2_active request
+# must never reuse an API that was started in shadow/legacy mode.
+if ($AutomatedTradingEngine -eq "v2_active" -and $apiReady) {
+    Ensure-Runtime
+    Stop-ProjectApiProcesses
+    Stop-RecordedProcess $ApiPidFile $ApiPort
+    $apiReady = $false
+}
+
 if ($apiReady -and $frontendReady -and (Test-ProjectListener $ApiPort) -and (Test-ProjectListener $FrontendPort)) {
     if (-not (Test-SchedulerHealthy)) {
         Ensure-Runtime
@@ -263,7 +337,7 @@ if ($apiReady -and $frontendReady -and (Test-ProjectListener $ApiPort) -and (Tes
         Reset-LogFile $SchedulerErrorLog
         $schedulerScript = Join-Path $PSScriptRoot "run-local-paper-scheduler.py"
         $schedulerProcess = Start-Process -FilePath $env:AGENT_PYTHON `
-            -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl) `
+            -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl, "--engine", $AutomatedTradingEngine) `
             -WorkingDirectory $Root `
             -WindowStyle Hidden `
             -RedirectStandardOutput $SchedulerLog `
@@ -311,7 +385,7 @@ Reset-LogFile $SchedulerLog
 Reset-LogFile $SchedulerErrorLog
 $schedulerScript = Join-Path $PSScriptRoot "run-local-paper-scheduler.py"
 $schedulerProcess = Start-Process -FilePath $env:AGENT_PYTHON `
-    -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl) `
+    -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl, "--engine", $AutomatedTradingEngine) `
     -WorkingDirectory $Root `
     -WindowStyle Hidden `
     -RedirectStandardOutput $SchedulerLog `

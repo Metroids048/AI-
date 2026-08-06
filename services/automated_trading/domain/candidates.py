@@ -32,10 +32,11 @@ EXECUTION_UNIVERSE: frozenset[str] = frozenset({"BTC/USDT", "ETH/USDT"})
 
 
 class CandidateLane(StrEnum):
-    """Lane labels. Production results feed strategy evidence; sampling never does."""
+    """Lane labels. Shadow candidates are observable but never executable."""
 
     PRODUCTION = "PRODUCTION"
     TESTNET_SAMPLING = "TESTNET_SAMPLING"
+    SHADOW = "SHADOW"
 
 
 class CandidateSide(StrEnum):
@@ -52,7 +53,7 @@ class TradeCandidate:
     candidate_id: Unique id for this candidate instance.
     cycle_id: Owning execution cycle.
     strategy_id / strategy_version: Provenance for attribution.
-    lane: PRODUCTION or TESTNET_SAMPLING.
+    lane: PRODUCTION, TESTNET_SAMPLING, or SHADOW.
     candidate_type: PRIMARY / SAMPLING / RESEARCH (promotion semantics).
     symbol: Execution universe is BTC/USDT and ETH/USDT only.
     side: "LONG" | "SHORT".
@@ -85,10 +86,15 @@ class TradeCandidate:
     signal_context: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
+        try:
+            lane = CandidateLane(self.lane)
+        except ValueError as exc:
+            raise ValueError(
+                f"TradeCandidate lane must be PRODUCTION, TESTNET_SAMPLING, or SHADOW, got {self.lane!r}"
+            ) from exc
+        object.__setattr__(self, "lane", lane)
         if self.side not in {"LONG", "SHORT"}:
             raise ValueError(f"TradeCandidate side must be LONG or SHORT, got {self.side!r}")
-        if self.lane not in {CandidateLane.PRODUCTION, CandidateLane.TESTNET_SAMPLING}:
-            raise ValueError(f"TradeCandidate lane must be PRODUCTION or TESTNET_SAMPLING, got {self.lane!r}")
         if self.signal_reference_price <= 0:
             raise ValueError(f"signal_reference_price must be > 0, got {self.signal_reference_price}")
         if self.stop_distance <= 0:
@@ -103,8 +109,15 @@ class TradeCandidate:
             raise ValueError("expires_at must be after signal_candle_close_time")
         if self.candidate_type is V2CandidateType.SAMPLING and not self.non_promotable:
             raise ValueError("SAMPLING candidates must be non_promotable")
-        if self.lane == CandidateLane.TESTNET_SAMPLING and not self.non_promotable:
+        if lane is CandidateLane.TESTNET_SAMPLING and not self.non_promotable:
             raise ValueError("TESTNET_SAMPLING candidates must be non_promotable")
+        if lane is CandidateLane.SHADOW and self.candidate_type is not V2CandidateType.RESEARCH:
+            raise ValueError("SHADOW lane is reserved for RESEARCH candidates")
+        if self.candidate_type is V2CandidateType.RESEARCH:
+            if lane is not CandidateLane.SHADOW:
+                raise ValueError("RESEARCH candidates must use the SHADOW lane")
+            if not self.non_promotable:
+                raise ValueError("RESEARCH candidates must be non_promotable")
 
     @property
     def direction(self) -> str:

@@ -1,8 +1,8 @@
 # 修复完成报告：模块11（中长期swing）和模块6（缠论）实施断层
 
-**日期**: 2026-07-15  
-**执行人**: Claude Code (Sonnet 5)  
-**相关文档**: 
+**日期**: 2026-07-15
+**执行人**: Claude Code (Sonnet 5)
+**相关文档**:
 - 根因分析: [docs/analysis/why-solutions-not-implemented.md](../analysis/why-solutions-not-implemented.md)
 - 缠论集成指南: [docs/chan-theory-integration-guide.md](../chan-theory-integration-guide.md)
 
@@ -31,14 +31,14 @@ AUTO_PAPER_SWING_KEY = "auto_paper_swing_1d_4h"
 
 def bootstrap_auto_trading_swing_paper_run() -> str | None:
     """注册 1d/4h 中长期swing策略为禁用研究候选。
-    
+
     这是一个新的、未验证的假设，与 AUTO_PAPER_TECHNICAL_RULES 中的
     短期 15m/4h 通道不同。当前的"净期望值为负"结论是在 15m/4h 上
     测量的，不是在这个 1d/4h 组合上 -- 根据 AGENTS.md 的不可协商
     原则 1/2/6，这个配置必须通过自己的独立样本外验证（通过
     TechnicalStrategyValidationService）才能被武装到实时自动循环
     调度器中。
-    
+
     注册为 paper_status=NOT_STARTED（禁用研究候选），与
     operator_experience_4h_15m_v1 和 cross_sectional_carry 相同模式。
     """
@@ -123,14 +123,14 @@ SIGNAL_OBSERVATION_RULES: dict[str, Any] = {
 def bootstrap_signal_observation_strategy() -> str | None:
     """按需创建/刷新信号观察 PaperRun（仅通过明确的 API 调用 --
     故意不接入 bootstrap_local_paper_runtime()）。
-    
+
     这个通道使用真实信号集成 + 多指标融合（与 AUTO_PAPER_TECHNICAL_RULES
     完全相同），但跳过 net_edge_after_cost 门禁。其目的是积累 >= 30
     个真实执行样本，以便模块5的边际统计
     (services/validation/compute_signal_edge_stats.py) 能够产生可靠的
     真实世界边际估计。来自这个通道的订单被标记为
     strategy_performance_eligible=False（不计入策略验证指标）。
-    
+
     毕业标准：一旦 compute_signal_edge_stats 达到 >= 30 笔已平仓交易
     且其测量的净期望值转正，运营方可以考虑将这些信号提升到主定向通道；
     如果在 >= 30 个样本下仍为负，那就是这些信号在当前市场条件下缺乏
@@ -371,10 +371,10 @@ POST /api/bootstrap/signal-observation
 
 本次修复彻底解决了"写了配置但没连接调度器"的断层问题：
 
-✅ **模块11**: 从"死配置"变为"可调度的禁用研究候选"  
-✅ **信号观察通道**: 提供了"积累真实样本"的路径，打破死循环  
-✅ **模块6**: 创建了适配器骨架，明确了下一步行动  
-✅ **运行时验证**: 创建了检测工具，防止未来回归  
+✅ **模块11**: 从"死配置"变为"可调度的禁用研究候选"
+✅ **信号观察通道**: 提供了"积累真实样本"的路径，打破死循环
+✅ **模块6**: 创建了适配器骨架，明确了下一步行动
+✅ **运行时验证**: 创建了检测工具，防止未来回归
 ✅ **根因分析**: 文档化了问题根源和防止措施
 
 **交付自查已通过**: 所有关键代码段已用 Read/Grep 工具验证，预期逻辑已落地。

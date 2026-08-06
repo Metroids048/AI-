@@ -1,7 +1,7 @@
 # Technical Validation Framework: 完整交付文档
 
-**状态**: 阶段 3 核心能力已交付（模块 7），剩余模块提供架构指引  
-**最后更新**: 2026-07-14  
+**状态**: 阶段 3 核心能力已交付（模块 7），剩余模块提供架构指引
+**最后更新**: 2026-07-14
 **负责人**: Kiro (AI Agent)
 
 ---
@@ -81,7 +81,7 @@ python -m scripts.compare_exit_policies_cli \
 | 代码质量 | ✅ | ruff clean |
 | Mandatory self-check | ✅ | 逐文件 Read 确认落地 |
 
-**为什么数字不是精确的 1004/429？**  
+**为什么数字不是精确的 1004/429？**
 DecisionPipeline 的 meta-label 路径在 7/12 审计后发生逻辑漂移（现在传入 `model_features` + `strategy_key` + 训练模型），meta-label 门的 pass/fail 判定已不同于审计时 → 无法在当前代码上精确复现历史数字。**方向性结论可信，绝对数字偏移是预期的管线演进**。
 
 ---
@@ -131,7 +131,7 @@ def grid_search_ladder_params(
 
 **模块 7 的增量**: 提供 **exit-only A/B 对比**，隔离 exit 策略的净效应。
 
-**整合建议**: 
+**整合建议**:
 - 完整策略回放用 `TechnicalStrategyValidationService.replay()` + 一个 `StrategyContract`
 - Exit-only 对比用 `compare_exit_policies()` + 两个 `ExitPolicy`
 - 两者互补，无需重复实现
@@ -286,16 +286,16 @@ python -m scripts.compare_exit_policies_cli \
 
 ### 3.3 常见问题
 
-**Q: 回放速度慢？**  
+**Q: 回放速度慢？**
 A: 默认 `max_workers=8`，可根据 CPU 核心数调整。使用 `--reuse-stored-data` 复用已回填的市场数据。
 
-**Q: 如何添加新的 exit 策略？**  
+**Q: 如何添加新的 exit 策略？**
 A: 创建新的 `ExitPolicy`，设置 `exit_mode` 和相应规则。当前支持 `fixed_2r` 和 `exit_ladder`。如需新模式，需扩展 `TechnicalStrategyValidationService._simulate_trade()` 的 exit 逻辑。
 
-**Q: 如何解读 `ladder_level_hits`？**  
+**Q: 如何解读 `ladder_level_hits`？**
 A: `{'exit_ladder_1r': 223, 'exit_ladder_1.5r': 154}` 表示 1.0R 触发 223 次部分平仓（40%），1.5R 触发 154 次（30%）。
 
-**Q: 为什么回归数字与历史审计不完全一致？**  
+**Q: 为什么回归数字与历史审计不完全一致？**
 A: DecisionPipeline 的 meta-label 路径在审计后演进（添加 `model_features` + 训练模型），meta-label 门的判定逻辑已不同。**方向性结论可信**（Fixed 2R 正预期 / ExitLadder 负预期），绝对数字偏移是预期的管线演进。
 
 ---
@@ -309,7 +309,7 @@ A: DecisionPipeline 的 meta-label 路径在审计后演进（添加 `model_feat
 def compare_exit_policies(*, entry_config: StrategyContract, ...) -> Report:
     # ✅ 深拷贝后再修改
     arm_a_config = _strategy_with_exit_policy(entry_config, exit_policy_a)
-    
+
     # ❌ 永不这样做
     # entry_config.rules.takeprofit_rules = {...}
 ```

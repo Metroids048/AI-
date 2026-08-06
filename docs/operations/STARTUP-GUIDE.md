@@ -1,6 +1,6 @@
 # 量化交易系统启动指南
 
-**更新时间**: 2026-07-15  
+**更新时间**: 2026-07-15
 **目标**: 实现 Top20 币种 7x24 小时自动交易监控
 
 ---
@@ -154,8 +154,8 @@ SELECT * FROM order_executions ORDER BY created_at DESC LIMIT 10;
 SELECT * FROM position_snapshots WHERE run_type = 'paper' ORDER BY snapshot_time DESC LIMIT 10;
 
 -- 查看 Paper Run 状态
-SELECT paper_run_id, strategy_id, paper_status, paper_metrics_summary 
-FROM paper_runs 
+SELECT paper_run_id, strategy_id, paper_status, paper_metrics_summary
+FROM paper_runs
 WHERE paper_status = 'running';
 ```
 
@@ -294,7 +294,7 @@ chmod +x .git/hooks/pre-commit
 
 ---
 
-**最后更新**: 2026-07-15  
-**维护人员**: AI Assistant  
-**审查状态**: 待人工确认  
+**最后更新**: 2026-07-15
+**维护人员**: AI Assistant
+**审查状态**: 待人工确认
 **优先级**: CRITICAL

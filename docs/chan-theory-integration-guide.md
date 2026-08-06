@@ -1,7 +1,7 @@
 # Chan Theory (缠论) Integration Guide
 
-**Status**: Ready for implementation after open-source asset ingestion  
-**License**: MIT (Vespa314/chan.py verified)  
+**Status**: Ready for implementation after open-source asset ingestion
+**License**: MIT (Vespa314/chan.py verified)
 **Priority**: Medium (parallel with Module 11 swing trading validation)
 
 ---

@@ -21,6 +21,10 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from services.automated_trading.domain.enums import V2ExecutionMode
+from services.automated_trading.infrastructure.fill_normalizer import (
+    deduplicate_fills,
+    normalize_ccxt_trade,
+)
 from services.automated_trading.infrastructure.market_snapshot_provider import (
     AuthoritativeAccountSnapshot,
     ExchangeOrderSnapshot,
@@ -482,16 +486,19 @@ class BinanceTestnetAdapter:
                             params={"orderId": actual_order_id},
                         )
 
+            normalized_fills = deduplicate_fills(
+                normalize_ccxt_trade(trade_data, expected_order_id=actual_order_id) for trade_data in trades
+            )
             receipts = []
-            for trade_data in trades:
+            for fill in normalized_fills:
                 receipts.append(
                     ExchangeFillReceipt(
-                        exchange_order_id=actual_order_id,
-                        trade_id=str(trade_data["id"]),
-                        filled_quantity=Decimal(str(trade_data["amount"])),
-                        fill_price=Decimal(str(trade_data["price"])),
-                        fee=Decimal(str(trade_data["fee"]["cost"])),
-                        fill_timestamp=datetime.fromtimestamp(trade_data["timestamp"] / 1000, tz=UTC),
+                        exchange_order_id=fill.exchange_order_id,
+                        trade_id=fill.trade_id,
+                        filled_quantity=fill.filled_quantity,
+                        fill_price=fill.fill_price,
+                        fee=fill.fee,
+                        fill_timestamp=fill.fill_timestamp,
                     )
                 )
 

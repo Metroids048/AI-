@@ -1,0 +1,508 @@
+{
+  "binance_before": {
+    "connected": true,
+    "trading_mode": "testnet",
+    "api_base": "https://testnet.binancefuture.com/fapi/v1",
+    "wallet_balance": 6776.90201155,
+    "available_balance": 5772.94815914,
+    "unrealized_pnl": -176.33501566,
+    "open_position_count": 2,
+    "positions": [
+      {
+        "symbol": "BTC/USDT:USDT",
+        "side": "short",
+        "quantity": 0.5302,
+        "entry_price": 64192.68984223255,
+        "mark_price": 64548.46416667,
+        "notional_usdt": 34223.59570116,
+        "margin_usdt": 684.47191403,
+        "leverage": 49.99999999950326,
+        "unrealized_pnl": -188.63154681,
+        "liquidation_price": 76913.7620043
+      },
+      {
+        "symbol": "ETH/USDT:USDT",
+        "side": "short",
+        "quantity": 6.814,
+        "entry_price": 1877.4299867918994,
+        "mark_price": 1874.72,
+        "notional_usdt": 12774.34208,
+        "margin_usdt": 319.358552,
+        "leverage": 40.00000000000001,
+        "unrealized_pnl": 18.46584998,
+        "liquidation_price": 2835.91128998
+      }
+    ],
+    "open_orders": [
+      {
+        "order_id": "27966188675",
+        "symbol": "BTC/USDT:USDT",
+        "side": "buy",
+        "order_type": "limit",
+        "status": "open",
+        "quantity": 0.0015,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785830471160,
+        "updated_at": "2026-08-04T08:01:11.160000Z"
+      },
+      {
+        "order_id": "27983346689",
+        "symbol": "BTC/USDT:USDT",
+        "side": "buy",
+        "order_type": "limit",
+        "status": "open",
+        "quantity": 0.0015,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785834973674,
+        "updated_at": "2026-08-04T09:16:13.674000Z"
+      },
+      {
+        "order_id": "27999308704",
+        "symbol": "BTC/USDT:USDT",
+        "side": "buy",
+        "order_type": "limit",
+        "status": "open",
+        "quantity": 0.0015,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785839459454,
+        "updated_at": "2026-08-04T10:30:59.454000Z"
+      },
+      {
+        "order_id": "28184663343",
+        "symbol": "BTC/USDT:USDT",
+        "side": "buy",
+        "order_type": "limit",
+        "status": "open",
+        "quantity": 0.0015,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785888968534,
+        "updated_at": "2026-08-05T00:16:08.534000Z"
+      },
+      {
+        "order_id": "1000000156154416",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "STOP_MARKET",
+        "status": "NEW",
+        "quantity": 0.0015,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785843964206,
+        "updated_at": "2026-08-04T11:46:04.206000Z"
+      },
+      {
+        "order_id": "1000000156154403",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "STOP_MARKET",
+        "status": "NEW",
+        "quantity": 0.0015,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785843963293,
+        "updated_at": "2026-08-04T11:46:03.293000Z"
+      },
+      {
+        "order_id": "1000000152035603",
+        "symbol": "ETHUSDT",
+        "side": "BUY",
+        "order_type": "STOP_MARKET",
+        "status": "NEW",
+        "quantity": 4.331,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785552543609,
+        "updated_at": "2026-08-01T02:49:03.609000Z"
+      }
+    ],
+    "recent_orders": [
+      {
+        "order_id": "28206827200",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.0015,
+        "avg_price": 64253.9,
+        "reduce_only": true,
+        "update_time": 1785894676579,
+        "updated_at": "2026-08-05T01:51:16.579000Z"
+      },
+      {
+        "order_id": "28206826892",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "LIMIT",
+        "status": "FILLED",
+        "quantity": 0.5212,
+        "avg_price": 64200.0,
+        "reduce_only": false,
+        "update_time": 1785894673434,
+        "updated_at": "2026-08-05T01:51:13.434000Z"
+      },
+      {
+        "order_id": "28184663343",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "LIMIT",
+        "status": "NEW",
+        "quantity": 0.0015,
+        "avg_price": 0.0,
+        "reduce_only": true,
+        "update_time": 1785888968534,
+        "updated_at": "2026-08-05T00:16:08.534000Z"
+      },
+      {
+        "order_id": "28184660590",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.0015,
+        "avg_price": 64005.6,
+        "reduce_only": false,
+        "update_time": 1785888966679,
+        "updated_at": "2026-08-05T00:16:06.679000Z"
+      },
+      {
+        "order_id": "28017378279",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.0015,
+        "avg_price": 63918.6,
+        "reduce_only": true,
+        "update_time": 1785844458831,
+        "updated_at": "2026-08-04T11:54:18.831000Z"
+      }
+    ],
+    "web_ui_url": "https://testnet.binancefuture.com/en/futures/BTCUSDT",
+    "api_backend": "testnet-fallback",
+    "synced_at": "2026-08-05T15:20:00.192123Z",
+    "warning": "主网 futures.binance.com 的仓位/订单永远不会同步到本系统（LIVE_TRADING_ENABLED=false）。请只与下方模拟盘网页对账。 币安网页 Login 报 restricted countries 时，API 仍可正常交易；本面板以 API 真源为准。 demo-fapi 不可达，已使用 legacy Testnet API。对账入口：testnet.binancefuture.com（须同一套 Testnet API Key 账号）。不要打开 futures.binance.com 主网对比。",
+    "error": null
+  },
+  "cycle": {
+    "paper_run_id": "35298c65-cdbe-4bee-bee3-b7ded07c3204",
+    "paper_status": "running",
+    "cycle_time": "2026-08-05T15:20:15.468913Z",
+    "scanned_symbols": [
+      "BTC/USDT"
+    ],
+    "actions": [
+      {
+        "symbol": "ETH/USDT",
+        "action": "entry_limit_cancel_unconfirmed",
+        "direction": "short",
+        "reason": "binanceusdm cancelOrder() requires a symbol argument",
+        "order_execution_id": "c904d75d-88e2-427e-b433-288f3c171656",
+        "reference_price": null,
+        "close_only": false,
+        "idempotency_key": null,
+        "decision_trace": {}
+      },
+      {
+        "symbol": "ETH/USDT",
+        "action": "entry_limit_cancel_unconfirmed",
+        "direction": "short",
+        "reason": "binanceusdm cancelOrder() requires a symbol argument",
+        "order_execution_id": "66f0ddfe-97dc-41ec-9dc3-df99ab7abf9e",
+        "reference_price": null,
+        "close_only": false,
+        "idempotency_key": null,
+        "decision_trace": {}
+      },
+      {
+        "symbol": "ETH/USDT",
+        "action": "entry_limit_cancel_unconfirmed",
+        "direction": "short",
+        "reason": "binanceusdm cancelOrder() requires a symbol argument",
+        "order_execution_id": "a3f23796-4cf4-459f-b04c-2d042eda4afd",
+        "reference_price": null,
+        "close_only": false,
+        "idempotency_key": null,
+        "decision_trace": {}
+      },
+      {
+        "symbol": "ETH/USDT",
+        "action": "entry_limit_cancel_unconfirmed",
+        "direction": "short",
+        "reason": "binanceusdm cancelOrder() requires a symbol argument",
+        "order_execution_id": "0f580adf-8f78-4423-976d-6bc2dfb3c0d9",
+        "reference_price": null,
+        "close_only": false,
+        "idempotency_key": null,
+        "decision_trace": {}
+      },
+      {
+        "symbol": "BTC/USDT",
+        "action": "reconcile_unmanaged_external_position",
+        "direction": "short",
+        "reason": null,
+        "order_execution_id": null,
+        "reference_price": 64560.1,
+        "close_only": false,
+        "idempotency_key": null,
+        "decision_trace": {
+          "recovery_source": "binance_position_truth",
+          "reconcile_decoupled_from_entry_cycle": true,
+          "reason_code": "UNMANAGED_EXTERNAL_POSITION"
+        }
+      },
+      {
+        "symbol": "ETH/USDT",
+        "action": "reconcile_unmanaged_external_position",
+        "direction": "short",
+        "reason": null,
+        "order_execution_id": null,
+        "reference_price": 1874.38982558,
+        "close_only": false,
+        "idempotency_key": null,
+        "decision_trace": {
+          "recovery_source": "binance_position_truth",
+          "reconcile_decoupled_from_entry_cycle": true,
+          "reason_code": "UNMANAGED_EXTERNAL_POSITION"
+        }
+      },
+      {
+        "symbol": "BTC/USDT",
+        "action": "reconcile_unmanaged_external_position",
+        "direction": null,
+        "reason": "no exact managed position identity; protection refresh and emergency close disabled",
+        "order_execution_id": null,
+        "reference_price": null,
+        "close_only": true,
+        "idempotency_key": null,
+        "decision_trace": {
+          "reason_code": "UNMANAGED_EXTERNAL_POSITION"
+        }
+      },
+      {
+        "symbol": "ETH/USDT",
+        "action": "reconcile_unmanaged_external_position",
+        "direction": null,
+        "reason": "no exact managed position identity; protection refresh and emergency close disabled",
+        "order_execution_id": null,
+        "reference_price": null,
+        "close_only": true,
+        "idempotency_key": null,
+        "decision_trace": {
+          "reason_code": "UNMANAGED_EXTERNAL_POSITION"
+        }
+      },
+      {
+        "symbol": "BTC/USDT",
+        "action": "skip_untradable_symbol",
+        "direction": null,
+        "reason": "exchangeInfo unavailable; runtime will skip exchange-first orders until status is known",
+        "order_execution_id": null,
+        "reference_price": null,
+        "close_only": false,
+        "idempotency_key": "35298c65-cdbe-4bee-bee3-b7ded07c3204:BTC/USDT:universe_status:2026-08-05",
+        "decision_trace": {
+          "pipeline_status": "universe_status_rejected",
+          "rejection_reason": "exchangeInfo unavailable; runtime will skip exchange-first orders until status is known"
+        }
+      }
+    ],
+    "opened_positions": 0,
+    "closed_positions": 0,
+    "rejected_orders": 0,
+    "skipped_symbols": 1,
+    "open_position_symbols": [],
+    "account_equity": 6783.91523559
+  },
+  "binance_after": {
+    "connected": true,
+    "trading_mode": "testnet",
+    "api_base": "https://testnet.binancefuture.com/fapi/v1",
+    "wallet_balance": 6771.69471882,
+    "available_balance": 5767.62888446,
+    "unrealized_pnl": -181.54230839,
+    "open_position_count": 2,
+    "positions": [
+      {
+        "symbol": "BTC/USDT:USDT",
+        "side": "short",
+        "quantity": 0.5302,
+        "entry_price": 64192.68984223255,
+        "mark_price": 64565.93461957,
+        "notional_usdt": 34232.85853529,
+        "margin_usdt": 684.65717071,
+        "leverage": 49.99999999969328,
+        "unrealized_pnl": -197.89438094,
+        "liquidation_price": 76910.15992901
+      },
+      {
+        "symbol": "ETH/USDT:USDT",
+        "side": "short",
+        "quantity": 6.814,
+        "entry_price": 1877.4299867918994,
+        "mark_price": 1875.0,
+        "notional_usdt": 12776.25,
+        "margin_usdt": 319.40625,
+        "leverage": 40.0,
+        "unrealized_pnl": 16.55792998,
+        "liquidation_price": 2834.55325984
+      }
+    ],
+    "open_orders": [
+      {
+        "order_id": "27966188675",
+        "symbol": "BTC/USDT:USDT",
+        "side": "buy",
+        "order_type": "limit",
+        "status": "open",
+        "quantity": 0.0015,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785830471160,
+        "updated_at": "2026-08-04T08:01:11.160000Z"
+      },
+      {
+        "order_id": "27983346689",
+        "symbol": "BTC/USDT:USDT",
+        "side": "buy",
+        "order_type": "limit",
+        "status": "open",
+        "quantity": 0.0015,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785834973674,
+        "updated_at": "2026-08-04T09:16:13.674000Z"
+      },
+      {
+        "order_id": "27999308704",
+        "symbol": "BTC/USDT:USDT",
+        "side": "buy",
+        "order_type": "limit",
+        "status": "open",
+        "quantity": 0.0015,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785839459454,
+        "updated_at": "2026-08-04T10:30:59.454000Z"
+      },
+      {
+        "order_id": "28184663343",
+        "symbol": "BTC/USDT:USDT",
+        "side": "buy",
+        "order_type": "limit",
+        "status": "open",
+        "quantity": 0.0015,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785888968534,
+        "updated_at": "2026-08-05T00:16:08.534000Z"
+      },
+      {
+        "order_id": "1000000156154416",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "STOP_MARKET",
+        "status": "NEW",
+        "quantity": 0.0015,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785843964206,
+        "updated_at": "2026-08-04T11:46:04.206000Z"
+      },
+      {
+        "order_id": "1000000156154403",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "STOP_MARKET",
+        "status": "NEW",
+        "quantity": 0.0015,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785843963293,
+        "updated_at": "2026-08-04T11:46:03.293000Z"
+      },
+      {
+        "order_id": "1000000152035603",
+        "symbol": "ETHUSDT",
+        "side": "BUY",
+        "order_type": "STOP_MARKET",
+        "status": "NEW",
+        "quantity": 4.331,
+        "avg_price": null,
+        "reduce_only": true,
+        "update_time": 1785552543609,
+        "updated_at": "2026-08-01T02:49:03.609000Z"
+      }
+    ],
+    "recent_orders": [
+      {
+        "order_id": "28206827200",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.0015,
+        "avg_price": 64253.9,
+        "reduce_only": true,
+        "update_time": 1785894676579,
+        "updated_at": "2026-08-05T01:51:16.579000Z"
+      },
+      {
+        "order_id": "28206826892",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "LIMIT",
+        "status": "FILLED",
+        "quantity": 0.5212,
+        "avg_price": 64200.0,
+        "reduce_only": false,
+        "update_time": 1785894673434,
+        "updated_at": "2026-08-05T01:51:13.434000Z"
+      },
+      {
+        "order_id": "28184663343",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "LIMIT",
+        "status": "NEW",
+        "quantity": 0.0015,
+        "avg_price": 0.0,
+        "reduce_only": true,
+        "update_time": 1785888968534,
+        "updated_at": "2026-08-05T00:16:08.534000Z"
+      },
+      {
+        "order_id": "28184660590",
+        "symbol": "BTCUSDT",
+        "side": "SELL",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.0015,
+        "avg_price": 64005.6,
+        "reduce_only": false,
+        "update_time": 1785888966679,
+        "updated_at": "2026-08-05T00:16:06.679000Z"
+      },
+      {
+        "order_id": "28017378279",
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "order_type": "MARKET",
+        "status": "FILLED",
+        "quantity": 0.0015,
+        "avg_price": 63918.6,
+        "reduce_only": true,
+        "update_time": 1785844458831,
+        "updated_at": "2026-08-04T11:54:18.831000Z"
+      }
+    ],
+    "web_ui_url": "https://testnet.binancefuture.com/en/futures/BTCUSDT",
+    "api_backend": "testnet-fallback",
+    "synced_at": "2026-08-05T15:20:58.792645Z",
+    "warning": "主网 futures.binance.com 的仓位/订单永远不会同步到本系统（LIVE_TRADING_ENABLED=false）。请只与下方模拟盘网页对账。 币安网页 Login 报 restricted countries 时，API 仍可正常交易；本面板以 API 真源为准。 demo-fapi 不可达，已使用 legacy Testnet API。对账入口：testnet.binancefuture.com（须同一套 Testnet API Key 账号）。不要打开 futures.binance.com 主网对比。",
+    "error": null
+  }
+}

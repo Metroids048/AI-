@@ -10,6 +10,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 from services.automated_trading.application.cycle_service import (
@@ -19,6 +20,7 @@ from services.automated_trading.application.cycle_service import (
     _calculate_quantity,
     _project_confirmed_protection_exits,
     _recover_confirmed_v2_exit_gaps,
+    _sampling_execution_allowed,
     run_automated_trading_cycle,
 )
 from services.automated_trading.application.decision_service import BarView, TimeframeView
@@ -37,6 +39,7 @@ from services.automated_trading.application.reconciliation_service import (
     LocalStateView,
 )
 from services.automated_trading.application.recovery_service import RecoveryActionType
+from services.automated_trading.domain.candidates import TradeCandidate
 from services.automated_trading.domain.client_order_id import exit_client_order_id
 from services.automated_trading.domain.enums import (
     V2CandidateType,
@@ -201,7 +204,7 @@ def test_shadow_mode_never_submits_to_exchange() -> None:
 
 
 def test_active_sampling_candidate_is_decision_trace_only() -> None:
-    """S-105: non-promotable sampling must not obtain position authority."""
+    """Offline/unit sampling remains decision-trace-only."""
     adapter = build_adapter_with_successful_cycle()
     result = run_automated_trading_cycle(build_request(), adapter)
 
@@ -211,6 +214,22 @@ def test_active_sampling_candidate_is_decision_trace_only() -> None:
     assert not result.position_projected
     assert not result.protection_active
     assert result.funnel_payload["execution_policy"] == "DECISION_TRACE_ONLY"
+
+
+def test_sampling_execution_is_limited_to_persisted_active_testnet() -> None:
+    """The sampling fallback may execute only in the armed V2 Testnet lane."""
+    candidate = cast(TradeCandidate, SimpleNamespace(non_promotable=True))
+
+    assert _sampling_execution_allowed(build_request(persist_facts=True), candidate)
+    assert not _sampling_execution_allowed(build_request(), candidate)
+    assert not _sampling_execution_allowed(
+        build_request(persist_facts=True, engine_activation=EngineActivation.SHADOW),
+        candidate,
+    )
+    assert not _sampling_execution_allowed(
+        build_request(persist_facts=True, execution_mode=V2ExecutionMode.LOCAL_PAPER),
+        candidate,
+    )
 
 
 def test_sampling_fallback_is_disabled_by_default() -> None:

@@ -38,6 +38,39 @@ def _paper_run(*, execution_profile: dict | None = None) -> PaperRun:
 
 
 class TestSizingSentinelLogging:
+    def test_operator_global_leverage_overrides_strategy_max_leverage(self, db_session) -> None:
+        strategy = _strategy(position_rules={"max_leverage": 3})
+        paper_run = _paper_run(execution_profile={"account_equity": 10_000, "max_leverage": 7})
+        generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
+
+        assert generator._requested_leverage(strategy=strategy, paper_run=paper_run, symbol="BTC/USDT") == 7
+
+    def test_operator_fixed_notional_overrides_strategy_notional(self, db_session) -> None:
+        strategy = _strategy(position_rules={"notional_usdt": 500, "order_notional_usdt": 600})
+        paper_run = _paper_run(execution_profile={"account_equity": 10_000, "order_notional_usdt": 123})
+        generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
+
+        assert generator._requested_notional(
+            strategy=strategy,
+            paper_run=paper_run,
+            symbol="BTC/USDT",
+            requested_leverage=1.0,
+        ) == pytest.approx(123)
+
+    def test_operator_only_risk_budget_is_used_without_strategy_risk_key(self, db_session) -> None:
+        strategy = _strategy(position_rules={"max_position_fraction": 0.2})
+        paper_run = _paper_run(execution_profile={"account_equity": 10_000, "risk_per_trade": 0.01})
+        generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
+
+        assert generator._requested_notional(
+            strategy=strategy,
+            paper_run=paper_run,
+            symbol="BTC/USDT",
+            requested_leverage=1.0,
+            reference_price=Decimal("100"),
+            stoploss_price=Decimal("80"),
+        ) == pytest.approx(500)
+
     def test_execution_profile_overrides_stale_strategy_risk_rules(self, db_session) -> None:
         strategy = _strategy(position_rules={"risk_per_trade": 0.01, "max_position_fraction": 0.12})
         paper_run = _paper_run(
