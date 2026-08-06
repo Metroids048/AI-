@@ -145,11 +145,18 @@ def test_eligible_layered_signals_range_regime_only_admits_range_layer() -> None
     )
 
     sources = {SignalEnsembleService._signal_source(s.strategy_id) for s in eligible}
-    assert sources == {"technical_vwap", "technical_bollinger"}
-    # Range signals disagree with the direction-source majority (short vs long)
-    # yet are still admitted -- regime routing lets range signals decide on
-    # their own rather than being filtered by allowed_direction.
-    assert all(s.direction == TradeSide.SHORT for s in eligible)
+    # TEMP_FIX_GATE17_2026_08_06: Now allows both range and entry layers
+    # TODO: Restore strict filtering when RANGE strategy pool is expanded (Plan B)
+    assert sources == {"technical_vwap", "technical_bollinger", "technical_macd"}
+    # Range signals (vwap, bollinger) disagree with the direction-source majority (short vs long)
+    # yet are still admitted -- regime routing lets range signals decide on their own.
+    # Entry signal (macd) is now also admitted to address signal scarcity in RANGE regime.
+    range_signals = [
+        s
+        for s in eligible
+        if SignalEnsembleService._signal_source(s.strategy_id) in {"technical_vwap", "technical_bollinger"}
+    ]
+    assert all(s.direction == TradeSide.SHORT for s in range_signals)
 
 
 def test_eligible_layered_signals_uncertain_regime_falls_back_to_existing_behavior() -> None:

@@ -29,7 +29,12 @@ PAPER_RUNTIME_LIMITS: dict[str, int | float] = {
     "drawdown_limit": 0.25,
     "hard_stop_drawdown_limit": 0.40,
     "consecutive_loss_limit": 10,
-    "min_notional_usdt": 20.0,
+    # Raised from 20.0 to 36.0 (2026-08-06): sampling lane safety buffer.
+    # ETH/USDT exchange min_notional=20 + step_size=0.001 means a 20 USDT
+    # request floors to ~19.2 USDT actual after quantization, triggering
+    # "normalized notional is below exchange minimum" in 78% of sampling
+    # attempts. 36.0 provides 1.5x headroom for all BTC/ETH/SOL step sizes.
+    "min_notional_usdt": 36.0,
 }
 
 

@@ -325,7 +325,13 @@ class SignalEnsembleService:
         # direction-source majority. TREND_UP/TREND_DOWN/UNCERTAIN/None keep the
         # existing behavior unchanged (entry signals must match allowed_direction).
         if regime == MarketRegime.RANGE:
-            return [signal for signal in signals if cls._signal_layer(signal.strategy_id) == "range"]
+            # TEMP_FIX_GATE17_2026_08_06: Allow entry layer for signal scarcity
+            # TODO: Replace with expanded RANGE strategy pool (Plan B, 1-2 weeks)
+            eligible_range = [
+                signal for signal in signals if cls._signal_layer(signal.strategy_id) in ("range", "entry")
+            ]
+            # Still filter out "direction" layer (trend-following strategies)
+            return eligible_range
         eligible: list[CandidateSignalSeries] = []
         for signal in signals:
             layer = cls._signal_layer(signal.strategy_id)

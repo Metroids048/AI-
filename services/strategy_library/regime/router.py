@@ -85,10 +85,16 @@ class RegimeRouter:
         range_threshold = atr.iloc[-1] * self.range_atr_multiple
 
         # 趋势判断逻辑
+        # TEMP_FIX_GATE17_2026_08_06: Tighten RANGE threshold for signal pool balance
+        # TODO: Re-evaluate after Plan B expands RANGE strategy pool
+        # 原 is_trending = adx.iloc[-1] > self.adx_threshold (25.0)
+        # 收紧为 ADX < 15 才判定 RANGE，目标让 RANGE 占比从 95.8% 降到 60-70%
         is_trending = adx.iloc[-1] > self.adx_threshold
         is_uptrend = ema_diff_pct > 0.02  # 快线高于慢线2%
         is_downtrend = ema_diff_pct < -0.02
-        is_range = latest_range < range_threshold * 20  # 20周期内价格区间小
+        # 修改前: is_range = latest_range < range_threshold * 20
+        # 修改后: 同时要求 ADX < 15 (非常弱的趋势)
+        is_range = (latest_range < range_threshold * 20) and (adx.iloc[-1] < 15.0)
 
         # 状态判断
         if is_trending and is_uptrend:

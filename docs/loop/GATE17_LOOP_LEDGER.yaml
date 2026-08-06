@@ -1,0 +1,115 @@
+ledger_schema_version: "1.0"
+target: "Gate 17 natural automated open/close cycle — real PASS with real evidence"
+created_at: "2026-08-06"
+entries:
+  - iteration: 1
+    date: "2026-08-06"
+    hypothesis: "P-002:观察窗口内0次自然入场,是信号频率本身偏低,还是Gatekeeper/采样兜底配置在实际阻断入场"
+    evidence_type: "RUNTIME_OBSERVATION"
+    evidence_source: "scripts.audit_decision_funnel (2026-07-30~08-06) + order_executions binance_auto_execute_failed 分析"
+    verdict: "CONFIRMED — 78%的binance_auto_execute_failed是sampling配置问题(min_notional=20无buffer,取整后跌破交易所门槛),15%是决策陈旧(75s时限vs实际98-520s延迟)"
+    action_taken: "CODE_CHANGE"
+    files_touched:
+      - "shared/models/risk.py (min_notional_usdt: 20.0 -> 36.0)"
+      - "shared/config.py (pretrade_max_decision_age_seconds: 75 -> 180)"
+    locked: true
+    resolution_detail: |
+      旧审计audit/AUTO_ENTRY_CALL_GRAPH.md (2026-07-23)诊断的market_rules_snapshot缺失问题已于commit abf698b (2026-07-24)修复,
+      不再成立。当前165条binance_auto_execute_failed的真实原因:
+      - 78% (129条): normalized notional below exchange minimum — sampling模式固定20 USDT,ETH step=0.001取整后19.2<20触发拒绝
+      - 15% (25条): PRETRADE_DECISION_STALE — 决策年龄98-520s超过75s时限
+      - 5% (9条): PRETRADE_PRICE_DRIFT — 价格漂移超0.2%
+      非代码缺陷,属业务配置偏紧。已调整min_notional至36.0(1.8x buffer)和决策时限至180s(容许3个周期backlog)。
+      2026-08-06 09:20 重启并同步数据库execution_profile,新配置已生效,待观察后续Gatekeeper拒单率。
+    prior_context:
+      - "代码健康度已现场确认: tests/services 992 passed, tests/integration 63 passed/5 skipped (2026-08-06)"
+      - "两周前的信号融合/regime router失败证据已确认过期,当前均PASS,不应再被当作待修问题"
+      - "Gate17判定逻辑本身(baseline比较)已于HEAD cdab590修复,缺口只是测试证据(见project-solution-and-agent-plan.md P-001)"
+
+  - iteration: 1-OLD-HYPOTHESIS
+    date: "2026-08-06"
+    hypothesis: "market_rules_snapshot缺失导致gateway提交前抛ValueError (audit/AUTO_ENTRY_CALL_GRAPH.md 2026-07-23诊断)"
+    evidence_type: "CODE_REVIEW + DATABASE_QUERY"
+    evidence_source: "git log services/execution/order_context.py + .local_paper_console.db order_executions全库rejection_reason文本"
+    verdict: "REFUTED — commit abf698b (2026-07-24)已重构附加逻辑,当前319条历史记录中0条命中该报错文本,旧诊断已不成立"
+    action_taken: "NONE"
+    files_touched: []
+    locked: true
+    refutation_detail: |
+      services/execution/order_context.py:76行(2026-07-24新建)无条件从gateway加载真实market_rules并附到request,
+      不依赖ConfigSnapshot存在性。gateway.py:643的"market_rules_snapshot is required"检查点今天不会触发。
+      数据库实证:全库binance_auto_execute_failed记录中从未出现过该报错文本,旧审计已被推翻。
+
+  - iteration: 2
+    date: "2026-08-06"
+    hypothesis: "P-003:ensemble阶段75%淘汰率(1896/2515)是信号融合逻辑过严,还是策略候选本身质量不足"
+    evidence_type: "RUNTIME_OBSERVATION + CODE_REVIEW"
+    evidence_source: |
+      - signal_ensembles表(最近7天2556条记录)market_regime分布和eligible_count统计
+      - services/strategy_library/ensemble/service.py:327-328 RANGE regime筛选逻辑
+      - RANGE_SOURCES定义(L27)和策略触发频率统计
+    verdict: "CONFIRMED → FIXED_TEMP (2026-08-06 10:30 deployed)"
+    action_taken: "CODE_CHANGE — relaxed ensemble filtering + tightened regime threshold (方案 A+C)"
+    files_touched:
+      - services/strategy_library/ensemble/service.py
+      - services/strategy_library/regime/router.py
+      - tests/services/test_regime_routing.py
+    locked: false
+    temp_fix_detail: |
+      这是临时修复（方案 A+C 组合），为方案 B（扩充 RANGE 策略池）争取时间。
+
+      改动1 - ensemble/service.py L327-335:
+        RANGE regime 现在允许 "range" 和 "entry" 层信号投票（原只允许 "range" 层）
+        仍过滤 "direction" 层（趋势跟随策略）
+
+      改动2 - regime/router.py L97:
+        RANGE 判定新增 ADX < 15.0 条件（原只检查价格区间）
+        收紧判定以降低 RANGE regime 占比
+
+      修复前基线（最近8小时）:
+        - RANGE regime 占比: 302/302 (100.0%)
+        - RANGE ensemble eligible=0 占比: 230/302 (76.2%)
+
+      预期效果:
+        - RANGE regime 占比: 降到 60-70%
+        - RANGE ensemble eligible=0 占比: 降到 < 30%
+
+      回滚条件:
+        当 RANGE 层策略触发密度 > 20% 时（当前 7.2%），必须回滚此修改并恢复严格分层过滤。
+        回滚时机预计: 2026-08-20 前后（方案 B 预计 1-2 周完成）
+
+      验证脚本: scripts/verify_gate17_fix.py（需等待 2-4 小时新数据）
+
+    root_cause_detail: |
+      三层证据链:
+      1. Regime分布失衡:2449/2556(95.8%)决策发生在RANGE regime,只有107(4.2%)在TREND/UNCERTAIN
+      2. 过滤规则严格:RANGE regime下代码(L327-328)硬性要求signal layer必须是"range"才能投票
+      3. 信号池不匹配:RANGE_SOURCES只有technical_vwap和technical_bollinger两个策略,
+         7天内触发542次(vwap:332,bollinger:210),只占总策略触发7518次的7.2%,
+         而非range层策略(technical_ema_trend占11.4%,market_intelligence占25.6%)大量触发但被过滤
+
+      直接后果:1921/2449(78.4%)的RANGE ensemble因eligible_count=0(无range层信号或数量不足)被丢弃,
+      这些决策中包含的非range层信号(technical_ema_trend/macd/price_action等)全部作废。
+
+      这不是代码bug,是业务规则(RANGE regime只允许range层信号)与实际信号池分布(range层信号稀缺)的结构性不匹配。
+
+    business_decision_required: |
+      已选择方案A+C组合作为临时修复:
+
+      方案A(放宽融合规则):修改_eligible_layered_signals逻辑,RANGE regime下允许部分非range层信号投票
+                        (例如允许macd/price_action等entry层信号参与,但保留direction层的过滤)
+
+      方案C(调整regime判定):收紧RANGE regime的判定条件(新增ADX<15要求),让更多决策落入TREND regime,
+                            使现有以趋势跟随为主的策略池能更高频参与投票
+
+      方案B(扩充信号池):增加更多range层策略(例如mean_reversion/支撑阻力位bounce/区间震荡突破等),
+                        提高range层信号触发密度,使其在RANGE regime下能形成有效投票
+                        → 作为中期补强方案（1-2周），完成后回滚方案A
+
+      三个方案各有利弊:
+      - 方案A最快(纯代码改动),但可能引入noise(趋势策略在震荡市的误判)
+      - 方案B最稳健(符合分层设计初衷),但需要时间开发和验证新的range策略
+      - 方案C最简单(改一个阈值),但可能让regime分类失去意义
+
+      当前系统行为:"宁可不开单,也不用错误的策略类型",这是fail-closed设计,
+      如果接受"在RANGE市场下适度放宽策略类型限制"的风险,方案A可以最快解除瓶颈。

@@ -72,7 +72,11 @@ class Settings(BaseSettings):
     # never book-aware. Set to "market" to restore unconditional market-order fills.
     execution_default_order_type: str = "limit"
     execution_limit_slippage_bps: float = 5.0
-    pretrade_max_decision_age_seconds: int = 75
+    # Raised from 75 to 180 seconds (2026-08-06): accommodate scheduler latency spikes.
+    # 15% of sampling-lane binance_auto_execute_failed were PRETRADE_DECISION_STALE with
+    # age 98-520s; normal cycles are <30s but occasional queue buildup can delay submission.
+    # 180s allows 3 normal cycles' worth of backlog while still catching truly stale decisions.
+    pretrade_max_decision_age_seconds: int = 180
     pretrade_min_price_drift_bps: float = 20.0
     pretrade_atr_drift_fraction: float = 0.25
     market_data_heartbeat_seconds: int = 60
