@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -119,6 +121,15 @@ class CycleRequest:
     decision_id: str | None = None
     # Sampling requires an explicit operator opt-in.  The safe default is off.
     sampling_fallback_enabled: bool = False
+    # Wall-clock budget for the advisory AI review that runs between RISK_APPROVED
+    # and PRICE_DRIFT_APPROVED.  The review is advisory only (a failure yields
+    # SKIPPED and never blocks execution), but it sits on the hot path: every
+    # second it spends is a second of price drift charged against the entry's
+    # drift ceiling.  Observed 2026-08-07: a 4-candidate provider chain spent
+    # 5.50s of a 6.23s funnel returning "unavailable", and the entry was then
+    # rejected at 29.32bps against a 20bps ceiling.  Budgeting the advisory step
+    # keeps drift attributable to the market instead of to a dead provider.
+    ai_review_budget_seconds: float = 1.5
 
 
 @dataclass(frozen=True)
@@ -462,6 +473,78 @@ def _run_trade_review(request: CycleRequest, candidate) -> dict[str, Any]:
     }
 
 
+def _run_trade_review_budgeted(request: CycleRequest, candidate) -> dict[str, Any]:
+    """Run the advisory AI review under a wall-clock budget.
+
+    The review is advisory: any non-``passed`` status becomes a SKIPPED funnel
+    stage and never blocks the entry.  But it executes between RISK_APPROVED and
+    the price-drift check, so a slow or dead provider chain silently converts
+    provider latency into price drift and gets the entry rejected on a ceiling it
+    would otherwise have cleared.
+
+    The provider call is therefore run on a daemon thread and abandoned once the
+    budget expires.  Abandoning only drops an advisory opinion; the underlying
+    task still records its own invocation trace independently, so no fact is lost
+    and no execution decision is fabricated.
+    """
+    budget = float(request.ai_review_budget_seconds or 0.0)
+    if budget <= 0:
+        return {
+            "status": "skipped",
+            "provider": None,
+            "model": None,
+            "result": None,
+            "error": "ai_review_budget_disabled",
+        }
+
+    outcome: dict[str, Any] = {}
+
+    def _worker() -> None:
+        try:
+            outcome.update(_run_trade_review(request, candidate))
+        except Exception as exc:  # noqa: BLE001
+            outcome.update(
+                {
+                    "status": "error",
+                    "provider": None,
+                    "model": None,
+                    "result": None,
+                    "error": str(exc),
+                }
+            )
+
+    worker = threading.Thread(
+        target=_worker,
+        name=f"v2-ai-review-{request.symbol}",
+        daemon=True,
+    )
+    started = time.monotonic()
+    worker.start()
+    worker.join(timeout=budget)
+    elapsed = time.monotonic() - started
+
+    if worker.is_alive():
+        logger.warning(
+            "AI trade review exceeded its %.2fs budget for %s; continuing without the advisory opinion",
+            budget,
+            request.symbol,
+        )
+        return {
+            "status": "skipped",
+            "provider": None,
+            "model": None,
+            "result": None,
+            "error": f"ai_review_budget_exceeded_after_{elapsed:.2f}s",
+        }
+    return outcome or {
+        "status": "skipped",
+        "provider": None,
+        "model": None,
+        "result": None,
+        "error": "ai_review_returned_no_result",
+    }
+
+
 def _fetch_step_size(adapter, symbol: str) -> Decimal:
     """Return market step size when available; fallback for offline/test paths."""
     default = Decimal("0.001")
@@ -473,13 +556,55 @@ def _fetch_step_size(adapter, symbol: str) -> Decimal:
         return default
 
 
-def _calculate_quantity(request: CycleRequest, snapshot: AuthoritativeAccountSnapshot) -> Decimal:
-    """Resolve requested notional from operator settings, then apply exposure cap."""
+def _calculate_quantity(
+    request: CycleRequest,
+    snapshot: AuthoritativeAccountSnapshot,
+    *,
+    stop_distance: Decimal | None = None,
+    reference_price: Decimal | None = None,
+) -> Decimal:
+    """Resolve entry notional as risk-based sizing under two hard ceilings.
+
+    ``risk_per_trade`` is the fraction of equity risked if the stop is hit, so the
+    notional that expresses it is ``equity * risk_per_trade / stop_distance_pct``.
+    Two ceilings then apply and neither may be exceeded:
+
+    * ``equity * max_position_fraction`` — the operator's per-symbol exposure cap.
+    * ``equity * max_leverage`` — margin capacity; a notional above this is
+      unfundable regardless of intent.
+
+    Corrected 2026-08-07. The previous implementation used
+    ``equity * risk_per_trade`` directly as the notional, which conflated "risk
+    budget" with "position size" and left ``max_leverage`` entirely unused. The
+    observed consequence on the armed Testnet run: equity 7076.84 with
+    risk_per_trade 0.05 and leverage 40 produced a 353.84 USDT notional
+    (0.185 ETH, 8.85 USDT margin) whose 0.284 USDT round-trip fee consumed 23% of
+    a 1.241 USDT gross move — too small to carry any statistical signal, and
+    unresponsive to both stop distance and leverage.
+
+    ``order_notional_usdt`` still wins outright when the operator pins an explicit
+    notional, and the ceilings still apply to it.
+    """
     equity = max(snapshot.equity, Decimal("1"))
-    notional = (
-        request.order_notional_usdt if request.order_notional_usdt is not None else equity * request.risk_per_trade
-    )
-    return min(notional, equity * request.max_position_fraction)
+    exposure_ceiling = equity * request.max_position_fraction
+    margin_ceiling = equity * Decimal(request.max_leverage)
+
+    if request.order_notional_usdt is not None:
+        return min(request.order_notional_usdt, exposure_ceiling, margin_ceiling)
+
+    risk_budget = equity * request.risk_per_trade
+    stop_fraction: Decimal | None = None
+    if stop_distance is not None and reference_price is not None and reference_price > 0 and stop_distance > 0:
+        stop_fraction = stop_distance / reference_price
+
+    if stop_fraction is None or stop_fraction <= 0:
+        # No usable stop geometry: fall back to the risk budget as a plain
+        # notional. This is deliberately the small, conservative branch — it must
+        # never silently size up without a measured stop distance.
+        return min(risk_budget, exposure_ceiling, margin_ceiling)
+
+    risk_notional = risk_budget / stop_fraction
+    return min(risk_notional, exposure_ceiling, margin_ceiling)
 
 
 def _persist_reconciliation_fact(
@@ -1453,7 +1578,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
 
     if request.persist_facts:
         try:
-            ai_review = _run_trade_review(request, candidate)
+            ai_review = _run_trade_review_budgeted(request, candidate)
         except Exception as exc:  # noqa: BLE001
             ai_review = {
                 "status": "error",
@@ -1529,7 +1654,13 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         reason_code="ENTRY_INTENT_CREATED",
         metrics={"intent_id": intent_id},
     )
-    quantity = _calculate_quantity(request, snapshot) / snapshot_market.current_price
+    entry_notional = _calculate_quantity(
+        request,
+        snapshot,
+        stop_distance=candidate.stop_distance,
+        reference_price=snapshot_market.current_price,
+    )
+    quantity = entry_notional / snapshot_market.current_price
     if request.persist_facts:
         try:
             persist_entry_intent_before_submission(

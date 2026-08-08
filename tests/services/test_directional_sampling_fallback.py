@@ -134,6 +134,39 @@ def test_sampling_min_notional_uses_universe_asset_exchange_floor() -> None:
     assert _sampling_min_notional_usdt(paper_run=run, strategy=strategy, symbol="ETH/USDT") == 20.0
 
 
+def test_sampling_min_notional_never_undercuts_the_exchange_floor() -> None:
+    """Operator sampling config may raise the floor but never lower it.
+
+    Runtime evidence (2026-08-02): BTC/USDT sampling orders were rejected with
+    ``requested_notional=50.0, min_notional_usdt=50.0`` — exactly the exchange
+    floor. An operator value of 36.0 must therefore not win for BTC/USDT, or
+    every BTC sampling order would be submitted below the venue minimum.
+    """
+    strategy = StrategyContract(
+        strategy_id="strategy-primary",
+        strategy_key="auto_paper_mature_templates",
+        source="candidate",
+        core_thesis="primary",
+        rules=StrategyRules(**get_candidate("trend_momentum_v1").get_config()),
+    )
+    run = PaperRun(
+        paper_run_id="run-directional",
+        strategy_id=strategy.strategy_id,
+        execution_profile=_armed_profile(
+            min_notional_usdt=36.0,
+            universe_assets=[
+                {"platform_symbol": "BTC/USDT", "min_notional": "50"},
+                {"platform_symbol": "ETH/USDT", "min_notional": "20"},
+            ],
+        ),
+    )
+
+    # BTC floor (50) is above the operator value (36) -> exchange floor wins.
+    assert _sampling_min_notional_usdt(paper_run=run, strategy=strategy, symbol="BTC/USDT") == 50.0
+    # ETH floor (20) is below the operator value (36) -> operator margin wins.
+    assert _sampling_min_notional_usdt(paper_run=run, strategy=strategy, symbol="ETH/USDT") == 36.0
+
+
 def test_relaxed_candidate_accepts_entry_plus_one_higher_timeframe(monkeypatch) -> None:
     strategy = StrategyContract(
         strategy_id="strategy-relaxed",

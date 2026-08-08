@@ -254,8 +254,16 @@ def test_v2_active_scheduler_persists_entry_fact_chain(v2_db, monkeypatch, caplo
     assert result["status"] in {"completed", "partial_failure"}
     assert result.get("results")
     assert "V2 cycle started" in caplog.text
-    assert captured_requests[0].risk_per_trade == Decimal("0.05")
-    assert captured_requests[0].max_leverage == 40
+    # The contract is that the scheduler forwards the operator profile verbatim,
+    # not that any specific value is frozen (risk_per_trade was retuned
+    # 0.05 -> 0.10 by operator decision on 2026-08-07).
+    from shared.models.risk import PAPER_RUNTIME_LIMITS
+
+    assert captured_requests[0].risk_per_trade == Decimal(str(PAPER_RUNTIME_LIMITS["risk_per_trade"]))
+    assert captured_requests[0].max_leverage == int(PAPER_RUNTIME_LIMITS["max_leverage"])
+    # Sizing must receive a usable AI-review budget so provider latency cannot be
+    # charged against the entry's price-drift ceiling.
+    assert captured_requests[0].ai_review_budget_seconds > 0
 
     session: Session = v2_db()
     try:

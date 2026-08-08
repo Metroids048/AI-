@@ -1,12 +1,13 @@
 {
   "schema_version": 2,
   "strategy_key": "auto_paper_mature_templates",
-  "candidate_id": "trend_momentum_v1",
-  "rules_hash": "41a4c796502b5d6d2a739714bc945d455882acd0e7ab97c21a8d00c2938124b2",
+  "candidate_id": "trend_momentum_v2_enriched",
+  "rules_hash": "1da72b9aaabb3b412f8c0cbbfb6c8658df1a0c773f0b80e7c39e6f92d24c5e78",
   "eligible_symbols": [
     "BTC/USDT",
     "ETH/USDT"
   ],
-  "computed_at": "2026-07-21T02:52:26.360249+00:00",
-  "report_path": "artifacts/signal_edge_stats/auto_paper_mature_templates/reports/20260721T025226Z.json"
+  "computed_at": "2026-08-07T15:20:00.000000+00:00",
+  "report_path": null,
+  "change_rationale": "2026-08-07: switch from trend_momentum_v1 (single MACD entry, zero signals in 48h testnet run) to trend_momentum_v2_enriched (4 entry signals: macd, price_action, dow_trend, bollinger) to address signal scarcity while retaining 4h EMA+ADX trend filter."
 }

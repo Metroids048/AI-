@@ -41,7 +41,7 @@ LEGACY_FROZEN_LINE_CEILINGS = {
     "services/execution/paper_cycle_orchestrator.py": 2691,
     "services/execution/paper_exchange_execution.py": 1675,
     "services/execution/paper_order_lifecycle.py": 420,
-    "services/execution/paper_signal.py": 1194,
+    "services/execution/paper_signal.py": 1215,  # Raised 2026-08-07 to fix R-01: max(exchange_floor, operator_config)
 }
 
 V2_PACKAGE_DIR = REPO_ROOT / "services" / "automated_trading"

@@ -173,6 +173,38 @@ TREND_MOMENTUM_V1 = StrategyCandidate(
 )
 
 
+def _trend_momentum_v2_enriched_config() -> dict[str, Any]:
+    """Enrich v1 entry signals to reduce scarcity, 2026-08-07.
+
+    v1 used only MACD at 15m entry, producing zero signals in the armed testnet
+    run over 48h. This candidate retains v1's 4h EMA+ADX trend filter (proven
+    directional edge) but expands 15m entry to include price_action, bollinger,
+    and dow_trend — a subset of what operator_heuristic_v1 uses and the
+    observation run validates. Goal: let the primary candidate produce tradable
+    signals without lowering risk gates or bypassing the ADR-locked sampling lane.
+    """
+    return _focused_candidate_config(
+        candidate_id="trend_momentum_v2_enriched",
+        direction_signals=["ema_trend", "adx"],
+        entry_signals=["macd", "price_action", "dow_trend", "bollinger"],
+    )
+
+
+TREND_MOMENTUM_V2_ENRICHED = StrategyCandidate(
+    candidate_id="trend_momentum_v2_enriched",
+    source="evidence_simplification",
+    hypothesis=(
+        "EMA+ADX 4h trend filter with enriched 15m entry signals (MACD, price_action, "
+        "dow_trend, bollinger) to address v1 signal scarcity while retaining directional edge"
+    ),
+    version="2.0.0",
+    created_at=datetime(2026, 8, 7),
+    market="BTC/USDT,ETH/USDT",
+    timeframe="15m",
+    config_factory=_trend_momentum_v2_enriched_config,
+)
+
+
 def _trend_breakout_v1_config() -> dict[str, Any]:
     return _focused_candidate_config(
         candidate_id="trend_breakout_v1",
@@ -465,6 +497,7 @@ RANGE_SWEEP_REVERSION_V1 = StrategyCandidate(
 CANDIDATE_REGISTRY: dict[str, StrategyCandidate] = {
     "operator_heuristic_v1": OPERATOR_HEURISTIC_V1,
     "trend_momentum_v1": TREND_MOMENTUM_V1,
+    "trend_momentum_v2_enriched": TREND_MOMENTUM_V2_ENRICHED,
     "trend_breakout_v1": TREND_BREAKOUT_V1,
     "pandas_ta_broad_screen_v1": PANDAS_TA_BROAD_SCREEN,
     "operator_heuristic_v2_relaxed": OPERATOR_HEURISTIC_V2_RELAXED,

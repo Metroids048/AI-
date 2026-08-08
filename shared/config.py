@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     # Advisory MARKET_REVIEW cadence (P1). Never creates candidates or blocks hard exits.
     market_review_seconds: int = 3600
     market_review_enabled: bool = True
+    # Wall-clock budget for the advisory per-trade AI review inside a V2 entry
+    # cycle. The review runs between RISK_APPROVED and the price-drift check, so
+    # provider latency is charged directly against the entry's drift ceiling.
+    # 2026-08-07: a dead 4-candidate provider chain burned 5.50s of a 6.23s
+    # funnel and the entry was rejected at 29.32bps against a 20bps ceiling.
+    # Keep this well under the drift budget; the review is advisory only.
+    v2_ai_review_budget_seconds: float = 1.5
     # Local dev: bypass multi-timeframe + meta-label filters so Paper cycles can open test positions.
     paper_runtime_relaxed_signals: bool = False
     # Binance Simulation is the authoritative execution path for the automated BTC/ETH lane.

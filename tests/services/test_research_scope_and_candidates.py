@@ -23,6 +23,33 @@ def test_evidence_candidates_have_explicit_role_specific_signal_sets() -> None:
     assert momentum["entry_signals"] == ["macd"]
     assert momentum["fusion_method"] == "weighted_vote"
 
+
+def test_trend_momentum_v2_enriched_widens_entry_without_touching_direction_filter() -> None:
+    """v2_enriched fixes 15m entry starvation while keeping v1's 4h trend filter.
+
+    Runtime evidence 2026-08-07: the armed testnet run produced zero primary
+    signals over 48h because v1 gates 15m entry on MACD alone. v2_enriched adds
+    price_action / dow_trend / bollinger at entry only — the 4h EMA+ADX
+    directional filter and all risk gates are unchanged, so this widens signal
+    supply without weakening admission.
+    """
+    v1 = get_candidate("trend_momentum_v1").get_config()["entry_rules"]
+    v2 = get_candidate("trend_momentum_v2_enriched").get_config()["entry_rules"]
+
+    # Direction filter must stay identical — this is the proven edge component.
+    assert v2["direction_signals"] == v1["direction_signals"] == ["ema_trend", "adx"]
+    assert v2["direction_timeframe"] == v1["direction_timeframe"]
+    assert v2["state_timeframe"] == v1["state_timeframe"]
+    assert v2["entry_timeframe"] == v1["entry_timeframe"] == "15m"
+
+    # Entry supply must be a strict superset of v1's single MACD trigger.
+    assert set(v1["entry_signals"]).issubset(set(v2["entry_signals"]))
+    assert set(v2["entry_signals"]) == {"macd", "price_action", "dow_trend", "bollinger"}
+
+    # Cost assumptions must not drift as a side effect of widening entry.
+    for key in ("core_fee_bps", "core_slippage_bps", "standard_fee_bps", "standard_slippage_bps"):
+        assert v2[key] == v1[key], key
+
     breakout = get_candidate("trend_breakout_v1").get_config()["entry_rules"]
     assert breakout["direction_signals"] == ["dow_trend", "adx"]
     assert breakout["entry_signals"] == ["price_action", "fvg"]
@@ -73,12 +100,27 @@ def test_runtime_baseline_has_stable_rules_hash() -> None:
 
 
 def test_active_manifest_selects_validated_candidate_and_symbol_subset(tmp_path, monkeypatch) -> None:
+    """The packaged active manifest is authoritative for the armed candidate.
+
+    Asserted against the manifest itself rather than a hardcoded candidate id:
+    operators re-point this manifest when a new validated candidate is packaged
+    (2026-08-07: trend_momentum_v1 -> trend_momentum_v2_enriched to fix 15m
+    entry-signal starvation). The invariant under test is that resolution honors
+    the manifest and clamps eligible symbols to the research scope, not which
+    specific candidate happens to be armed today.
+    """
     import json
+    from pathlib import Path
 
     import services.execution.signal_edge_stats as edge_module
 
     monkeypatch.setattr(edge_module, "EDGE_STATS_ARTIFACT_DIR", tmp_path)
-    config = get_candidate("trend_momentum_v1").get_config()
+
+    packaged = json.loads(
+        Path("docs/evidence/active-manifests/auto_paper_mature_templates.json").read_text(encoding="utf-8")
+    )
+    expected_candidate = packaged["candidate_id"]
+    config = get_candidate(expected_candidate).get_config()
     rules = StrategyRules(**config)
     manifest_dir = tmp_path / "auto_paper_mature_templates"
     manifest_dir.mkdir()
@@ -86,7 +128,7 @@ def test_active_manifest_selects_validated_candidate_and_symbol_subset(tmp_path,
         json.dumps(
             {
                 "schema_version": 2,
-                "candidate_id": "trend_momentum_v1",
+                "candidate_id": expected_candidate,
                 "rules_hash": strategy_rules_hash(rules),
                 "eligible_symbols": ["BTC/USDT", "ETH/USDT", "DOGE/USDT"],
             }
@@ -96,5 +138,9 @@ def test_active_manifest_selects_validated_candidate_and_symbol_subset(tmp_path,
 
     resolved, symbols = resolve_auto_paper_technical_evidence()
 
-    assert resolved["entry_rules"]["candidate_id"] == "trend_momentum_v1"
+    assert resolved["entry_rules"]["candidate_id"] == expected_candidate
+    # DOGE/USDT is outside AUTO_PAPER_RESEARCH_SYMBOLS and must be clamped away.
     assert symbols == ("BTC/USDT", "ETH/USDT")
+    # The packaged manifest hash must match the packaged candidate config, or
+    # bootstrap silently falls back to the disabled conservative rules.
+    assert packaged["rules_hash"] == strategy_rules_hash(rules)

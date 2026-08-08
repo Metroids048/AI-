@@ -1173,8 +1173,23 @@ def _sampling_min_notional_usdt(
     strategy: StrategyContract,
     symbol: str,
 ) -> float:
-    """Resolve exchange dynamic minimum notional for the sampling risk band."""
+    """Resolve exchange dynamic minimum notional for the sampling risk band.
 
+    The exchange floor is a hard lower bound and must never be undercut; the
+    operator sampling config may only raise it. The resolved value is therefore
+    ``max(exchange_floor, operator_config)``.
+
+    Corrected 2026-08-07 after runtime evidence review. The earlier R-01 attempt
+    returned ``execution_profile.min_notional_usdt`` unconditionally to gain a
+    step_size rounding margin, but the real reject data shows the opposite
+    failure mode: BTC/USDT was rejected while requesting exactly its exchange
+    floor of 50.0 (``requested_notional=50.0, min_notional_usdt=50.0``), so an
+    unconditional 36.0 would push BTC *below* the floor and add rejects. Taking
+    the maximum keeps the operator margin where it is genuinely higher
+    (ETH/USDT: max(20, 36) = 36) without ever undercutting the venue minimum
+    (BTC/USDT: max(50, 36) = 50).
+    """
+    exchange_floor = 0.0
     for asset in paper_run.execution_profile.get("universe_assets", []) or []:
         if not isinstance(asset, dict):
             continue
@@ -1184,10 +1199,17 @@ def _sampling_min_notional_usdt(
         if raw is not None:
             value = float(raw)
             if value > 0:
-                return value
-    return float(
-        paper_run.execution_profile.get(
-            "min_notional_usdt",
-            strategy.rules.position_rules.get("min_notional_usdt", 50.0),
-        )
-    )
+                exchange_floor = value
+        break
+
+    operator_floor = 0.0
+    sampling_min = paper_run.execution_profile.get("min_notional_usdt")
+    if sampling_min is not None:
+        value = float(sampling_min)
+        if value > 0:
+            operator_floor = value
+
+    resolved = max(exchange_floor, operator_floor)
+    if resolved > 0:
+        return resolved
+    return float(strategy.rules.position_rules.get("min_notional_usdt", 50.0))

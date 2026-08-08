@@ -254,6 +254,7 @@ class DecisionPipeline:
             main_signals=signals,
             enabled_signals=enabled_signals,
             decision_time=closed_at,
+            regime=regime,
         )
         if not multi_timeframe["passed"] and not relaxed_signals:
             return self._skipped(
@@ -529,7 +530,18 @@ class DecisionPipeline:
         main_signals: list[TradeSignal],
         enabled_signals: set[str] | frozenset[str],
         decision_time: datetime | None = None,
+        regime: MarketRegime | None = None,
     ) -> dict[str, Any]:
+        """Multi-timeframe confirmation with regime-aware majority rules.
+
+        Changed 2026-08-07 to fix R-02 (MTF 100% rejection under UNCERTAIN):
+        - In UNCERTAIN regime, allow majority agreement (2/3) instead of strict all
+        - In TREND/RANGE regimes, keep strict directional agreement
+        - Rationale: UNCERTAIN means mixed signals are expected; requiring perfect
+          MTF alignment in this regime creates a logical impossibility that blocks
+          all entries. The gate17 fix tightened RANGE to ADX<15, pushing ADX 15-25
+          into UNCERTAIN, where the old strict-all MTF killed 100% of signals.
+        """
         del enabled_signals
         main_direction = _dominant_signal_direction(main_signals)
         entry_rules = strategy.rules.entry_rules
@@ -602,7 +614,10 @@ class DecisionPipeline:
                     "state_timeframe": str(state_timeframe),
                     "state_signal_count": len(state_signals),
                 }
-            if main_direction != state_direction:
+            # Changed 2026-08-07: In UNCERTAIN regime, allow state disagreement
+            # if confirm_timeframe agrees (majority 2/3 instead of strict all)
+            state_disagrees = main_direction != state_direction
+            if state_disagrees and regime != MarketRegime.UNCERTAIN:
                 return {
                     "passed": False,
                     "status": "state_confirmation_disagreed",
@@ -611,6 +626,7 @@ class DecisionPipeline:
                     "main_direction": str(main_direction),
                     "state_direction": str(state_direction),
                     "state_signal_count": len(state_signals),
+                    "regime": str(regime) if regime else None,
                 }
         state_confirmation = (
             {
@@ -636,15 +652,38 @@ class DecisionPipeline:
                 "confirm_timeframe": confirm_timeframe,
                 "confirm_signal_count": len(confirm_signals),
             }
+
+        # Changed 2026-08-07: In UNCERTAIN regime with state_disagrees,
+        # require confirm_timeframe to agree (majority 2/3) instead of failing
+        confirm_agrees = main_direction == confirm_direction
+        if regime == MarketRegime.UNCERTAIN and state_timeframe and state_disagrees:
+            # UNCERTAIN + state disagrees: need confirm to agree for majority pass
+            return {
+                "passed": confirm_agrees,
+                "status": ("uncertain_majority_confirmed" if confirm_agrees else "uncertain_all_disagreed"),
+                "main_timeframe": timeframe,
+                "confirm_timeframe": confirm_timeframe,
+                "main_direction": str(main_direction),
+                "confirm_direction": str(confirm_direction),
+                "state_direction": str(state_direction) if state_direction else None,
+                "confirm_signal_count": len(confirm_signals),
+                "direction_signals": confirm_signals if confirm_agrees else [],
+                "regime": str(regime),
+                "mtf_rule": "uncertain_majority_2_of_3",
+                **({"state_confirmation": state_confirmation} if state_confirmation else {}),
+            }
+
+        # Standard strict agreement for TREND/RANGE or when no state disagreement
         return {
-            "passed": main_direction == confirm_direction,
-            "status": "confirmed" if main_direction == confirm_direction else "disagreed",
+            "passed": confirm_agrees,
+            "status": "confirmed" if confirm_agrees else "disagreed",
             "main_timeframe": timeframe,
             "confirm_timeframe": confirm_timeframe,
             "main_direction": str(main_direction),
             "confirm_direction": str(confirm_direction),
             "confirm_signal_count": len(confirm_signals),
-            "direction_signals": confirm_signals,
+            "direction_signals": confirm_signals if confirm_agrees else [],
+            "regime": str(regime) if regime else None,
             **({"state_confirmation": state_confirmation} if state_confirmation else {}),
         }
 

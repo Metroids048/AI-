@@ -245,13 +245,34 @@ def test_directional_auto_run_uses_btc_eth_execution_scope(db_session, monkeypat
 
 
 def test_high_density_paper_limits_are_kept_in_sync() -> None:
-    """Guard the single operator-selected Paper profile against configuration drift."""
+    """Guard the single operator-selected Paper profile against configuration drift.
+
+    The invariant is that all three surfaces agree with the single authoritative
+    source (``PAPER_RUNTIME_LIMITS``), not that any particular number is frozen.
+    ``risk_per_trade`` was raised 0.05 -> 0.10 by operator decision on 2026-08-07
+    alongside the risk-based sizing fix; asserting the literal would only force a
+    test edit on every legitimate operator retune while catching nothing extra.
+    """
+    from shared.models.risk import PAPER_RUNTIME_LIMITS
+
     profile = medium_risk_profile()
     position_rules = AUTO_PAPER_TECHNICAL_RULES["position_rules"]
 
-    assert position_rules["risk_per_trade"] == profile.single_trade_risk_limit == 0.05
-    assert position_rules["max_leverage"] == profile.max_leverage == 40.0
-    assert position_rules["max_position_fraction"] == profile.max_symbol_exposure == 0.35
+    assert (
+        position_rules["risk_per_trade"]
+        == profile.single_trade_risk_limit
+        == PAPER_RUNTIME_LIMITS["risk_per_trade"]
+    )
+    assert position_rules["max_leverage"] == profile.max_leverage == PAPER_RUNTIME_LIMITS["max_leverage"]
+    assert (
+        position_rules["max_position_fraction"]
+        == profile.max_symbol_exposure
+        == PAPER_RUNTIME_LIMITS["max_symbol_exposure"]
+    )
+    # Sizing is meaningless unless a risk budget can actually be expressed within
+    # the exposure ceiling, so keep the band sane rather than pinned.
+    assert 0 < PAPER_RUNTIME_LIMITS["risk_per_trade"] <= 0.20
+    assert PAPER_RUNTIME_LIMITS["max_symbol_exposure"] <= PAPER_RUNTIME_LIMITS["max_total_exposure"]
     assert position_rules["max_portfolio_initial_risk_fraction"] == 0.25
     assert profile.max_total_exposure == 0.90
     assert profile.max_open_positions == 2

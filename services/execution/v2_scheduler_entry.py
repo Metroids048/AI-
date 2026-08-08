@@ -404,6 +404,7 @@ def execute_v2_automated_trading_cycles(
                 persist_facts=config.v2_activation is EngineActivation.ACTIVE,
                 decision_id=decision_id,
                 sampling_fallback_enabled=operator_settings.sampling_fallback_enabled,
+                ai_review_budget_seconds=settings.v2_ai_review_budget_seconds,
             )
             try:
                 result = run_automated_trading_cycle(request, adapter)

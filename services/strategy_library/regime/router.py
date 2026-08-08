@@ -85,15 +85,24 @@ class RegimeRouter:
         range_threshold = atr.iloc[-1] * self.range_atr_multiple
 
         # 趋势判断逻辑
-        # TEMP_FIX_GATE17_2026_08_06: Tighten RANGE threshold for signal pool balance
-        # TODO: Re-evaluate after Plan B expands RANGE strategy pool
-        # 原 is_trending = adx.iloc[-1] > self.adx_threshold (25.0)
-        # 收紧为 ADX < 15 才判定 RANGE，目标让 RANGE 占比从 95.8% 降到 60-70%
-        is_trending = adx.iloc[-1] > self.adx_threshold
+        # CHANGED 2026-08-07 to fix R-02: Let ADX 15-25 enter TREND instead of UNCERTAIN
+        # Previous gate17 tightened RANGE to ADX<15, pushing ADX 15-25 into UNCERTAIN
+        # where strict MTF killed all signals. Now we expand TREND downward to capture
+        # the 15-25 transition zone when EMA bias exists.
+        #
+        # New logic:
+        # - ADX >= 15 + clear EMA bias (>2% or <-2%) → TREND (was: ADX > 25)
+        # - ADX < 15 + narrow price range → RANGE (unchanged from gate17)
+        # - Otherwise → UNCERTAIN
+        #
+        # Rationale: ADX 15-25 with directional EMA bias is a valid early-trend state;
+        # gate17's RANGE tightening was correct but we also need to lower the TREND
+        # entry threshold to avoid orphaning the 15-25 zone into UNCERTAIN.
+        has_ema_bias = abs(ema_diff_pct) > 0.02
+        is_trending = (adx.iloc[-1] >= 15.0 and has_ema_bias) or (adx.iloc[-1] > self.adx_threshold)
         is_uptrend = ema_diff_pct > 0.02  # 快线高于慢线2%
         is_downtrend = ema_diff_pct < -0.02
-        # 修改前: is_range = latest_range < range_threshold * 20
-        # 修改后: 同时要求 ADX < 15 (非常弱的趋势)
+        # RANGE: ADX < 15 (very weak trend) AND narrow price range
         is_range = (latest_range < range_threshold * 20) and (adx.iloc[-1] < 15.0)
 
         # 状态判断

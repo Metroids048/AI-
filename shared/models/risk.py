@@ -18,7 +18,14 @@ from .enums import RiskEventType, RiskResolutionStatus, RiskSeverity
 MEDIUM_RISK_PROFILE_KEY = "medium_binance_top20"
 PAPER_RUNTIME_CONFIG_VERSION = "paper-btc-eth-sampling-v1"
 PAPER_RUNTIME_LIMITS: dict[str, int | float] = {
-    "risk_per_trade": 0.05,
+    # Raised from 0.05 to 0.10 (2026-08-07, operator decision) together with the
+    # risk-based sizing fix in cycle_service._calculate_quantity. Before that fix
+    # risk_per_trade was used directly as a notional fraction, so 0.05 meant a
+    # 354 USDT position on 7077 USDT equity whose round-trip fee ate 23% of the
+    # move. It is now the fraction of equity risked if the stop is hit, bounded by
+    # max_symbol_exposure and margin capacity. Simulation/Testnet sampling band —
+    # must be re-tightened before any live promotion.
+    "risk_per_trade": 0.10,
     "max_symbol_exposure": 0.35,
     "max_total_exposure": 0.90,
     "max_open_positions": 2,
