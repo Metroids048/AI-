@@ -65,6 +65,7 @@ from services.automated_trading.application.reconciliation_service import (
 from services.automated_trading.application.recovery_executor import execute_recovery_actions
 from services.automated_trading.application.recovery_service import (
     PendingIntentView,
+    RecoveryActionType,
     recover_pending_state,
 )
 from services.automated_trading.domain.candidates import CandidateLane, TradeCandidate
@@ -131,6 +132,31 @@ class CycleRequest:
     # keeps drift attributable to the market instead of to a dead provider.
     ai_review_budget_seconds: float = 1.5
 
+    @property
+    def reconcile_existing_positions(self) -> bool:
+        """Authority to converge ALREADY-managed V2 exposure onto exchange truth.
+
+        Deliberately separate from ``persist_facts``, which grants authority to
+        create NEW exposure.  Activation controls new execution authority; it
+        must not disable reconciliation of exposure already created while
+        ACTIVE.
+
+        U1 (2026-08-09): a BTC position opened under ACTIVE kept live exchange
+        protection after the engine was downgraded to SHADOW.  Its native stop
+        filled, the exchange went flat, but every repair path was gated behind
+        ``persist_facts`` while destructive ghost recovery stayed enabled.  The
+        position was quarantined, dropped out of ``get_open_positions``, and
+        became permanently unreconciled -- local state claimed an open position
+        and live protection that no longer existed on the exchange.
+
+        SHADOW therefore still ingests authoritative terminal fills, projects
+        confirmed exits, retires dead protection, and closes managed positions.
+        It still never submits a new entry or a new protection order: that
+        remains gated by ``persist_facts`` plus ``engine_activation`` at the
+        submission sites.
+        """
+        return self.persist_facts or self.engine_activation is EngineActivation.SHADOW
+
 
 @dataclass(frozen=True)
 class LocalStateLoadResult:
@@ -175,6 +201,10 @@ class CycleResult:
     funnel_payload: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     entry_blocked_by_runtime_control: bool = False
+    # Set when terminal-exit projection could not finish (exchange lookup failed).
+    # Ghost quarantine must not run in the same cycle: an unread authoritative
+    # fill would be misread as "local position has no exchange counterpart".
+    terminal_exit_projection_incomplete: bool = False
 
     def record_error(self, msg: str) -> None:
         logger.error("[cycle %s %s] %s", self.cycle_id, self.symbol, msg)
@@ -791,6 +821,7 @@ def _project_confirmed_protection_exits(
             try:
                 fills = tuple(adapter.fetch_fills(position.symbol, exchange_order_id))
             except Exception as exc:  # noqa: BLE001
+                result.terminal_exit_projection_incomplete = True
                 result.record_error(
                     f"protection fill lookup failed for {position.position_id}/{exchange_order_id}: {exc}"
                 )
@@ -850,6 +881,7 @@ def _project_confirmed_protection_exits(
                 protection_exchange_order_id=protection_exchange_order_id,
             )
         except Exception as exc:  # noqa: BLE001
+            result.terminal_exit_projection_incomplete = True
             result.record_error(f"protection exit persistence failed: {exc}")
             return changed
 
@@ -1062,7 +1094,7 @@ def _recover_confirmed_v2_exit_gaps(
     exchange order id, and real Binance fills covering the local quantity are
     all mandatory.
     """
-    if not request.persist_facts:
+    if not request.reconcile_existing_positions:
         return False
 
     from sqlalchemy import select
@@ -1219,7 +1251,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         result.reconciliation_status = ReconciliationStatus.UNAVAILABLE
         return result
 
-    if request.persist_facts:
+    if request.reconcile_existing_positions:
         try:
             cleaned_protections = reconcile_closed_position_protections(
                 execution_mode=request.execution_mode,
@@ -1244,6 +1276,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             result,
         )
     except Exception as exc:  # noqa: BLE001
+        result.terminal_exit_projection_incomplete = True
         result.record_error(f"confirmed V2 exit recovery failed: {exc}")
 
     local_load = _build_local_state(
@@ -1270,7 +1303,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                 fail_closed=True,
             )
     if (
-        request.persist_facts
+        request.reconcile_existing_positions
         and local_load.status == "OK"
         and local_load.state is not None
         and _project_confirmed_protection_exits(
@@ -1309,7 +1342,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             exchange_position_claim_refs=local_load.exchange_position_claim_refs,
         )
         result.reconciliation_status = recon.status
-        if request.persist_facts:
+        if request.reconcile_existing_positions:
             try:
                 _persist_reconciliation_fact(request, snapshot, local_state, recon)
             except Exception as exc:  # noqa: BLE001
@@ -1332,10 +1365,31 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                 ),
             )
             recovery_errors: tuple[str, ...] = ()
-            if recovery.actions:
+            recovery_actions = recovery.actions
+            if result.terminal_exit_projection_incomplete:
+                # Terminal-exit projection did not finish this cycle, so an
+                # authoritative reduce-only fill may exist but be unread.
+                # Quarantining now would freeze the position out of
+                # get_open_positions and make the exit permanently
+                # unreconcilable (U1).  Defer to the next cycle instead.
+                deferred = tuple(
+                    action
+                    for action in recovery_actions
+                    if action.action_type is RecoveryActionType.QUARANTINE_LOCAL_GHOST_POSITION
+                )
+                if deferred:
+                    recovery_actions = tuple(action for action in recovery_actions if action not in deferred)
+                    logger.warning(
+                        "[cycle %s %s] deferring %s local-ghost quarantine action(s): "
+                        "terminal exit projection incomplete this cycle",
+                        request.cycle_id,
+                        request.symbol,
+                        len(deferred),
+                    )
+            if recovery_actions:
                 step_size = _fetch_step_size(adapter, request.symbol)
                 recovery_exec = execute_recovery_actions(
-                    recovery.actions,
+                    recovery_actions,
                     adapter=adapter,
                     snapshot=snapshot,
                     local_state=local_state,
