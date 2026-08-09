@@ -936,7 +936,9 @@ def bootstrap_seed_multi_timeframe_ohlcv() -> int:
     from services.database import get_session_factory
 
     written_total = 0
-    timeframes = ("1m", "15m", "4h", "1d")
+    # 5m included so a fresh boot does not start from an empty 5m table and wait
+    # for the heartbeat rotation to discover it (I-2 / RT-04).
+    timeframes = ("1m", "5m", "15m", "4h", "1d")
     with get_session_factory()() as session:
         repo = DataRepository(session)
         client = BinanceCcxtClient()

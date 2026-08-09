@@ -127,9 +127,17 @@ def enqueue_binance_ingestion(job_payload: dict, *, client=None) -> dict:
         session.close()
 
 
-_HEARTBEAT_TIMEFRAMES = ("1m", "15m", "1h", "4h", "1d")
+# 5m was declared in every other timeframe registry (binance.TIMEFRAME_TO_SECONDS,
+# candle_validation._TIMEFRAME_DURATION, repository._timeframe_to_delta,
+# Timeframe.M5) but never here, so nothing ever fetched a 5m bar: RT-04 read
+# bar_count = 0 for BTC/USDT while 15m/1h/4h each held ~1 year of history.
+# These three tables must stay in lockstep -- _heartbeat_timeframes_to_refresh
+# indexes both dicts with a name taken from the tuple, so a half-registered
+# timeframe raises KeyError mid-heartbeat.
+_HEARTBEAT_TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h", "1d")
 _HEARTBEAT_MAX_AGE_SECONDS = {
     "1m": 120,
+    "5m": 7 * 60,  # same ~1.3x window tolerance the other frames use
     "15m": 20 * 60,
     "1h": 80 * 60,
     "4h": 5 * 60 * 60,
@@ -137,6 +145,7 @@ _HEARTBEAT_MAX_AGE_SECONDS = {
 }
 _TIMEFRAME_WINDOW_SECONDS = {
     "1m": 60,
+    "5m": 5 * 60,
     "15m": 15 * 60,
     "1h": 60 * 60,
     "4h": 4 * 60 * 60,
