@@ -109,8 +109,23 @@ def tradable_fixed_top20_symbols(exchange_info_symbols: Iterable[Mapping[str, An
     return [asset.platform_symbol for asset in assets if asset.tradable_status in {"trading", "unknown"}]
 
 
+def canonical_market_symbol(symbol: str) -> str:
+    """Return the single internal identity for a market symbol.
+
+    The exchange boundary speaks ``BTC/USDT:USDT`` for USD-M perpetuals, but the
+    database and every internal reader use the canonical ``BTC/USDT``. Persisting
+    the exchange form made ``market_extras`` unreachable by exact-equality
+    queries, so funding/open-interest read as permanently missing (ADR: T0-01).
+
+    This is the boundary converter: it accepts either shape and is idempotent.
+    It is not a dual-truth fallback — callers use the result for a single query
+    against a single canonical identity.
+    """
+    return symbol.replace(":USDT", "")
+
+
 def platform_to_exchange_symbol(symbol: str) -> str:
-    normalized = symbol.replace(":USDT", "")
+    normalized = canonical_market_symbol(symbol)
     if normalized in PLATFORM_TO_EXCHANGE_SYMBOL:
         return PLATFORM_TO_EXCHANGE_SYMBOL[normalized]
     return normalized.replace("/", "").upper()
@@ -119,7 +134,7 @@ def platform_to_exchange_symbol(symbol: str) -> str:
 def exchange_to_platform_symbol(symbol: str) -> str:
     raw = symbol.upper()
     if "/" in raw:
-        return raw.replace(":USDT", "")
+        return canonical_market_symbol(raw)
     if raw in EXCHANGE_TO_PLATFORM_SYMBOL:
         return EXCHANGE_TO_PLATFORM_SYMBOL[raw]
     if raw.endswith("USDT"):

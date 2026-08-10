@@ -36,9 +36,7 @@ def main() -> int:
     # ENTRY intent. Exit legs create their own synthetic reduce-only intents
     # (candidate_key "exit:<position_id>:<reason>"), so selecting the newest
     # intent would grab the exit and misreport the chain.
-    position = conn.execute(
-        """SELECT * FROM v2_managed_positions ORDER BY projected_at DESC LIMIT 1"""
-    ).fetchone()
+    position = conn.execute("""SELECT * FROM v2_managed_positions ORDER BY projected_at DESC LIMIT 1""").fetchone()
     if position is None:
         check("A-001 managed position exists", False, "no v2_managed_positions rows")
         _report()
@@ -80,7 +78,9 @@ def main() -> int:
         return 1
 
     print(f"\nentry exchange_order_id = {entry_order['exchange_order_id']}")
-    print(f"  qty={entry_order['quantity']} filled={entry_order['filled_quantity']} avg={entry_order['average_fill_price']}")
+    print(
+        f"  qty={entry_order['quantity']} filled={entry_order['filled_quantity']} avg={entry_order['average_fill_price']}"
+    )
     print(f"  fee={entry_order['total_fee']} leverage={entry_order['leverage']}")
 
     check(
@@ -108,8 +108,11 @@ def main() -> int:
     entry_fill = next((f for f in fills if not f["reduce_only"]), None)
     exit_fill = next((f for f in fills if f["reduce_only"]), None)
 
-    check("A-004 entry fill has a real trade_id", bool(entry_fill and entry_fill["trade_id"]),
-          str(entry_fill["trade_id"]) if entry_fill else "none")
+    check(
+        "A-004 entry fill has a real trade_id",
+        bool(entry_fill and entry_fill["trade_id"]),
+        str(entry_fill["trade_id"]) if entry_fill else "none",
+    )
 
     # ---- A-005: exchange-first ordering (local projection AFTER exchange fill)
     print(f"\nposition_id  = {position['position_id']}")
@@ -178,14 +181,15 @@ def main() -> int:
         ).fetchone()
     if exit_order is not None:
         print(f"\nexit exchange_order_id = {exit_order['exchange_order_id']}")
-        print(f"  qty={exit_order['quantity']} filled={exit_order['filled_quantity']} avg={exit_order['average_fill_price']}")
+        print(
+            f"  qty={exit_order['quantity']} filled={exit_order['filled_quantity']} avg={exit_order['average_fill_price']}"
+        )
         check(
             "EXIT real exchange_order_id present",
             bool(exit_order["exchange_order_id"]),
             str(exit_order["exchange_order_id"]),
         )
-    check("EXIT reduce-only fill exists", exit_fill is not None,
-          str(exit_fill["trade_id"]) if exit_fill else "none")
+    check("EXIT reduce-only fill exists", exit_fill is not None, str(exit_fill["trade_id"]) if exit_fill else "none")
     if exit_fill is not None:
         check("EXIT fill is reduce_only", bool(exit_fill["reduce_only"]), str(exit_fill["reduce_only"]))
     check("EXIT position reached CLOSED", position["state"] == "CLOSED", str(position["state"]))
@@ -200,10 +204,15 @@ def main() -> int:
     check("A-008 single entry order per intent", len(entry_orders) == 1, f"{len(entry_orders)}")
 
     # ---- Sizing sanity: the position must not be dust relative to fees
-    gross_move = abs(
-        Decimal(str(exit_order["average_fill_price"])) - Decimal(str(entry_order["average_fill_price"]))
-    ) * Decimal(str(position["quantity"])) if exit_order else Decimal("0")
-    total_fee = Decimal(str(entry_order["total_fee"] or 0)) + Decimal(str((exit_order or {})["total_fee"] or 0) if exit_order else 0)
+    gross_move = (
+        abs(Decimal(str(exit_order["average_fill_price"])) - Decimal(str(entry_order["average_fill_price"])))
+        * Decimal(str(position["quantity"]))
+        if exit_order
+        else Decimal("0")
+    )
+    total_fee = Decimal(str(entry_order["total_fee"] or 0)) + Decimal(
+        str((exit_order or {})["total_fee"] or 0) if exit_order else 0
+    )
     notional = Decimal(str(position["quantity"])) * Decimal(str(position["entry_price"]))
     print(f"\nnotional     = {notional:.2f} USDT")
     print(f"gross_move   = {gross_move:.4f} USDT   total_fee = {total_fee:.4f} USDT")
@@ -225,7 +234,9 @@ def main() -> int:
     print(f"  equity={equity:.2f} risk_per_trade={rpt} max_symbol_exposure={frac} max_leverage={lev}")
     if equity > 0:
         print(f"  risk budget/trade = {equity * rpt:.2f} USDT")
-        print(f"  exposure ceiling  = {equity * frac:.2f} USDT notional ({equity * frac / lev:.2f} USDT margin @ {lev}x)")
+        print(
+            f"  exposure ceiling  = {equity * frac:.2f} USDT notional ({equity * frac / lev:.2f} USDT margin @ {lev}x)"
+        )
     check("CONFIG risk_per_trade is the operator's 10% band", rpt == Decimal("0.1"), str(rpt))
 
     conn.close()

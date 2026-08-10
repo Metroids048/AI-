@@ -26,6 +26,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from services.data.universe import canonical_market_symbol
 from shared.models import Exchange, MarketExtras, OHLCVBar, RiskEvent, Timeframe
 
 TIMESERIES_METADATA = MetaData()
@@ -264,7 +265,9 @@ class DataRepository:
             rows.append(
                 {
                     "time": extra.timestamp,
-                    "symbol": extra.symbol,
+                    # Collapse the exchange-boundary shape to the single internal
+                    # identity so the DB never holds two truths for one market.
+                    "symbol": canonical_market_symbol(extra.symbol),
                     "funding_rate": extra.funding_rate,
                     "open_interest": extra.open_interest,
                     "long_ratio": extra.long_ratio,
@@ -319,7 +322,11 @@ class DataRepository:
         end_at: datetime | None = None,
         limit: int | None = None,
     ) -> list[MarketExtras]:
-        stmt = select(market_extras).where(market_extras.c.symbol == symbol)
+        # Readers still pass the legacy perp shape (services/data/market.py builds
+        # f"{symbol}:USDT"; CarryExecutionRequest.perp_symbol defaults to it).
+        # Normalizing the argument keeps this a single query against the single
+        # canonical identity rather than a dual-query legacy fallback.
+        stmt = select(market_extras).where(market_extras.c.symbol == canonical_market_symbol(symbol))
         if start_at is not None:
             stmt = stmt.where(market_extras.c.time >= start_at)
         if end_at is not None:

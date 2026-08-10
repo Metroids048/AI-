@@ -258,11 +258,7 @@ def test_high_density_paper_limits_are_kept_in_sync() -> None:
     profile = medium_risk_profile()
     position_rules = AUTO_PAPER_TECHNICAL_RULES["position_rules"]
 
-    assert (
-        position_rules["risk_per_trade"]
-        == profile.single_trade_risk_limit
-        == PAPER_RUNTIME_LIMITS["risk_per_trade"]
-    )
+    assert position_rules["risk_per_trade"] == profile.single_trade_risk_limit == PAPER_RUNTIME_LIMITS["risk_per_trade"]
     assert position_rules["max_leverage"] == profile.max_leverage == PAPER_RUNTIME_LIMITS["max_leverage"]
     assert (
         position_rules["max_position_fraction"]

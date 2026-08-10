@@ -303,32 +303,53 @@ def _build_window_runs(
                 timeframe: _load_series(connection, symbol=symbol, timeframe=timeframe)
                 for timeframe in TIMEFRAME_SECONDS
             }
-            all_pairs = tuple(
-                _contexts_and_next_bars(
-                    symbol=symbol,
-                    series=series,
-                    funding=funding,
-                    evaluation_start=windows[0].oos_start,
-                    evaluation_end=windows[-1].oos_end,
-                )
+            # Memory note: materialising every (context, next_bar) pair for the
+            # whole OOS span holds ~70k MarketContext objects per symbol, each
+            # carrying 244 bar models, which exhausts a 32 GB host.  The walk
+            # forward windows are disjoint and sorted, so each decision belongs
+            # to at most one window and the stream can be bucketed in a single
+            # pass.  Assignment uses the same predicate as before, so the set of
+            # pairs replayed per window is unchanged; only object lifetime is.
+            pair_stream = _contexts_and_next_bars(
+                symbol=symbol,
+                series=series,
+                funding=funding,
+                evaluation_start=windows[0].oos_start,
+                evaluation_end=windows[-1].oos_end,
             )
-            for window in windows:
-                window_pairs = tuple(
-                    (context, bar)
-                    for context, bar in all_pairs
-                    if window.oos_start <= context.decision_time < window.oos_end
-                )
-                contexts, bars = zip(*window_pairs, strict=True) if window_pairs else ((), ())
-                metrics = ProposalReplayRunner(cost_model=cost_model).replay(
+            metrics_by_window: dict[int, ProposalReplayMetrics] = {}
+            pending: list[tuple[MarketContext, OHLCVBar]] = []
+            cursor = 0
+
+            def _flush(index: int, pairs: list[tuple[MarketContext, OHLCVBar]]) -> None:
+                contexts, bars = zip(*pairs, strict=True) if pairs else ((), ())
+                metrics_by_window[index] = ProposalReplayRunner(cost_model=cost_model).replay(
                     strategy_id="proposal_pipeline",
                     contexts=contexts,
                     next_entry_bars=bars,
                 )
+
+            for context, bar in pair_stream:
+                decision_time = context.decision_time
+                while cursor < len(windows) and decision_time >= windows[cursor].oos_end:
+                    _flush(cursor, pending)
+                    pending = []
+                    cursor += 1
+                if cursor >= len(windows):
+                    break
+                if decision_time >= windows[cursor].oos_start:
+                    pending.append((context, bar))
+            while cursor < len(windows):
+                _flush(cursor, pending)
+                pending = []
+                cursor += 1
+
+            for index, window in enumerate(windows):
                 runs.append(
                     {
                         "window": window,
                         "symbol": symbol,
-                        "metrics": metrics,
+                        "metrics": metrics_by_window[index],
                         "cost_model": cost_model,
                     }
                 )
