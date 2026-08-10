@@ -6,7 +6,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
+from services.execution import runtime_state
 from services.execution.runtime_state import (
+    ExternalSchedulerState,
     load_external_scheduler_state,
     write_external_scheduler_state,
 )
@@ -107,6 +109,96 @@ def test_external_scheduler_state_requires_fresh_heartbeat(monkeypatch, tmp_path
     assert healthy.exchange_info_ready is True
 
 
+def test_external_scheduler_state_exposes_actual_active_mode_contract(monkeypatch, tmp_path) -> None:
+    assert hasattr(runtime_state, "active_startup_contract_errors")
+
+    state_path = tmp_path / "scheduler-state.json"
+    monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(state_path))
+    now = datetime.now(UTC)
+    write_external_scheduler_state(
+        {
+            "running": True,
+            "heartbeat_at": now.isoformat(),
+            "engine_activation": "ACTIVE",
+            "execution_mode": "BINANCE_TESTNET",
+            "execution_strategy_id": "testnet_sampling_v2",
+            "execution_coverage_count": 2,
+            "execution_symbols": ["BTC/USDT", "ETH/USDT"],
+            "registered_jobs": ["automated_trading_v2_cycle"],
+            "legacy_writer_enabled": False,
+            "entry_enabled": True,
+            "sampling_fallback_enabled": True,
+            "external_baseline_captured": True,
+            "entry_authorized": True,
+            "startup_contract_errors": [],
+        }
+    )
+
+    state = load_external_scheduler_state(now=now)
+
+    assert state.engine_activation == "ACTIVE"
+    assert state.execution_mode == "BINANCE_TESTNET"
+    assert state.execution_strategy_id == "testnet_sampling_v2"
+    assert state.registered_jobs == ("automated_trading_v2_cycle",)
+    assert runtime_state.active_startup_contract_errors(state, requested_engine="v2_active") == ()
+
+
+def test_active_startup_contract_rejects_non_boolean_or_incomplete_runtime_state(tmp_path, monkeypatch) -> None:
+    state_path = tmp_path / "scheduler-state.json"
+    monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(state_path))
+    now = datetime.now(UTC)
+    write_external_scheduler_state(
+        {
+            "running": "false",
+            "heartbeat_at": now.isoformat(),
+            "engine_activation": "ACTIVE",
+            "execution_mode": "BINANCE_TESTNET",
+            "execution_strategy_id": "testnet_sampling_v2",
+            "execution_coverage_count": 1,
+            "execution_symbols": ["BTC/USDT"],
+            "registered_jobs": ["automated_trading_v2_cycle", "paper_runtime_cycle"],
+            "legacy_writer_enabled": False,
+            "entry_enabled": True,
+            "sampling_fallback_enabled": True,
+            "external_baseline_captured": True,
+            "entry_authorized": True,
+        }
+    )
+
+    state = load_external_scheduler_state(now=now)
+    errors = runtime_state.active_startup_contract_errors(state, requested_engine="v2_active")
+
+    assert state.running is False
+    assert "SCHEDULER_NOT_RUNNING" in errors
+    assert "EXECUTION_SCOPE_MISMATCH" in errors
+    assert "EXECUTION_SCOPE_INCOMPLETE" in errors
+    assert "LEGACY_JOB_REGISTERED" in errors
+
+
+def test_active_startup_contract_rejects_actual_shadow_state() -> None:
+    assert hasattr(runtime_state, "active_startup_contract_errors")
+
+    state = ExternalSchedulerState(
+        running=True,
+        heartbeat_at=datetime.now(UTC),
+        engine_activation="SHADOW",
+        execution_mode="BINANCE_TESTNET",
+        execution_strategy_id="testnet_sampling_v2",
+        registered_jobs=("automated_trading_v2_cycle", "paper_runtime_cycle"),
+        legacy_writer_enabled=True,
+        entry_enabled=True,
+        sampling_fallback_enabled=True,
+        external_baseline_captured=True,
+        entry_authorized=False,
+    )
+
+    errors = runtime_state.active_startup_contract_errors(state, requested_engine="v2_active")
+
+    assert "ENGINE_ACTIVATION_MISMATCH" in errors
+    assert "LEGACY_WRITER_ENABLED" in errors
+    assert "ENTRY_NOT_AUTHORIZED" in errors
+
+
 def test_scheduler_publishes_only_active_execution_scope(monkeypatch) -> None:
     from services.execution import scheduler as scheduler_module
 
@@ -117,12 +209,54 @@ def test_scheduler_publishes_only_active_execution_scope(monkeypatch) -> None:
         "checked_symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
         "stale_symbols": [],
     }
+    scheduler.status.engine_activation = "ACTIVE"
+    scheduler.status.execution_mode = "BINANCE_TESTNET"
+    scheduler.status.execution_strategy_id = "testnet_sampling_v2"
+    scheduler.status.registered_jobs = ("automated_trading_v2_cycle",)
+    scheduler.status.legacy_writer_enabled = False
+    scheduler.status.entry_enabled = True
+    scheduler.status.sampling_fallback_enabled = True
+    scheduler.status.external_baseline_captured = True
+    scheduler.status.entry_authorized = True
 
     scheduler._publish_external_state()
 
     assert captured["top20_coverage_count"] == 3
     assert captured["execution_symbols"] == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     assert captured["execution_coverage_count"] == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    assert captured["engine_activation"] == "ACTIVE"
+    assert captured["execution_mode"] == "BINANCE_TESTNET"
+    assert captured["entry_authorized"] is True
+
+
+def test_active_scheduler_fails_before_job_registration_when_contract_is_incomplete(monkeypatch) -> None:
+    from services.automated_trading.domain.enums import V2ExecutionMode
+    from services.automated_trading.infrastructure import runtime_lock
+    from services.automated_trading.infrastructure.runtime_lock import EngineActivation, EngineActivationConfig
+    from services.execution import scheduler as scheduler_module
+
+    captured = {}
+    config = EngineActivationConfig(
+        v2_activation=EngineActivation.ACTIVE,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        allow_legacy_writer=False,
+        warnings=[],
+    )
+    monkeypatch.setattr(runtime_lock, "resolve_engine_activation", lambda _settings: config)
+    monkeypatch.setattr(scheduler_module, "_active_entry_authorization", lambda: (False, False, ()))
+    monkeypatch.setattr(scheduler_module, "_external_baseline_captured", lambda: False)
+    monkeypatch.setattr(scheduler_module, "write_external_scheduler_state", captured.update)
+    scheduler = RuntimeScheduler(coordinator=object())  # type: ignore[arg-type]
+
+    with pytest.raises(RuntimeError, match="ACTIVE_STARTUP_CONTRACT_FAILED"):
+        scheduler.start()
+
+    assert scheduler._tasks == []
+    assert captured["running"] is False
+    assert captured["entry_authorized"] is False
+    assert "ENTRY_DISABLED" in captured["startup_contract_errors"]
+    assert "SAMPLING_PERMISSION_DISABLED" in captured["startup_contract_errors"]
+    assert "EXTERNAL_BASELINE_NOT_CAPTURED" in captured["startup_contract_errors"]
 
 
 @pytest.mark.asyncio

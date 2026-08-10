@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from argparse import ArgumentParser
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +33,16 @@ class ExternalSchedulerState:
     task_run_counts: dict[str, int] = field(default_factory=dict)
     task_failure_counts: dict[str, int] = field(default_factory=dict)
     task_last_results: dict[str, Any] = field(default_factory=dict)
+    engine_activation: str | None = None
+    execution_mode: str | None = None
+    execution_strategy_id: str | None = None
+    registered_jobs: tuple[str, ...] = ()
+    legacy_writer_enabled: bool | None = None
+    entry_enabled: bool | None = None
+    sampling_fallback_enabled: bool | None = None
+    external_baseline_captured: bool | None = None
+    entry_authorized: bool | None = None
+    startup_contract_errors: tuple[str, ...] = ()
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -76,8 +87,12 @@ def load_external_scheduler_state(
 
     execution_coverage_count = int(raw.get("execution_coverage_count", raw.get("top20_coverage_count", 0)) or 0)
     execution_symbols = tuple(str(value) for value in raw.get("execution_symbols", []) if value)
+    registered_jobs = tuple(str(value) for value in raw.get("registered_jobs", []) if value)
+    startup_contract_errors = tuple(str(value) for value in raw.get("startup_contract_errors", []) if value)
+    running_value = raw.get("running")
+    running = running_value if isinstance(running_value, bool) else False
     return ExternalSchedulerState(
-        running=bool(raw.get("running")),
+        running=running,
         heartbeat_at=heartbeat_at,
         top20_coverage_count=int(raw.get("top20_coverage_count", 0)),
         execution_coverage_count=execution_coverage_count,
@@ -90,4 +105,86 @@ def load_external_scheduler_state(
         task_run_counts=dict(raw.get("task_run_counts") or {}),
         task_failure_counts=dict(raw.get("task_failure_counts") or {}),
         task_last_results=dict(raw.get("task_last_results") or {}),
+        engine_activation=raw.get("engine_activation") if isinstance(raw.get("engine_activation"), str) else None,
+        execution_mode=raw.get("execution_mode") if isinstance(raw.get("execution_mode"), str) else None,
+        execution_strategy_id=(
+            raw.get("execution_strategy_id") if isinstance(raw.get("execution_strategy_id"), str) else None
+        ),
+        registered_jobs=registered_jobs,
+        legacy_writer_enabled=(
+            raw.get("legacy_writer_enabled") if isinstance(raw.get("legacy_writer_enabled"), bool) else None
+        ),
+        entry_enabled=raw.get("entry_enabled") if isinstance(raw.get("entry_enabled"), bool) else None,
+        sampling_fallback_enabled=(
+            raw.get("sampling_fallback_enabled") if isinstance(raw.get("sampling_fallback_enabled"), bool) else None
+        ),
+        external_baseline_captured=(
+            raw.get("external_baseline_captured") if isinstance(raw.get("external_baseline_captured"), bool) else None
+        ),
+        entry_authorized=raw.get("entry_authorized") if isinstance(raw.get("entry_authorized"), bool) else None,
+        startup_contract_errors=startup_contract_errors,
     )
+
+
+def active_startup_contract_errors(
+    state: ExternalSchedulerState,
+    *,
+    requested_engine: str = "v2_active",
+) -> tuple[str, ...]:
+    """Return fail-closed errors for the one-click ACTIVE Testnet contract."""
+    errors: list[str] = []
+    if requested_engine != "v2_active":
+        errors.append("REQUESTED_ENGINE_NOT_ACTIVE")
+    if not state.running:
+        errors.append("SCHEDULER_NOT_RUNNING")
+    if state.engine_activation != "ACTIVE":
+        errors.append("ENGINE_ACTIVATION_MISMATCH")
+    if state.execution_mode != "BINANCE_TESTNET":
+        errors.append("EXECUTION_MODE_MISMATCH")
+    if state.execution_strategy_id != "testnet_sampling_v2":
+        errors.append("EXECUTION_STRATEGY_MISMATCH")
+    expected_symbols = ("BTC/USDT", "ETH/USDT")
+    if tuple(sorted(state.execution_symbols)) != expected_symbols:
+        errors.append("EXECUTION_SCOPE_MISMATCH")
+    if state.execution_coverage_count != len(expected_symbols):
+        errors.append("EXECUTION_SCOPE_INCOMPLETE")
+    if "automated_trading_v2_cycle" not in state.registered_jobs:
+        errors.append("V2_CYCLE_NOT_REGISTERED")
+    if any(job in state.registered_jobs for job in ("paper_runtime_cycle", "paper_observation_cycle")):
+        errors.append("LEGACY_JOB_REGISTERED")
+    if state.legacy_writer_enabled is not False:
+        errors.append("LEGACY_WRITER_ENABLED")
+    if state.entry_enabled is not True:
+        errors.append("ENTRY_DISABLED")
+    if state.sampling_fallback_enabled is not True:
+        errors.append("SAMPLING_PERMISSION_DISABLED")
+    if state.external_baseline_captured is not True:
+        errors.append("EXTERNAL_BASELINE_NOT_CAPTURED")
+    if state.entry_authorized is not True:
+        errors.append("ENTRY_NOT_AUTHORIZED")
+    errors.extend(error for error in state.startup_contract_errors if error not in errors)
+    return tuple(errors)
+
+
+def main() -> int:
+    parser = ArgumentParser(description="Validate the actual ACTIVE Testnet scheduler state.")
+    parser.add_argument("--state-path", default=None)
+    parser.add_argument("--requested-engine", default="v2_active")
+    parser.add_argument("--require-active-contract", action="store_true")
+    args = parser.parse_args()
+    if args.state_path:
+        os.environ["LOCAL_SCHEDULER_STATE_PATH"] = args.state_path
+    state = load_external_scheduler_state()
+    if not args.require_active_contract:
+        print(json.dumps(state.__dict__, default=str, ensure_ascii=True))
+        return 0
+    errors = active_startup_contract_errors(state, requested_engine=args.requested_engine)
+    if errors:
+        print(f"ACTIVE_STARTUP_CONTRACT_FAILED: {';'.join(errors)}")
+        return 1
+    print("ACTIVE_STARTUP_CONTRACT_PASSED")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

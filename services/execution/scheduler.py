@@ -7,6 +7,7 @@ one-click local console the same recurring calls without requiring Redis.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import socket
 import uuid
@@ -70,6 +71,16 @@ class RuntimeSchedulerStatus:
     scheduler_instance_id: str | None = None
     current_lock_owner: str | None = None
     last_scheduled_for: datetime | None = None
+    engine_activation: str | None = None
+    execution_mode: str | None = None
+    execution_strategy_id: str | None = None
+    registered_jobs: tuple[str, ...] = ()
+    legacy_writer_enabled: bool | None = None
+    entry_enabled: bool | None = None
+    sampling_fallback_enabled: bool | None = None
+    external_baseline_captured: bool | None = None
+    entry_authorized: bool = False
+    startup_contract_errors: tuple[str, ...] = ()
 
     def model_dump(self) -> dict[str, Any]:
         return {
@@ -87,7 +98,56 @@ class RuntimeSchedulerStatus:
             "scheduler_instance_id": self.scheduler_instance_id,
             "current_lock_owner": self.current_lock_owner,
             "last_scheduled_for": self.last_scheduled_for,
+            "engine_activation": self.engine_activation,
+            "execution_mode": self.execution_mode,
+            "execution_strategy_id": self.execution_strategy_id,
+            "registered_jobs": self.registered_jobs,
+            "legacy_writer_enabled": self.legacy_writer_enabled,
+            "entry_enabled": self.entry_enabled,
+            "sampling_fallback_enabled": self.sampling_fallback_enabled,
+            "external_baseline_captured": self.external_baseline_captured,
+            "entry_authorized": self.entry_authorized,
+            "startup_contract_errors": self.startup_contract_errors,
         }
+
+
+def _external_baseline_captured() -> bool:
+    if os.getenv("V2_ALLOW_UNMANAGED_EXTERNAL_POSITIONS", "false").lower() != "true":
+        return False
+    raw = os.getenv("V2_EXTERNAL_BASELINE_JSON", "").strip()
+    if not raw:
+        return False
+    try:
+        return isinstance(json.loads(raw), dict)
+    except json.JSONDecodeError:
+        return False
+
+
+def _active_entry_authorization() -> tuple[bool, bool, tuple[str, ...]]:
+    """Read existing V2 controls without creating or mutating runtime state."""
+    from services.automated_trading.infrastructure.models import V2RuntimeControl
+    from services.database import get_session_factory
+    from services.strategy_library import ConfigSnapshotRepository, PaperRunRepository
+
+    try:
+        with get_session_factory()() as session:
+            control = session.get(V2RuntimeControl, "global")
+            entry_enabled = bool(control.entry_enabled) if control is not None else False
+            running_directional = [
+                run
+                for run in PaperRunRepository(session).list_paper_runs()
+                if run.paper_status == "running" and run.execution_profile.get("strategy_lane") == "directional"
+            ]
+            if len(running_directional) != 1:
+                return entry_enabled, False, ("DIRECTIONAL_PROFILE_UNAVAILABLE",)
+            run = running_directional[0]
+            active = ConfigSnapshotRepository(session).get_active(run.paper_run_id or "")
+            active_profile = active.config.get("execution_profile") if active is not None else None
+            profile = active_profile if isinstance(active_profile, dict) else run.execution_profile
+            sampling_enabled = bool(profile.get("simulation_sampling_fallback_enabled", False))
+            return entry_enabled, sampling_enabled, ()
+    except Exception:  # noqa: BLE001
+        return False, False, ("ENTRY_CONTRACT_STATE_UNAVAILABLE",)
 
 
 class RuntimeScheduler:
@@ -176,6 +236,44 @@ class RuntimeScheduler:
 
         v2_activation = resolve_engine_activation(settings)
         scheduled_jobs = _resolve_runtime_scheduler_jobs(v2_activation)
+        self.status.engine_activation = v2_activation.v2_activation.value
+        self.status.execution_mode = v2_activation.execution_mode.value
+        self.status.execution_strategy_id = "testnet_sampling_v2"
+        self.status.registered_jobs = tuple(sorted(scheduled_jobs))
+        self.status.legacy_writer_enabled = v2_activation.allow_legacy_writer
+        self.status.startup_contract_errors = ()
+        self.status.entry_enabled = None
+        self.status.sampling_fallback_enabled = None
+        self.status.external_baseline_captured = None
+        self.status.entry_authorized = False
+        if v2_activation.v2_activation.value == "ACTIVE":
+            entry_enabled, sampling_enabled, contract_errors = _active_entry_authorization()
+            baseline_captured = _external_baseline_captured()
+            errors = list(contract_errors)
+            if v2_activation.execution_mode.value != "BINANCE_TESTNET":
+                errors.append("EXECUTION_MODE_MISMATCH")
+            if "automated_trading_v2_cycle" not in scheduled_jobs:
+                errors.append("V2_CYCLE_NOT_REGISTERED")
+            if v2_activation.allow_legacy_writer:
+                errors.append("LEGACY_WRITER_ENABLED")
+            if not entry_enabled:
+                errors.append("ENTRY_DISABLED")
+            if not sampling_enabled:
+                errors.append("SAMPLING_PERMISSION_DISABLED")
+            if not baseline_captured:
+                errors.append("EXTERNAL_BASELINE_NOT_CAPTURED")
+            self.status.entry_enabled = entry_enabled
+            self.status.sampling_fallback_enabled = sampling_enabled
+            self.status.external_baseline_captured = baseline_captured
+            self.status.startup_contract_errors = tuple(dict.fromkeys(errors))
+            self.status.entry_authorized = not self.status.startup_contract_errors
+            if self.status.startup_contract_errors:
+                self.status.running = False
+                self.status.scheduler_error = "ACTIVE_STARTUP_CONTRACT_FAILED: " + ";".join(
+                    self.status.startup_contract_errors
+                )
+                self._publish_external_state()
+                raise RuntimeError(self.status.scheduler_error)
         self._tasks = []
         if "paper_runtime_cycle" in scheduled_jobs:
             self._tasks.append(
@@ -586,6 +684,16 @@ class RuntimeScheduler:
                 "last_scheduled_for": self.status.last_scheduled_for.isoformat()
                 if self.status.last_scheduled_for
                 else None,
+                "engine_activation": self.status.engine_activation,
+                "execution_mode": self.status.execution_mode,
+                "execution_strategy_id": self.status.execution_strategy_id,
+                "registered_jobs": list(self.status.registered_jobs),
+                "legacy_writer_enabled": self.status.legacy_writer_enabled,
+                "entry_enabled": self.status.entry_enabled,
+                "sampling_fallback_enabled": self.status.sampling_fallback_enabled,
+                "external_baseline_captured": self.status.external_baseline_captured,
+                "entry_authorized": self.status.entry_authorized,
+                "startup_contract_errors": list(self.status.startup_contract_errors),
             }
         )
 

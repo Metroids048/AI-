@@ -185,6 +185,32 @@ function Test-SchedulerHealthy {
     }
 }
 
+function Assert-ActiveTradingModeContract {
+    if ($AutomatedTradingEngine -ne "v2_active") {
+        return
+    }
+    $contractOutput = & $env:AGENT_PYTHON -m services.execution.runtime_state `
+        --state-path $SchedulerStateFile `
+        --requested-engine $AutomatedTradingEngine `
+        --require-active-contract 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $detail = ($contractOutput | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }) -join "; "
+        throw "ACTIVE Trading Mode Contract failed: $detail"
+    }
+    Write-Step "ACTIVE Trading Mode Contract verified"
+}
+
+function Test-ActiveTradingModeContract {
+    if ($AutomatedTradingEngine -ne "v2_active") {
+        return $true
+    }
+    & $env:AGENT_PYTHON -m services.execution.runtime_state `
+        --state-path $SchedulerStateFile `
+        --requested-engine $AutomatedTradingEngine `
+        --require-active-contract *> $null
+    return $LASTEXITCODE -eq 0
+}
+
 function Stop-ProjectApiProcesses {
     $apiProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
@@ -333,6 +359,7 @@ if ($apiReady -and $frontendReady -and (Test-ProjectListener $ApiPort) -and (Tes
     if (-not (Test-SchedulerHealthy)) {
         Ensure-Runtime
         Stop-RecordedScheduler
+        Remove-Item -LiteralPath $SchedulerStateFile -Force -ErrorAction SilentlyContinue
         Reset-LogFile $SchedulerLog
         Reset-LogFile $SchedulerErrorLog
         $schedulerScript = Join-Path $PSScriptRoot "run-local-paper-scheduler.py"
@@ -349,6 +376,7 @@ if ($apiReady -and $frontendReady -and (Test-ProjectListener $ApiPort) -and (Tes
             throw "Paper scheduler failed its startup health check. See $SchedulerLog"
         }
     }
+    Assert-ActiveTradingModeContract
     if (-not (Test-Path -LiteralPath $LogsDir)) { New-Item -ItemType Directory -Path $LogsDir | Out-Null }
     if (-not (Test-Path -LiteralPath $StartupLog)) { New-Item -ItemType File -Path $StartupLog | Out-Null }
     Write-Step "paper console already running"
@@ -381,6 +409,7 @@ if (-not $apiReady) {
 }
 
 Stop-RecordedScheduler
+Remove-Item -LiteralPath $SchedulerStateFile -Force -ErrorAction SilentlyContinue
 Reset-LogFile $SchedulerLog
 Reset-LogFile $SchedulerErrorLog
 $schedulerScript = Join-Path $PSScriptRoot "run-local-paper-scheduler.py"
@@ -421,6 +450,22 @@ while ((Get-Date) -lt $deadline) {
 }
 
 if ($apiReady -and $frontendReady) {
+    $schedulerDeadline = (Get-Date).AddSeconds(30)
+    while (
+        ((-not (Test-SchedulerHealthy)) -or (-not (Test-ActiveTradingModeContract))) -and
+        (Get-Date) -lt $schedulerDeadline
+    ) {
+        Start-Sleep -Seconds 1
+    }
+    if (-not (Test-SchedulerHealthy)) {
+        if ($AutomatedTradingEngine -eq "v2_active" -and (Test-Path -LiteralPath $SchedulerStateFile)) {
+            Assert-ActiveTradingModeContract
+        }
+        throw "Paper scheduler failed its startup health check. See $SchedulerLog"
+    }
+    if ($AutomatedTradingEngine -eq "v2_active") {
+        Assert-ActiveTradingModeContract
+    }
     Save-ListenerPid $ApiPort $ApiPidFile
     Save-ListenerPid $FrontendPort $FrontendPidFile
     Write-Step "services ready"
