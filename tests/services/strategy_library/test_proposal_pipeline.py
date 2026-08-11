@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from services.execution.v2_scheduler_entry import _research_shadow_payload
+from services.strategy_library import proposal_pipeline as proposal_pipeline_module
 from services.strategy_library.canonical import canonical_hash, canonical_json
 from services.strategy_library.context import MarketContextBuilder
 from services.strategy_library.proposal_pipeline import PIPELINE_VERSION, run_proposal_pipeline
@@ -94,3 +95,44 @@ def test_replay_candidate_filter_uses_same_pipeline_without_evaluating_other_can
 def test_pipeline_rejects_unknown_candidate_filter() -> None:
     with pytest.raises(ValueError, match="unknown proposal candidate ids"):
         run_proposal_pipeline(_context(), candidate_ids=frozenset(("unknown",)))
+
+
+def test_proposal_pipeline_isolates_one_candidate_error(monkeypatch) -> None:
+    evaluated: list[str] = []
+
+    def fails(_context, _regime):  # noqa: ANN001, ANN202
+        evaluated.append("trend_pullback_v2")
+        raise RuntimeError("candidate failed\nwith unsafe multiline detail")
+
+    def no_signal(strategy_id: str):  # noqa: ANN202
+        def evaluate(_context, _regime):  # noqa: ANN001, ANN202
+            evaluated.append(strategy_id)
+            return None
+
+        return evaluate
+
+    monkeypatch.setattr(
+        proposal_pipeline_module,
+        "_evaluators",
+        lambda: (
+            ("trend_pullback_v2", fails),
+            ("range_sweep_reversion_v1", no_signal("range_sweep_reversion_v1")),
+            ("failed_breakout_reversal_v1", no_signal("failed_breakout_reversal_v1")),
+        ),
+    )
+
+    result = run_proposal_pipeline(_context())
+
+    assert evaluated == [
+        "trend_pullback_v2",
+        "range_sweep_reversion_v1",
+        "failed_breakout_reversal_v1",
+    ]
+    assert result.evaluation_errors["trend_pullback_v2"].error_class == "RuntimeError"
+    assert result.evaluation_errors["trend_pullback_v2"].safe_message == (
+        "candidate failed with unsafe multiline detail"
+    )
+    assert set(result.rejection_reasons) == {
+        "range_sweep_reversion_v1",
+        "failed_breakout_reversal_v1",
+    }

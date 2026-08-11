@@ -28,9 +28,11 @@ from services.automated_trading.infrastructure.runtime_lock import (
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.database import get_session_factory
 from services.execution.scheduler_coordination import SchedulerCoordinator
+from services.strategy_library.canonical import canonical_hash
 from services.strategy_library.context import TIMEFRAME_DELTAS, MarketContext, MarketContextBuilder
 from services.strategy_library.proposal_pipeline import (
     PROPOSAL_CONTEXT_WINDOW_LENGTHS,
+    RESEARCH_CANDIDATE_IDS,
     proposal_pipeline_payload,
     run_proposal_pipeline,
 )
@@ -97,22 +99,45 @@ def _load_v2_entry_timeframe(symbol: str, timeframe: str = V2_CYCLE_TIMEFRAME) -
     return TimeframeView(timeframe=timeframe, bars=bars)
 
 
-def _load_v2_market_context(symbol: str, decision_time: datetime) -> MarketContext:
+def _load_v2_market_context(
+    symbol: str,
+    decision_time: datetime,
+    *,
+    active_entry_timeframe: TimeframeView | None = None,
+) -> MarketContext:
     """Load one point-in-time research context without touching execution state."""
 
     from services.data.repository import DataRepository
 
     with get_session_factory()() as session:
         repo = DataRepository(session)
-        bars_by_timeframe = {
-            timeframe: repo.list_ohlcv_bars(
+        bars_by_timeframe: dict[str, Any] = {}
+        if active_entry_timeframe is not None:
+            from shared.models.enums import Timeframe
+            from shared.models.market import OHLCVBar
+
+            bars_by_timeframe["15m"] = tuple(
+                OHLCVBar(
+                    symbol=symbol,
+                    timeframe=Timeframe.M15,
+                    time=bar.timestamp - TIMEFRAME_DELTAS["15m"],
+                    open=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    close=bar.close,
+                    volume=bar.volume,
+                )
+                for bar in active_entry_timeframe.bars
+            )
+        for timeframe in PROPOSAL_CONTEXT_WINDOW_LENGTHS:
+            if timeframe == "15m" and active_entry_timeframe is not None:
+                continue
+            bars_by_timeframe[timeframe] = repo.list_ohlcv_bars(
                 symbol=symbol,
                 timeframe=timeframe,
                 end_at=decision_time - TIMEFRAME_DELTAS[timeframe],
                 limit=PROPOSAL_CONTEXT_WINDOW_LENGTHS[timeframe],
             )
-            for timeframe in PROPOSAL_CONTEXT_WINDOW_LENGTHS
-        }
         market_extras = repo.list_market_extras(symbol=symbol, end_at=decision_time, limit=1)
     return MarketContextBuilder().build(
         symbol=symbol,
@@ -127,6 +152,204 @@ def _research_shadow_payload(context: MarketContext) -> dict[str, Any]:
     """Produce the same canonical research output consumed by replay."""
 
     return proposal_pipeline_payload(run_proposal_pipeline(context))
+
+
+def _safe_error_message(exc: Exception) -> str:
+    return " ".join(str(exc).split())[:240] or "research shadow evaluation failed"
+
+
+def _payload_mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _payload_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _same_cycle_research_shadow_payload(
+    context: MarketContext,
+    *,
+    active_entry_timeframe: TimeframeView,
+    scheduler_session_id: str,
+    scheduler_cycle_id: str,
+    cycle_id: str,
+    symbol: str,
+    bar_close_time: datetime,
+    active_strategy_id: str,
+    active_decision: str,
+    active_terminal_reason: str,
+    created_at: datetime,
+) -> dict[str, Any]:
+    """Normalize pure research results for one authoritative ACTIVE bar.
+
+    This function receives no adapter or execution service. Its return value is
+    evidence only and cannot create an intent, order, position, or protection.
+    """
+    active_bar = active_entry_timeframe.last_closed
+    research_bar = context.bars_15m.bars[-1] if context.bars_15m.bars else None
+    if active_bar is None or research_bar is None:
+        raise ValueError("same-cycle research requires an ACTIVE and research closed 15m bar")
+    if context.symbol != symbol:
+        raise ValueError(f"research symbol {context.symbol} does not match ACTIVE symbol {symbol}")
+    if active_bar.timestamp != bar_close_time or context.bars_15m.last_closed_at != bar_close_time:
+        raise ValueError("research and ACTIVE closed-bar timestamps are not aligned")
+
+    active_bar_hash = canonical_hash(
+        {
+            "symbol": symbol,
+            "bar_close_time": bar_close_time,
+            "open": active_bar.open,
+            "high": active_bar.high,
+            "low": active_bar.low,
+            "close": active_bar.close,
+            "volume": active_bar.volume,
+        }
+    )
+    research_bar_hash = canonical_hash(
+        {
+            "symbol": symbol,
+            "bar_close_time": context.bars_15m.last_closed_at,
+            "open": research_bar.open,
+            "high": research_bar.high,
+            "low": research_bar.low,
+            "close": research_bar.close,
+            "volume": research_bar.volume,
+        }
+    )
+    if active_bar_hash != research_bar_hash:
+        raise ValueError("research and ACTIVE closed-bar OHLCV values are not aligned")
+
+    pipeline = _research_shadow_payload(context)
+    context_hash = str(pipeline.get("context_hash") or "")
+    market_snapshot_reference = canonical_hash(
+        {
+            "source_ids": context.source_ids,
+            "symbol": symbol,
+            "bar_close_time": bar_close_time,
+            "active_bar_hash": active_bar_hash,
+            "research_context_hash": context_hash,
+        }
+    )
+    proposals = {
+        str(proposal.get("strategy_id")): proposal
+        for proposal in _payload_list(pipeline.get("proposals"))
+        if isinstance(proposal, dict) and proposal.get("strategy_id")
+    }
+    selection = _payload_mapping(pipeline.get("selection"))
+    selection_rejections = _payload_mapping(selection.get("rejected_reasons"))
+    rejection_reasons = _payload_mapping(pipeline.get("rejection_reasons"))
+    strategy_versions = _payload_mapping(pipeline.get("strategy_versions"))
+    evaluation_errors = _payload_mapping(pipeline.get("evaluation_errors"))
+    created_at_value = created_at.isoformat()
+    bar_close_value = bar_close_time.isoformat()
+    observations: list[dict[str, Any]] = []
+
+    for strategy_id in RESEARCH_CANDIDATE_IDS:
+        proposal = proposals.get(strategy_id)
+        error = evaluation_errors.get(strategy_id)
+        proposal_data = proposal if proposal is not None else {}
+        strategy_version = str(proposal_data.get("strategy_version") or strategy_versions.get(strategy_id) or "unknown")
+        observation: dict[str, Any] = {
+            "scheduler_session_id": scheduler_session_id,
+            "scheduler_cycle_id": scheduler_cycle_id,
+            "cycle_id": cycle_id,
+            "symbol": symbol,
+            "bar_close_time": bar_close_value,
+            "market_snapshot_reference": market_snapshot_reference,
+            "strategy_id": strategy_id,
+            "strategy_version": strategy_version,
+            "lane": "RESEARCH_SHADOW",
+            "signal_direction": None,
+            "signal_present": proposal is not None,
+            "decision_status": "SHADOW_NO_SIGNAL",
+            "terminal_reason": str(rejection_reasons.get(strategy_id) or "candidate_conditions_not_met"),
+            "entry_reference_price": None,
+            "stop_reference_price": None,
+            "target_reference_prices": [],
+            "created_at": created_at_value,
+        }
+        if isinstance(error, dict):
+            observation.update(
+                {
+                    "signal_present": False,
+                    "decision_status": "SHADOW_STRATEGY_ERROR",
+                    "terminal_reason": "SHADOW_STRATEGY_ERROR",
+                    "error_class": str(error.get("error_class") or "Exception"),
+                    "safe_error_message": str(error.get("safe_message") or "candidate evaluation failed"),
+                }
+            )
+        elif proposal is not None:
+            proposal_id = str(proposal.get("proposal_id") or "")
+            rejected_reason = selection_rejections.get(proposal_id)
+            entry_trigger = _payload_mapping(proposal.get("entry_trigger"))
+            invalidation = _payload_mapping(proposal.get("invalidation"))
+            targets = _payload_list(proposal.get("targets"))
+            observation.update(
+                {
+                    "signal_direction": proposal.get("side"),
+                    "decision_status": "SHADOW_STRATEGY_REJECTED" if rejected_reason else "SHADOW_SIGNAL_READY",
+                    "terminal_reason": str(rejected_reason or "SHADOW_SIGNAL_READY"),
+                    "entry_reference_price": entry_trigger.get("reference_price"),
+                    "stop_reference_price": invalidation.get("stop_price"),
+                    "target_reference_prices": [
+                        target.get("price") for target in targets if isinstance(target, dict) and target.get("price")
+                    ],
+                }
+            )
+        observations.append(observation)
+
+    return {
+        "schema_version": "p1-same-cycle-research-shadow-v1",
+        "status": "COMPLETED_WITH_ERRORS" if evaluation_errors else "COMPLETED",
+        "lane": "RESEARCH_SHADOW",
+        "scheduler_session_id": scheduler_session_id,
+        "scheduler_cycle_id": scheduler_cycle_id,
+        "cycle_id": cycle_id,
+        "symbol": symbol,
+        "bar_close_time": bar_close_value,
+        "market_snapshot_reference": market_snapshot_reference,
+        "active_strategy_id": active_strategy_id,
+        "active_decision": active_decision,
+        "active_terminal_reason": active_terminal_reason,
+        "pipeline_version": pipeline.get("pipeline_version"),
+        "context_hash": context_hash,
+        "observations": observations,
+        "created_at": created_at_value,
+    }
+
+
+def _research_shadow_error_payload(
+    *,
+    scheduler_session_id: str,
+    scheduler_cycle_id: str,
+    cycle_id: str,
+    symbol: str,
+    bar_close_time: datetime,
+    active_strategy_id: str,
+    active_decision: str,
+    active_terminal_reason: str,
+    created_at: datetime,
+    error: Exception,
+) -> dict[str, Any]:
+    """Record a framework error without making ACTIVE depend on research."""
+    return {
+        "schema_version": "p1-same-cycle-research-shadow-v1",
+        "status": "RESEARCH_SHADOW_ERROR",
+        "lane": "RESEARCH_SHADOW",
+        "scheduler_session_id": scheduler_session_id,
+        "scheduler_cycle_id": scheduler_cycle_id,
+        "cycle_id": cycle_id,
+        "symbol": symbol,
+        "bar_close_time": bar_close_time.isoformat(),
+        "market_snapshot_reference": None,
+        "active_strategy_id": active_strategy_id,
+        "active_decision": active_decision,
+        "active_terminal_reason": active_terminal_reason,
+        "observations": [],
+        "error_class": type(error).__name__,
+        "safe_error_message": _safe_error_message(error),
+        "created_at": created_at.isoformat(),
+    }
 
 
 def _ensure_v2_cycle(
@@ -262,6 +485,25 @@ def _finalize_v2_cycle_decision(
     return decision_id
 
 
+def _append_research_shadow_payload(
+    *,
+    decision_id: str,
+    research_shadow: dict[str, Any],
+) -> None:
+    """Append evidence to a completed decision after ACTIVE leases are released."""
+    from services.automated_trading.infrastructure.models import V2ExecutionDecision
+
+    with get_session_factory()() as session:
+        decision = session.get(V2ExecutionDecision, decision_id)
+        if decision is None:
+            raise RuntimeError(f"ACTIVE decision {decision_id} disappeared before Research Shadow append")
+        payload = dict(decision.payload or {})
+        payload["market_snapshot_reference"] = research_shadow.get("market_snapshot_reference")
+        payload["research_shadow"] = research_shadow
+        decision.payload = payload
+        session.commit()
+
+
 def execute_v2_automated_trading_cycles(
     request_payload: dict[str, Any] | None = None,
     *,
@@ -334,6 +576,7 @@ def execute_v2_automated_trading_cycles(
     timeframe = str(payload.get("timeframe") or V2_CYCLE_TIMEFRAME)
 
     symbol_results: list[dict[str, Any]] = []
+    pending_research: list[dict[str, Any]] = []
     task_failed = False
     try:
         adapter = build_adapter(config.execution_mode)
@@ -357,16 +600,6 @@ def execute_v2_automated_trading_cycles(
                 continue
 
             bar_timestamp = entry_timeframe.last_closed.timestamp if entry_timeframe.last_closed else bar_slot
-            research_shadow: dict[str, Any] | None = None
-            if config.v2_activation is EngineActivation.SHADOW:
-                try:
-                    research_shadow = _research_shadow_payload(load_market_context(symbol, bar_timestamp))
-                except Exception as exc:  # noqa: BLE001
-                    research_shadow = {
-                        "pipeline_version": "proposal-pipeline-v1",
-                        "status": "UNAVAILABLE",
-                        "rejection_reasons": {"market_context": f"{type(exc).__name__}: {exc}"},
-                    }
             decision_id = str(uuid.uuid4())
             try:
                 _ensure_v2_cycle(
@@ -415,8 +648,16 @@ def execute_v2_automated_trading_cycles(
                 continue
 
             funnel_payload = dict(result.funnel_payload)
-            if research_shadow is not None:
-                funnel_payload["research_shadow"] = research_shadow
+            active_strategy_id = str(funnel_payload.get("strategy_id") or "testnet_sampling_v2")
+            active_decision = str(funnel_payload.get("terminal_stage") or "UNKNOWN")
+            active_terminal_reason = str(funnel_payload.get("reason_code") or "UNKNOWN")
+            funnel_payload.update(
+                {
+                    "active_strategy_id": active_strategy_id,
+                    "active_decision": active_decision,
+                    "active_terminal_reason": active_terminal_reason,
+                }
+            )
             decision_id = _finalize_v2_cycle_decision(
                 cycle_id=cycle_id,
                 decision_id=decision_id,
@@ -427,6 +668,18 @@ def execute_v2_automated_trading_cycles(
                 fencing_token=cycle_fencing_token,
                 funnel_payload=funnel_payload,
                 completed_at=datetime.now(UTC),
+            )
+            pending_research.append(
+                {
+                    "decision_id": decision_id,
+                    "cycle_id": cycle_id,
+                    "symbol": symbol,
+                    "bar_timestamp": bar_timestamp,
+                    "entry_timeframe": entry_timeframe,
+                    "active_strategy_id": active_strategy_id,
+                    "active_decision": active_decision,
+                    "active_terminal_reason": active_terminal_reason,
+                }
             )
             symbol_result.update(
                 {
@@ -447,6 +700,64 @@ def execute_v2_automated_trading_cycles(
         )
         coordinator.release_lease(lease_name=lease_name)
         coordinator.release_lease(lease_name=writer_lease_name)
+
+    for pending in pending_research:
+        cycle_id = str(pending["cycle_id"])
+        symbol = str(pending["symbol"])
+        bar_timestamp = pending["bar_timestamp"]
+        try:
+            if market_context_loader is None:
+                context = _load_v2_market_context(
+                    symbol,
+                    bar_timestamp,
+                    active_entry_timeframe=pending["entry_timeframe"],
+                )
+            else:
+                context = load_market_context(symbol, bar_timestamp)
+            research_shadow = _same_cycle_research_shadow_payload(
+                context,
+                active_entry_timeframe=pending["entry_timeframe"],
+                scheduler_session_id=instance_id,
+                scheduler_cycle_id=claim.scheduler_cycle_id,
+                cycle_id=cycle_id,
+                symbol=symbol,
+                bar_close_time=bar_timestamp,
+                active_strategy_id=str(pending["active_strategy_id"]),
+                active_decision=str(pending["active_decision"]),
+                active_terminal_reason=str(pending["active_terminal_reason"]),
+                created_at=datetime.now(UTC),
+            )
+        except Exception as exc:  # noqa: BLE001
+            research_shadow = _research_shadow_error_payload(
+                scheduler_session_id=instance_id,
+                scheduler_cycle_id=claim.scheduler_cycle_id,
+                cycle_id=cycle_id,
+                symbol=symbol,
+                bar_close_time=bar_timestamp,
+                active_strategy_id=str(pending["active_strategy_id"]),
+                active_decision=str(pending["active_decision"]),
+                active_terminal_reason=str(pending["active_terminal_reason"]),
+                created_at=datetime.now(UTC),
+                error=exc,
+            )
+            logger.warning(
+                "Research Shadow observer failed without blocking ACTIVE cycle=%s symbol=%s error=%s",
+                cycle_id,
+                symbol,
+                research_shadow["safe_error_message"],
+            )
+        try:
+            _append_research_shadow_payload(
+                decision_id=str(pending["decision_id"]),
+                research_shadow=research_shadow,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Research Shadow evidence append failed without blocking ACTIVE cycle=%s symbol=%s error=%s",
+                cycle_id,
+                symbol,
+                _safe_error_message(exc),
+            )
 
     return {
         "status": "completed" if not task_failed else "partial_failure",

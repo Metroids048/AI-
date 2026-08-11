@@ -6,6 +6,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
+from pydantic import Field
+
 from services.strategy_library.candidates.failed_breakout_reversal_v1 import evaluate_failed_breakout_reversal
 from services.strategy_library.candidates.range_sweep_reversion_v1 import evaluate_range_sweep_reversion
 from services.strategy_library.candidates.trend_pullback_v2 import evaluate_trend_pullback_v2
@@ -18,6 +20,13 @@ from services.strategy_library.regime.scorer_v2 import RegimeScore, RegimeScorer
 CandidateEvaluator = Callable[[MarketContext, RegimeScore], StrategyProposal | None]
 
 
+class CandidateEvaluationError(FrozenContract):
+    """Safe, serializable failure for one research candidate evaluation."""
+
+    error_class: str
+    safe_message: str
+
+
 class ProposalPipelineResult(FrozenContract):
     """Complete, serializable output of one point-in-time proposal evaluation."""
 
@@ -27,6 +36,8 @@ class ProposalPipelineResult(FrozenContract):
     proposals: tuple[StrategyProposal, ...]
     selection: SelectionResult
     rejection_reasons: dict[str, str]
+    strategy_versions: dict[str, str]
+    evaluation_errors: dict[str, CandidateEvaluationError] = Field(default_factory=dict)
 
     def for_strategy(self, strategy_id: str) -> StrategyProposal | None:
         """Return the candidate for a replay lane without rerunning candidates."""
@@ -35,6 +46,16 @@ class ProposalPipelineResult(FrozenContract):
 
 
 PIPELINE_VERSION = "proposal-pipeline-v1"
+RESEARCH_CANDIDATE_IDS: tuple[str, ...] = (
+    "trend_pullback_v2",
+    "range_sweep_reversion_v1",
+    "failed_breakout_reversal_v1",
+)
+RESEARCH_CANDIDATE_VERSIONS: dict[str, str] = {
+    "trend_pullback_v2": "2.0.0-research",
+    "range_sweep_reversion_v1": "1.0.0-research",
+    "failed_breakout_reversal_v1": "1.0.0-research",
+}
 PROPOSAL_CONTEXT_WINDOW_LENGTHS: dict[str, int] = {
     "1m": 2,
     "5m": 2,
@@ -64,6 +85,7 @@ def run_proposal_pipeline(
     regime = RegimeScorerV2().score(context)
     proposals: list[StrategyProposal] = []
     rejection_reasons: dict[str, str] = {}
+    evaluation_errors: dict[str, CandidateEvaluationError] = {}
     available_ids = frozenset(strategy_id for strategy_id, _ in _evaluators())
     if candidate_ids is not None and not candidate_ids <= available_ids:
         unknown = ",".join(sorted(candidate_ids - available_ids))
@@ -71,7 +93,15 @@ def run_proposal_pipeline(
     for strategy_id, evaluator in _evaluators():
         if candidate_ids is not None and strategy_id not in candidate_ids:
             continue
-        proposal = evaluator(context, regime)
+        try:
+            proposal = evaluator(context, regime)
+        except Exception as exc:  # noqa: BLE001
+            safe_message = " ".join(str(exc).split())[:240] or "candidate evaluation failed"
+            evaluation_errors[strategy_id] = CandidateEvaluationError(
+                error_class=type(exc).__name__,
+                safe_message=safe_message,
+            )
+            continue
         if proposal is None:
             rejection_reasons[strategy_id] = "candidate_conditions_not_met"
             continue
@@ -86,6 +116,12 @@ def run_proposal_pipeline(
         proposals=tuple(proposals),
         selection=selection,
         rejection_reasons=rejection_reasons,
+        strategy_versions={
+            strategy_id: RESEARCH_CANDIDATE_VERSIONS.get(strategy_id, "unknown")
+            for strategy_id in available_ids
+            if candidate_ids is None or strategy_id in candidate_ids
+        },
+        evaluation_errors=evaluation_errors,
     )
 
 
