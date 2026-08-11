@@ -1,0 +1,99 @@
+================================================================================
+P2-A EXIT POLICY SHADOW EVALUATION
+================================================================================
+
+✅ Loaded 9 real CONTROL entries.
+
+SAMPLE_START=2026-08-07T10:00:39.946000+00:00
+SAMPLE_END=2026-08-11T05:45:32.203000+00:00
+
+BTC_TRADES=5
+ETH_TRADES=4
+
+⚠️  Only 9 trades; need 30 for stable verdicts.
+
+REPLAYED_ENTRIES=9
+SKIPPED_NO_BARS=0
+SKIPPED_NO_POINT_IN_TIME_ATR=0
+OUTCOME_ROWS=45
+
+================================================================================
+OVERALL RESULTS
+================================================================================
+
+      POLICY |       TRADES |      NET_EXP |           PF |        AVG_R |       MAX_DD |      CAPTURE |     FEE_DRAG |     HOLD_MIN |        AMBIG
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+A_CURRENT_CO |            9 |         2.38 |         2.57 |         0.38 |        23.30 |       69.88% |        20.84 |          128 |            0
+B_ATR_ADAPTI |            9 |         0.29 |         2.24 |        -0.11 |        18.16 |       72.96% |        20.86 |           75 |            0
+C_STRUCTURE_ |            9 |         4.15 |         5.74 |         0.22 |        15.27 |       73.13% |        20.84 |          127 |            0
+D_SCALE_OUT_ |            9 |         0.17 |         2.18 |        -0.17 |        18.16 |       48.83% |        20.86 |           89 |            0
+E_REGIME_AWA |            9 |         2.38 |         2.57 |         0.38 |        23.30 |       69.88% |        20.84 |          128 |            0
+
+================================================================================
+BTC/USDT RESULTS
+================================================================================
+
+      POLICY |       TRADES |      NET_EXP |           PF |        AVG_R |       MAX_DD |      CAPTURE |     FEE_DRAG |     HOLD_MIN |        AMBIG
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+A_CURRENT_CO |            5 |         1.95 |         2.26 |         0.21 |        11.64 |       70.22% |        12.79 |          206 |            0
+B_ATR_ADAPTI |            5 |        -2.36 |         1.07 |        -0.68 |        14.01 |       57.13% |        12.81 |           68 |            0
+C_STRUCTURE_ |            5 |         3.82 |         6.28 |        -0.06 |         6.44 |       67.53% |        12.79 |          188 |            0
+D_SCALE_OUT_ |            5 |        -2.66 |         0.96 |        -0.79 |        13.83 |       29.10% |        12.81 |           75 |            0
+E_REGIME_AWA |            5 |         1.95 |         2.26 |         0.21 |        11.64 |       70.22% |        12.79 |          206 |            0
+
+================================================================================
+ETH/USDT RESULTS
+================================================================================
+
+      POLICY |       TRADES |      NET_EXP |           PF |        AVG_R |       MAX_DD |      CAPTURE |     FEE_DRAG |     HOLD_MIN |        AMBIG
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+A_CURRENT_CO |            4 |         2.90 |         3.17 |         0.59 |        11.66 |       69.54% |         8.05 |          128 |            0
+B_ATR_ADAPTI |            4 |         3.60 |         5.80 |         0.60 |         7.27 |       76.22% |         8.05 |          102 |            0
+C_STRUCTURE_ |            4 |         4.57 |         5.22 |         0.57 |         8.83 |       73.13% |         8.05 |          126 |            0
+D_SCALE_OUT_ |            4 |         3.72 |         5.90 |         0.62 |         7.27 |       53.10% |         8.05 |          108 |            0
+E_REGIME_AWA |            4 |         2.90 |         3.17 |         0.59 |        11.66 |       69.54% |         8.05 |          128 |            0
+
+================================================================================
+PER-TRADE DETAIL (A_CURRENT_CONTROL)
+================================================================================
+
+    SYMBOL |       SIDE |      ENTRY |     REASON |        NET |      MFE_R |      MAE_R |    CAPTURE |   HOLD_MIN
+---------------------------------------------------------------------------------------------------------------------------
+       BTC |       long |   64996.20 |       STOP |     -11.34 |       0.68 |      -1.04 |    -190.2% |        976
+       BTC |      short |   64009.30 |       STOP |     -11.64 |       0.60 |      -1.01 |    -215.4% |        243
+       ETH |      short |    1871.62 |       STOP |     -11.66 |       0.18 |      -1.01 | excursion_ |        128
+       BTC |      short |   64390.84 |     TARGET |     +10.98 |       1.52 |      -0.97 |      79.8% |         51
+       BTC |      short |   65007.70 |     TARGET |     +10.78 |       1.58 |      -0.62 |      77.0% |        206
+       BTC |      short |   64767.49 |     TARGET |     +10.99 |       1.73 |      -0.27 |      70.2% |         54
+       ETH |      short |    1906.00 |     TARGET |     +10.99 |       1.52 |      -0.15 |      79.9% |         24
+       ETH |       long |    1912.52 |     TARGET |      +1.50 |       2.17 |      -0.09 |      55.8% |        127
+       ETH |      short |    1918.00 |     TARGET |     +10.78 |       1.75 |      -0.60 |      69.5% |        160
+
+================================================================================
+BUSINESS VERDICTS
+================================================================================
+
+Q1_ENTRY_HAS_EDGE=INSUFFICIENT_SAMPLE
+Q1_EVIDENCE=only 9 entries, need 30
+Q1_OBSERVED_ONLY (n=9, NOT a conclusion): avg MFE=3.20R, avg MAE=-0.87R, median MFE=3.77R, median MAE=-0.62R, entries with positive MFE=9/9, horizon=24h
+
+Q2_EXIT_LEAKAGE=INSUFFICIENT_SAMPLE
+Q2_EVIDENCE=Only 9 CONTROL trades, need 30
+
+Q3_POLICY_BY_REGIME=INSUFFICIENT_SAMPLE
+Q3_EVIDENCE=Need at least 2 regimes with 5+ trades each
+
+CURRENT_CONTROL_RANK=2/5
+CURRENT_CONTROL_NET_EXPECTANCY=2.38 USDT
+BEST_OBSERVED_POLICY=C_STRUCTURE_INVALIDATION
+BEST_OBSERVED_NET_EXPECTANCY=4.15 USDT
+
+SAMPLE_LIMITATIONS=
+  - Only 9 trades; statistical power is low. Verdicts may flip with more data.
+  - Small sample prevents confident regime segmentation. Q3 likely INSUFFICIENT_SAMPLE.
+
+✅ Artifact written: C:\Users\Windows11\Desktop\量化项目\docs\audits\2026-08-11-p2a-exit-policy-shadow-results.json
+
+================================================================================
+P2A_IMPLEMENTATION_COMPLETE_PENDING_REVIEW
+================================================================================
