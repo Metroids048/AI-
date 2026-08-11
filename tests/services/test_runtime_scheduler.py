@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -229,6 +230,43 @@ def test_scheduler_publishes_only_active_execution_scope(monkeypatch) -> None:
     assert captured["entry_authorized"] is True
 
 
+def test_empty_external_baseline_is_not_captured(monkeypatch) -> None:
+    from services.execution import scheduler as scheduler_module
+
+    monkeypatch.setenv("V2_ALLOW_UNMANAGED_EXTERNAL_POSITIONS", "true")
+    monkeypatch.setenv("V2_EXTERNAL_BASELINE_JSON", "{}")
+
+    assert scheduler_module._external_baseline_capture() == (False, None, None)
+
+
+def test_external_baseline_rejects_transient_environment_without_persistent_source(tmp_path, monkeypatch) -> None:
+    from services.execution import scheduler as scheduler_module
+
+    baseline_path = tmp_path / "testnet-external-baseline.json"
+    baseline_path.write_text(
+        json.dumps(
+            {
+                "execution_mode": "BINANCE_TESTNET",
+                "positions": {"ETH/USDT:short": "10.976"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("V2_ALLOW_UNMANAGED_EXTERNAL_POSITIONS", "true")
+    monkeypatch.setenv("V2_EXTERNAL_BASELINE_JSON", '{"ETH/USDT:short":"10.976"}')
+    monkeypatch.setenv("V2_EXTERNAL_BASELINE_PATH", str(baseline_path))
+    monkeypatch.delenv("V2_EXTERNAL_BASELINE_SOURCE", raising=False)
+
+    assert scheduler_module._external_baseline_capture() == (False, None, None)
+
+    monkeypatch.setenv("V2_EXTERNAL_BASELINE_SOURCE", f"persistent_file:{baseline_path.resolve()}")
+    assert scheduler_module._external_baseline_capture() == (
+        True,
+        {"ETH/USDT:short": "10.976"},
+        f"persistent_file:{baseline_path.resolve()}",
+    )
+
+
 def test_active_scheduler_fails_before_job_registration_when_contract_is_incomplete(monkeypatch) -> None:
     from services.automated_trading.domain.enums import V2ExecutionMode
     from services.automated_trading.infrastructure import runtime_lock
@@ -244,7 +282,7 @@ def test_active_scheduler_fails_before_job_registration_when_contract_is_incompl
     )
     monkeypatch.setattr(runtime_lock, "resolve_engine_activation", lambda _settings: config)
     monkeypatch.setattr(scheduler_module, "_active_entry_authorization", lambda: (False, False, ()))
-    monkeypatch.setattr(scheduler_module, "_external_baseline_captured", lambda: False)
+    monkeypatch.setattr(scheduler_module, "_external_baseline_capture", lambda: (False, None, None))
     monkeypatch.setattr(scheduler_module, "write_external_scheduler_state", captured.update)
     scheduler = RuntimeScheduler(coordinator=object())  # type: ignore[arg-type]
 

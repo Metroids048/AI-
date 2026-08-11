@@ -1,5 +1,42 @@
 # Project Memory
 
+## Geometry ownership frozen; P2 is strategy/exit evaluation (2026-08-11)
+
+- Operator authorized a Layer-1 invariant change: **strategy owns geometry, execution owns
+  safety**. See `AGENTS.md` §"Strategy Owns Geometry, Execution Owns Safety",
+  `docs/adr/ADR-004-strategy-owns-geometry-execution-owns-safety.md`, and ADR-080 in
+  decisions-log. Scope for the next phase:
+  `docs/superpowers/plans/2026-08-11-p2-strategy-exit-policy-frozen-scope.md`.
+- Verified facts behind the decision: the lane that actually submits is `testnet_sampling_v2`,
+  whose **entry is genuinely quantitative** (EMA50 + MACD hist + RSI band + ATR14>0 on closed
+  15m bars) but whose **exit is effectively hardcoded** — `stop = max(1.2*ATR14, price*0.0035)`,
+  `TP = 1.5*stop`. When `1.2*ATR14` < 0.35% the floor wins and geometry degenerates to fixed
+  SL 0.35% / TP 0.525% / RR 1.5 for every symbol, direction and regime. Both BTC and ETH
+  entries on 2026-08-10 hit exactly that floor — the narrow band was the floor, not ATR.
+- **Architectural gap that blocks laddered promotion:** `TradeCandidate` accepts one
+  `stop_distance` + one `take_profit_distance`
+  (`services/automated_trading/domain/candidates.py:81-82`), but `StrategyProposal` carries a
+  `targets` tuple whose `quantity_fraction` must sum to 1
+  (`services/strategy_library/proposals.py:44,56-58`), and protection submits a single
+  reduce-only leg (`.../application/protection_service.py:401`). **No `StrategyProposal` →
+  `TradeCandidate` adapter exists anywhere** in `services/automated_trading/` or
+  `services/execution/`. A strictly-additive extension port is authorized; collapsing a ladder
+  to one target at promotion time is explicitly not an acceptable workaround.
+- Research candidate geometry, verified: `trend_pullback_v2` = structural stop
+  (pullback extreme ∓ 0.25*ATR) with 1R/1.8R/2.5R at **35/40/25**;
+  `range_sweep_reversion_v1` = sweep extreme ∓ 0.25*ATR with midpoint/opposite-boundary/runner
+  at **40/40/20** (not 35/40/25 — that split belongs to trend_pullback).
+- Protection already resolves from real `average_fill_price` post-fill
+  (`candidates.py:145-149`) — this was already correct, no change needed.
+- **P2-A tooling caveat:** existing `scripts/compare_exit_policies_cli.py` +
+  `services/validation/technical_replay.py::compare_exit_policies` are bound to the legacy
+  4h/1h/15m `AUTO_PAPER_TECHNICAL_RULES` pipeline and do **not** cover the
+  `testnet_sampling_v2` lane that actually trades. MFE/MAE helpers exist in
+  `technical_replay.py` and `scripts/export_trend_momentum_mae_mfe.py`; profit capture ratio
+  (`realized profit / MFE`) does not exist yet.
+- Anti-goal recorded: P2 must not end as "0.35% → 0.7%" or "1.5R → 2R". Parameter substitution
+  is not a strategy improvement.
+
 # QuantDinger isolated source runtime evidence (2026-08-05, refreshed)
 
 - The Shadow bridge now has an explicit bounded child-process runtime and CLI
@@ -681,3 +718,34 @@
   `UNMANAGED_EXTERNAL_POSITION` with zero exchange writes.
 - Gate 17 remains OPEN until a natural same-direction short entry completes
   the full receipt/protection/reduce-only-exit/baseline-restore chain.
+
+## P1 Same-Cycle Research Shadow (2026-08-10)
+
+- **Root cause fixed**: the real ACTIVE V2 scheduler now appends same-cycle,
+  same-symbol, same-closed-15m-bar observations for
+  `trend_pullback_v2`, `range_sweep_reversion_v1`, and
+  `failed_breakout_reversal_v1` to the existing V2 decision payload.
+  `testnet_sampling_v2` remains the sole ACTIVE submit authority.
+- **Isolation**: ACTIVE symbol cycles finalize before the observer runs; the
+  V2 writer/slot leases are released before evidence evaluation/appending.
+  The observer receives no adapter, intent, order, position, or protection
+  writer. Research candidate errors become `SHADOW_STRATEGY_ERROR` evidence.
+- **Runtime evidence**: final cutover `2026-08-10T13:15:03.869648Z`; 192 new
+  observations, 192 same-cycle matches, 0 unmatched, and all six research
+  mutation ledger counters 0. BTC naturally reached
+  `POSITION_ALREADY_OPEN`; ETH shared the same closed 15m bar with an
+  independent ACTIVE terminal result. `trend_momentum_v2_enriched` remains
+  out of scope.
+- **Account safety**: the launcher was used twice with ACTIVE/Testnet and
+  preserved external baseline. During the final observation an existing ETH
+  protection exit naturally reduced Binance/local positions from 2 to 1;
+  no new Shadow order/intent/position/protection lineage was found and
+  reconciliation remained `HEALTHY`.
+- **Verifier hardening**: top-level ACTIVE strategy identity and
+  `v2_execution_cycles.execution_mode == BINANCE_TESTNET` are now required
+  for accepted examples and same-cycle matches.
+- **Verification**: P1 focused `30 passed`; P0/U1 `79 passed, 1 skipped`;
+  full `pytest -q` `1439 passed, 7 skipped, 2 known candidate-registry
+  failures`; touched Ruff clean; mypy `225` source files clean. Full Ruff
+  retains 3 unrelated pre-existing script findings. Final status is
+  `IMPLEMENTATION_COMPLETE_PENDING_REVIEW`; stop before P2.

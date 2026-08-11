@@ -314,16 +314,33 @@ function Ensure-Runtime {
     }
     if ($PreserveExternalTestnetBaseline) {
         $env:V2_ALLOW_UNMANAGED_EXTERNAL_POSITIONS = "true"
-        $baselineJson = & $env:AGENT_PYTHON (Join-Path $Root "scripts\capture_testnet_external_baseline.py") --json
-        if ($LASTEXITCODE -ne 0 -or -not $baselineJson) {
-            throw "Failed to capture the Testnet external position baseline."
+        $env:V2_EXTERNAL_BASELINE_PATH = Join-Path $Root ".local\testnet-external-baseline.json"
+        Remove-Item Env:V2_EXTERNAL_BASELINE_JSON -ErrorAction SilentlyContinue
+        Remove-Item Env:V2_EXTERNAL_BASELINE_SOURCE -ErrorAction SilentlyContinue
+        # On first launch, the persisted baseline file does not exist yet. Capture it now
+        # so that --require-persisted can verify the current exposure matches the durable record.
+        if (-not (Test-Path $env:V2_EXTERNAL_BASELINE_PATH)) {
+            Write-Step "capturing initial Testnet external baseline"
+            $captureOutput = & $env:AGENT_PYTHON (Join-Path $Root "scripts\capture_testnet_external_baseline.py") --capture-persisted --json 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                $captureError = ($captureOutput | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }) -join "; "
+                throw "Failed to capture the initial Testnet external position baseline: $captureError"
+            }
         }
-        $env:V2_EXTERNAL_BASELINE_JSON = ($baselineJson | Select-Object -Last 1).ToString().Trim()
-        Write-Step "preserving explicit Testnet external baseline: $($env:V2_EXTERNAL_BASELINE_JSON)"
+        $baselineOutput = & $env:AGENT_PYTHON (Join-Path $Root "scripts\capture_testnet_external_baseline.py") --require-persisted --json 2>&1
+        if ($LASTEXITCODE -ne 0 -or -not $baselineOutput) {
+            $baselineError = ($baselineOutput | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }) -join "; "
+            throw "Failed to verify the persisted Testnet external position baseline: $baselineError"
+        }
+        $env:V2_EXTERNAL_BASELINE_JSON = ($baselineOutput | Select-Object -Last 1).ToString().Trim()
+        $env:V2_EXTERNAL_BASELINE_SOURCE = "persistent_file:$($env:V2_EXTERNAL_BASELINE_PATH)"
+        Write-Step "restored persisted Testnet external baseline: $($env:V2_EXTERNAL_BASELINE_JSON)"
     }
     else {
         Remove-Item Env:V2_ALLOW_UNMANAGED_EXTERNAL_POSITIONS -ErrorAction SilentlyContinue
         Remove-Item Env:V2_EXTERNAL_BASELINE_JSON -ErrorAction SilentlyContinue
+        Remove-Item Env:V2_EXTERNAL_BASELINE_SOURCE -ErrorAction SilentlyContinue
+        Remove-Item Env:V2_EXTERNAL_BASELINE_PATH -ErrorAction SilentlyContinue
     }
     $env:RUNTIME_SCHEDULER_MODE = "inprocess"
     $env:RUNTIME_SCHEDULER_AUTOSTART = "true"

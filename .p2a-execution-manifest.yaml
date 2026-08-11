@@ -1,0 +1,137 @@
+# P2-A Execution Manifest
+# Authoritative design: ADR-004, AGENTS.md §Strategy Owns Geometry, P2 Frozen Scope
+# Status: implementation starting 2026-08-11
+
+task: EXIT_POLICY_SHADOW_EVALUATION
+scope: read_only_evaluator
+goal: |
+  Answer three business questions from real testnet_sampling_v2 fills:
+  (1) Does current entry have value? (MFE vs MAE)
+  (2) Does current exit truncate profit? (profit_capture_ratio)
+  (3) Should different regimes use different exits? (split by TREND/RANGE/EXPANSION)
+
+input:
+  source: testnet_sampling_v2 real exchange fills only
+  fixed_per_trade:
+    - symbol
+    - side
+    - average_fill_price
+    - fill_timestamp
+    - filled_quantity
+    - fees
+  point_in_time_only: true
+  prohibition: no future data, no lookahead, no simultaneous entry change
+
+exit_policies:
+  A_CURRENT_CONTROL:
+    stop: max(1.2 * ATR14, price * 0.0035)
+    target: 1.5 * stop
+    baseline: true
+  B_ATR_ADAPTIVE:
+    stop: k_atr * ATR14
+    target: rr * stop
+    no_percentage_floor: true
+  C_STRUCTURE_INVALIDATION:
+    stop: recent_swing_extreme ± atr_buffer
+    target: structural_target
+  D_SCALE_OUT_RUNNER:
+    stop: structural
+    targets: [1R @ 35%, 1.8R @ 40%, runner @ 25%]
+  E_REGIME_AWARE:
+    trend: D_SCALE_OUT_RUNNER
+    range: boundary_targets
+    expansion: defer_or_fast_exit
+
+shadow_only: true
+mutations_forbidden:
+  - execution intent creation
+  - order submission
+  - position opening/closing
+  - protection submission
+  - any exchange write
+  - any production parameter change
+
+required_output_metrics:
+  per_trade:
+    - trade_id
+    - symbol
+    - side
+    - regime
+    - exit_policy_id
+    - MFE_pct / MFE_R / MFE_pnl_usdt
+    - MAE_pct / MAE_R / MAE_pnl_usdt
+    - realized_gross_pnl_usdt
+    - fees_usdt
+    - slippage_estimate_usdt
+    - realized_net_pnl_usdt
+    - profit_capture_ratio  # realized_net / MFE when MFE > 0, else null
+    - holding_time_minutes
+    - exit_reason
+    - intrabar_ambiguity_flag
+  aggregates:
+    split_by: [symbol, side, regime]
+    metrics:
+      - trade_count
+      - win_rate
+      - net_expectancy_usdt
+      - profit_factor
+      - avg_R / median_R
+      - max_drawdown_pct
+      - avg_MFE / avg_MAE
+      - avg_profit_capture_ratio (nulls excluded)
+      - total_fee_drag_usdt
+      - avg_holding_time_minutes
+
+intrabar_ambiguity_handling:
+  condition: highest_resolution_bar touches both SL and TP
+  action:
+    - mark: AMBIGUOUS_INTRABAR
+    - primary_result: STOP_FIRST (conservative)
+    - sensitivity_output: TARGET_FIRST
+  prohibition: silent favorable-order selection
+
+anti_patterns_forbidden:
+  - applying trend_pullback_v2 exit to a bar where trend_pullback_v2 had no proposal
+  - applying range_sweep exit to a bar where range_sweep had no proposal
+  - comparing complete Research Strategy proposals (that is P2-B)
+  - tuning 0.35% floor to a different fixed number
+  - changing 1.5R to a different fixed multiple
+  - granting research candidates submit authority
+  - implementing P2-B or P2-C
+  - fixing unrelated issues opportunistically
+
+completion_states:
+  valid:
+    - P2A_IMPLEMENTATION_COMPLETE_PENDING_REVIEW
+    - BLOCKED_WITH_EVIDENCE
+  invalid:
+    - done_without_evidence_artifact
+    - complete_without_test_coverage
+    - works_without_real_fill_replay
+
+must_not_change:
+  - services/strategy_library/candidates/testnet_sampling_v2.py
+  - services/automated_trading/application/decision_service.py (production rules)
+  - services/automated_trading/infrastructure/binance_adapter.py
+  - execution intent / order / fill / managed position
+  - protection submission
+  - reconciliation / recovery
+  - launcher / scheduler / runtime_state
+  - P1 same-cycle research plumbing
+  - any hard risk gate
+
+may_change:
+  - new read-only evaluator module
+  - new MFE/MAE/profit-capture-ratio metric helpers
+  - tests for new code
+  - evidence output artifacts (JSON/CSV/markdown reports)
+  - documentation
+
+verification_required:
+  - real testnet_sampling_v2 fill as input (not synthetic)
+  - point-in-time market data only (no lookahead)
+  - intrabar ambiguity explicitly handled
+  - profit_capture_ratio null when MFE <= 0
+  - regime split present in output
+  - comparison is exit-only (entry fixed)
+  - no Research Strategy exit applied where that strategy had no proposal

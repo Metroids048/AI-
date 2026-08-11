@@ -711,3 +711,42 @@
 - Consequence: This refresh proves the corrected artifact contract and basic
   position semantics only. It does not prove parity, OOS quality, promotion, or
   natural Binance Testnet execution.
+
+## ADR-080: Strategy owns geometry, execution owns safety
+
+- Date: 2026-08-11
+- Status: accepted (operator-authorized Layer-1 invariant change)
+- Full document: `docs/adr/ADR-004-strategy-owns-geometry-execution-owns-safety.md`
+  (that file continues the separate `docs/adr/` V2 series numbering)
+- Context: The verified V2 chain is no longer the bottleneck; geometry ownership is. Entry is
+  already quantitative (`testnet_sampling_v2` fires on EMA50/MACD-hist/RSI-band/ATR over closed
+  15m bars), but exit is effectively hardcoded: `stop = max(1.2*ATR14, price*0.0035)` and
+  `TP = 1.5*stop`. Whenever `1.2*ATR14` falls under the 0.35% floor the geometry degenerates to
+  a fixed SL 0.35% / TP 0.525% / RR 1.5 regardless of symbol, direction, regime or volatility —
+  both BTC and ETH entries on 2026-08-10 landed exactly on that floor. Meanwhile
+  `trend_pullback_v2` / `range_sweep_reversion_v1` / `failed_breakout_reversal_v1` already emit
+  structural invalidation levels and multi-leg targets as `StrategyProposal`.
+- Decision: Buy/sell levels, stop placement, target prices, partial fractions and runner-hold
+  decisions belong to the Strategy Layer and must come from falsifiable quantitative rules. Only
+  account-survival boundaries stay hard-configured (risk per trade, position fraction, total
+  exposure, leverage, entry drift, stop-must-exist, duplicate-entry, reconciliation health).
+  Violating geometry is rejected with a visible reason, never silently clamped.
+  `AUTO_EXECUTION_CHAIN` is `FROZEN_KNOWN_GOOD`; poor strategy performance is never a reason to
+  modify it. Entry and exit geometry must not change in the same evaluation step, so measured
+  differences stay attributable.
+- Known architectural gap: `TradeCandidate` accepts one `stop_distance` + one
+  `take_profit_distance`; `StrategyProposal` carries a `targets` tuple summing to 1; protection
+  submits a single reduce-only leg; and no `StrategyProposal` → `TradeCandidate` adapter exists.
+  Promoting a laddered candidate is therefore structurally impossible today. One **strictly
+  additive** extension port for multi-leg reduce-only exits is authorized, with the existing
+  single-target path proven behaviorally identical by regression tests. Building the port is not
+  promotion.
+- Consequences: No running production parameter changed. `testnet_sampling_v2` keeps its exact
+  current rules as the control lane; its geometry is recorded as a conservative sampling rule,
+  not an endorsed design. Tuning the 0.35% floor, the 1.5R multiple, or any Validation Layer
+  threshold to change outcomes is forbidden — parameter substitution is not a strategy
+  improvement. Comparisons must be post-cost and report trade count, net expectancy, PF,
+  average/median R, max drawdown, MFE, MAE, holding time, fee drag and profit capture ratio
+  (`realized profit / MFE`); nominal RR and win rate alone are not evidence.
+- Next phase scope (frozen, no implementation authorized by the scope doc alone):
+  `docs/superpowers/plans/2026-08-11-p2-strategy-exit-policy-frozen-scope.md`

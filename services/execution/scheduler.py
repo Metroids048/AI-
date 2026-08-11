@@ -15,6 +15,8 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
@@ -79,6 +81,8 @@ class RuntimeSchedulerStatus:
     entry_enabled: bool | None = None
     sampling_fallback_enabled: bool | None = None
     external_baseline_captured: bool | None = None
+    external_baseline_value: dict[str, str] | None = None
+    external_baseline_source: str | None = None
     entry_authorized: bool = False
     startup_contract_errors: tuple[str, ...] = ()
 
@@ -106,21 +110,80 @@ class RuntimeSchedulerStatus:
             "entry_enabled": self.entry_enabled,
             "sampling_fallback_enabled": self.sampling_fallback_enabled,
             "external_baseline_captured": self.external_baseline_captured,
+            "external_baseline_value": self.external_baseline_value,
+            "external_baseline_source": self.external_baseline_source,
             "entry_authorized": self.entry_authorized,
             "startup_contract_errors": self.startup_contract_errors,
         }
 
 
-def _external_baseline_captured() -> bool:
+_ALLOWED_EXTERNAL_BASELINE_KEYS = frozenset(
+    {
+        "BTC/USDT:long",
+        "BTC/USDT:short",
+        "ETH/USDT:long",
+        "ETH/USDT:short",
+    }
+)
+
+
+def _normalize_external_baseline(payload: object) -> dict[str, str] | None:
+    # None means "not a valid capture record". An empty mapping is a valid
+    # capture record proving zero unmanaged external exposure, so it must
+    # normalize to {} rather than None.
+    if not isinstance(payload, dict):
+        return None
+    normalized: dict[str, str] = {}
+    try:
+        for key, value in payload.items():
+            quantity = Decimal(str(value))
+            if (
+                not isinstance(key, str)
+                or key not in _ALLOWED_EXTERNAL_BASELINE_KEYS
+                or not quantity.is_finite()
+                or quantity <= 0
+            ):
+                return None
+            normalized[key] = str(quantity)
+    except (ArithmeticError, ValueError):
+        return None
+    return normalized
+
+
+def _external_baseline_capture() -> tuple[bool, dict[str, str] | None, str | None]:
     if os.getenv("V2_ALLOW_UNMANAGED_EXTERNAL_POSITIONS", "false").lower() != "true":
-        return False
+        return False, None, None
     raw = os.getenv("V2_EXTERNAL_BASELINE_JSON", "").strip()
     if not raw:
-        return False
+        return False, None, None
     try:
-        return isinstance(json.loads(raw), dict)
+        payload = json.loads(raw)
     except json.JSONDecodeError:
-        return False
+        return False, None, None
+    normalized = _normalize_external_baseline(payload)
+    if normalized is None:
+        return False, None, None
+    configured_path = os.getenv("V2_EXTERNAL_BASELINE_PATH", "").strip()
+    source = os.getenv("V2_EXTERNAL_BASELINE_SOURCE", "").strip()
+    if not configured_path or not source:
+        return False, None, None
+    try:
+        persistent_path = Path(configured_path).resolve(strict=True)
+        persisted_record = json.loads(persistent_path.read_text(encoding="utf-8"))
+        persisted = _normalize_external_baseline(
+            persisted_record.get("positions") if isinstance(persisted_record, dict) else None
+        )
+    except (OSError, json.JSONDecodeError):
+        return False, None, None
+    expected_source = f"persistent_file:{persistent_path}"
+    if (
+        not isinstance(persisted_record, dict)
+        or persisted_record.get("execution_mode") != "BINANCE_TESTNET"
+        or persisted != normalized
+        or source != expected_source
+    ):
+        return False, None, None
+    return True, normalized, source
 
 
 def _active_entry_authorization() -> tuple[bool, bool, tuple[str, ...]]:
@@ -245,10 +308,12 @@ class RuntimeScheduler:
         self.status.entry_enabled = None
         self.status.sampling_fallback_enabled = None
         self.status.external_baseline_captured = None
+        self.status.external_baseline_value = None
+        self.status.external_baseline_source = None
         self.status.entry_authorized = False
         if v2_activation.v2_activation.value == "ACTIVE":
             entry_enabled, sampling_enabled, contract_errors = _active_entry_authorization()
-            baseline_captured = _external_baseline_captured()
+            baseline_captured, baseline_value, baseline_source = _external_baseline_capture()
             errors = list(contract_errors)
             if v2_activation.execution_mode.value != "BINANCE_TESTNET":
                 errors.append("EXECUTION_MODE_MISMATCH")
@@ -265,6 +330,8 @@ class RuntimeScheduler:
             self.status.entry_enabled = entry_enabled
             self.status.sampling_fallback_enabled = sampling_enabled
             self.status.external_baseline_captured = baseline_captured
+            self.status.external_baseline_value = baseline_value
+            self.status.external_baseline_source = baseline_source
             self.status.startup_contract_errors = tuple(dict.fromkeys(errors))
             self.status.entry_authorized = not self.status.startup_contract_errors
             if self.status.startup_contract_errors:
@@ -692,6 +759,8 @@ class RuntimeScheduler:
                 "entry_enabled": self.status.entry_enabled,
                 "sampling_fallback_enabled": self.status.sampling_fallback_enabled,
                 "external_baseline_captured": self.status.external_baseline_captured,
+                "external_baseline_value": self.status.external_baseline_value,
+                "external_baseline_source": self.status.external_baseline_source,
                 "entry_authorized": self.status.entry_authorized,
                 "startup_contract_errors": list(self.status.startup_contract_errors),
             }

@@ -831,3 +831,80 @@
 - **Boundary**: No user position, order, credential, risk value, leverage,
   stop/take-profit, strategy threshold, Mainnet path, or acceptance shortcut
   was changed.
+
+## 2026-08-10 — P1 same-cycle Research Shadow observer
+
+- **Change**: Proved the current ACTIVE path and the three existing research
+  candidate paths, then attached a pure Research Shadow observer to the V2
+  bridge. The observer reuses the ACTIVE 15m `TimeframeView`, records a
+  canonical market reference and fixed candidate/version/status fields, and
+  appends evidence only after all ACTIVE symbols finalize and leases release.
+  The proposal pipeline isolates one candidate exception. The verifier is
+  SQLite `mode=ro` only and validates the full three-candidate envelope plus
+  `RESEARCH` lineage mutation ledger.
+- **Red/Green**: Initial verifier and observer-order tests failed for the
+  expected missing/old behavior; after the minimal implementation and review
+  hardening, P1 focused tests passed.
+- **Runtime**: Through `一键启动.cmd` only, final cutover
+  `2026-08-10T13:15:03.869648Z` produced 192 after-shadow observations,
+  192 matched same-cycle records, 0 unmatched, and zero research intents,
+  exchange orders, positions, position modifications, protection creations,
+  or protection modifications. ACTIVE remained `ACTIVE/BINANCE_TESTNET`,
+  strategy `testnet_sampling_v2`, `entry_authorized=true`,
+  `legacy_writer=false`; reconciliation was healthy.
+- **Verifier hardening**: added fail-closed checks for the top-level ACTIVE
+  strategy identity and `BINANCE_TESTNET` cycle execution mode; regression
+  tests cover both tampering cases.
+- **Verification**: `30 passed` P1 focused; `79 passed, 1 skipped` P0/U1;
+  full `1439 passed, 7 skipped, 2` known registry failures; touched Ruff and
+  mypy (`225` files) passed. Full Ruff/pre-commit remain blocked only by the
+  documented unrelated script findings and registry baseline assertions.
+- **Boundary**: No strategy/risk/SL/TP/leverage/sizing/reconciliation or
+  launcher contract changed. No promotion, tuning, switch, or P2 started.
+
+## [TASK-GEOMETRY-FREEZE] — Strategy owns geometry, execution owns safety (2026-08-11)
+
+- **Mandate**: operator authorized a Layer-1 invariant change explicitly: buy/sell
+  levels, stop placement, and profit targets belong to the Strategy Layer and must
+  come from falsifiable quantitative rules; only account-survival boundaries stay
+  hard-configured. Documented as ADR-080 in decisions-log, ADR-004 in `docs/adr/`,
+  AGENTS.md §"Strategy Owns Geometry, Execution Owns Safety", and
+  `docs/superpowers/plans/2026-08-11-p2-strategy-exit-policy-frozen-scope.md`.
+- **Deliverable**: freeze contract only. No implementation, no evaluation code,
+  no parameter change, no execution-layer modification.
+- **Verified facts behind the decision**: (1) `testnet_sampling_v2` entry is
+  quantitative (EMA50 + MACD hist + RSI band + ATR14 on closed 15m bars) but
+  exit is effectively hardcoded — `stop = max(1.2*ATR14, price*0.0035)`,
+  `TP = 1.5*stop`. When `1.2*ATR14` < 0.35% the floor wins and geometry
+  degenerates to fixed SL 0.35% / TP 0.525% / RR 1.5 for all symbols/regimes.
+  Both BTC and ETH entries on 2026-08-10 hit exactly that floor. (2) Research
+  candidates `trend_pullback_v2` / `range_sweep_reversion_v1` /
+  `failed_breakout_reversal_v1` already emit structural invalidation and
+  multi-leg `targets` as `StrategyProposal`. (3) **Architectural gap blocking
+  laddered promotion**: `TradeCandidate` accepts one `stop_distance` + one
+  `take_profit_distance`; `StrategyProposal` carries `targets` tuple summing
+  to 1; protection submits single reduce-only leg; and no
+  `StrategyProposal` → `TradeCandidate` adapter exists anywhere in
+  `services/automated_trading/` or `services/execution/`.
+  (`services/strategy_library/adapters/quantdinger.py:243` is not that adapter
+  — it converts external single-target QuantDinger signals into `SHADOW`
+  non-promotable candidates per ADR-079, never sees `StrategyProposal`, and is
+  further confirmation `TradeCandidate` is structurally single-target.)
+- **Authorized extension**: one strictly-additive port for multi-leg
+  reduce-only exits, with existing single-target path proven behaviorally
+  identical by regression tests. Building the port is not promotion.
+- **Unchanged**: `testnet_sampling_v2` control lane keeps its exact current
+  entry rules, stop formula, target multiple, and position/leverage/gate
+  settings. Its geometry is recorded as a conservative sampling rule, not an
+  endorsed design, replaced only by a candidate that passed promotion — never
+  by picking new percentages. Tuning the 0.35% floor, 1.5R multiple, or any
+  Validation Layer threshold to change outcomes is forbidden.
+- **P2 scope frozen**: P2-A = exit policy shadow evaluation (hold entry fixed,
+  vary exit, measure MFE/MAE/profit-capture-ratio post-cost); P2-B = entry
+  strategy comparison (same-cycle P1 shadow); P2-C = promotion (blocked by gap
+  until extension exists). Anti-goal recorded: P2 must not end as
+  "0.35% → 0.7%" or "1.5R → 2R" — parameter substitution is not a strategy
+  improvement.
+- **Verification**: markdown-only change; 3 pre-existing unrelated Ruff
+  findings remain in baseline (not introduced by this task); skill-copy sync
+  passed.

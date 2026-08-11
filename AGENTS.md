@@ -60,6 +60,48 @@ The automated directional trading lane has one authoritative execution source: *
 
 Completion evidence for automated execution must include a real Binance Simulation order ID and exchange fill/position evidence. Local rows, mock calls, acceptance orders, or a successful strategy decision alone are insufficient.
 
+## Strategy Owns Geometry, Execution Owns Safety (Non-Negotiable)
+
+Authorized by the operator on 2026-08-11 as an explicit Layer-1 change. Full reasoning and
+code anchors: [ADR-004](docs/adr/ADR-004-strategy-owns-geometry-execution-owns-safety.md).
+
+**Buy/sell levels, stop placement, and profit targets belong to the Strategy Layer and must
+come from quantitative rules that can be backtested, replayed, and falsified. Only
+account-survival boundaries stay hard-configured. Execution never invents geometry.**
+
+1. Strategy owns: direction, entry timing and confirmation, stop/invalidation price, target
+   prices, partial-exit fractions, and whether to keep holding a runner.
+2. Hard limits own: max risk per trade, max position fraction, max total exposure, max
+   leverage, max entry price drift, stop-must-exist, duplicate-entry prohibition, and
+   no-entry-while-reconciliation-unhealthy. A strategy may never raise these.
+3. Geometry that violates a hard limit is **rejected with a visible reason**, never silently
+   clamped into compliance.
+4. `AUTO_EXECUTION_CHAIN` is `FROZEN_KNOWN_GOOD`: the Binance adapter, execution intent,
+   order/fill persistence, managed position, ownership status, protection submission,
+   reconciliation, recovery, emergency close, launcher, scheduler, and runtime state. Poor
+   strategy performance is never a reason to modify it. Only a demonstrated execution defect
+   is.
+5. Protection prices are always resolved from the real exchange `average_fill_price` after
+   fill confirmation — never from a strategy reference price or an OHLCV trigger price. This
+   holds per leg if exits are laddered.
+6. `testnet_sampling_v2` remains the running control lane with its exact current entry rules,
+   `max(1.2 * ATR14, price * 0.0035)` stop, `1.5R` target, and current position/leverage/gate
+   settings. Its current geometry is a **conservative sampling rule, not an endorsed long-term
+   design**, and it is replaced only by a candidate that passed promotion — never by picking
+   new percentages.
+7. Forbidden: tuning the 0.35% stop floor, the 1.5R multiple, or any Validation Layer
+   promotion threshold to change outcomes. Parameter substitution is not a strategy
+   improvement, and swapping one hardcoded geometry for another does not satisfy this section.
+8. Entry geometry and exit geometry must not be changed in the same evaluation step.
+   Attribution requires that a measured difference be assignable to one of them.
+9. One bounded exception to clause 4 is authorized: a **strictly additive** extension port for
+   multi-leg (laddered) reduce-only exits. The existing single-target path must remain
+   behaviorally identical, proven by regression tests. Building the port is not promotion;
+   arming it for a candidate requires passing promotion.
+10. Strategy comparisons must be post-cost and must report trade count, net expectancy, profit
+    factor, average/median R, max drawdown, MFE, MAE, holding time, fee drag, and profit
+    capture ratio (`realized profit / MFE`). Nominal RR and win rate alone are not evidence.
+
 ## Automatic Trading V2 Rebuild
 
 **Status (2026-07-28):** V2 rebuild in progress (Task 0–18).

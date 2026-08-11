@@ -41,6 +41,8 @@ class ExternalSchedulerState:
     entry_enabled: bool | None = None
     sampling_fallback_enabled: bool | None = None
     external_baseline_captured: bool | None = None
+    external_baseline_value: dict[str, str] | None = None
+    external_baseline_source: str | None = None
     entry_authorized: bool | None = None
     startup_contract_errors: tuple[str, ...] = ()
 
@@ -120,6 +122,14 @@ def load_external_scheduler_state(
         ),
         external_baseline_captured=(
             raw.get("external_baseline_captured") if isinstance(raw.get("external_baseline_captured"), bool) else None
+        ),
+        external_baseline_value=(
+            {str(key): str(value) for key, value in raw.get("external_baseline_value", {}).items()}
+            if isinstance(raw.get("external_baseline_value"), dict)
+            else None
+        ),
+        external_baseline_source=(
+            raw.get("external_baseline_source") if isinstance(raw.get("external_baseline_source"), str) else None
         ),
         entry_authorized=raw.get("entry_authorized") if isinstance(raw.get("entry_authorized"), bool) else None,
         startup_contract_errors=startup_contract_errors,
