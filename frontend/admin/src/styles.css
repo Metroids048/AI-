@@ -1643,6 +1643,90 @@ td {
     min-height: 470px;
   }
 }
+
+/* Final trading workbench contract: one light hierarchy, bounded chart, internal records scroll. */
+.trading-summary-hero {
+  background: #ffffff;
+  border: 1px solid #eaecef;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin: 10px 0;
+  color: #1e2329;
+}
+
+.trading-summary-heading h1,
+.trading-summary-decision h3 {
+  color: #1e2329;
+}
+
+.trading-summary-subtitle,
+.metric-label,
+.status-label,
+.trading-summary-action-hint {
+  color: #707a8a;
+}
+
+.metric-value,
+.status-value,
+.decision-reason {
+  color: #1e2329;
+}
+
+.trading-summary-status,
+.trading-summary-actions {
+  border-color: #eaecef;
+}
+
+.trading-summary-decision {
+  background: #fafafa;
+  border-color: #eaecef;
+}
+
+.trading-summary-binance-link {
+  background: #fff8df;
+  color: #8a6500;
+  border-color: #f0b90b;
+}
+
+.trading-workspace-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.38fr);
+  gap: 10px;
+  min-height: 0;
+}
+
+.kline-panel,
+.chart-rail {
+  min-height: 0;
+}
+
+.chart-box {
+  height: clamp(280px, 38vh, 420px);
+  min-height: 280px;
+  max-height: 420px;
+}
+
+.records-workspace {
+  height: clamp(320px, 42vh, 440px);
+  min-height: 320px;
+}
+
+.records-workspace-scroll {
+  min-height: 0;
+  overflow: auto;
+}
+
+.data-state {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid #eaecef;
+  border-radius: 6px;
+  background: #fafafa;
+  color: #707a8a;
+}
+
+.data-state-error { color: #cf3048; background: #fff5f6; border-color: #ffd5dc; }
+.data-state-stale { color: #8a6500; background: #fff8df; border-color: #f0b90b; }
+.data-state-fetching { font-size: 12px; }
 .runtime-truth-panel {
   margin: 16px 0;
   padding: 18px;
