@@ -46,10 +46,10 @@ export function ValidationCenter() {
     refetchInterval: 10000,
   });
 
-  const backtestRows = asArray(backtests.data?.items);
-  const optimizationRows = asArray(optimizations.data?.items);
-  const hypothesisRows = asArray(hypotheses.data?.items);
-  const strategyRows = asArray(strategies.data?.items);
+  const backtestRows = backtests.isSuccess ? asArray(backtests.data?.items) : null;
+  const optimizationRows = optimizations.isSuccess ? asArray(optimizations.data?.items) : null;
+  const hypothesisRows = hypotheses.isSuccess ? asArray(hypotheses.data?.items) : null;
+  const strategyRows = strategies.isSuccess ? asArray(strategies.data?.items) : null;
 
   const handleSubmitBacktest = async (event) => {
     event.preventDefault();
@@ -105,7 +105,7 @@ export function ValidationCenter() {
             onChange={(event) => setSubmitForm((current) => ({ ...current, strategy_id: event.target.value }))}
           >
             <option value="">选择已物化策略</option>
-            {strategyRows.map((strategy) => <option key={strategy.strategy_id} value={strategy.strategy_id}>{strategy.strategy_key ?? strategy.strategy_id}</option>)}
+            {(strategyRows ?? []).map((strategy) => <option key={strategy.strategy_id} value={strategy.strategy_id}>{strategy.strategy_key ?? strategy.strategy_id}</option>)}
           </select>
           <input
             placeholder="execution_engine"
@@ -114,14 +114,14 @@ export function ValidationCenter() {
           />
           <button type="submit">提交</button>
         </form>
-        {strategyRows.length === 0 ? <div className="empty-list">暂无可回测策略，请先在策略库完成“研究想法、规则草稿、策略”的研究闭环。</div> : null}
+        {strategies.isLoading ? <div className="empty-list">正在读取可回测策略…</div> : strategyRows?.length === 0 ? <div className="empty-list">暂无可回测策略，请先在策略库完成“研究想法、规则草稿、策略”的研究闭环。</div> : null}
         </section>
         <section className="exchange-panel form-panel">
           <div className="panel-title"><h2>提交参数优化</h2></div>
           <form className="form-row" onSubmit={handleSubmitOptimization}>
             <select aria-label="优化策略" value={optimizationForm.strategy_id} onChange={(event) => setOptimizationForm((current) => ({ ...current, strategy_id: event.target.value }))}>
               <option value="">选择已物化策略</option>
-              {strategyRows.map((strategy) => <option key={strategy.strategy_id} value={strategy.strategy_id}>{strategy.strategy_key ?? strategy.strategy_id}</option>)}
+            {(strategyRows ?? []).map((strategy) => <option key={strategy.strategy_id} value={strategy.strategy_id}>{strategy.strategy_key ?? strategy.strategy_id}</option>)}
             </select>
             <select aria-label="优化方法" value={optimizationForm.optimization_method} onChange={(event) => setOptimizationForm((current) => ({ ...current, optimization_method: event.target.value }))}>
               <option value="hyperopt">hyperopt</option>
@@ -133,16 +133,16 @@ export function ValidationCenter() {
       </section>
 
       <section className="funding-metrics">
-        <Metric label="Funding 信号源" value={funding.data?.source ?? "等待 Binance 数据"} />
+        <Metric label="Funding 信号源" value={funding.isLoading ? "正在读取" : funding.data?.source ?? "暂不可用"} />
         <Metric label="年化 Carry" value={formatPercent(funding.data?.annualized_carry)} />
-        <Metric label="准入状态" value={funding.data?.signal_status ?? "pending"} />
+        <Metric label="准入状态" value={funding.isLoading ? "正在读取" : funding.data?.signal_status ?? "状态待确认"} />
         <Metric label="样本时间" value={formatTime(funding.data?.generated_at)} />
       </section>
 
       <section className="records-grid">
         <RecordTable
           title="历史回测"
-          rows={backtestRows}
+          rows={backtestRows ?? []}
           onRowClick={(row) => row.backtest_run_id && navigate(`/validation/backtests/${row.backtest_run_id}`)}
           columns={[
             ["backtest_run_id", "Run ID"],
@@ -154,7 +154,7 @@ export function ValidationCenter() {
         />
         <RecordTable
           title="优化任务"
-          rows={optimizationRows}
+          rows={optimizationRows ?? []}
           onRowClick={(row) => row.optimization_run_id && navigate(`/validation/optimizations/${row.optimization_run_id}`)}
           columns={[
             ["optimization_run_id", "Run ID"],
@@ -166,7 +166,7 @@ export function ValidationCenter() {
       </section>
 
       <section className="exchange-panel table-panel">
-        <div className="panel-title"><h2>验证假设</h2><span>{hypothesisRows.length}</span></div>
+          <div className="panel-title"><h2>验证假设</h2><span>{hypothesisRows?.length ?? "加载中"}</span></div>
         <table>
           <thead>
             <tr>
@@ -178,7 +178,7 @@ export function ValidationCenter() {
             </tr>
           </thead>
           <tbody>
-            {hypothesisRows.length ? hypothesisRows.map((item) => (
+            {hypotheses.isLoading ? <tr><td colSpan="5">正在读取验证假设…</td></tr> : hypothesisRows?.length ? hypothesisRows.map((item) => (
               <tr key={item.hypothesis_id}>
                 <td>{item.hypothesis_id}</td>
                 <td>{item.strategy_id ?? item.idea_id ?? "-"}</td>
@@ -186,7 +186,7 @@ export function ValidationCenter() {
                 <td>{item.market ?? "-"}</td>
                 <td>{item.core_thesis ?? item.hypothesis_text ?? "-"}</td>
               </tr>
-            )) : <tr><td colSpan="5">暂无验证假设</td></tr>}
+            )) : hypotheses.isError ? <tr><td colSpan="5">验证假设加载失败：{hypotheses.error.message}</td></tr> : <tr><td colSpan="5">暂无验证假设</td></tr>}
           </tbody>
         </table>
       </section>

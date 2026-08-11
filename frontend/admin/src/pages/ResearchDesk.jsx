@@ -27,12 +27,12 @@ export function ResearchDesk() {
   });
   const news = useQuery({
     queryKey: ["research-news"],
-    queryFn: () => request("/api/v1/market/news?limit=20&refresh=true"),
+    queryFn: () => request("/api/v1/market/news?limit=20&refresh=false"),
     refetchInterval: 30000,
   });
   const macro = useQuery({
     queryKey: ["research-macro"],
-    queryFn: () => request("/api/v1/market/macro-events?limit=20&refresh=true"),
+    queryFn: () => request("/api/v1/market/macro-events?limit=20&refresh=false"),
     refetchInterval: 30000,
   });
 
@@ -60,12 +60,17 @@ export function ResearchDesk() {
       </header>
       <ActionMessage message={actionMessage} />
       {sources.isError ? <div className="action-line">研究源加载失败：{sources.error.message}</div> : null}
+      <section className="form-row">
+        <button type="button" onClick={() => { news.refetch(); macro.refetch(); }} disabled={news.isFetching || macro.isFetching}>
+          {news.isFetching || macro.isFetching ? "刷新中" : "刷新新闻与宏观数据"}
+        </button>
+      </section>
 
       <section className="funding-metrics">
-        <div className="metric"><span>开源研究源</span><strong>{sourceRows.length}</strong></div>
+        <div className="metric"><span>开源研究源</span><strong>{sources.isLoading ? "加载中" : sourceRows.length}</strong></div>
         <div className="metric"><span>本地资产</span><strong>{formatNumber(assetCount, 0)}</strong></div>
-        <div className="metric"><span>策略想法</span><strong>{ideaRows.length}</strong></div>
-        <div className="metric"><span>新闻 / 宏观输入</span><strong>{newsRows.length + macroRows.length}</strong></div>
+        <div className="metric"><span>策略想法</span><strong>{ideas.isLoading ? "加载中" : ideaRows.length}</strong></div>
+        <div className="metric"><span>新闻 / 宏观输入</span><strong>{news.isLoading || macro.isLoading ? "加载中" : newsRows.length + macroRows.length}</strong></div>
       </section>
 
       <section className="records-grid">

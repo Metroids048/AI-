@@ -15,8 +15,8 @@ export function RiskConsole() {
 
   const profiles = useQuery({ queryKey: ["risk-profiles"], queryFn: () => request("/api/v1/risk/profiles"), staleTime: 15000 });
   const events = useQuery({ queryKey: ["risk-events"], queryFn: () => request("/api/v1/risk/events?active_only=false&limit=50"), refetchInterval: 10000 });
-  const profileRows = asArray(profiles.data?.items);
-  const eventRows = asArray(events.data?.items);
+  const profileRows = profiles.isSuccess ? asArray(profiles.data?.items) : null;
+  const eventRows = events.isSuccess ? asArray(events.data?.items) : null;
 
   const refreshProfiles = async () => {
     await queryClient.invalidateQueries({ queryKey: ["risk-profiles"] });
@@ -95,7 +95,7 @@ export function RiskConsole() {
       ) : null}
       <section className="records-grid">
         <div className="exchange-panel table-panel">
-          <div className="panel-title"><h2>RiskProfile</h2><span>{profileRows.length}</span></div>
+          <div className="panel-title"><h2>RiskProfile</h2><span>{profileRows?.length ?? "加载中"}</span></div>
           <table>
             <thead>
               <tr>
@@ -108,7 +108,7 @@ export function RiskConsole() {
               </tr>
             </thead>
             <tbody>
-              {profileRows.length ? profileRows.map((item) => (
+              {profiles.isLoading ? <tr><td colSpan="6">正在读取风控配置…</td></tr> : profileRows?.length ? profileRows.map((item) => (
                 <tr key={item.risk_profile_id ?? item.profile_name}>
                   <td>{item.risk_profile_id ?? item.profile_name ?? "-"}</td>
                   <td>{formatNumber(item.max_symbol_exposure, 3)}</td>
@@ -121,11 +121,11 @@ export function RiskConsole() {
                     </button>
                   </td>
                 </tr>
-              )) : <tr><td colSpan="6">暂无风控配置</td></tr>}
+              )) : profiles.isError ? <tr><td colSpan="6">风控配置加载失败：{profiles.error.message}</td></tr> : <tr><td colSpan="6">暂无风控配置</td></tr>}
             </tbody>
           </table>
         </div>
-        <RiskEventFeed events={eventRows} onResolve={handleResolve} />
+        <RiskEventFeed events={eventRows ?? []} onResolve={handleResolve} />
       </section>
     </main>
   );
