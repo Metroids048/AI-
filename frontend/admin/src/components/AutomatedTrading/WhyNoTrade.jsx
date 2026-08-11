@@ -29,7 +29,7 @@ function DecisionRow({ decision }) {
     ? new Date(decision.evaluated_at).toLocaleTimeString()
     : "—";
   return (
-    <div className="rounded bg-gray-900/60 border border-white/5 p-3 space-y-1.5">
+    <div className="why-no-trade-row rounded p-3 space-y-1.5">
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold text-white">{decision.symbol}</span>
         <span className="text-xs text-gray-500">{evaluatedAt}</span>
@@ -50,7 +50,7 @@ function DecisionRow({ decision }) {
 export function WhyNoTrade({ decisions }) {
   if (!decisions || decisions.length === 0) {
     return (
-      <div className="rounded-lg bg-gray-800/50 border border-white/10 p-4">
+    <div className="why-no-trade rounded-lg p-4">
         <h3 className="text-sm font-semibold text-white mb-2">为什么不开单?</h3>
         <p className="text-xs text-gray-500">暂无决策记录</p>
       </div>
@@ -66,7 +66,7 @@ export function WhyNoTrade({ decisions }) {
   }
 
   return (
-    <div className="rounded-lg bg-gray-800/60 border border-white/10 p-4">
+    <div className="why-no-trade rounded-lg p-4">
       <h3 className="text-sm font-semibold text-white mb-3">为什么不开单?</h3>
       <div className="space-y-2">
         {Object.values(bySymbol).map((d) => (

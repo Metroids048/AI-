@@ -2036,3 +2036,75 @@ td {
     gap: 16px;
   }
 }
+
+/* Final desktop override: keep the runtime desk in one compact light workbench. */
+.trading-summary-hero {
+  background: #ffffff;
+  border: 1px solid #eaecef;
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin: 8px 0;
+  color: #1e2329;
+}
+
+.trading-summary-heading h1,
+.trading-summary-decision h3,
+.metric-value,
+.status-value,
+.decision-reason { color: #1e2329; }
+.trading-summary-subtitle,
+.metric-label,
+.status-label,
+.trading-summary-action-hint { color: #707a8a; }
+.trading-summary-subtitle { margin-bottom: 12px; }
+.trading-summary-metrics { gap: 10px; margin-bottom: 12px; }
+.metric-value { font-size: 18px; }
+.trading-summary-status { gap: 16px; margin-bottom: 12px; padding-top: 10px; border-color: #eaecef; }
+.trading-summary-decision { background: #fafafa; border-color: #eaecef; }
+.trading-summary-actions { margin-top: 10px; padding-top: 10px; border-color: #eaecef; }
+.trading-summary-binance-link { background: #fff8df; border-color: #f0b90b; color: #8a6500; }
+.trading-summary-binance-link:hover { background: #fff1bf; color: #6c5000; }
+
+@media (min-width: 761px) {
+  .topbar {
+    grid-template-columns: minmax(220px, 0.7fr) minmax(0, 2fr);
+    padding: 10px 16px;
+  }
+
+  .topbar .status-row { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+
+  .market-header {
+    grid-template-columns: minmax(180px, 0.5fr) minmax(230px, 0.6fr) minmax(0, 1.8fr);
+    padding: 8px 12px;
+  }
+
+  .market-header .metric { min-height: 40px; padding: 4px 8px; }
+  .market-header .metric strong { margin-top: 2px; }
+
+  .trading-workspace-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 0.38fr);
+    gap: 10px;
+    min-height: 0;
+    margin: 8px 0;
+  }
+
+  .chart-box { height: clamp(280px, 38vh, 420px); min-height: 280px; max-height: 420px; }
+  .records-workspace { height: clamp(320px, 42vh, 440px); min-height: 320px; }
+  .records-workspace-scroll { min-height: 0; overflow: auto; }
+}
+
+@media (min-width: 761px) and (max-height: 950px) {
+  .trading-summary-hero { padding: 10px 14px; }
+  .trading-summary-heading h1 { font-size: 20px; margin-bottom: 2px; }
+  .trading-summary-subtitle { display: none; }
+  .trading-summary-metrics { gap: 6px; margin-bottom: 6px; }
+  .metric-item { gap: 2px; }
+  .trading-summary-status { gap: 10px; margin-bottom: 6px; padding-top: 6px; }
+  .status-item { flex-direction: row; align-items: baseline; gap: 4px; }
+  .trading-summary-actions { margin-top: 3px; padding-top: 3px; gap: 8px; }
+  .trading-summary-binance-link { padding: 5px 9px; }
+}
+
+.why-no-trade { background: #fafafa; border: 1px solid #eaecef; color: #1e2329; }
+.why-no-trade-row { background: #ffffff; border: 1px solid #eaecef; color: #1e2329; }
+.why-no-trade h3, .why-no-trade strong { color: #1e2329; }
