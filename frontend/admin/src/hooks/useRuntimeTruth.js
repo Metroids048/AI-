@@ -1,4 +1,4 @@
-import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { request, streamUrl } from "../api/client";
 
@@ -161,7 +161,17 @@ export function RuntimeTruthProvider({ children }) {
 
 export function useRuntimeTruth(symbol) {
   const context = useContext(RuntimeTruthContext);
-  if (context) return context;
+  const scopedContext = useMemo(() => {
+    if (!context || !symbol) return context;
+    const matches = (item) => String(item?.symbol ?? "").replace(":USDT", "") === String(symbol).replace(":USDT", "");
+    return {
+      ...context,
+      decisions: context.decisions.filter(matches),
+      exchangeOrders: context.exchangeOrders.filter(matches),
+      llmInvocations: context.llmInvocations.filter(matches),
+    };
+  }, [context, symbol]);
+  if (scopedContext) return scopedContext;
   return useRuntimeTruthState(symbol);
 }
 

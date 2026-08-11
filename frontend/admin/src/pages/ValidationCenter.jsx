@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { request } from "../api/client";
 import { ActionMessage, StatusBadge } from "../components/DetailPanels";
 import { Metric } from "../components/Common";
-import { asArray, formatNumber, formatPercent, formatTime } from "../utils/format";
+import { asArray, formatEnum, formatNumber, formatPercent, formatTime } from "../utils/format";
 
 const FUNDING_PARAMS = new URLSearchParams({
   symbol: "BTC/USDT",
@@ -143,6 +143,7 @@ export function ValidationCenter() {
         <RecordTable
           title="历史回测"
           rows={backtestRows ?? []}
+          loading={backtests.isLoading} error={backtests.isError ? backtests.error : null}
           onRowClick={(row) => row.backtest_run_id && navigate(`/validation/backtests/${row.backtest_run_id}`)}
           columns={[
             ["backtest_run_id", "Run ID"],
@@ -155,6 +156,7 @@ export function ValidationCenter() {
         <RecordTable
           title="优化任务"
           rows={optimizationRows ?? []}
+          loading={optimizations.isLoading} error={optimizations.isError ? optimizations.error : null}
           onRowClick={(row) => row.optimization_run_id && navigate(`/validation/optimizations/${row.optimization_run_id}`)}
           columns={[
             ["optimization_run_id", "Run ID"],
@@ -182,7 +184,7 @@ export function ValidationCenter() {
               <tr key={item.hypothesis_id}>
                 <td>{item.hypothesis_id}</td>
                 <td>{item.strategy_id ?? item.idea_id ?? "-"}</td>
-                <td>{item.status ?? "-"}</td>
+                <td>{formatEnum(item.status, "-")}</td>
                 <td>{item.market ?? "-"}</td>
                 <td>{item.core_thesis ?? item.hypothesis_text ?? "-"}</td>
               </tr>
@@ -194,7 +196,7 @@ export function ValidationCenter() {
   );
 }
 
-function RecordTable({ title, rows, columns, onRowClick }) {
+function RecordTable({ title, rows, columns, onRowClick, loading = false, error = null }) {
   return (
     <div className="exchange-panel table-panel">
       <div className="panel-title"><h2>{title}</h2><span>{rows.length}</span></div>
@@ -203,7 +205,7 @@ function RecordTable({ title, rows, columns, onRowClick }) {
           <tr>{columns.map(([, label]) => <th key={label}>{label}</th>)}</tr>
         </thead>
         <tbody>
-          {rows.length ? rows.map((row, index) => (
+            {loading ? <tr><td colSpan={columns.length}>正在加载…</td></tr> : error ? <tr><td colSpan={columns.length}>加载失败：{error.message ?? "服务暂不可用"}</td></tr> : rows.length ? rows.map((row, index) => (
             <tr
               key={row.backtest_run_id ?? row.optimization_run_id ?? index}
               className={onRowClick ? "clickable-row" : undefined}

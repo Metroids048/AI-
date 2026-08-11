@@ -23,7 +23,7 @@ export function MarketHeader({ snapshot, symbol, perpSymbol, timeframe, onTimefr
     <section className="market-header exchange-panel">
       <div className="symbol-block">
         <strong>{perpSymbol}</strong>
-        <span>{symbol} / Binance USDT 永续 Paper</span>
+        <span>{symbol} / 币安 USDT 永续模拟盘</span>
       </div>
       <div className="timeframe-tabs" role="group" aria-label="K线周期">
         {TIMEFRAMES.map((item) => (

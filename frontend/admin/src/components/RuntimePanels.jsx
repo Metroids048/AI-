@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { asArray, formatNumber, formatTime } from "../utils/format";
+import { asArray, formatEnum, formatNumber, formatTime } from "../utils/format";
 
 const DEFAULT_AUTO_SETTINGS = {
   execution_mode: "binance_simulation_first",
@@ -43,7 +43,7 @@ export function RiskEventFeed({ events, onResolve }) {
               </div>
               <p>{event.description}</p>
               <footer>
-                <span>{event.resolution_status}</span>
+                <span>{formatEnum(event.resolution_status)}</span>
                 <button type="button" onClick={() => onResolve(event.risk_event_id, "acknowledged")} disabled={!event.risk_event_id}>
                   确认
                 </button>
@@ -75,7 +75,7 @@ export function DecisionDebugPanel({ decisionTrace }) {
             <article key={item.idempotency_key ?? `${item.symbol}-${item.action}`} className="decision-item">
               <header>
                 <strong>{item.symbol}</strong>
-                <span>{item.action}</span>
+                <span>{formatEnum(item.action)}</span>
               </header>
               <DecisionSummary trace={item.decision_trace ?? {}} />
             </article>
@@ -291,7 +291,7 @@ export function MessageSourcesPanel({ dataSources, intelligenceSignal, riskEvent
           <div className="compact-table-row four" key={item.id}>
             <span title={item.title}>{item.source}</span>
             <span>{item.severity}</span>
-            <span>{item.action}</span>
+            <span>{formatEnum(item.action)}</span>
             <span>{item.published_at ? formatTime(item.published_at) : "-"}</span>
           </div>
         )) : <div className="empty-list">暂无消息源明细</div>}
@@ -409,7 +409,7 @@ export function OrderSyncPanel({ orderSync }) {
           <div className="compact-table-row four" key={order.order_execution_id}>
             <span>{String(order.order_execution_id ?? "").slice(0, 8)}</span>
             <span>{order.symbol}</span>
-            <span>{order.execution_status}</span>
+            <span>{formatEnum(order.execution_status)}</span>
             <span>{order.gateway_order_id ?? order.gateway_status ?? "-"}</span>
           </div>
         ))}
@@ -435,11 +435,11 @@ export function MarketIntelligencePanel({ signal }) {
           <span>空：{formatNumber(signal.short_probability, 3)}</span>
           <span>置信：{formatNumber(signal.confidence, 3)}</span>
           <span>权重：{formatNumber(signal.vote_weight, 3)} / 0.300</span>
-          <span>风险：{signal.risk_level}</span>
+          <span>风险：{formatEnum(signal.risk_level)}</span>
           {signal.active_event_cooldown ? <p>{signal.rationale?.[0] ?? "重大事件冷却中，情报投票禁用"}</p> : null}
           <div className="rejection-list">
             {providers.map((provider) => (
-              <span key={provider.provider}>{provider.provider}:{provider.status}</span>
+              <span key={provider.provider}>{provider.provider}:{formatEnum(provider.status)}</span>
             ))}
           </div>
           <div className="signal-chips">

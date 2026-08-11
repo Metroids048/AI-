@@ -229,7 +229,7 @@ function schedulerRows(status) {
       name: formatFieldLabel("execution_scope_coverage"),
       value: `${status.market_data_coverage_count ?? status.top20_coverage_count ?? 0}/${status.active_execution_count ?? 3}`,
     },
-    { name: formatFieldLabel("execution_symbols"), value: (status.active_execution_symbols ?? []).join(", ") || "BTC/USDT, ETH/USDT, SOL/USDT" },
+    { name: formatFieldLabel("execution_symbols"), value: (status.active_execution_symbols ?? []).join(", ") || "暂不可用" },
     { name: formatFieldLabel("acceptance_scope"), value: status.acceptance_scope_hash ?? "未验证" },
     { name: formatFieldLabel("last_strategy_gateway_order"), value: status.last_strategy_gateway_order_id ?? "无" },
     { name: formatFieldLabel("queue_backlog"), value: formatEnum(status.queue_backlog_status) },

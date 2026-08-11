@@ -70,8 +70,8 @@ export function ReviewCenter() {
           empty={runtime.snapshot?.exchange?.status === "unavailable" ? "运行事实暂不可用" : "当前没有自动交易决策"}
           render={(item) => (
             <>
-              <strong>{item.symbol ?? "未知标的"} · {item.action ?? item.decision ?? "决策"}</strong>
-              <span>{item.terminal_reason ?? item.reason ?? "已记录"}</span>
+              <strong>{item.symbol ?? "未知标的"} · {formatEnum(item.action ?? item.decision, "决策")}</strong>
+              <span>{formatEnum(item.terminal_reason ?? item.reason, "已记录")}</span>
             </>
           )}
         />
@@ -82,7 +82,7 @@ export function ReviewCenter() {
           render={(item) => (
             <>
               <strong>{item.symbol ?? "未知标的"} · {item.side ?? "订单"}</strong>
-              <span>{item.state ?? item.status ?? "已记录"} / {item.exchange_order_id ?? item.order_id ?? "-"}</span>
+              <span>{formatEnum(item.state ?? item.status, "已记录")} / {item.exchange_order_id ?? item.order_id ?? "-"}</span>
             </>
           )}
         />
@@ -90,7 +90,7 @@ export function ReviewCenter() {
           title="当前对账状态"
           rows={runtime.reconciliation ? [runtime.reconciliation] : []}
           empty="对账状态待确认"
-          render={(item) => <><strong>{item.status ?? "待确认"}</strong><span>{asArray(item.entry_blocked_symbols).length ? "存在限制开仓标的" : "暂无阻断标的"}</span></>}
+          render={(item) => <><strong>{formatEnum(item.status, "待确认")}</strong><span>{asArray(item.entry_blocked_symbols).length ? "存在限制开仓标的" : "暂无阻断标的"}</span></>}
         />
       </section>
 
@@ -139,7 +139,7 @@ export function ReviewCenter() {
           render={(item) => (
             <>
               <strong>{item.title}</strong>
-              <span>{item.source ?? "rss"} / {item.severity ?? item.relevance_status ?? "captured"}</span>
+              <span>{item.source ?? "rss"} / {formatEnum(item.severity ?? item.relevance_status, "已采集")}</span>
             </>
           )}
         />
