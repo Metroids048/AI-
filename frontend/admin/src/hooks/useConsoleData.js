@@ -28,10 +28,15 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
   });
   const refreshId = useRef(0);
   const selectionRef = useRef("");
+  const refreshInFlightRef = useRef(null);
+  const activeControllerRef = useRef(null);
 
   const refresh = useCallback(() => {
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
     const currentRefresh = refreshId.current + 1;
     refreshId.current = currentRefresh;
+    const controller = new AbortController();
+    activeControllerRef.current = controller;
     const selectionKey = `${symbol}|${perpSymbol}|${timeframe}`;
     const selectionChanged = selectionRef.current !== selectionKey;
     selectionRef.current = selectionKey;
@@ -58,12 +63,13 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     };
     const run = (path, onPayload, options = {}) => {
       const { reportError = false, showLoaded = true } = options;
-      const task = request(path)
+      const task = request(path, { signal: controller.signal })
         .then((payload) => {
           commit((current) => onPayload(current, payload));
           return payload;
         })
         .catch((err) => {
+          if (err?.name === "AbortError") return null;
           if (reportError) {
             commit((current) => ({
               ...current,
@@ -116,8 +122,8 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     });
     tasks.push(
       Promise.all([
-        request("/api/v1/market/news?limit=5&refresh=false"),
-        request("/api/v1/market/macro-events?limit=5&refresh=false"),
+        request("/api/v1/market/news?limit=5&refresh=false", { signal: controller.signal }),
+        request("/api/v1/market/macro-events?limit=5&refresh=false", { signal: controller.signal }),
       ])
         .then(([news, macro]) => {
           commit((current) => ({
@@ -183,7 +189,12 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
       (current, payload) => ({ ...current, intelligenceSignal: payload ?? current.intelligenceSignal }),
       { showLoaded: false },
     );
-    return Promise.allSettled(tasks);
+    const promise = Promise.allSettled(tasks).finally(() => {
+      if (activeControllerRef.current === controller) activeControllerRef.current = null;
+      if (refreshInFlightRef.current === promise) refreshInFlightRef.current = null;
+    });
+    refreshInFlightRef.current = promise;
+    return promise;
   }, [symbol, perpSymbol, timeframe]);
 
   const stateRef = useRef(state);
@@ -196,30 +207,32 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     // all polling forever, leaving the console on "服务不可用" until hard refresh.
     if (LOCAL_CONSOLE_API_ONLY) return undefined;
 
-    // Initial fetch
-    refresh();
-
     // Dynamic polling with adaptive interval based on state
     // When the WS stream is live, reduce polling to a 30s fallback to avoid
     // duplicating WS pushes (previously polled every 8s regardless of WS
     // state, wasting bandwidth). When polling-only (WS down), refresh every 8s.
     // While recovering from an error, poll faster so the desk comes back quickly.
     let timer = null;
+    let disposed = false;
     const scheduleNext = () => {
+      if (disposed) return;
       // Read current state from ref to avoid dependency on state
       const currentState = stateRef.current;
       const interval = currentState.error ? 5000 : currentState.streamStatus === "live" ? 30000 : 8000;
       timer = window.setTimeout(() => {
-        refresh();
-        scheduleNext(); // Schedule next poll after this one completes
+        refresh().finally(scheduleNext);
       }, interval);
     };
-    scheduleNext();
+    refresh().finally(scheduleNext);
 
     return () => {
+      disposed = true;
       if (timer) window.clearTimeout(timer);
+      activeControllerRef.current?.abort();
     };
   }, [symbol, perpSymbol, timeframe, refresh]);
+
+  useEffect(() => () => activeControllerRef.current?.abort(), [symbol, perpSymbol, timeframe]);
 
   useEffect(() => {
     if (state.error) {
