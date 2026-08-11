@@ -47,7 +47,7 @@ class ExchangeGateway(Protocol):
 
     def cancel_order(self, *, gateway_order_id: str) -> dict[str, Any]: ...
 
-    def reconcile(self, *, live_run_id: str) -> dict[str, Any]: ...
+    def reconcile(self, *, live_run_id: str, include_account_summary: bool = False) -> dict[str, Any]: ...
 
     def set_leverage(self, *, symbol: str, leverage: float) -> dict[str, Any]: ...
 
@@ -345,7 +345,8 @@ class NullExchangeGateway:
     def cancel_order(self, *, gateway_order_id: str) -> dict[str, Any]:
         raise NotImplementedError("live gateway is not configured")
 
-    def reconcile(self, *, live_run_id: str) -> dict[str, Any]:
+    def reconcile(self, *, live_run_id: str, include_account_summary: bool = False) -> dict[str, Any]:
+        del include_account_summary
         raise NotImplementedError("live gateway is not configured")
 
     def set_leverage(self, *, symbol: str, leverage: float) -> dict[str, Any]:
@@ -830,6 +831,7 @@ class BinanceUsdtPerpetualGateway:
         *,
         live_run_id: str,
         symbols: Sequence[str] | None = None,
+        include_account_summary: bool = False,
     ) -> dict[str, Any]:
         # Default to the automated BTC/ETH universe. Diagnostic callers that need a
         # wider account view must pass an explicit symbol list.
@@ -866,7 +868,7 @@ class BinanceUsdtPerpetualGateway:
             notes.append(f"open_orders_scan_failed:{open_orders_error}")
         if open_algo_orders_error:
             notes.append(f"open_algo_orders_scan_failed:{open_algo_orders_error}")
-        return {
+        result: dict[str, Any] = {
             "live_run_id": live_run_id,
             "reconciliation_status": ("warning" if mismatches or open_orders_error or open_algo_orders_error else "ok"),
             "open_order_count": len(open_orders),
@@ -888,6 +890,16 @@ class BinanceUsdtPerpetualGateway:
             ],
             "notes": notes,
         }
+        if include_account_summary:
+            account = self.sync_account(live_run_id=live_run_id)
+            result["account"] = {
+                "wallet_balance": account.wallet_balance,
+                "available_balance": account.available_balance,
+                "margin_balance": account.margin_balance,
+                "unrealized_pnl": account.unrealized_pnl,
+                "open_position_count": account.open_position_count,
+            }
+        return result
 
     def _fetch_open_algo_orders(self, *, market_ids: set[str] | None = None) -> list[dict[str, Any]]:
         method = getattr(self.client, "fapiPrivateGetOpenAlgoOrders", None)

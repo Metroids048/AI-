@@ -380,6 +380,16 @@ def test_binance_gateway_maps_account_order_cancel_and_reconcile() -> None:
     assert client.leverage_calls == [(2, "BTC/USDT:USDT")]
     assert cancelled["gateway_status"] == "cancelled"
     assert reconciled["reconciliation_status"] == "ok"
+    assert "account" not in reconciled
+
+    account_truth = gateway.reconcile(live_run_id="live-run-1", include_account_summary=True)
+    assert account_truth["account"] == {
+        "wallet_balance": 1200.0,
+        "available_balance": 1000.0,
+        "margin_balance": 1180.0,
+        "unrealized_pnl": 12.0,
+        "open_position_count": 1,
+    }
 
 
 def test_binance_gateway_uses_normalized_hedge_close_matrix() -> None:

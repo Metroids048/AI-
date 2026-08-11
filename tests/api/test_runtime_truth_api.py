@@ -26,8 +26,9 @@ def test_runtime_exchange_truth_reuses_one_snapshot_for_parallel_endpoint_reads(
     class Gateway:
         calls = 0
 
-        def reconcile(self, *, live_run_id: str) -> dict:
+        def reconcile(self, *, live_run_id: str, include_account_summary: bool = False) -> dict:
             del live_run_id
+            del include_account_summary
             self.calls += 1
             return {"open_positions": [], "open_orders": [], "reconciliation_status": "healthy"}
 
@@ -42,10 +43,44 @@ def test_runtime_exchange_truth_reuses_one_snapshot_for_parallel_endpoint_reads(
     assert gateway.calls == 1
 
 
+def test_runtime_exchange_truth_includes_account_summary_in_exchange_value(monkeypatch) -> None:
+    class Gateway:
+        def reconcile(self, *, live_run_id: str, include_account_summary: bool = False) -> dict:
+            del live_run_id
+            assert include_account_summary is True
+            return {
+                "open_positions": [],
+                "open_orders": [],
+                "reconciliation_status": "healthy",
+                "account": {
+                    "wallet_balance": 12345.67,
+                    "available_balance": 12000.0,
+                    "margin_balance": 12310.42,
+                    "unrealized_pnl": -35.25,
+                    "open_position_count": 2,
+                },
+            }
+
+    monkeypatch.setattr(runtime, "_exchange_cache", None)
+    monkeypatch.setattr(runtime, "configured_gateways", lambda: [Gateway()])
+
+    result = runtime._exchange_truth()
+
+    assert result["status"] == "available"
+    assert result["value"]["account"] == {
+        "wallet_balance": 12345.67,
+        "available_balance": 12000.0,
+        "margin_balance": 12310.42,
+        "unrealized_pnl": -35.25,
+        "open_position_count": 2,
+    }
+
+
 def test_runtime_exchange_truth_times_out_as_unavailable(monkeypatch) -> None:
     class SlowGateway:
-        def reconcile(self, *, live_run_id: str) -> dict:
+        def reconcile(self, *, live_run_id: str, include_account_summary: bool = False) -> dict:
             del live_run_id
+            del include_account_summary
             sleep(0.1)
             return {"open_positions": [], "open_orders": []}
 

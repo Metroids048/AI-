@@ -92,6 +92,7 @@ def _exchange_truth() -> dict:
             future = _exchange_truth_executor.submit(
                 gateway.reconcile,
                 live_run_id=f"runtime-truth:{observed_at.isoformat()}",
+                include_account_summary=True,
             )
             try:
                 snapshot = future.result(timeout=_EXCHANGE_TRUTH_TIMEOUT_SECONDS)
@@ -100,13 +101,17 @@ def _exchange_truth() -> dict:
                 raise TimeoutError(f"exchange truth probe exceeded {_EXCHANGE_TRUTH_TIMEOUT_SECONDS:.0f}s") from exc
             if "open_positions" not in snapshot:
                 raise ValueError("exchange snapshot omitted open_positions")
+            account = snapshot.get("account")
+            exchange_value = {
+                "positions": snapshot["open_positions"],
+                "open_orders": snapshot.get("open_orders") or [],
+                "reconciliation_status": snapshot.get("reconciliation_status"),
+                "notes": snapshot.get("notes") or [],
+            }
+            if account is not None:
+                exchange_value["account"] = account
             result = _datum(
-                value={
-                    "positions": snapshot["open_positions"],
-                    "open_orders": snapshot.get("open_orders") or [],
-                    "reconciliation_status": snapshot.get("reconciliation_status"),
-                    "notes": snapshot.get("notes") or [],
-                },
+                value=exchange_value,
                 source="BINANCE_USDT_M_TESTNET",
                 observed_at=observed_at,
             )
