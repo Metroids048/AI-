@@ -115,6 +115,7 @@ export function deskPositionsFromRuntimeTruth(positionsData, account = null) {
   if (exchangeValue) {
     const observedAt = exchange.observed_at ?? new Date().toISOString();
     return asArray(exchangeValue.positions)
+      .map((position) => ({ ...position, quantity: position.quantity ?? position.contracts ?? position.positionAmt, direction: position.direction ?? position.side }))
       .filter((position) => Math.abs(Number(position.quantity) || 0) > 0)
       .map((position) => {
         const quantity = position.quantity;
@@ -151,22 +152,24 @@ export function deskOrdersFromRuntimeTruth(runtimeSnapshot, account = null) {
       : null;
   if (exchangeValue) {
     const observedAt = exchange.observed_at ?? exchange.timestamp ?? new Date().toISOString();
-    return asArray(exchangeValue.open_orders).map((order) => ({
-      order_execution_id: `v2-binance-open:${order.exchange_order_id}`,
+    return asArray(exchangeValue.open_orders).map((order) => {
+      const exchangeOrderId = order.exchange_order_id ?? order.id ?? order.orderId;
+      return {
+      order_execution_id: `v2-binance-open:${exchangeOrderId}`,
       symbol: platformSymbol(order.symbol),
       direction: String(order.side || "").toLowerCase() === "sell" ? "short" : "long",
       execution_status: String(order.status || "open").toLowerCase(),
-      gateway_order_id: order.exchange_order_id,
+      gateway_order_id: exchangeOrderId,
       gateway_name: "binance_usdt_perpetual",
       entry_context: {
         execution_kind: "v2_binance_open_order",
         order_type: order.order_type,
-        quantity: order.quantity,
-        actual_avg_price: order.price,
-        reduce_only: Boolean(order.reduce_only),
+        quantity: order.quantity ?? order.amount,
+        actual_avg_price: order.price ?? order.average,
+        reduce_only: Boolean(order.reduce_only ?? order.reduceOnly),
       },
       created_at: observedAt,
-    }));
+    }; });
   }
   return null;
 }
@@ -354,7 +357,7 @@ export function PaperConsole() {
     <AppShell
       overview={data.overview}
       snapshot={data.snapshot}
-      tradingStatus={data.tradingStatus}
+      tradingStatus={tradingStatusFromRuntimeSnapshot(runtime.snapshot)}
       streamStatus={data.streamStatus}
       error={data.error}
     >
@@ -412,7 +415,7 @@ export function PaperConsole() {
         { id: "decisions", label: "决策详情", content: <div className="workspace-panel-grid"><DecisionDebugPanel decisionTrace={data.decisionTrace} /><MarketIntelligencePanel signal={data.intelligenceSignal} /></div> },
         { id: "account", label: "账户详情", content: <TestnetAccountPanel account={account} /> },
         { id: "manual", label: "手动操作", content: <TradingTicket symbol={symbol} timeframe={timeframe} mode={mode} manualContext={data.manualContext} latestPosition={latestPosition} latestPrice={latestPrice} onAction={handleAction} /> },
-        { id: "automation", label: "策略设置", content: <div className="workspace-panel-grid"><AutoSettingsPanel paperRunId={autoPaperRunId} autoSettings={autoSettings} onSave={(payload) => handleAction("saveAutoSettings", payload)} /><Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={data.tradingStatus} /><RejectionFunnelPanel summary={data.decisionTrace?.rejection_summary} /></div> },
+        { id: "automation", label: "策略设置", content: <div className="workspace-panel-grid"><AutoSettingsPanel paperRunId={autoPaperRunId} autoSettings={autoSettings} onSave={(payload) => handleAction("saveAutoSettings", payload)} /><Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={tradingStatusFromRuntimeSnapshot(runtime.snapshot)} /><RejectionFunnelPanel summary={data.decisionTrace?.rejection_summary} /></div> },
         { id: "risk-data", label: "风险与数据", content: <div className="workspace-panel-grid"><MessageSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} riskEvents={data.overview?.risk_events} /><DataSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} /><OrderSyncPanel orderSync={data.orderSync} /></div> },
         { id: "carry", label: "套利工具", content: <div className="workspace-panel-grid"><FundingPanel signal={data.fundingSignal} onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })} /><ExecutionAcceptancePanel fundingSignal={data.fundingSignal} onRunAcceptance={() => handleAction("testnetAcceptance")} onRunCarry={() => handleAction("carryExecution")} /></div> },
       ]} />

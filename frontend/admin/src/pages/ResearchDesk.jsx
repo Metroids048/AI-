@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import { request } from "../api/client";
 import { ActionMessage } from "../components/DetailPanels";
-import { asArray, formatNumber } from "../utils/format";
+import { asArray, formatEnum, formatNumber } from "../utils/format";
 
 function ideaSummary(item) {
   return item.hypothesis_summary ?? item.core_thesis ?? "-";
@@ -97,7 +97,7 @@ export function ResearchDesk() {
                   <td>{item.source_type ?? item.category ?? "-"}</td>
                   <td>{item.license ?? item.license_policy ?? "-"}</td>
                   <td>{item.asset_count ?? item.local_asset_count ?? 0}</td>
-                  <td>{item.ingestion_status ?? item.status ?? "registered"}</td>
+                  <td>{formatEnum(item.ingestion_status ?? item.status, "已登记")}</td>
                 </tr>
               )) : <tr><td colSpan="5">暂无研究源</td></tr>}
             </tbody>
@@ -123,7 +123,7 @@ export function ResearchDesk() {
                   <td>{item.idea_id}</td>
                   <td>{item.source}</td>
                   <td>{item.market}</td>
-                  <td>{item.idea_status ?? item.intake_bucket ?? "-"}</td>
+                  <td>{formatEnum(item.idea_status ?? item.intake_bucket, "-")}</td>
                   <td>{ideaSummary(item)}</td>
                   <td>
                     <button
@@ -142,13 +142,13 @@ export function ResearchDesk() {
       </section>
 
       <section className="ops-grid">
-        <FeedPanel title="新闻研究输入" rows={newsRows} empty="暂无新闻输入" render={(item) => (
+        <FeedPanel title="新闻研究输入" rows={newsRows} loading={news.isLoading} error={news.isError ? news.error : null} empty="暂无新闻输入" render={(item) => (
           <>
             <strong>{item.title}</strong>
             <span>{item.source ?? "rss"} / {item.severity ?? item.relevance_status ?? "captured"}</span>
           </>
         )} />
-        <FeedPanel title="宏观研究输入" rows={macroRows} empty="暂无宏观事件" render={(item) => (
+        <FeedPanel title="宏观研究输入" rows={macroRows} loading={macro.isLoading} error={macro.isError ? macro.error : null} empty="暂无宏观事件" render={(item) => (
           <>
             <strong>{item.event_name}</strong>
             <span>{item.impact ?? "-"} / {item.country ?? item.source ?? "-"}</span>
@@ -159,12 +159,12 @@ export function ResearchDesk() {
   );
 }
 
-function FeedPanel({ title, rows, empty, render }) {
+function FeedPanel({ title, rows, empty, render, loading = false, error = null }) {
   return (
     <section className="exchange-panel feed-panel">
       <div className="panel-title"><h2>{title}</h2><span>{rows.length}</span></div>
       <div className="feed-list">
-        {rows.length ? rows.slice(0, 8).map((item, index) => (
+        {loading ? <div className="empty-list">正在加载…</div> : error ? <div className="empty-list">加载失败：{error.message ?? "服务暂不可用"}</div> : rows.length ? rows.slice(0, 8).map((item, index) => (
           <article key={item.id ?? item.event_id ?? index}>{render(item)}</article>
         )) : <div className="empty-list">{empty}</div>}
       </div>

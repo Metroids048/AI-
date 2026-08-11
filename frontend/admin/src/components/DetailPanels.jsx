@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { formatEnum } from "../utils/format";
 
 export function DetailHeader({ eyebrow, title, backTo, backLabel = "返回列表" }) {
   return (
@@ -12,7 +13,7 @@ export function DetailHeader({ eyebrow, title, backTo, backLabel = "返回列表
 
 export function StatusBadge({ value }) {
   if (!value) return <span>-</span>;
-  return <span className="status-badge">{String(value)}</span>;
+  return <span className="status-badge">{formatEnum(value)}</span>;
 }
 
 export function JsonPanel({ title, value }) {

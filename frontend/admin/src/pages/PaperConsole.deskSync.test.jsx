@@ -140,4 +140,19 @@ describe("desk Binance sync mappers", () => {
       gateway_name: "binance_usdt_perpetual",
     });
   });
+
+  it("maps raw reconciliation contracts and CCXT order ids", () => {
+    const positions = deskPositionsFromRuntimeTruth({
+      exchange: { status: "available", observed_at: "2026-08-11T00:00:00Z", value: {
+        positions: [{ symbol: "BTC/USDT:USDT", contracts: 0.01, side: "long", entry_price: 100, mark_price: 101, leverage: 5 }],
+      } },
+    });
+    const orders = deskOrdersFromRuntimeTruth({
+      exchange: { status: "available", observed_at: "2026-08-11T00:00:00Z", value: {
+        open_orders: [{ id: "ccxt-1", symbol: "BTC/USDT:USDT", side: "sell", type: "limit", status: "open", amount: 0.01, price: 102 }],
+      } },
+    });
+    expect(positions[0]).toMatchObject({ quantity: 0.01, side: "long", symbol: "BTC/USDT" });
+    expect(orders[0]).toMatchObject({ gateway_order_id: "ccxt-1", symbol: "BTC/USDT" });
+  });
 });

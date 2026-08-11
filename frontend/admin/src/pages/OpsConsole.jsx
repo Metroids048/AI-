@@ -22,12 +22,12 @@ export function OpsConsole() {
   });
   const news = useQuery({
     queryKey: ["ops-news"],
-    queryFn: () => request("/api/v1/market/news?limit=20"),
+    queryFn: () => request("/api/v1/market/news?limit=20&refresh=false"),
     refetchInterval: 30000,
   });
   const macro = useQuery({
     queryKey: ["ops-macro-events"],
-    queryFn: () => request("/api/v1/market/macro-events?limit=20"),
+    queryFn: () => request("/api/v1/market/macro-events?limit=20&refresh=false"),
     refetchInterval: 30000,
   });
   const intelligence = useQuery({
@@ -148,6 +148,7 @@ export function OpsConsole() {
         <FeedPanel
           title="新闻 / 消息面"
           items={news.data?.items}
+          loading={news.isLoading} error={news.isError ? news.error : null} empty="暂无新闻输入"
           renderItem={(item) => (
             <>
               <strong>{item.title}</strong>
@@ -158,6 +159,7 @@ export function OpsConsole() {
         <FeedPanel
           title="宏观事件窗口"
           items={macro.data?.items}
+          loading={macro.isLoading} error={macro.isError ? macro.error : null} empty="暂无宏观事件"
           renderItem={(item) => (
             <>
               <strong>{item.event_name}</strong>
@@ -168,6 +170,7 @@ export function OpsConsole() {
         <FeedPanel
           title="情报源状态"
           items={providerRows}
+          loading={intelligence.isLoading} error={intelligence.isError ? intelligence.error : null} empty="暂无情报源状态"
           renderItem={(item) => (
             <>
               <strong>{item.provider}</strong>
@@ -178,6 +181,7 @@ export function OpsConsole() {
         <FeedPanel
           title="Agent 任务"
           items={agentRows}
+          loading={agents.isLoading} error={agents.isError ? agents.error : null} empty="暂无 Agent 任务"
           renderItem={(item) => (
             <>
               <strong>{item.agent_name ?? item.agent_type ?? item.agent_task_id}</strong>
@@ -188,6 +192,7 @@ export function OpsConsole() {
         <FeedPanel
           title="通知出站"
           items={notificationRows}
+          loading={notifications.isLoading} error={notifications.isError ? notifications.error : null} empty="暂无通知"
           renderItem={(item) => (
             <>
               <strong>{item.subject}</strong>

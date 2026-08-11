@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { request } from "../api/client";
 import { useRuntimeTruth } from "../hooks/useRuntimeTruth";
-import { asArray, formatTime } from "../utils/format";
+import { asArray, formatEnum, formatTime } from "../utils/format";
 
 export function ReviewCenter() {
   const queryClient = useQueryClient();
@@ -98,28 +98,31 @@ export function ReviewCenter() {
         <FeedPanel
           title="每日复盘"
           rows={reviewRows}
+          loading={reviews.isLoading} error={reviews.isError ? reviews.error : null}
           empty="暂无复盘报告"
           render={(item) => (
             <>
               <strong>{item.report_date ?? item.review_report_id}</strong>
-              <span>{item.report_status ?? "-"} / {asArray(item.failure_patterns).length} 个失败模式</span>
+              <span>{formatEnum(item.report_status, "-")} / {asArray(item.failure_patterns).length} 个失败模式</span>
             </>
           )}
         />
         <FeedPanel
           title="失败知识"
           rows={failureRows}
+          loading={failures.isLoading} error={failures.isError ? failures.error : null}
           empty="暂无失败记录"
           render={(item) => (
             <>
-              <strong>{item.failure_type ?? item.failure_record_id}</strong>
-              <span>{item.strategy_id ?? item.idea_id ?? "-"} / {item.severity ?? "-"}</span>
+              <strong>{formatEnum(item.failure_type, item.failure_record_id)}</strong>
+              <span>{item.strategy_id ?? item.idea_id ?? "-"} / {formatEnum(item.severity, "-")}</span>
             </>
           )}
         />
         <FeedPanel
           title="历史决策记忆"
           rows={decisionRows}
+          loading={decisions.isLoading} error={decisions.isError ? decisions.error : null}
           empty="暂无决策记忆"
           render={(item) => (
             <>
@@ -131,6 +134,7 @@ export function ReviewCenter() {
         <FeedPanel
           title="消息面复盘输入"
           rows={newsRows}
+          loading={news.isLoading} error={news.isError ? news.error : null}
           empty="暂无第三方新闻输入"
           render={(item) => (
             <>
@@ -142,6 +146,7 @@ export function ReviewCenter() {
         <FeedPanel
           title="情报因子复盘"
           rows={intelligence.data ? [intelligence.data] : []}
+          loading={intelligence.isLoading} error={intelligence.isError ? intelligence.error : null}
           empty="暂无情报因子记录"
           render={(item) => (
             <>
@@ -155,12 +160,12 @@ export function ReviewCenter() {
   );
 }
 
-function FeedPanel({ title, rows, empty, render }) {
+function FeedPanel({ title, rows, empty, render, loading = false, error = null }) {
   return (
     <section className="exchange-panel feed-panel">
       <div className="panel-title"><h2>{title}</h2><span>{rows.length}</span></div>
       <div className="feed-list">
-        {rows.length ? rows.slice(0, 10).map((item, index) => (
+        {loading ? <div className="empty-list">正在加载…</div> : error ? <div className="empty-list">加载失败：{error.message ?? "服务暂不可用"}</div> : rows.length ? rows.slice(0, 10).map((item, index) => (
           <article key={item.review_report_id ?? item.failure_record_id ?? item.memory_id ?? item.id ?? index}>
             {render(item)}
             {item.created_at || item.occurred_at ? <span>{formatTime(item.created_at ?? item.occurred_at)}</span> : null}
