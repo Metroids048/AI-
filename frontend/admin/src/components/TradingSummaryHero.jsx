@@ -15,13 +15,16 @@ export function TradingSummaryHero({
   selectedSymbol,
   lastSuccessAt,
 }) {
-  const positionCount = Array.isArray(positions) ? positions.length : 0;
-  const orderCount = Array.isArray(orders) ? orders.length : 0;
+  const positionCount = Array.isArray(positions) ? positions.length : null;
+  const orderCount = Array.isArray(orders) ? orders.length : null;
 
   // 计算浮动盈亏
-  const unrealizedPnl = Array.isArray(positions)
-    ? positions.reduce((sum, p) => sum + (Number(p.unrealized_pnl) || 0), 0)
-    : null;
+  const accountAvailable = account?.status === "available" || account?.connected === true;
+  const unrealizedPnl = accountAvailable && account?.unrealized_pnl != null
+    ? Number(account.unrealized_pnl)
+    : Array.isArray(positions)
+      ? positions.reduce((sum, p) => sum + (Number(p.unrealized_pnl) || 0), 0)
+      : null;
 
   // 账户余额
   const walletBalance = account?.wallet_balance;
@@ -36,8 +39,14 @@ export function TradingSummaryHero({
       : "状态未知";
 
   // 模拟盘连接状态
-  const isExchangeConnected = account?.connected === true;
-  const exchangeStatusText = isExchangeConnected ? "已连接" : "未连接";
+  const isExchangeConnected = accountAvailable;
+  const exchangeStatusText = account?.status === "stale"
+    ? "数据延迟"
+    : isExchangeConnected
+      ? "已连接"
+      : account?.status === "loading"
+        ? "连接中"
+        : "连接失败";
 
   // 行情状态
   const feedStatusText =
@@ -50,8 +59,11 @@ export function TradingSummaryHero({
           : "连接中";
 
   // 风控状态
-  const riskStatusText =
-    globalRiskStatus?.entry_allowed === false ? "已暂停新开仓" : "正常";
+  const riskStatusText = globalRiskStatus?.entry_allowed === false
+    ? (globalRiskStatus?.status === "blocked" ? "已阻断" : "限制开仓")
+    : globalRiskStatus?.entry_allowed === true
+      ? "正常"
+      : "状态待确认";
 
   // 最新决策摘要
   const latestDecision = Array.isArray(decisions) && decisions.length > 0 ? decisions[0] : null;
@@ -75,28 +87,28 @@ export function TradingSummaryHero({
         <div className="metric-item">
           <span className="metric-label">模拟账户余额</span>
           <span className="metric-value">
-            {walletBalance != null ? `${Number(walletBalance).toFixed(2)} USDT` : "未接通"}
+            {walletBalance != null ? `${Number(walletBalance).toFixed(2)} USDT` : "暂不可用"}
           </span>
         </div>
         <div className="metric-item">
           <span className="metric-label">可用资金</span>
           <span className="metric-value">
-            {availableBalance != null ? `${Number(availableBalance).toFixed(2)} USDT` : "未接通"}
+            {availableBalance != null ? `${Number(availableBalance).toFixed(2)} USDT` : "暂不可用"}
           </span>
         </div>
         <div className="metric-item">
           <span className="metric-label">当前持仓</span>
-          <span className="metric-value">{positionCount}</span>
+          <span className="metric-value">{positionCount ?? "暂不可用"}</span>
         </div>
         <div className="metric-item">
           <span className="metric-label">浮动盈亏</span>
           <span className={`metric-value ${unrealizedPnl != null ? (unrealizedPnl >= 0 ? "pnl-positive" : "pnl-negative") : ""}`}>
-            {unrealizedPnl != null ? `${unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toFixed(2)} USDT` : "暂无数据"}
+            {unrealizedPnl != null ? `${unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toFixed(2)} USDT` : "暂不可用"}
           </span>
         </div>
         <div className="metric-item">
           <span className="metric-label">未成交订单</span>
-          <span className="metric-value">{orderCount}</span>
+          <span className="metric-value">{orderCount ?? "暂不可用"}</span>
         </div>
       </div>
 
@@ -119,7 +131,7 @@ export function TradingSummaryHero({
         </div>
         <div className="status-item">
           <span className="status-label">风险控制</span>
-          <span className={`status-value ${globalRiskStatus?.entry_allowed === false ? "status-warning" : ""}`}>
+          <span className={`status-value ${globalRiskStatus?.entry_allowed !== true ? "status-warning" : ""}`}>
             {riskStatusText}
           </span>
         </div>

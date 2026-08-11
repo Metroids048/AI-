@@ -45,7 +45,7 @@ describe("TradingSummaryHero", () => {
     expect(screen.getByText("8500.25 USDT")).toBeTruthy();
   });
 
-  it("displays 未接通 when account is null or not connected", () => {
+  it("displays 暂不可用 when account is null or not connected", () => {
     render(
       <TradingSummaryHero
         account={null}
@@ -60,8 +60,29 @@ describe("TradingSummaryHero", () => {
       />
     );
 
-    const disconnectedElements = screen.getAllByText("未接通");
+    const disconnectedElements = screen.getAllByText("暂不可用");
     expect(disconnectedElements.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not invent zero values or normal risk while runtime truth is unavailable", () => {
+    render(
+      <TradingSummaryHero
+        account={{ connected: false, status: "unavailable", error: "gateway timeout" }}
+        positions={null}
+        orders={null}
+        decisions={[]}
+        tradingStatus={null}
+        globalRiskStatus={null}
+        streamStatus="offline"
+        selectedSymbol="BTC/USDT"
+        lastSuccessAt={null}
+      />
+    );
+
+    expect(screen.getAllByText("暂不可用").length).toBeGreaterThanOrEqual(4);
+    expect(screen.getByText("状态待确认")).toBeTruthy();
+    expect(screen.queryByText("正常")).toBeNull();
+    expect(screen.queryByText("+0.00 USDT")).toBeNull();
   });
 
   it("calculates and displays unrealized PnL from positions", () => {
@@ -87,7 +108,7 @@ describe("TradingSummaryHero", () => {
     expect(screen.getByText("+100.25 USDT")).toBeTruthy();
   });
 
-  it("displays 暂无数据 when PnL is unknown", () => {
+  it("displays 暂不可用 when PnL is unknown", () => {
     render(
       <TradingSummaryHero
         account={{ connected: true }}
@@ -102,7 +123,7 @@ describe("TradingSummaryHero", () => {
       />
     );
 
-    expect(screen.getByText("暂无数据")).toBeTruthy();
+    expect(screen.getAllByText("暂不可用").length).toBeGreaterThan(0);
   });
 
   it("displays strategy status in Chinese", () => {

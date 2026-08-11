@@ -24,8 +24,30 @@ export function HelpTip({ label, children }) {
   );
 }
 
+export function DataState({
+  loading = false,
+  fetching = false,
+  error = "",
+  stale = false,
+  hasData = false,
+  emptyLabel = "暂无记录",
+  children,
+}) {
+  if (loading && !hasData) return <div className="data-state data-state-loading">正在读取数据…</div>;
+  if (error && !hasData) return <div className="data-state data-state-error">数据加载失败：{error}</div>;
+  if (!hasData) return <div className="data-state data-state-empty">{emptyLabel}</div>;
+  return (
+    <>
+      {stale ? <div className="data-state data-state-stale">当前展示最近一次有效数据</div> : null}
+      {children}
+      {fetching ? <div className="data-state data-state-fetching">正在刷新…</div> : null}
+    </>
+  );
+}
+
 export function AppShell({ overview, snapshot, tradingStatus, streamStatus, error, children }) {
-  const riskTone = overview?.global_risk_status === "blocked" ? "danger" : "ok";
+  const riskStatus = overview?.global_risk_status;
+  const riskTone = riskStatus === "blocked" ? "danger" : riskStatus == null ? "neutral" : "ok";
   const dataTone = snapshot?.data_status === "ok" ? "ok" : snapshot?.data_status === "stale" ? "warn" : "neutral";
   const streamTone = streamStatus === "live" ? "ok" : streamStatus === "connecting" ? "warn" : streamStatus === "offline" ? "danger" : "neutral";
   const modeLabel = tradingStatus?.mode === "testnet" ? "币安模拟盘" : "本地模拟盘";
@@ -45,7 +67,11 @@ export function AppShell({ overview, snapshot, tradingStatus, streamStatus, erro
           <StatusPill label="交易所" value={overview?.exchange === "binance" ? "币安" : overview?.exchange ?? "加载中"} />
           <StatusPill label="数据" value={dataLabel} tone={dataTone} />
           <StatusPill label="行情流" value={streamLabel} tone={streamTone} />
-          <StatusPill label="风控" value={overview?.global_risk_status === "blocked" ? "已拦截" : "正常"} tone={riskTone} />
+          <StatusPill
+            label="风控"
+            value={riskStatus === "blocked" ? "已拦截" : riskStatus == null ? "状态待确认" : "正常"}
+            tone={riskTone}
+          />
         </div>
       </header>
       {error ? <div className="alert-bar">数据加载失败：{error}</div> : null}
