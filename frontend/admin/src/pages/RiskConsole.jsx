@@ -42,7 +42,7 @@ export function RiskConsole() {
         method: "POST",
         body: JSON.stringify(form),
       });
-      setActionMessage("RiskProfile 已创建。");
+      setActionMessage("风控配置已创建。");
       setShowCreateForm(false);
       await refreshProfiles();
     } catch (err) {
@@ -58,7 +58,7 @@ export function RiskConsole() {
         method: "PUT",
         body: JSON.stringify(payload),
       });
-      setActionMessage("RiskProfile 已更新。");
+      setActionMessage("风控配置已更新。");
       setEditingProfile(null);
       await refreshProfiles();
     } catch (err) {
@@ -75,7 +75,7 @@ export function RiskConsole() {
       <ActionMessage message={actionMessage} />
       <section className="form-row">
         <button type="button" onClick={() => { setShowCreateForm((current) => !current); setEditingProfile(null); }}>
-          {showCreateForm ? "收起新建表单" : "新建 RiskProfile"}
+          {showCreateForm ? "收起新建表单" : "新建风控配置"}
         </button>
       </section>
       {showCreateForm ? (
@@ -95,7 +95,7 @@ export function RiskConsole() {
       ) : null}
       <section className="records-grid">
         <div className="exchange-panel table-panel">
-          <div className="panel-title"><h2>RiskProfile</h2><span>{profileRows?.length ?? "加载中"}</span></div>
+          <div className="panel-title"><h2>风控配置</h2><span>{profileRows?.length ?? "加载中"}</span></div>
           <table>
             <thead>
               <tr>

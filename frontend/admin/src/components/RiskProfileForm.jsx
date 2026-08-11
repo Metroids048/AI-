@@ -51,7 +51,7 @@ export function RiskProfileForm({ initialProfile, onSubmit, onCancel, submitLabe
   return (
     <form className="exchange-panel form-panel" onSubmit={handleSubmit}>
       <div className="panel-title">
-        <h2>{initialProfile?.risk_profile_id ? "编辑 RiskProfile" : "新建 RiskProfile"}</h2>
+        <h2>{initialProfile?.risk_profile_id ? "编辑风控配置" : "新建风控配置"}</h2>
       </div>
       <div className="form-grid">
         {FIELDS.map(([key, label]) => (

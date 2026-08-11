@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 
 import { request } from "../api/client";
-import { asArray } from "../utils/format";
+import { asArray, formatEnum } from "../utils/format";
 
 const TABS = [
   ["assets", "策略资产"], ["overview", "策略总览"], ["entry", "开单逻辑"],
@@ -108,7 +108,7 @@ function LlmBoundary({ data }) {
 }
 
 function Sources({ data }) {
-  return <><div className="playbook-heading"><h2>外部策略来源</h2><p>所有来源先转规则、再验证，不直接复制到执行主链。</p></div><div className="table-panel"><table><thead><tr><th>项目</th><th>License</th><th>策略边界</th><th>可吸收内容</th><th>平台映射</th><th>状态</th></tr></thead><tbody>{data.external_sources.map((source) => <tr key={source.source_id}><td><a href={source.repo_url} target="_blank" rel="noreferrer">{source.name}</a></td><td>{source.license}</td><td>{source.license_policy}</td><td>{source.absorbable_content}</td><td>{source.platform_mapping}</td><td>{source.implementation_status}</td></tr>)}</tbody></table></div></>;
+  return <><div className="playbook-heading"><h2>外部策略来源</h2><p>所有来源先转规则、再验证，不直接复制到执行主链。</p></div><div className="table-panel"><table><thead><tr><th>项目</th><th>License</th><th>策略边界</th><th>可吸收内容</th><th>平台映射</th><th>状态</th></tr></thead><tbody>{data.external_sources.map((source) => <tr key={source.source_id}><td><a href={source.repo_url} target="_blank" rel="noreferrer">{source.name}</a></td><td>{source.license}</td><td>{source.license_policy}</td><td>{source.absorbable_content}</td><td>{source.platform_mapping}</td><td>{formatEnum(source.implementation_status)}</td></tr>)}</tbody></table></div></>;
 }
 
 function Roadmap({ data, updateRoadmap }) {

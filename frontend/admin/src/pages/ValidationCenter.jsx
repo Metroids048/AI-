@@ -108,7 +108,7 @@ export function ValidationCenter() {
             {(strategyRows ?? []).map((strategy) => <option key={strategy.strategy_id} value={strategy.strategy_id}>{strategy.strategy_key ?? strategy.strategy_id}</option>)}
           </select>
           <input
-            placeholder="execution_engine"
+            placeholder="执行引擎"
             value={submitForm.execution_engine}
             onChange={(event) => setSubmitForm((current) => ({ ...current, execution_engine: event.target.value }))}
           />
@@ -125,7 +125,7 @@ export function ValidationCenter() {
             </select>
             <select aria-label="优化方法" value={optimizationForm.optimization_method} onChange={(event) => setOptimizationForm((current) => ({ ...current, optimization_method: event.target.value }))}>
               <option value="hyperopt">hyperopt</option>
-              <option value="grid_search">grid_search</option>
+              <option value="grid_search">网格搜索</option>
             </select>
             <button type="submit">提交</button>
           </form>

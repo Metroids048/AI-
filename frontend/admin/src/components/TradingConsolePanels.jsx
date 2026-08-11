@@ -530,17 +530,17 @@ export function AutoEngineStatusBadge({ status }) {
   const actualCoverage = status?.market_data_coverage_count ?? status?.top20_coverage_count ?? 0;
   const coverageLabel = `数据 ${actualCoverage}/${expectedCoverage || 3}`;
   const executionLabel = {
-    ready: `Mock 自动下单可执行 / ${scopeLabel} / ${coverageLabel}`,
-    armed: `Mock 自动下单已武装 / ${scopeLabel} / ${coverageLabel}`,
-    monitoring_only: "仅监控，Mock 自动下单未开启",
-    blocked_missing_credentials: "缺少 Mock API 凭据",
-    blocked_gateway_unavailable: "Mock 下单网关不可用",
+    ready: `自动下单可执行 / ${scopeLabel} / ${coverageLabel}`,
+    armed: `自动下单已启用 / ${scopeLabel} / ${coverageLabel}`,
+    monitoring_only: "仅监控，自动下单未开启",
+    blocked_missing_credentials: "缺少模拟盘 API 凭据",
+    blocked_gateway_unavailable: "模拟盘下单网关不可用",
     blocked_safety_boundary: "安全边界阻止自动下单",
   }[status?.auto_execution_state] ?? (status?.execution_blockers?.length ? `自动下单阻断：${status.execution_blockers.join("、")}` : null);
   return (
     <div className={`auto-engine-badge ${running ? "positive" : "neutral"}`}>
       <span>{running ? "自动运行中" : "自动引擎停止"}</span>
-      <strong>{status?.scheduler_mode ?? "disabled"}{running ? etaLabel : ""}</strong>
+      <strong>{running ? "自动交易调度器" : "调度器待确认"}{running ? etaLabel : ""}</strong>
       {executionLabel ? <em>{executionLabel}</em> : null}
       {error ? <em>{error}</em> : null}
     </div>
@@ -769,7 +769,7 @@ function connectionIssue(error) {
 }
 
 function ticketHint({ missingContext, missingLimit, customStops, stoploss }) {
-  if (missingContext) return "正在绑定 Paper-only 风控证据。";
+  if (missingContext) return "正在绑定模拟盘风控证据。";
   if (!Number.isFinite(Number(stoploss)) && customStops) return "开仓必须填写止损。";
   if (missingLimit) return "限价单需要填写限价。";
   return "开仓会进入统一 Gatekeeper；没有止损会被拒绝。";

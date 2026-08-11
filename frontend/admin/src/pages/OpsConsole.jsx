@@ -5,7 +5,7 @@ import { StatusPill } from "../components/Common";
 import { FeedPanel } from "../components/OpsPanels";
 import { AutoEngineStatusBadge } from "../components/TradingConsolePanels";
 import { useRuntimeTruth } from "../hooks/useRuntimeTruth";
-import { asArray, formatTime } from "../utils/format";
+import { asArray, formatBoolean, formatEnum, formatFieldLabel, formatTime } from "../utils/format";
 
 export function OpsConsole() {
   const queryClient = useQueryClient();
@@ -111,7 +111,7 @@ export function OpsConsole() {
               {dependencyRows.length ? dependencyRows.map(([name, item]) => (
                 <tr key={name}>
                   <td>{name}</td>
-                  <td>{item.status}</td>
+                  <td>{formatEnum(item.status)}</td>
                   <td>{item.detail}</td>
                 </tr>
               )) : <tr><td colSpan="3">依赖检查加载中</td></tr>}
@@ -134,9 +134,9 @@ export function OpsConsole() {
               {capabilityRows.length ? capabilityRows.map((item, index) => (
                 <tr key={`${item.exchange}:${item.gateway_name ?? index}`}>
                   <td>{item.exchange}</td>
-                  <td>{String(item.supports_market_data)}</td>
-                  <td>{String(item.supports_order_submit)}</td>
-                  <td>{String(item.supports_account_sync)}</td>
+                  <td>{formatBoolean(item.supports_market_data)}</td>
+                  <td>{formatBoolean(item.supports_order_submit)}</td>
+                  <td>{formatBoolean(item.supports_account_sync)}</td>
                 </tr>
               )) : <tr><td colSpan="4">暂无能力记录</td></tr>}
             </tbody>
@@ -171,7 +171,7 @@ export function OpsConsole() {
           renderItem={(item) => (
             <>
               <strong>{item.provider}</strong>
-              <span>{item.status} / {item.configured ? "configured" : "missing"}</span>
+              <span>{formatEnum(item.status)} / {formatEnum(item.configured ? "configured" : "missing")}</span>
             </>
           )}
         />
@@ -181,7 +181,7 @@ export function OpsConsole() {
           renderItem={(item) => (
             <>
               <strong>{item.agent_name ?? item.agent_type ?? item.agent_task_id}</strong>
-              <span>{item.task_status ?? "-"} / {item.task_type ?? item.executor_name ?? "-"}</span>
+              <span>{formatEnum(item.task_status)} / {item.task_type ?? item.executor_name ?? "-"}</span>
             </>
           )}
         />
@@ -217,17 +217,17 @@ function schedulerRows(status) {
     value: `runs ${count} / failures ${status.task_failure_counts?.[name] ?? 0} / last ${formatTime(status.task_last_success_at?.[name])}`,
   }));
   return [
-    { name: "last_auto_cycle_at", value: formatTime(status.last_auto_cycle_at) },
-    { name: "next_cycle_eta_seconds", value: status.next_cycle_eta_seconds ?? "-" },
-    { name: "scheduler_error", value: status.scheduler_error ?? "none" },
+    { name: formatFieldLabel("last_auto_cycle_at"), value: formatTime(status.last_auto_cycle_at) },
+    { name: formatFieldLabel("next_cycle_eta_seconds"), value: status.next_cycle_eta_seconds ?? "-" },
+    { name: formatFieldLabel("scheduler_error"), value: formatEnum(status.scheduler_error, "无") },
     {
-      name: "execution_scope_coverage",
+      name: formatFieldLabel("execution_scope_coverage"),
       value: `${status.market_data_coverage_count ?? status.top20_coverage_count ?? 0}/${status.active_execution_count ?? 3}`,
     },
-    { name: "execution_symbols", value: (status.active_execution_symbols ?? []).join(", ") || "BTC/USDT, ETH/USDT, SOL/USDT" },
-    { name: "acceptance_scope", value: status.acceptance_scope_hash ?? "not_verified" },
-    { name: "last_strategy_gateway_order", value: status.last_strategy_gateway_order_id ?? "none" },
-    { name: "queue_backlog", value: status.queue_backlog_status ?? "not_probed" },
+    { name: formatFieldLabel("execution_symbols"), value: (status.active_execution_symbols ?? []).join(", ") || "BTC/USDT, ETH/USDT, SOL/USDT" },
+    { name: formatFieldLabel("acceptance_scope"), value: status.acceptance_scope_hash ?? "未验证" },
+    { name: formatFieldLabel("last_strategy_gateway_order"), value: status.last_strategy_gateway_order_id ?? "无" },
+    { name: formatFieldLabel("queue_backlog"), value: formatEnum(status.queue_backlog_status) },
     ...taskRows,
   ];
 }

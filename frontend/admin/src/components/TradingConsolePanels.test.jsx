@@ -198,8 +198,8 @@ describe("Trading console panels", () => {
     );
 
     expect(screen.getByText("自动运行中")).toBeInTheDocument();
-    expect(screen.getByText("inprocess / 下次 00:42")).toBeInTheDocument();
-    expect(screen.getByText("Mock 自动下单已武装 / BTC、ETH、SOL / 数据 3/3")).toBeInTheDocument();
+    expect(screen.getByText("自动交易调度器 / 下次 00:42")).toBeInTheDocument();
+    expect(screen.getByText("自动下单已启用 / BTC、ETH、SOL / 数据 3/3")).toBeInTheDocument();
   });
 
   it("shows matched and unmatched Binance order reconciliation", () => {
