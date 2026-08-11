@@ -24,7 +24,8 @@ export async function request(path, options = {}) {
       },
       ...options,
     });
-  } catch {
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
     throw new Error("服务暂时不可用，请稍后重试");
   }
   const payload = await response.json().catch(() => null);

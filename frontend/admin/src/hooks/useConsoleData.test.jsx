@@ -15,13 +15,13 @@ afterEach(() => {
 });
 
 describe("useConsoleData", () => {
-  it("always probes Binance Demo account so Positions/Orders stay exchange-synced", async () => {
+  it("does not probe the legacy Binance account endpoint", async () => {
     vi.stubEnv("VITE_LOCAL_CONSOLE_API_ONLY", "true");
     request.mockResolvedValue(null);
     const { useConsoleData } = await import("./useConsoleData");
 
     renderHook(() => useConsoleData("BTC/USDT", "BTC/USDT:USDT", "1m"));
 
-    expect(request).toHaveBeenCalledWith("/api/v1/execution/binance-testnet-account");
+    expect(request).not.toHaveBeenCalledWith("/api/v1/execution/binance-testnet-account");
   });
 });

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState } from "react";
 
 import { request, streamUrl } from "../api/client";
 
 const FALLBACK_INTERVAL_MS = 30_000;
+
+const RuntimeTruthContext = createContext(null);
 
 function unavailableDatum(source, error) {
   return {
@@ -15,7 +17,7 @@ function unavailableDatum(source, error) {
   };
 }
 
-export function useRuntimeTruth(symbol) {
+function useRuntimeTruthState(symbol) {
   const [state, setState] = useState({
     snapshot: null,
     decisions: [],
@@ -29,24 +31,29 @@ export function useRuntimeTruth(symbol) {
   });
   const mounted = useRef(true);
   const refreshInFlight = useRef(false);
+  const abortControllerRef = useRef(null);
 
   const refresh = useCallback(async () => {
     if (refreshInFlight.current) return;
     refreshInFlight.current = true;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     try {
       const symbolQuery = symbol ? `?symbol=${encodeURIComponent(symbol)}&limit=100` : "?limit=100";
       const results = await Promise.allSettled([
-        request("/api/v1/runtime/snapshot"),
-        request(`/api/v1/runtime/decisions${symbolQuery}`),
-        request(`/api/v1/runtime/exchange-orders${symbolQuery}`),
-        request("/api/v1/runtime/positions"),
-        request(`/api/v1/runtime/llm-invocations${symbolQuery}`),
-        request("/api/v1/runtime/reconciliation"),
+        request("/api/v1/runtime/snapshot", { signal: controller.signal }),
+        request(`/api/v1/runtime/decisions${symbolQuery}`, { signal: controller.signal }),
+        request(`/api/v1/runtime/exchange-orders${symbolQuery}`, { signal: controller.signal }),
+        request("/api/v1/runtime/positions", { signal: controller.signal }),
+        request(`/api/v1/runtime/llm-invocations${symbolQuery}`, { signal: controller.signal }),
+        request("/api/v1/runtime/reconciliation", { signal: controller.signal }),
       ]);
-      if (!mounted.current) return;
+      if (!mounted.current || controller.signal.aborted) return;
       const value = (index) => (results[index].status === "fulfilled" ? results[index].value : null);
       const failureMessage = (index) => results[index].reason?.message ?? "数据不可用";
-      const firstFailure = results.find((result) => result.status === "rejected");
+      const firstFailure = results.find(
+        (result) => result.status === "rejected" && result.reason?.name !== "AbortError",
+      );
       setState((current) => ({
         ...current,
         snapshot: value(0) ?? {
@@ -74,6 +81,7 @@ export function useRuntimeTruth(symbol) {
       }));
     } finally {
       refreshInFlight.current = false;
+      if (abortControllerRef.current === controller) abortControllerRef.current = null;
     }
   }, [symbol]);
 
@@ -84,6 +92,7 @@ export function useRuntimeTruth(symbol) {
     return () => {
       mounted.current = false;
       window.clearInterval(timer);
+      abortControllerRef.current?.abort();
     };
   }, [refresh]);
 
@@ -143,6 +152,17 @@ export function useRuntimeTruth(symbol) {
   }, []);
 
   return { ...state, refresh };
+}
+
+export function RuntimeTruthProvider({ children }) {
+  const state = useRuntimeTruthState();
+  return createElement(RuntimeTruthContext.Provider, { value: state }, children);
+}
+
+export function useRuntimeTruth(symbol) {
+  const context = useContext(RuntimeTruthContext);
+  if (context) return context;
+  return useRuntimeTruthState(symbol);
 }
 
 export { FALLBACK_INTERVAL_MS };

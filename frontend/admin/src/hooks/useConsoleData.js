@@ -21,7 +21,6 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
     decisionTrace: null,
     dataSources: null,
     orderSync: null,
-    testnetAccount: null,
     feedStatus: null,
     streamStatus: "connecting",
     error: "",
@@ -174,12 +173,6 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
       (current, payload) => ({ ...current, manualContext: payload ?? current.manualContext }),
       { showLoaded: false },
     );
-    // Desk positions/orders must follow Binance Demo when connected — not local paper ghosts.
-    run(
-      "/api/v1/execution/binance-testnet-account",
-      (current, payload) => ({ ...current, testnetAccount: payload ?? current.testnetAccount }),
-      { showLoaded: false },
-    );
     run(
       `/api/v1/market/funding-arbitrage-signal?${params.toString()}`,
       (current, payload) => ({ ...current, fundingSignal: payload ?? current.fundingSignal }),
@@ -227,18 +220,6 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
       if (timer) window.clearTimeout(timer);
     };
   }, [symbol, perpSymbol, timeframe, refresh]);
-
-  useEffect(() => {
-    // Always poll Binance Demo account so Positions/Orders tabs stay in sync.
-    const pollBinance = () => {
-      request("/api/v1/execution/binance-testnet-account")
-        .then((payload) => setState((current) => ({ ...current, testnetAccount: payload ?? current.testnetAccount })))
-        .catch(() => undefined);
-    };
-    pollBinance();
-    const timer = window.setInterval(pollBinance, 15000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     if (state.error) {

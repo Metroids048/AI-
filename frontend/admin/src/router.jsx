@@ -13,6 +13,7 @@ import { RiskConsole } from "./pages/RiskConsole";
 import { StrategyDetail } from "./pages/StrategyDetail";
 import { StrategyLibrary } from "./pages/StrategyLibrary";
 import { ValidationCenter } from "./pages/ValidationCenter";
+import { RuntimeTruthProvider } from "./hooks/useRuntimeTruth";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -54,7 +55,7 @@ export function AppRouter() {
 
 function PlatformLayout() {
   return (
-    <>
+    <RuntimeTruthProvider>
       <nav className="platform-nav" aria-label="platform navigation">
         <strong>AI Quant</strong>
         <NavLink to="/trading">交易台</NavLink>
@@ -66,7 +67,7 @@ function PlatformLayout() {
         <NavLink to="/ops">运维</NavLink>
       </nav>
       <PageOutlet />
-    </>
+    </RuntimeTruthProvider>
   );
 }
 

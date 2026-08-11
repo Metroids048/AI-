@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import { fetchPositions } from "../api/automatedTrading";
 import { request } from "../api/client";
 import { WhyNoTrade } from "../components/AutomatedTrading";
 import { TradingSummaryHero } from "../components/TradingSummaryHero";
@@ -27,8 +26,8 @@ import {
   TestnetAccountPanel,
   TradingTicket,
 } from "../components/TradingConsolePanels";
-import { useAutomatedTradingRuntime } from "../hooks/useAutomatedTradingRuntime";
 import { useConsoleData } from "../hooks/useConsoleData";
+import { useRuntimeTruth } from "../hooks/useRuntimeTruth";
 
 const DEFAULT_SYMBOL = "BTC/USDT";
 const DEFAULT_PERP = "BTC/USDT:USDT";
@@ -106,9 +105,16 @@ export function deskOrdersFromAccount(account) {
 
 /** Prefer the persisted V2 exchange snapshot; never fall back to legacy Paper rows. */
 export function deskPositionsFromRuntimeTruth(positionsData, account = null) {
-  if (positionsData?.exchange?.available === true) {
-    const observedAt = positionsData.exchange.observed_at ?? new Date().toISOString();
-    return asArray(positionsData.exchange.positions)
+  void account;
+  const exchange = positionsData?.exchange;
+  const exchangeValue = exchange?.status === "available"
+    ? exchange.value
+    : exchange?.available === true
+      ? exchange
+      : null;
+  if (exchangeValue) {
+    const observedAt = exchange.observed_at ?? new Date().toISOString();
+    return asArray(exchangeValue.positions)
       .filter((position) => Math.abs(Number(position.quantity) || 0) > 0)
       .map((position) => {
         const quantity = position.quantity;
@@ -131,14 +137,21 @@ export function deskPositionsFromRuntimeTruth(positionsData, account = null) {
         };
       });
   }
-  return deskPositionsFromAccount(account) ?? [];
+  return null;
 }
 
 /** Prefer V2 reconciliation open orders, including an authoritative empty book. */
 export function deskOrdersFromRuntimeTruth(runtimeSnapshot, account = null) {
-  if (runtimeSnapshot?.exchange?.available === true) {
-    const observedAt = runtimeSnapshot.exchange.timestamp ?? new Date().toISOString();
-    return asArray(runtimeSnapshot.exchange.open_orders).map((order) => ({
+  void account;
+  const exchange = runtimeSnapshot?.exchange;
+  const exchangeValue = exchange?.status === "available"
+    ? exchange.value
+    : exchange?.available === true
+      ? exchange
+      : null;
+  if (exchangeValue) {
+    const observedAt = exchange.observed_at ?? exchange.timestamp ?? new Date().toISOString();
+    return asArray(exchangeValue.open_orders).map((order) => ({
       order_execution_id: `v2-binance-open:${order.exchange_order_id}`,
       symbol: platformSymbol(order.symbol),
       direction: String(order.side || "").toLowerCase() === "sell" ? "short" : "long",
@@ -155,7 +168,46 @@ export function deskOrdersFromRuntimeTruth(runtimeSnapshot, account = null) {
       created_at: observedAt,
     }));
   }
-  return deskOrdersFromAccount(account) ?? [];
+  return null;
+}
+
+export function accountFromRuntimeSnapshot(snapshot) {
+  const exchange = snapshot?.exchange;
+  const account = exchange?.value?.account;
+  if (exchange?.status === "available" && account) {
+    return {
+      ...account,
+      connected: true,
+      status: "available",
+      synced_at: exchange.observed_at,
+      web_ui_url: "https://testnet.binancefuture.com/en/futures/BTCUSDT",
+    };
+  }
+  return {
+    connected: false,
+    status: exchange?.status ?? "unavailable",
+    error: exchange?.error ?? "账户数据暂不可用",
+    wallet_balance: null,
+    available_balance: null,
+    margin_balance: null,
+    unrealized_pnl: null,
+    open_position_count: null,
+    web_ui_url: "https://testnet.binancefuture.com/en/futures/BTCUSDT",
+  };
+}
+
+function tradingStatusFromRuntimeSnapshot(snapshot) {
+  const scheduler = snapshot?.scheduler;
+  return scheduler?.status === "available" && scheduler.value
+    ? { is_active: scheduler.value.running === true }
+    : null;
+}
+
+function riskStatusFromRuntime(runtime) {
+  if (runtime?.reconciliation?.status === "unavailable") return { status: "unknown", entry_allowed: null };
+  if (runtime?.reconciliation?.entry_blocked_symbols?.length) return { status: "blocked", entry_allowed: false };
+  if (runtime?.reconciliation?.status) return { status: runtime.reconciliation.status, entry_allowed: true };
+  return { status: "unknown", entry_allowed: null };
 }
 
 export function PaperConsole() {
@@ -165,22 +217,8 @@ export function PaperConsole() {
   const timeframe = searchParams.get("timeframe") || DEFAULT_TIMEFRAME;
   const [actionMessage, setActionMessage] = useState("");
   const data = useConsoleData(symbol, perpSymbol, timeframe);
-  const v2Runtime = useAutomatedTradingRuntime();
-  const [v2Positions, setV2Positions] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchPositions()
-      .then((payload) => {
-        if (!cancelled) setV2Positions(payload);
-      })
-      .catch(() => {
-        if (!cancelled) setV2Positions(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [v2Runtime.lastSuccessAt]);
+  const runtime = useRuntimeTruth();
+  const account = useMemo(() => accountFromRuntimeSnapshot(runtime.snapshot), [runtime.snapshot]);
   const mode = "paper";
   const latestPaperRun = useMemo(
     () => (Array.isArray(data.overview?.paper_runs) ? data.overview.paper_runs.at(-1) : null),
@@ -192,15 +230,15 @@ export function PaperConsole() {
     (data.decisionTrace?.execution_profile ?? latestPaperRun?.execution_profile)?.mirror_to_gateway,
   );
   const deskPositions = useMemo(
-    () => deskPositionsFromRuntimeTruth(v2Positions, data.testnetAccount),
-    [v2Positions, data.testnetAccount],
+    () => deskPositionsFromRuntimeTruth(runtime.positions),
+    [runtime.positions],
   );
   const deskOrders = useMemo(
-    () => deskOrdersFromRuntimeTruth(v2Runtime.snapshot, data.testnetAccount),
-    [v2Runtime.snapshot, data.testnetAccount],
+    () => deskOrdersFromRuntimeTruth(runtime.snapshot),
+    [runtime.snapshot],
   );
   const latestPosition = useMemo(
-    () => deskPositions.find((position) => position.symbol === symbol && Math.abs(Number(position.quantity)) > 0),
+    () => (deskPositions ?? []).find((position) => position.symbol === symbol && Math.abs(Number(position.quantity)) > 0),
     [deskPositions, symbol],
   );
   const latestPrice = Number(data.snapshot?.perp_last_price ?? data.snapshot?.spot_last_price ?? data.latestKline?.close ?? 0);
@@ -323,15 +361,15 @@ export function PaperConsole() {
       {data.loading ? <div className="loading-line">正在加载交易台数据...</div> : null}
       {actionMessage ? <div className="action-line">{actionMessage}</div> : null}
       <TradingSummaryHero
-        account={data.testnetAccount}
+        account={account}
         positions={deskPositions}
         orders={deskOrders}
-        decisions={v2Runtime.snapshot?.latest_decisions ?? []}
-        tradingStatus={data.tradingStatus}
-        globalRiskStatus={v2Runtime.snapshot?.global_risk_status}
+        decisions={runtime.decisions}
+        tradingStatus={tradingStatusFromRuntimeSnapshot(runtime.snapshot)}
+        globalRiskStatus={riskStatusFromRuntime(runtime.reconciliation)}
         streamStatus={data.streamStatus}
         selectedSymbol={symbol}
-        lastSuccessAt={v2Runtime.lastSuccessAt}
+        lastSuccessAt={runtime.lastSuccessAt}
       />
       <MarketList
         universe={data.universe}
@@ -348,7 +386,7 @@ export function PaperConsole() {
         onTimeframeChange={(nextTimeframe) => updateSelection({ timeframe: nextTimeframe })}
       />
       <ExchangePositionHint
-        positions={deskPositions}
+        positions={deskPositions ?? []}
         selectedSymbol={symbol}
         onSelect={handleSelectSymbol}
       />
@@ -358,21 +396,21 @@ export function PaperConsole() {
             candles={data.candles}
             latestKline={data.latestKline}
             snapshotVersion={data.candleSnapshotVersion}
-            orders={data.overview?.orders}
+            orders={deskOrders ?? []}
             symbol={symbol}
             timeframe={timeframe}
             streamStatus={data.streamStatus}
           />
         </div>
         <div className="insight-rail">
-          <WhyNoTrade decisions={v2Runtime.snapshot?.latest_decisions ?? []} />
+          <WhyNoTrade decisions={runtime.decisions} />
         </div>
       </section>
       <TradingRecordsWorkspace tabs={[
-        { id: "positions", label: "持仓", count: deskPositions.length, content: <PositionsTable positions={deskPositions} /> },
-        { id: "orders", label: "订单", count: deskOrders.length, content: <OrdersTable orders={deskOrders} onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })} /> },
+        { id: "positions", label: "持仓", count: deskPositions?.length ?? null, content: <PositionsTable positions={deskPositions ?? []} /> },
+        { id: "orders", label: "订单", count: deskOrders?.length ?? null, content: <OrdersTable orders={deskOrders ?? []} onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })} /> },
         { id: "decisions", label: "决策详情", content: <div className="workspace-panel-grid"><DecisionDebugPanel decisionTrace={data.decisionTrace} /><MarketIntelligencePanel signal={data.intelligenceSignal} /></div> },
-        { id: "account", label: "账户详情", content: <TestnetAccountPanel account={data.testnetAccount} /> },
+        { id: "account", label: "账户详情", content: <TestnetAccountPanel account={account} /> },
         { id: "manual", label: "手动操作", content: <TradingTicket symbol={symbol} timeframe={timeframe} mode={mode} manualContext={data.manualContext} latestPosition={latestPosition} latestPrice={latestPrice} onAction={handleAction} /> },
         { id: "automation", label: "策略设置", content: <div className="workspace-panel-grid"><AutoSettingsPanel paperRunId={autoPaperRunId} autoSettings={autoSettings} onSave={(payload) => handleAction("saveAutoSettings", payload)} /><Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={data.tradingStatus} /><RejectionFunnelPanel summary={data.decisionTrace?.rejection_summary} /></div> },
         { id: "risk-data", label: "风险与数据", content: <div className="workspace-panel-grid"><MessageSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} riskEvents={data.overview?.risk_events} /><DataSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} /><OrderSyncPanel orderSync={data.orderSync} /></div> },
