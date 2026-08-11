@@ -2,11 +2,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { request } from "../api/client";
+import { useRuntimeTruth } from "../hooks/useRuntimeTruth";
 import { asArray, formatTime } from "../utils/format";
 
 export function ReviewCenter() {
   const queryClient = useQueryClient();
   const [actionMessage, setActionMessage] = useState("");
+  const runtime = useRuntimeTruth();
   const reviews = useQuery({
     queryKey: ["review-reports"],
     queryFn: () => request("/api/v1/reviews"),
@@ -24,7 +26,7 @@ export function ReviewCenter() {
   });
   const news = useQuery({
     queryKey: ["review-news"],
-    queryFn: () => request("/api/v1/market/news?limit=12&refresh=true"),
+    queryFn: () => request("/api/v1/market/news?limit=12&refresh=false"),
     refetchInterval: 30000,
   });
   const intelligence = useQuery({
@@ -57,7 +59,39 @@ export function ReviewCenter() {
       </header>
       <section className="form-row">
         <button type="button" onClick={generateTodayReview}>生成今日复盘</button>
+        <button type="button" onClick={() => news.refetch()} disabled={news.isFetching}>刷新消息面</button>
         {actionMessage ? <span className="action-line">{actionMessage}</span> : null}
+      </section>
+
+      <section className="records-grid review-runtime-activity">
+        <FeedPanel
+          title="当前自动交易决策"
+          rows={runtime.decisions}
+          empty={runtime.snapshot?.exchange?.status === "unavailable" ? "运行事实暂不可用" : "当前没有自动交易决策"}
+          render={(item) => (
+            <>
+              <strong>{item.symbol ?? "未知标的"} · {item.action ?? item.decision ?? "决策"}</strong>
+              <span>{item.terminal_reason ?? item.reason ?? "已记录"}</span>
+            </>
+          )}
+        />
+        <FeedPanel
+          title="当前交易所订单"
+          rows={runtime.exchangeOrders}
+          empty={runtime.snapshot?.exchange?.status === "unavailable" ? "交易所订单暂不可用" : "当前没有交易所订单"}
+          render={(item) => (
+            <>
+              <strong>{item.symbol ?? "未知标的"} · {item.side ?? "订单"}</strong>
+              <span>{item.state ?? item.status ?? "已记录"} / {item.exchange_order_id ?? item.order_id ?? "-"}</span>
+            </>
+          )}
+        />
+        <FeedPanel
+          title="当前对账状态"
+          rows={runtime.reconciliation ? [runtime.reconciliation] : []}
+          empty="对账状态待确认"
+          render={(item) => <><strong>{item.status ?? "待确认"}</strong><span>{asArray(item.entry_blocked_symbols).length ? "存在限制开仓标的" : "暂无阻断标的"}</span></>}
+        />
       </section>
 
       <section className="ops-grid">
@@ -84,7 +118,7 @@ export function ReviewCenter() {
           )}
         />
         <FeedPanel
-          title="决策记忆"
+          title="历史决策记忆"
           rows={decisionRows}
           empty="暂无决策记忆"
           render={(item) => (

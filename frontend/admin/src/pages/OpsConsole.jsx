@@ -4,19 +4,16 @@ import { request } from "../api/client";
 import { StatusPill } from "../components/Common";
 import { FeedPanel } from "../components/OpsPanels";
 import { AutoEngineStatusBadge } from "../components/TradingConsolePanels";
+import { useRuntimeTruth } from "../hooks/useRuntimeTruth";
 import { asArray, formatTime } from "../utils/format";
 
 export function OpsConsole() {
   const queryClient = useQueryClient();
+  const runtime = useRuntimeTruth();
   const health = useQuery({
     queryKey: ["ops-dependency-health"],
     queryFn: () => request("/api/v1/system/health/dependencies"),
     refetchInterval: 15000,
-  });
-  const tradingStatus = useQuery({
-    queryKey: ["ops-trading-status"],
-    queryFn: () => request("/api/v1/execution/trading-status"),
-    refetchInterval: 5000,
   });
   const agents = useQuery({
     queryKey: ["ops-agent-tasks"],
@@ -58,7 +55,18 @@ export function OpsConsole() {
   const notificationRows = asArray(notifications.data?.items);
   const capabilityRows = asArray(capabilities.data?.items);
   const providerRows = Object.values(intelligence.data?.provider_status ?? {});
-  const schedulerTone = tradingStatus.data?.scheduler_running ? "ok" : "warn";
+  const scheduler = runtime.snapshot?.scheduler;
+  const schedulerValue = scheduler?.value ?? {};
+  const tradingStatus = {
+    scheduler_running: scheduler?.status === "available" && schedulerValue.running === true,
+    scheduler_mode: schedulerValue.mode ?? "v2_active",
+    scheduler_error: scheduler?.error ?? null,
+    next_cycle_eta_seconds: schedulerValue.next_cycle_eta_seconds,
+    active_execution_symbols: schedulerValue.active_execution_symbols,
+    active_execution_count: schedulerValue.active_execution_count,
+    market_data_coverage_count: schedulerValue.market_data_coverage_count,
+  };
+  const schedulerTone = tradingStatus.scheduler_running ? "ok" : "warn";
 
   return (
     <main className="app-shell page-shell">
@@ -67,8 +75,8 @@ export function OpsConsole() {
         <h1>运维控制台</h1>
       </header>
 
-      <AutoEngineStatusBadge status={tradingStatus.data} />
-      {health.isError || tradingStatus.isError ? (
+      <AutoEngineStatusBadge status={tradingStatus} />
+      {health.isError || scheduler?.status === "unavailable" ? (
         <section className="action-message error" role="alert">
           运维状态接口不可用，当前页面数据不能作为系统正常运行的证据。
         </section>
@@ -81,11 +89,11 @@ export function OpsConsole() {
 
       <section className="status-row ops-status-row">
         <StatusPill label="系统健康" value={health.data?.status === "ok" ? "正常" : health.data?.status ?? "加载中"} tone={health.data?.status === "ok" ? "ok" : "warn"} />
-        <StatusPill label="调度器" value={tradingStatus.data?.scheduler_mode ?? "未知"} tone={schedulerTone} />
-        <StatusPill label="自动循环" value={tradingStatus.data?.scheduler_running ? "运行中" : "已停止"} tone={schedulerTone} />
-        <StatusPill label="交易模式" value={tradingStatus.data?.mode === "testnet" ? "币安模拟盘" : tradingStatus.data?.mode === "paper" ? "本地模拟盘" : tradingStatus.data?.mode ?? "本地模拟盘"} />
-        <StatusPill label="凭据" value={tradingStatus.data?.credentials_configured ? "已配置" : "未配置"} />
-        <StatusPill label="实时行情" value={Object.keys(tradingStatus.data?.live_feed_status ?? {}).length + " 路"} />
+        <StatusPill label="调度器" value={tradingStatus.scheduler_mode} tone={schedulerTone} />
+        <StatusPill label="自动循环" value={tradingStatus.scheduler_running ? "运行中" : scheduler?.status === "unavailable" ? "状态待确认" : "已停止"} tone={schedulerTone} />
+        <StatusPill label="交易模式" value="币安模拟盘" />
+        <StatusPill label="账户数据" value={runtime.snapshot?.exchange?.status === "available" ? "正常" : runtime.snapshot?.exchange?.status === "stale" ? "数据延迟" : "状态待确认"} />
+        <StatusPill label="对账" value={runtime.reconciliation?.status ?? "状态待确认"} />
       </section>
 
       <section className="records-grid">
@@ -189,7 +197,7 @@ export function OpsConsole() {
         />
         <FeedPanel
           title="调度状态"
-          items={schedulerRows(tradingStatus.data)}
+          items={schedulerRows({ ...tradingStatus, ...schedulerValue, scheduler_error: scheduler?.error })}
           renderItem={(item) => (
             <>
               <strong>{item.name}</strong>

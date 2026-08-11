@@ -8,6 +8,12 @@ import { OpsConsole } from "./OpsConsole";
 const { request } = vi.hoisted(() => ({ request: vi.fn() }));
 
 request.mockImplementation(async (path) => {
+  if (path === "/api/v1/runtime/snapshot") return { exchange: { status: "available", value: {}, observed_at: "2026-08-11T00:00:00Z" }, scheduler: { status: "available", value: { running: false } } };
+  if (path.startsWith("/api/v1/runtime/decisions")) return { items: [] };
+  if (path.startsWith("/api/v1/runtime/exchange-orders")) return { items: [] };
+  if (path === "/api/v1/runtime/positions") return { exchange: { status: "available", value: { positions: [], open_orders: [] } }, local: { value: [] } };
+  if (path.startsWith("/api/v1/runtime/llm-invocations")) return { items: [] };
+  if (path === "/api/v1/runtime/reconciliation") return { status: "healthy", entry_blocked_symbols: [] };
   if (path === "/api/v1/system/health/dependencies") return { status: "ok", dependencies: {} };
   if (path === "/api/v1/execution/trading-status") return { scheduler_running: false, live_feed_status: {} };
   if (path === "/api/v1/agents/tasks") return { items: [] };
@@ -27,7 +33,7 @@ request.mockImplementation(async (path) => {
   throw new Error(`unexpected path ${path}`);
 });
 
-vi.mock("../api/client", () => ({ request }));
+vi.mock("../api/client", () => ({ request, streamUrl: (path) => `ws://localhost${path}` }));
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
