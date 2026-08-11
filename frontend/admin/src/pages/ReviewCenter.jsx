@@ -39,6 +39,8 @@ export function ReviewCenter() {
   const failureRows = asArray(failures.data?.items);
   const decisionRows = asArray(decisions.data?.items);
   const newsRows = asArray(news.data?.items);
+  const runtimeLoading = runtime.snapshot == null;
+  const runtimeError = runtime.error || (runtime.snapshot?.exchange?.status === "unavailable" ? runtime.snapshot.exchange.error : "");
 
   const generateTodayReview = async () => {
     const today = new Date().toISOString().slice(0, 10);
@@ -67,6 +69,7 @@ export function ReviewCenter() {
         <FeedPanel
           title="当前自动交易决策"
           rows={runtime.decisions}
+          loading={runtimeLoading} error={runtimeError ? new Error(runtimeError) : null}
           empty={runtime.snapshot?.exchange?.status === "unavailable" ? "运行事实暂不可用" : "当前没有自动交易决策"}
           render={(item) => (
             <>
@@ -78,6 +81,7 @@ export function ReviewCenter() {
         <FeedPanel
           title="当前交易所订单"
           rows={runtime.exchangeOrders}
+          loading={runtimeLoading} error={runtimeError ? new Error(runtimeError) : null}
           empty={runtime.snapshot?.exchange?.status === "unavailable" ? "交易所订单暂不可用" : "当前没有交易所订单"}
           render={(item) => (
             <>
@@ -89,6 +93,7 @@ export function ReviewCenter() {
         <FeedPanel
           title="当前对账状态"
           rows={runtime.reconciliation ? [runtime.reconciliation] : []}
+          loading={runtimeLoading} error={runtimeError ? new Error(runtimeError) : null}
           empty="对账状态待确认"
           render={(item) => <><strong>{formatEnum(item.status, "待确认")}</strong><span>{asArray(item.entry_blocked_symbols).length ? "存在限制开仓标的" : "暂无阻断标的"}</span></>}
         />

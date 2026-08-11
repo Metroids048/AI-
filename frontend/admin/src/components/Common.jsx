@@ -50,7 +50,7 @@ export function AppShell({ overview, snapshot, tradingStatus, streamStatus, erro
   const riskTone = riskStatus === "blocked" ? "danger" : riskStatus == null ? "neutral" : "ok";
   const dataTone = snapshot?.data_status === "ok" ? "ok" : snapshot?.data_status === "stale" ? "warn" : "neutral";
   const streamTone = streamStatus === "live" ? "ok" : streamStatus === "connecting" ? "warn" : streamStatus === "offline" ? "danger" : "neutral";
-  const modeLabel = tradingStatus?.mode === "testnet" ? "币安模拟盘" : "本地模拟盘";
+  const modeLabel = tradingStatus ? "币安模拟盘" : "状态待确认";
   const streamLabel = streamStatus === "live" ? "实时" : streamStatus === "connecting" ? "连接中" : streamStatus === "offline" ? "服务不可用" : "REST 轮询";
   const dataLabel = dataStatusLabel(snapshot?.data_status);
 

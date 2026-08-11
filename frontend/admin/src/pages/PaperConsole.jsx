@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { request } from "../api/client";
 import { WhyNoTrade } from "../components/AutomatedTrading";
 import { TradingSummaryHero } from "../components/TradingSummaryHero";
-import { AppShell } from "../components/Common";
+import { AppShell, DataState } from "../components/Common";
 import { KlinePanel, MarketHeader } from "../components/MarketPanels";
 import { ExecutionAcceptancePanel, TradingRecordsWorkspace } from "../components/TradingRecordsWorkspace";
 import {
@@ -240,6 +240,16 @@ export function PaperConsole() {
     () => deskOrdersFromRuntimeTruth(runtime.snapshot),
     [runtime.snapshot],
   );
+  const activeRuntimeDecisions = useMemo(
+    () => runtime.decisions.filter((item) => ["BTC/USDT", "ETH/USDT"].includes(platformSymbol(item.symbol))),
+    [runtime.decisions],
+  );
+  const runtimePositionsError = runtime.positions?.exchange?.status === "unavailable"
+    ? runtime.positions.exchange.error ?? "交易所持仓暂不可用"
+    : "";
+  const runtimeOrdersError = runtime.snapshot?.exchange?.status === "unavailable"
+    ? runtime.snapshot.exchange.error ?? "交易所订单暂不可用"
+    : "";
   const latestPosition = useMemo(
     () => (deskPositions ?? []).find((position) => position.symbol === symbol && Math.abs(Number(position.quantity)) > 0),
     [deskPositions, symbol],
@@ -367,7 +377,7 @@ export function PaperConsole() {
         account={account}
         positions={deskPositions}
         orders={deskOrders}
-        decisions={runtime.decisions}
+        decisions={activeRuntimeDecisions}
         tradingStatus={tradingStatusFromRuntimeSnapshot(runtime.snapshot)}
         globalRiskStatus={riskStatusFromRuntime(runtime.reconciliation)}
         streamStatus={data.streamStatus}
@@ -406,12 +416,12 @@ export function PaperConsole() {
           />
         </div>
         <div className="insight-rail">
-          <WhyNoTrade decisions={runtime.decisions} />
+          <WhyNoTrade decisions={activeRuntimeDecisions} />
         </div>
       </section>
       <TradingRecordsWorkspace tabs={[
-        { id: "positions", label: "持仓", count: deskPositions?.length ?? null, content: <PositionsTable positions={deskPositions ?? []} /> },
-        { id: "orders", label: "订单", count: deskOrders?.length ?? null, content: <OrdersTable orders={deskOrders ?? []} onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })} /> },
+        { id: "positions", label: "持仓", count: deskPositions?.length ?? null, content: <DataState loading={runtime.positions == null} error={runtimePositionsError} hasData={deskPositions != null} emptyLabel="持仓状态待确认"><PositionsTable positions={deskPositions ?? []} /></DataState> },
+        { id: "orders", label: "订单", count: deskOrders?.length ?? null, content: <DataState loading={runtime.snapshot == null} error={runtimeOrdersError} hasData={deskOrders != null} emptyLabel="订单状态待确认"><OrdersTable orders={deskOrders ?? []} onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })} /></DataState> },
         { id: "decisions", label: "决策详情", content: <div className="workspace-panel-grid"><DecisionDebugPanel decisionTrace={data.decisionTrace} /><MarketIntelligencePanel signal={data.intelligenceSignal} /></div> },
         { id: "account", label: "账户详情", content: <TestnetAccountPanel account={account} /> },
         { id: "manual", label: "手动操作", content: <TradingTicket symbol={symbol} timeframe={timeframe} mode={mode} manualContext={data.manualContext} latestPosition={latestPosition} latestPrice={latestPrice} onAction={handleAction} /> },
