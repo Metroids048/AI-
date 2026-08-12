@@ -1,5 +1,6 @@
-from datetime import UTC, datetime
-from time import sleep
+from datetime import UTC, datetime, timedelta
+from threading import Event, Thread
+from time import monotonic, sleep
 
 import pytest
 from starlette.websockets import WebSocketDisconnect
@@ -104,13 +105,154 @@ def test_runtime_exchange_truth_returns_stale_when_probe_busy(monkeypatch) -> No
     )
     monkeypatch.setattr(runtime, "_exchange_cache", (observed_at, cached))
     monkeypatch.setattr(runtime, "_EXCHANGE_CACHE_SECONDS", 0.0)
-    assert runtime._exchange_probe_lock.acquire(blocking=False)
+    monkeypatch.setattr(runtime, "_EXCHANGE_TRUTH_TIMEOUT_SECONDS", 0.05)
+    release = Event()
+
+    class BlockedGateway:
+        def reconcile(self, *, live_run_id: str, include_account_summary: bool = False) -> dict:
+            del live_run_id
+            del include_account_summary
+            release.wait(timeout=5)
+            return {"open_positions": [], "open_orders": []}
+
+    monkeypatch.setattr(runtime, "configured_gateways", lambda: [BlockedGateway()])
+    monkeypatch.setattr(runtime, "_exchange_inflight", None)
     try:
         result = runtime._exchange_truth()
     finally:
-        runtime._exchange_probe_lock.release()
+        release.set()
+        # Drain the probe so it cannot hold the single worker into the next test.
+        if runtime._exchange_inflight is not None:
+            runtime._exchange_inflight.result(timeout=5)
+
     assert result["status"] == "stale"
     assert result["value"] == {"positions": [], "open_orders": []}
+
+
+def test_runtime_exchange_truth_shares_one_probe_between_concurrent_callers(monkeypatch) -> None:
+    """A cold page load polls snapshot/positions/reconciliation together.
+
+    Each must get the same reconcile result instead of "probe already in progress".
+    """
+    started = Event()
+    release = Event()
+
+    class SlowGateway:
+        calls = 0
+
+        def reconcile(self, *, live_run_id: str, include_account_summary: bool = False) -> dict:
+            del live_run_id
+            del include_account_summary
+            type(self).calls += 1
+            started.set()
+            release.wait(timeout=5)
+            return {"open_positions": [], "open_orders": [], "reconciliation_status": "healthy"}
+
+    monkeypatch.setattr(runtime, "_exchange_cache", None)
+    monkeypatch.setattr(runtime, "_exchange_inflight", None)
+    monkeypatch.setattr(runtime, "configured_gateways", lambda: [SlowGateway()])
+
+    results: list[dict] = []
+    threads = [Thread(target=lambda: results.append(runtime._exchange_truth())) for _ in range(3)]
+    for thread in threads:
+        thread.start()
+    assert started.wait(timeout=5)
+    release.set()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert SlowGateway.calls == 1
+    assert len(results) == 3
+    assert [item["status"] for item in results] == ["available"] * 3
+
+
+def test_exchange_cache_window_outlives_the_console_poll_interval() -> None:
+    """The console polls every 30s (FALLBACK_INTERVAL_MS in useRuntimeTruth.js).
+
+    A cache window shorter than that interval means every poll expires the cache and
+    pays full reconcile latency, so jitter randomly flips the account panel to
+    "unavailable". Keep this invariant if either value changes.
+    """
+    console_poll_interval_seconds = 30.0
+    assert console_poll_interval_seconds < runtime._EXCHANGE_CACHE_SECONDS
+    assert console_poll_interval_seconds > runtime._EXCHANGE_BACKGROUND_REFRESH_SECONDS
+    assert runtime._EXCHANGE_MAX_SERVE_SECONDS > runtime._EXCHANGE_CACHE_SECONDS
+
+
+def test_runtime_exchange_truth_serves_cache_and_refreshes_in_background(monkeypatch) -> None:
+    """A poll landing past the background-refresh age must return immediately from cache
+    and trigger a refresh, never block on the reconcile."""
+    aged_at = datetime.now(UTC) - timedelta(seconds=25)
+    cached = runtime._datum(
+        value={"positions": [], "open_orders": []},
+        source="BINANCE_USDT_M_TESTNET",
+        observed_at=aged_at,
+    )
+    release = Event()
+    started = Event()
+
+    class SlowGateway:
+        def reconcile(self, *, live_run_id: str, include_account_summary: bool = False) -> dict:
+            del live_run_id
+            del include_account_summary
+            started.set()
+            release.wait(timeout=5)
+            return {"open_positions": [], "open_orders": []}
+
+    monkeypatch.setattr(runtime, "_exchange_cache", (aged_at, cached))
+    monkeypatch.setattr(runtime, "_exchange_inflight", None)
+    monkeypatch.setattr(runtime, "configured_gateways", lambda: [SlowGateway()])
+
+    started_at = monotonic()
+    result = runtime._exchange_truth()
+    elapsed = monotonic() - started_at
+
+    try:
+        # Served from cache: must not wait on the slow reconcile.
+        assert elapsed < 1.0, f"blocked on reconcile for {elapsed:.2f}s instead of serving cache"
+        assert result["value"] == {"positions": [], "open_orders": []}
+        # And a background refresh must have been kicked off.
+        assert started.wait(timeout=5), "no background refresh was started"
+    finally:
+        release.set()
+        if runtime._exchange_inflight is not None:
+            runtime._exchange_inflight.result(timeout=5)
+
+
+def test_runtime_exchange_truth_recovers_after_a_waiter_times_out(monkeypatch) -> None:
+    """The bug this guards: a timed-out probe used to be cancelled and its result thrown
+    away, so the single worker restarted from zero on every poll and the console stayed
+    permanently unavailable. The probe must instead publish its own result.
+    """
+    release = Event()
+
+    class SlowGateway:
+        calls = 0
+
+        def reconcile(self, *, live_run_id: str, include_account_summary: bool = False) -> dict:
+            del live_run_id
+            del include_account_summary
+            type(self).calls += 1
+            release.wait(timeout=5)
+            return {"open_positions": [], "open_orders": [], "reconciliation_status": "healthy"}
+
+    monkeypatch.setattr(runtime, "_exchange_cache", None)
+    monkeypatch.setattr(runtime, "_exchange_inflight", None)
+    monkeypatch.setattr(runtime, "_EXCHANGE_TRUTH_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(runtime, "configured_gateways", lambda: [SlowGateway()])
+
+    timed_out = runtime._exchange_truth()
+    assert timed_out["status"] == "unavailable"
+    assert "exceeded" in timed_out["error"]
+
+    release.set()
+    inflight = runtime._exchange_inflight
+    assert inflight is not None
+    inflight.result(timeout=5)
+
+    recovered = runtime._exchange_truth()
+    assert recovered["status"] == "available"
+    assert SlowGateway.calls == 1, "the slow probe must not be restarted from zero"
 
 
 def test_runtime_snapshot_exposes_exchange_unavailable_without_zero_fallback(

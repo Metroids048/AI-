@@ -2,6 +2,8 @@
  * 交易总览 Hero - 主页核心信息卡片
  * 展示账户、持仓、盈亏、策略状态等关键指标
  */
+import { formatRuntimeError } from "../utils/format";
+
 const DEFAULT_BINANCE_TESTNET_URL = "https://testnet.binancefuture.com/en/futures/BTCUSDT";
 
 export function TradingSummaryHero({
@@ -72,7 +74,10 @@ export function TradingSummaryHero({
 
   // 后端字段是 web_ui_url；断连时也必须保留默认可跳转入口（勿依赖错误字段 testnet_url）
   const binanceTestnetUrl = account?.web_ui_url || DEFAULT_BINANCE_TESTNET_URL;
-  const connectionError = !isExchangeConnected && account?.error ? String(account.error) : null;
+  // Backend errors are technical English. Present them in Chinese, and keep the raw
+  // text as a tooltip so the exact backend reason is still recoverable.
+  const rawConnectionError = !isExchangeConnected && account?.error ? String(account.error) : null;
+  const connectionError = rawConnectionError ? formatRuntimeError(rawConnectionError) : null;
 
   return (
     <div className="trading-summary-hero">
@@ -158,7 +163,7 @@ export function TradingSummaryHero({
         >
           打开币安模拟盘
         </a>
-        <span className="trading-summary-action-hint">
+        <span className="trading-summary-action-hint" title={rawConnectionError ?? undefined}>
           {isExchangeConnected
             ? "用同一模拟账户对账；勿用主网 futures.binance.com"
             : connectionError

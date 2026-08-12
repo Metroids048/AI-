@@ -726,7 +726,12 @@ class RuntimeScheduler:
         heartbeat = self.status.last_results.get("market_data_heartbeat", {})
         checked_symbols = heartbeat.get("checked_symbols", []) if isinstance(heartbeat, dict) else []
         stale_symbols = heartbeat.get("stale_symbols", []) if isinstance(heartbeat, dict) else []
-        execution_symbols = [symbol for symbol in AUTO_SIMULATION_EXECUTION_SYMBOLS if symbol in checked_symbols]
+        # Execution scope is a fixed runtime contract, not an observation
+        # derived from the first asynchronous market heartbeat.  Publishing an
+        # empty scope while that heartbeat is still pending makes the launcher
+        # reject a healthy ACTIVE scheduler during its startup window.
+        execution_symbols = list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+        execution_scope_observed = set(AUTO_SIMULATION_EXECUTION_SYMBOLS).issubset(checked_symbols)
         execution_stale_symbols = set(stale_symbols) & set(AUTO_SIMULATION_EXECUTION_SYMBOLS)
         exchange_info = self.status.last_results.get("exchange_info_refresh", {})
         write_external_scheduler_state(
@@ -737,8 +742,7 @@ class RuntimeScheduler:
                 "execution_coverage_count": len(execution_symbols),
                 "execution_symbols": execution_symbols,
                 "exchange_info_ready": bool(exchange_info.get("ready")) if isinstance(exchange_info, dict) else False,
-                "data_fresh": len(execution_symbols) == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
-                and not execution_stale_symbols,
+                "data_fresh": execution_scope_observed and not execution_stale_symbols,
                 "last_auto_cycle_at": self.status.last_auto_cycle_at.isoformat()
                 if self.status.last_auto_cycle_at
                 else None,

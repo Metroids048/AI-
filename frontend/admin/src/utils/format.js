@@ -88,6 +88,140 @@ export function formatEnum(value, fallback = "状态待确认") {
   return ENUM_LABELS[String(value)] ?? String(value);
 }
 
+/**
+ * Decision funnel stages (shared/models/execution_truth.py DecisionFunnelStage).
+ * These are the pipeline checkpoints a decision bar passes through.
+ */
+const DECISION_STAGE_LABELS = {
+  data_available: "数据就绪",
+  data_fresh: "数据新鲜度",
+  regime_confirmed: "市场状态确认",
+  entry_signal: "入场信号",
+  candidate_created: "生成候选",
+  meta_label_passed: "元标签筛选",
+  manifest_eligible: "策略清单准入",
+  reconciliation_healthy: "对账健康",
+  risk_approved: "风控通过",
+  ai_reviewed: "AI 复核",
+  price_drift_passed: "价格漂移检查",
+  exchange_submitted: "已提交交易所",
+  exchange_filled: "交易所成交",
+  protection_confirmed: "止损止盈已挂",
+};
+
+/**
+ * Terminal reason codes. Only codes whose meaning was confirmed in the backend are
+ * mapped; anything else falls through to the raw code so a new backend reason is
+ * visibly untranslated instead of silently mislabeled.
+ */
+const DECISION_REASON_LABELS = {
+  // Observed in the running console
+  ENSEMBLE_DISCARDED: "多策略投票未形成方向",
+  TESTNET_SAMPLING_SIGNAL: "采样通道信号",
+  TECHNICAL_SIGNALS_INSUFFICIENT: "技术信号不足",
+  POSITION_MANAGEMENT_ONLY: "仅持仓管理，不开新仓",
+  SAMPLING_RULES_NOT_ALIGNED: "采样规则未对齐",
+  VETOED: "决策被否决",
+  BET_TAKEN: "已下注",
+  PROTECTION_CONFIRMED: "止损止盈已确认",
+  // Entry / signal
+  NO_ENTRY_SIGNAL: "无入场信号",
+  NO_CLOSED_CANDLE: "K 线未收盘",
+  INSUFFICIENT_HISTORY: "历史数据不足",
+  EMA_DIRECTION_MISMATCH: "EMA 方向不一致",
+  MACD_DIRECTION_MISMATCH: "MACD 方向不一致",
+  RSI_OUTSIDE_RANGE: "RSI 超出区间",
+  ATR_NOT_POSITIVE: "ATR 非正值",
+  MULTI_TIMEFRAME_DISAGREEMENT: "多周期方向冲突",
+  FOUR_HOUR_DIRECTION_CONFLICT: "4 小时方向冲突",
+  ONE_HOUR_REGIME_RANGE: "1 小时处于震荡区间",
+  SINGLE_TIMEFRAME_LANE: "单周期通道",
+  SIGNAL_CONFIDENCE_BELOW_THRESHOLD: "信号置信度低于阈值",
+  REGIME_NOT_ELIGIBLE: "市场状态不符合准入",
+  // Meta label / manifest
+  META_LABEL_BET_SKIPPED: "元标签判定跳过",
+  META_LABEL_NOT_CONFIGURED: "元标签未配置",
+  MANIFEST_NOT_ELIGIBLE: "策略清单不准入",
+  MANIFEST_UNAVAILABLE: "策略清单不可用",
+  // Risk / gates
+  NET_EDGE_AFTER_COST_NEGATIVE: "扣除成本后预期为负",
+  RISK_LIMIT_EXCEEDED: "超出风控限额",
+  PRICE_DRIFT_EXCEEDED: "价格漂移超限",
+  DAILY_TRADE_LIMIT_REACHED: "已达当日交易上限",
+  SYMBOL_COOLDOWN_ACTIVE: "该标的处于冷却期",
+  POSITION_ALREADY_OPEN: "已有持仓",
+  DUPLICATE_DECISION: "重复决策",
+  CANDIDATE_EXPIRED: "候选已过期",
+  CANDIDATE_CONSTRUCTION_FAILED: "候选构建失败",
+  ENTRY_KILL_SWITCH_ACTIVE: "入场熔断已触发",
+  SYMBOL_NOT_IN_EXECUTION_UNIVERSE: "标的不在执行范围内",
+  UNMANAGED_EXTERNAL_POSITION: "存在未托管的外部持仓",
+  // Availability
+  EXCHANGE_UNAVAILABLE: "交易所不可用",
+  EXCHANGE_UNKNOWN: "交易所状态未知",
+  EXCHANGE_REJECTED: "交易所拒单",
+  MARKET_DATA_UNAVAILABLE: "行情数据不可用",
+  MARKET_DATA_STALE: "行情数据过期",
+  NO_MARKET_DATA: "无行情数据",
+  MARKET_RULES_UNAVAILABLE: "交易规则不可用",
+  LOCAL_STATE_UNAVAILABLE: "本地状态不可用",
+  RECONCILIATION_UNAVAILABLE: "对账不可用",
+  RECONCILIATION_DEGRADED: "对账降级",
+  RECOVERY_REQUIRED: "需要恢复处理",
+  AI_PROVIDER_UNAVAILABLE: "AI 服务不可用",
+  AI_REVIEW_DISABLED: "AI 复核未启用",
+  AI_ADVISORY_VETO: "AI 建议否决",
+  SHADOW_MODE_NO_SUBMIT: "影子模式，不提交订单",
+  INTERNAL_ERROR: "内部错误",
+  // Success path
+  OK: "正常",
+  APPROVED: "已通过",
+  ENTRY_INTENT_CREATED: "已生成入场意图",
+  CANDIDATE_ACCEPTED: "候选已接受",
+  candidate_accepted: "候选已接受",
+  EXCHANGE_FILLED: "交易所已成交",
+  ACKNOWLEDGED_UNFILLED: "已受理未成交",
+  PARTIALLY_FILLED: "部分成交",
+  FILLED: "已成交",
+  PROTECTION_FAILED: "止损止盈挂单失败",
+};
+
+export function formatDecisionStage(value) {
+  if (value === null || value === undefined || value === "") return "--";
+  const key = String(value);
+  return DECISION_STAGE_LABELS[key] ?? DECISION_STAGE_LABELS[key.toLowerCase()] ?? key;
+}
+
+export function formatDecisionReason(value) {
+  if (value === null || value === undefined || value === "") return "--";
+  const key = String(value);
+  return DECISION_REASON_LABELS[key] ?? DECISION_REASON_LABELS[key.toUpperCase()] ?? key;
+}
+
+/** Strip the CCXT perpetual suffix so the UI shows BTC/USDT, not BTC/USDT:USDT. */
+export function formatSymbol(value) {
+  if (value === null || value === undefined || value === "") return "--";
+  return String(value).replace(":USDT", "");
+}
+
+const RUNTIME_ERROR_LABELS = [
+  [/exchange truth probe exceeded/i, "交易所账户读取超时，正在后台重试"],
+  [/exchange truth probe already in progress/i, "交易所账户读取中，请稍候"],
+  [/exchange snapshot omitted open_positions/i, "交易所返回数据不完整"],
+  [/timed? ?out|timeout/i, "请求超时"],
+  [/connection|network|unreachable|refused/i, "网络连接失败"],
+];
+
+/** Turn a backend technical error into operator-facing Chinese, keeping the raw text as detail. */
+export function formatRuntimeError(value) {
+  if (!value) return "";
+  const text = String(value);
+  for (const [pattern, label] of RUNTIME_ERROR_LABELS) {
+    if (pattern.test(text)) return label;
+  }
+  return text;
+}
+
 export function formatFieldLabel(value) {
   return FIELD_LABELS[String(value)] ?? String(value ?? "");
 }

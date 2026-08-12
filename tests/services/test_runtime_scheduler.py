@@ -230,6 +230,30 @@ def test_scheduler_publishes_only_active_execution_scope(monkeypatch) -> None:
     assert captured["entry_authorized"] is True
 
 
+def test_scheduler_publishes_fixed_execution_scope_before_market_heartbeat(monkeypatch) -> None:
+    """The ACTIVE launch contract must not wait for the first market heartbeat."""
+    from services.execution import scheduler as scheduler_module
+
+    captured = {}
+    monkeypatch.setattr(scheduler_module, "write_external_scheduler_state", captured.update)
+    scheduler = RuntimeScheduler()
+    scheduler.status.engine_activation = "ACTIVE"
+    scheduler.status.execution_mode = "BINANCE_TESTNET"
+    scheduler.status.execution_strategy_id = "testnet_sampling_v2"
+    scheduler.status.registered_jobs = ("automated_trading_v2_cycle",)
+    scheduler.status.legacy_writer_enabled = False
+    scheduler.status.entry_enabled = True
+    scheduler.status.sampling_fallback_enabled = True
+    scheduler.status.external_baseline_captured = True
+    scheduler.status.entry_authorized = True
+
+    scheduler._publish_external_state()
+
+    assert captured["execution_symbols"] == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    assert captured["execution_coverage_count"] == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    assert captured["data_fresh"] is False
+
+
 def test_empty_external_baseline_is_not_captured(monkeypatch) -> None:
     from services.execution import scheduler as scheduler_module
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import UTC, datetime
 from threading import Lock
@@ -26,11 +26,32 @@ from shared.models import PaperRun, RuntimeDatum
 from shared.models.execution_truth import ExchangeOrderState, ExecutionMode
 
 router = APIRouter(prefix="/runtime", tags=["runtime-truth"])
-_EXCHANGE_CACHE_SECONDS = 15.0
-_EXCHANGE_TRUTH_TIMEOUT_SECONDS = 8.0
+# Serve-from-cache window. This MUST exceed the console poll interval
+# (FALLBACK_INTERVAL_MS = 30s in frontend/admin/src/hooks/useRuntimeTruth.js).
+# It was previously 15s, i.e. shorter than the poll interval, so every single UI poll
+# found an expired cache and paid the full reconcile latency. Measured reconcile cost
+# on this host is 4-9s, so any jitter past the request budget flipped the console to
+# "unavailable" at random.
+_EXCHANGE_CACHE_SECONDS = 45.0
+# Age past which a cached snapshot is refreshed in the background while still being
+# served immediately. Keeps the console responsive without ever serving data that is
+# older than one poll cycle.
+_EXCHANGE_BACKGROUND_REFRESH_SECONDS = 20.0
+# Age past which cached data is too old to serve without confirmation; the caller waits
+# for a live probe instead.
+_EXCHANGE_MAX_SERVE_SECONDS = 90.0
+# One reconcile is ~6 sequential authenticated Binance calls, and the first probe in
+# a fresh API process also pays CCXT load_markets(). Measured cold cost on this host
+# exceeded the previous 8s budget, so every probe timed out and the console stayed
+# permanently "unavailable". This value is a request-side responsiveness budget, not a
+# probe deadline: a probe that outlives its waiter keeps running and caches its own
+# result, so the next poll is served from real exchange data instead of restarting
+# the work from scratch.
+_EXCHANGE_TRUTH_TIMEOUT_SECONDS = 20.0
 _exchange_cache_lock = Lock()
 _exchange_probe_lock = Lock()
 _exchange_cache: tuple[datetime, dict] | None = None
+_exchange_inflight: Future | None = None
 _exchange_truth_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="runtime-exchange-truth")
 
 
@@ -67,14 +88,101 @@ def _cached_exchange_truth(*, allow_stale: bool) -> dict | None:
         return None
 
 
-def _exchange_truth() -> dict:
+def _cached_exchange_age_seconds() -> float | None:
+    with _exchange_cache_lock:
+        if _exchange_cache is None:
+            return None
+        return (datetime.now(UTC) - _exchange_cache[0]).total_seconds()
+
+
+def _probe_exchange_truth() -> dict:
+    """Run one reconcile and cache its outcome. Runs on the probe worker thread.
+
+    This caches its own result before returning so that a probe whose waiter already
+    timed out still publishes real exchange data for the next poll.
+    """
     global _exchange_cache
+    observed_at = datetime.now(UTC)
+    try:
+        gateway = configured_gateways()[0]
+        snapshot = gateway.reconcile(
+            live_run_id=f"runtime-truth:{observed_at.isoformat()}",
+            include_account_summary=True,
+        )
+        if "open_positions" not in snapshot:
+            raise ValueError("exchange snapshot omitted open_positions")
+        account = snapshot.get("account")
+        exchange_value = {
+            "positions": snapshot["open_positions"],
+            "open_orders": snapshot.get("open_orders") or [],
+            "reconciliation_status": snapshot.get("reconciliation_status"),
+            "notes": snapshot.get("notes") or [],
+        }
+        if account is not None:
+            exchange_value["account"] = account
+        result = _datum(
+            value=exchange_value,
+            source="BINANCE_USDT_M_TESTNET",
+            observed_at=observed_at,
+        )
+    except Exception as exc:  # noqa: BLE001 - unavailable must be explicit
+        stale = _cached_exchange_truth(allow_stale=True)
+        if stale is not None and stale.get("value") is not None:
+            result = dict(stale)
+            result["status"] = "stale"
+            result["freshness"] = "stale"
+            result["error"] = str(exc)
+        else:
+            result = _datum(
+                value=None,
+                source="BINANCE_USDT_M_TESTNET",
+                observed_at=observed_at,
+                status="unavailable",
+                error=str(exc),
+            )
+    with _exchange_cache_lock:
+        _exchange_cache = (datetime.now(UTC), result)
+    return result
+
+
+def _ensure_exchange_probe() -> Future:
+    """Return the in-flight probe, starting one only when none is running.
+
+    Concurrent callers share a single reconcile. The previous code rejected them with
+    "probe already in progress", which made 2 of the 3 exchange-backed endpoints report
+    unavailable on every cold page load because the console polls them in one batch.
+    """
+    global _exchange_inflight
+    with _exchange_probe_lock:
+        inflight = _exchange_inflight
+        if inflight is not None and not inflight.done():
+            return inflight
+        future = _exchange_truth_executor.submit(_probe_exchange_truth)
+        _exchange_inflight = future
+        return future
+
+
+def _exchange_truth() -> dict:
+    age = _cached_exchange_age_seconds()
+    if age is not None and age < _EXCHANGE_MAX_SERVE_SECONDS:
+        cached = _cached_exchange_truth(allow_stale=True)
+        if cached is not None and cached.get("value") is not None:
+            # Refresh ahead of expiry so the next poll is also a cache hit. The console
+            # polls every 30s; blocking each poll on a 4-9s reconcile is what made the
+            # account panel flicker to "unavailable" on jitter.
+            if age >= _EXCHANGE_BACKGROUND_REFRESH_SECONDS:
+                _ensure_exchange_probe()
+            return cached
     fresh = _cached_exchange_truth(allow_stale=False)
     if fresh is not None:
         return fresh
-    # One probe at a time. Concurrent UI polls must not queue behind a hung
-    # Binance reconcile on the single worker thread.
-    if not _exchange_probe_lock.acquire(blocking=False):
+    future = _ensure_exchange_probe()
+    try:
+        return future.result(timeout=_EXCHANGE_TRUTH_TIMEOUT_SECONDS)
+    except FutureTimeoutError:
+        # Deliberately do not cancel: the probe keeps running and caches its own
+        # result, so the next poll is served from real exchange data. Cancelling here
+        # is what previously made every probe restart from zero and time out forever.
         stale = _cached_exchange_truth(allow_stale=True)
         if stale is not None:
             return stale
@@ -83,59 +191,8 @@ def _exchange_truth() -> dict:
             source="BINANCE_USDT_M_TESTNET",
             observed_at=datetime.now(UTC),
             status="unavailable",
-            error="exchange truth probe already in progress",
+            error=f"exchange truth probe exceeded {_EXCHANGE_TRUTH_TIMEOUT_SECONDS:.0f}s",
         )
-    try:
-        observed_at = datetime.now(UTC)
-        try:
-            gateway = configured_gateways()[0]
-            future = _exchange_truth_executor.submit(
-                gateway.reconcile,
-                live_run_id=f"runtime-truth:{observed_at.isoformat()}",
-                include_account_summary=True,
-            )
-            try:
-                snapshot = future.result(timeout=_EXCHANGE_TRUTH_TIMEOUT_SECONDS)
-            except FutureTimeoutError as exc:
-                future.cancel()
-                raise TimeoutError(f"exchange truth probe exceeded {_EXCHANGE_TRUTH_TIMEOUT_SECONDS:.0f}s") from exc
-            if "open_positions" not in snapshot:
-                raise ValueError("exchange snapshot omitted open_positions")
-            account = snapshot.get("account")
-            exchange_value = {
-                "positions": snapshot["open_positions"],
-                "open_orders": snapshot.get("open_orders") or [],
-                "reconciliation_status": snapshot.get("reconciliation_status"),
-                "notes": snapshot.get("notes") or [],
-            }
-            if account is not None:
-                exchange_value["account"] = account
-            result = _datum(
-                value=exchange_value,
-                source="BINANCE_USDT_M_TESTNET",
-                observed_at=observed_at,
-            )
-        except Exception as exc:  # noqa: BLE001 - unavailable must be explicit
-            stale = _cached_exchange_truth(allow_stale=True)
-            if stale is not None and stale.get("value") is not None:
-                stale = dict(stale)
-                stale["status"] = "stale"
-                stale["freshness"] = "stale"
-                stale["error"] = str(exc)
-                result = stale
-            else:
-                result = _datum(
-                    value=None,
-                    source="BINANCE_USDT_M_TESTNET",
-                    observed_at=observed_at,
-                    status="unavailable",
-                    error=str(exc),
-                )
-        with _exchange_cache_lock:
-            _exchange_cache = (datetime.now(UTC), result)
-        return result
-    finally:
-        _exchange_probe_lock.release()
 
 
 def _platform_symbol(value: object) -> str:

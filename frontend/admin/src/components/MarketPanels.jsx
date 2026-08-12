@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { CandlestickSeries, createChart } from "lightweight-charts";
 
-import { formatNumber, formatPercent, formatTime } from "../utils/format";
+import { formatNumber, formatPercent, formatSymbol, formatTime } from "../utils/format";
 import { Metric } from "./Common";
 
 export const TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"];
@@ -22,8 +22,9 @@ export function MarketHeader({ snapshot, symbol, perpSymbol, timeframe, onTimefr
   return (
     <section className="market-header exchange-panel">
       <div className="symbol-block">
-        <strong>{perpSymbol}</strong>
-        <span>{symbol} / 币安 USDT 永续模拟盘</span>
+        {/* The raw CCXT id (BTC/USDT:USDT) is a machine identifier, not a heading. */}
+        <strong title={perpSymbol}>{formatSymbol(perpSymbol)}</strong>
+        <span>币安 USDT 永续模拟盘</span>
       </div>
       <div className="timeframe-tabs" role="group" aria-label="K线周期">
         {TIMEFRAMES.map((item) => (
@@ -40,9 +41,9 @@ export function MarketHeader({ snapshot, symbol, perpSymbol, timeframe, onTimefr
       <div className="quote-grid">
         <Metric label="现货价格" value={formatNumber(snapshot?.spot_last_price)} />
         <Metric label="永续价格" value={formatNumber(snapshot?.perp_last_price)} />
-        <Metric label="基差" value={`${formatNumber(snapshot?.basis_bps, 2)} bps`} />
+        <Metric label="基差" value={`${formatNumber(snapshot?.basis_bps, 2)} 个基点`} />
         <Metric label="资金费率" value={formatPercent(snapshot?.funding_rate)} />
-        <Metric label="下次 Funding" value={formatTime(snapshot?.next_funding_at)} />
+        <Metric label="下次结算" value={formatTime(snapshot?.next_funding_at)} />
         <Metric label="行情源" value={`${feedLabel} / ${delay}`} />
       </div>
     </section>
@@ -129,9 +130,9 @@ export function KlinePanel({ candles, latestKline, snapshotVersion, orders, symb
         {!chartData.length ? <div className="empty-overlay">暂无 K 线数据</div> : null}
       </div>
       <div className="marker-strip">
-        <span>当前蜡烛：实时 update</span>
+        <span>当前蜡烛：实时更新</span>
         <span>拒单：{rejectedOrders.length}</span>
-        <span>SL/TP：审计价格线</span>
+        <span>止损/止盈：审计价格线</span>
       </div>
     </section>
   );

@@ -88,11 +88,11 @@ describe("WhyNoTrade", () => {
     expect(screen.getByText(/暂无决策记录/)).toBeTruthy();
   });
 
-  it("renders decision reason code", () => {
+  it("renders the reason in Chinese and keeps the raw code recoverable", () => {
     const decisions = [
       {
         symbol: "BTC/USDT",
-        terminal_stage: "ENTRY_SIGNAL_EVALUATED",
+        terminal_stage: "entry_signal",
         reason_code: "NO_ENTRY_SIGNAL",
         evaluated_at: new Date().toISOString(),
         candidate_id: null,
@@ -100,8 +100,29 @@ describe("WhyNoTrade", () => {
       },
     ];
     render(<WhyNoTrade decisions={decisions} />);
-    expect(screen.getByText("NO_ENTRY_SIGNAL")).toBeTruthy();
+    const reason = screen.getByText("无入场信号");
+    expect(reason).toBeTruthy();
+    // The machine-readable code must stay available for debugging.
+    expect(reason.getAttribute("title")).toBe("NO_ENTRY_SIGNAL");
+    expect(screen.getByText("入场信号")).toBeTruthy();
+    expect(screen.queryByText("NO_ENTRY_SIGNAL")).toBeNull();
     expect(screen.getByText("BTC/USDT")).toBeTruthy();
+  });
+
+  it("strips the perpetual suffix from the symbol", () => {
+    const decisions = [
+      {
+        symbol: "BTC/USDT:USDT",
+        terminal_stage: "entry_signal",
+        reason_code: "ENSEMBLE_DISCARDED",
+        evaluated_at: new Date().toISOString(),
+        candidate_id: null,
+        exchange_submitted: false,
+      },
+    ];
+    render(<WhyNoTrade decisions={decisions} />);
+    expect(screen.getByText("BTC/USDT")).toBeTruthy();
+    expect(screen.getByText("多策略投票未形成方向")).toBeTruthy();
   });
 
   it("shows exchange submitted badge when true", () => {

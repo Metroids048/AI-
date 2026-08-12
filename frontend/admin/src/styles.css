@@ -1344,7 +1344,6 @@ h1 {
   grid-template-columns: minmax(540px, 1.75fr) minmax(250px, 0.7fr) minmax(300px, 0.76fr);
   gap: 0;
   align-items: stretch;
-  min-height: 610px;
 }
 
 .chart-rail,
@@ -1359,12 +1358,11 @@ h1 {
 }
 
 .kline-panel {
-  min-height: 610px;
+  /* Responsive height via clamp in .kline-section; removed fixed 610px */
 }
 
 .chart-box {
-  height: 500px;
-  min-height: 500px;
+  height: clamp(280px, 38vh, 420px);
   background: #ffffff;
 }
 
@@ -1441,7 +1439,7 @@ h1 {
 }
 
 .trading-ticket {
-  min-height: 610px;
+  /* Height adapts to content; removed fixed 610px min-height */
 }
 
 .ticket-grid {
@@ -2105,6 +2103,100 @@ td {
   .trading-summary-binance-link { padding: 5px 9px; }
 }
 
-.why-no-trade { background: #fafafa; border: 1px solid #eaecef; color: #1e2329; }
-.why-no-trade-row { background: #ffffff; border: 1px solid #eaecef; color: #1e2329; }
-.why-no-trade h3, .why-no-trade strong { color: #1e2329; }
+/* Why-no-trade panel. Self-contained light palette: this component previously
+   inherited dark-theme utility classes, which rendered the symbol invisible. */
+.why-no-trade {
+  background: #fafafa;
+  border: 1px solid #eaecef;
+  border-radius: 8px;
+  color: #1e2329;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.why-no-trade h3 {
+  color: #1e2329;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+.why-no-trade-empty {
+  color: #707a8a;
+  font-size: 12px;
+  margin: 0;
+}
+
+.why-no-trade-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.why-no-trade-row {
+  background: #ffffff;
+  border: 1px solid #eaecef;
+  border-radius: 6px;
+  color: #1e2329;
+  padding: 9px 10px;
+}
+
+.why-no-trade-row-head {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.why-no-trade-symbol {
+  color: #1e2329;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.why-no-trade-time {
+  color: #929aa5;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.why-no-trade-row-body {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.why-no-trade-label {
+  color: #707a8a;
+  font-size: 11px;
+}
+
+.why-no-trade-stage {
+  color: #1e2329;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.why-no-trade-reason {
+  background: #f0f1f3;
+  border-radius: 4px;
+  color: #474d57;
+  font-size: 11px;
+  padding: 2px 7px;
+}
+
+.why-no-trade-reason.is-blocked {
+  background: #fdf3e6;
+  color: #a35200;
+}
+
+.why-no-trade-submitted {
+  color: #0a8f5f;
+  font-size: 11px;
+  margin-top: 6px;
+}
