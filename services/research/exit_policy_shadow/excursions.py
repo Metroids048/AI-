@@ -7,6 +7,7 @@ the exit was never available to that policy and must not inflate its MFE.
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 
 from services.research.exit_policy_shadow.contracts import Bar, ExcursionMetrics, Side
@@ -66,3 +67,47 @@ def compute_excursions(
         mfe_pnl_usdt=best_favourable * quantity,
         mae_pnl_usdt=worst_adverse * quantity,
     )
+
+
+def compute_post_exit_remaining_mfe_r(
+    *,
+    side: Side,
+    entry_price: Decimal,
+    exit_time: datetime,
+    horizon_end: datetime,
+    bars: list[Bar],
+    in_policy_mfe_pct: Decimal,
+    risk_per_unit: Decimal | None,
+) -> Decimal | None:
+    """Additional favourable excursion, in R, after the policy exited.
+
+    Measures how much *further* price moved in the entry's direction between the
+    policy's exit and ``horizon_end``, beyond the best excursion the policy had already
+    seen. Only bars strictly after ``exit_time`` and at or before ``horizon_end`` count.
+
+    Research-only. This is deliberately *not* part of realised PnL: the policy had
+    already exited and could not have captured it. It answers one narrow question —
+    whether price kept going the entry's way — and is the correct place to look for exit
+    truncation, because the policy-horizon capture ratio cannot see past its own exit.
+
+    Returns None when risk is undefined or no post-exit bars exist, rather than 0, so
+    "no continuation" stays distinguishable from "not measurable".
+    """
+    if risk_per_unit is None or risk_per_unit <= 0:
+        return None
+
+    post_exit = [bar for bar in bars if bar.time > exit_time and bar.time <= horizon_end]
+    if not post_exit:
+        return None
+
+    best_favourable = Decimal("0")
+    for bar in post_exit:
+        favourable = bar.high - entry_price if side == "long" else entry_price - bar.low
+        if favourable > best_favourable:
+            best_favourable = favourable
+
+    already_captured = in_policy_mfe_pct / Decimal("100") * entry_price
+    additional = best_favourable - already_captured
+    if additional <= 0:
+        return Decimal("0")
+    return additional / risk_per_unit

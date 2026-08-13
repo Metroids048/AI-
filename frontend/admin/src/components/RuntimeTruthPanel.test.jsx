@@ -1,9 +1,68 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { RuntimeTruthPanel } from "./RuntimeTruthPanel";
 
+afterEach(cleanup);
+
 describe("RuntimeTruthPanel", () => {
+  it("makes an active scheduler with no entry authority visibly paused", () => {
+    render(
+      <RuntimeTruthPanel
+        symbol="BTC/USDT"
+        runtime={{
+          snapshot: {
+            exchange: { status: "available" },
+            scheduler: { status: "available" },
+            entry_runtime: {
+              status: "available",
+              value: {
+                trading_state: "ENTRY_PAUSED",
+                entry_authority: "NONE",
+                entry_authority_reason: "production_pending",
+                production_authorization_state: "PENDING",
+              },
+            },
+          },
+          decisions: [],
+          streamStatus: "live",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("新开仓已暂停")).toBeTruthy();
+    expect(screen.getByText(/production_pending/)).toBeTruthy();
+    expect(screen.getByText("自动平仓")).toBeTruthy();
+  });
+
+  it("identifies isolated Testnet Canary trading", () => {
+    render(
+      <RuntimeTruthPanel
+        symbol="BTC/USDT"
+        runtime={{
+          snapshot: {
+            exchange: { status: "available" },
+            scheduler: { status: "available" },
+            entry_runtime: {
+              status: "available",
+              value: {
+                trading_state: "TRADING",
+                entry_authority: "TESTNET_CANARY",
+                active_entry_strategy: "testnet_sampling_v2",
+                production_authorization_state: "PENDING",
+              },
+            },
+          },
+          decisions: [],
+          streamStatus: "live",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Testnet Canary 自动交易中")).toBeTruthy();
+    expect(screen.getByText(/不进入 Production 晋升证据/)).toBeTruthy();
+  });
+
   it("shows the terminal no-trade reason and explicit unavailable exchange state", () => {
     render(
       <RuntimeTruthPanel
@@ -56,6 +115,11 @@ describe("RuntimeTruthPanel", () => {
               status: "SKIPPED",
               terminal_stage: "regime_confirmed",
               reason_code: "ONE_HOUR_REGIME_NOT_ALIGNED",
+              strategy: "testnet_sampling_v2",
+              entry_authority: "TESTNET_CANARY",
+              signal_generated: false,
+              entry_gate_result: "regime_confirmed",
+              entry_submitted: false,
               bar_time: "2026-07-27T05:45:00Z",
             },
           ],
@@ -78,6 +142,8 @@ describe("RuntimeTruthPanel", () => {
     expect(screen.getByText("为什么没有交易")).toBeTruthy();
     expect(screen.getByText("终止阶段：regime_confirmed")).toBeTruthy();
     expect(screen.getByText("原因：ONE_HOUR_REGIME_NOT_ALIGNED")).toBeTruthy();
+    expect(screen.getByText("开仓权限：TESTNET_CANARY")).toBeTruthy();
+    expect(screen.getByText("订单已提交：否")).toBeTruthy();
     expect(screen.getByText(/交易所数据不可用：gateway timeout/)).toBeTruthy();
     expect(screen.getByText(/NO_DETERMINISTIC_CANDIDATE/)).toBeTruthy();
     expect(screen.getByText("Positions")).toBeTruthy();
@@ -89,5 +155,36 @@ describe("RuntimeTruthPanel", () => {
     expect(screen.getByText("Strategy Evidence")).toBeTruthy();
     expect(screen.getByText("directional")).toBeTruthy();
     expect(screen.getByText(/NON_PROMOTABLE_PIPELINE_SAMPLE/)).toBeTruthy();
+  });
+
+  it("renders normalized V2 decision facts without legacy funnel fields", () => {
+    render(
+      <RuntimeTruthPanel
+        symbol="BTC/USDT"
+        runtime={{
+          snapshot: {
+            exchange: { status: "available" },
+            scheduler: { status: "available" },
+          },
+          decisions: [
+            {
+              symbol: "BTC/USDT",
+              last_decision_at: "2026-08-12T15:13:31Z",
+              strategy: "testnet_sampling_v2",
+              entry_authority: "TESTNET_CANARY",
+              signal_generated: false,
+              entry_gate_result: "CANDLE_CLOSED",
+              entry_submitted: false,
+              terminal_reason: "DUPLICATE_DECISION",
+            },
+          ],
+          streamStatus: "live",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("终止阶段：CANDLE_CLOSED")).toBeTruthy();
+    expect(screen.getByText("原因：DUPLICATE_DECISION")).toBeTruthy();
+    expect(screen.getByText(/最后策略判断：/)).toBeTruthy();
   });
 });

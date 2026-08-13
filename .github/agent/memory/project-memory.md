@@ -1,5 +1,43 @@
 # Project Memory
 
+## Testnet Canary continuity and visible entry authority (2026-08-12)
+
+- V2 now resolves exactly one entry authority per cycle: `PRODUCTION` for an
+  approved immutable production authorization, otherwise `TESTNET_CANARY`
+  only in `BINANCE_TESTNET` when the operator's existing sampling opt-in is
+  enabled, otherwise `NONE`. Canary retains `SAMPLING/non_promotable` and
+  cannot contribute to production authorization or promotion evidence.
+- Scheduler Runtime Truth now carries `entry_authority`, `entry_authorized`,
+  `entry_authority_reason`, production authorization state, active strategy,
+  promotion eligibility, and `TRADING`/`ENTRY_PAUSED`; the transaction desk
+  renders these separately from reconciliation/protection/reduce-only exits.
+- Natural recovery evidence after official launcher: scheduler state reported
+  `ACTIVE/BINANCE_TESTNET/TESTNET_CANARY`, `entry_authorized=true`,
+  `production=PENDING`, `promotion_eligible=false`, and a natural Canary
+  entry persisted V2 intent `ea23a85f-abb6-47b8-b17c-4d37178a9f54`, position
+  `9ead2ee8-b88e-4dae-a654-c67082f53773`, Binance fill trade `313315568`.
+  Do not classify this as production evidence or force its exit.
+
+## V2 entry authority paused pending approved production evidence (2026-08-12)
+
+- The one-click V2 ACTIVE lane remains the sole Testnet writer, but it no longer grants
+  `testnet_sampling_v2` entry authority. Missing, stale, mismatched, or pending production
+  authorization terminates new entries as `NO_AUTHORIZED_PRODUCTION_STRATEGY`; reconciliation,
+  protection, recovery, and reduce-only exit processing continue.
+- `docs/evidence/active-manifests/auto_paper_mature_templates.json` schema v3 now carries the
+  required production authorization binding: candidate/version, rules hash, immutable active
+  ConfigSnapshot hash, exact BTC/ETH scope, validation reference, approval identity/time and
+  `APPROVED` state. The checked-in record is deliberately `PENDING`; `trend_momentum_v2_enriched`
+  remains research, not an approved production strategy.
+- `services/automated_trading/application/production_strategy.py` is a pure adapter from the
+  existing 4h/1h/15m `DecisionPipeline` to a V2 `PRODUCTION`/`PRIMARY` candidate. It preserves
+  source trace and ATR-derived configured 2R geometry; V2 still resolves absolute protection
+  prices from Binance confirmed average fill. Research proposals and multi-leg exits remain
+  shadow-only.
+- Runtime Truth now reads V2 managed positions/orders/fills/protections and ignores legacy
+  position/order projections for ACTIVE reconciliation. Closed and quarantined V2 positions are
+  not compared as open positions.
+
 ## Geometry ownership frozen; P2 is strategy/exit evaluation (2026-08-11)
 
 - Operator authorized a Layer-1 invariant change: **strategy owns geometry, execution owns
@@ -749,3 +787,45 @@
   failures`; touched Ruff clean; mypy `225` source files clean. Full Ruff
   retains 3 unrelated pre-existing script findings. Final status is
   `IMPLEMENTATION_COMPLETE_PENDING_REVIEW`; stop before P2.
+
+## 2026-08-12 — Canary continuity review closure
+
+- The Canary direction guard applies before entry gating for every authority:
+  a candidate opposite to an explicitly captured unmanaged one-way Testnet
+  baseline fails closed as `UNMANAGED_EXTERNAL_POSITION`; it must never reduce
+  or flip operator exposure.
+- Runtime Truth REST and WebSocket decisions now read only persisted V2
+  decision facts. The normalized record includes last decision time, strategy,
+  authority, signal, gate stage, exchange submission, and terminal reason; do
+  not reintroduce the legacy `DecisionFunnelRepository` to this screen.
+- The scheduler publishes the authority resolved by the completed V2 cycle,
+  rather than preserving startup state. A Production approval or Canary toggle
+  therefore changes Runtime Truth on the next cycle.
+- Canary persistence remains `candidate_type=SAMPLING` and
+  `promotion_eligible=false`. The live API after the official launcher reported
+  `TESTNET_CANARY`, `PENDING`, `TRADING`, and the BTC terminal
+  `DUPLICATE_DECISION`; Production authorization was not altered.
+- Verification: targeted V2/API/scheduler tests `72 passed`; frontend full
+  Vitest `105 passed`; frontend build and full mypy `236 source files` passed;
+  independent review PASS. Full pytest was `1539 passed, 16 skipped, 2 failed`
+  only on pre-existing candidate-registry expectations of 9 candidates (actual
+  10). Full Ruff retains the documented three unrelated script findings.
+
+## Testnet 50x / 5% margin sizing contract (2026-08-13)
+
+- The operator-approved Testnet entry semantics are **50x leverage plus a
+  per-entry margin ceiling of 5% of current equity**, not 5% notional. V2 caps
+  new-entry notional at `equity * max_margin_fraction * max_leverage`; at
+  7,349 USDT that is 367.45 USDT margin and 18,372.50 USDT notional per symbol.
+  The separate `risk_per_trade=0.10` stop-loss budget remains unchanged and can
+  only make an entry smaller.
+- Active PaperRun `35298c65-cdbe-4bee-bee3-b7ded07c3204` resolves BTC/ETH as
+  `max_leverage=50`, `max_margin_fraction=0.05`,
+  `max_position_fraction=2.5`, `max_total_exposure=5.0`; this persisted profile
+  remained unchanged after the official `v2_active` Testnet launcher restart.
+- Existing ETH short and its two reduce-only protections are untouched by the
+  sizing cap. The sizing code affects new entries only; no forced Testnet order
+  was submitted, so a natural 50x/5%-margin Binance receipt remains pending.
+- Regression protection: the sizing apply script now refuses to overwrite any
+  pre-existing pending ConfigSnapshot, and bootstrap preserves an existing
+  operator-owned medium risk profile instead of restoring defaults on restart.

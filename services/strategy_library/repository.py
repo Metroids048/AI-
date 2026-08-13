@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal, cast
 
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -1245,6 +1246,8 @@ class ConfigSnapshotRepository:
             raise ValueError("paper run does not exist")
         if run.active_config_hash != base_config_hash:
             raise ConfigConflictError("base_config_hash does not match active configuration")
+        if run.pending_config_snapshot_id is not None:
+            raise ConfigConflictError("a pending configuration already exists")
 
         existing = (
             self.session.query(models.TradingConfigSnapshot)
@@ -1256,8 +1259,21 @@ class ConfigSnapshotRepository:
         )
         if existing is not None:
             if existing.config_snapshot_id != run.active_config_snapshot_id:
-                run.pending_config_snapshot_id = existing.config_snapshot_id
-                run.pending_config_hash = existing.config_hash
+                claim = self.session.execute(
+                    update(models.PaperRun)
+                    .where(
+                        models.PaperRun.paper_run_id == snapshot.paper_run_id,
+                        models.PaperRun.active_config_hash == base_config_hash,
+                        models.PaperRun.pending_config_snapshot_id.is_(None),
+                    )
+                    .values(
+                        pending_config_snapshot_id=existing.config_snapshot_id,
+                        pending_config_hash=existing.config_hash,
+                    )
+                )
+                if getattr(claim, "rowcount", None) != 1:
+                    self.session.rollback()
+                    raise ConfigConflictError("active configuration changed or a pending configuration exists")
                 self.session.commit()
             return _config_snapshot_from_orm(existing)
 
@@ -1276,8 +1292,93 @@ class ConfigSnapshotRepository:
             run.active_config_snapshot_id = row.config_snapshot_id
             run.active_config_hash = row.config_hash
         else:
-            run.pending_config_snapshot_id = row.config_snapshot_id
-            run.pending_config_hash = row.config_hash
+            claim = self.session.execute(
+                update(models.PaperRun)
+                .where(
+                    models.PaperRun.paper_run_id == snapshot.paper_run_id,
+                    models.PaperRun.active_config_hash == base_config_hash,
+                    models.PaperRun.pending_config_snapshot_id.is_(None),
+                )
+                .values(
+                    pending_config_snapshot_id=row.config_snapshot_id,
+                    pending_config_hash=row.config_hash,
+                )
+            )
+            if getattr(claim, "rowcount", None) != 1:
+                self.session.rollback()
+                raise ConfigConflictError("active configuration changed or a pending configuration exists")
+        self.session.commit()
+        self.session.refresh(row)
+        return _config_snapshot_from_orm(row)
+
+    def stage_execution_profile_snapshot(
+        self,
+        snapshot: ConfigSnapshot,
+        *,
+        execution_profile: dict[str, Any],
+        base_config_hash: str | None,
+    ) -> ConfigSnapshot:
+        """Atomically persist a profile and attach its NEXT_CYCLE snapshot.
+
+        A sizing change must not replace another writer's pending snapshot. The
+        conditional update acquires the run row only when its active hash still
+        matches and no pending configuration exists; profile persistence and the
+        pending pointer then commit together.
+        """
+        run_table = models.PaperRun
+        claim = self.session.execute(
+            update(run_table)
+            .where(
+                run_table.paper_run_id == snapshot.paper_run_id,
+                run_table.active_config_hash == base_config_hash,
+                run_table.pending_config_snapshot_id.is_(None),
+            )
+            .values(execution_profile=_jsonable(execution_profile))
+        )
+        if getattr(claim, "rowcount", None) != 1:
+            self.session.rollback()
+            raise ConfigConflictError("active configuration changed or a pending snapshot already exists")
+
+        existing = (
+            self.session.query(models.TradingConfigSnapshot)
+            .filter(
+                models.TradingConfigSnapshot.paper_run_id == snapshot.paper_run_id,
+                models.TradingConfigSnapshot.config_hash == snapshot.config_hash,
+            )
+            .one_or_none()
+        )
+        if existing is not None:
+            self.session.rollback()
+            raise ConfigConflictError(
+                "sizing snapshot already exists but is not active; manual reconciliation required"
+            )
+
+        row = models.TradingConfigSnapshot(
+            config_snapshot_id=snapshot.config_snapshot_id or str(uuid.uuid4()),
+            paper_run_id=snapshot.paper_run_id,
+            config_payload=_jsonable(snapshot.config),
+            config_hash=snapshot.config_hash,
+            created_by=snapshot.created_by,
+            effective_cycle_id=snapshot.effective_cycle_id,
+            previous_snapshot_id=snapshot.previous_snapshot_id,
+        )
+        self.session.add(row)
+        self.session.flush()
+        attached = self.session.execute(
+            update(run_table)
+            .where(
+                run_table.paper_run_id == snapshot.paper_run_id,
+                run_table.active_config_hash == base_config_hash,
+                run_table.pending_config_snapshot_id.is_(None),
+            )
+            .values(
+                pending_config_snapshot_id=row.config_snapshot_id,
+                pending_config_hash=row.config_hash,
+            )
+        )
+        if getattr(attached, "rowcount", None) != 1:
+            self.session.rollback()
+            raise ConfigConflictError("pending snapshot changed while staging execution profile")
         self.session.commit()
         self.session.refresh(row)
         return _config_snapshot_from_orm(row)
@@ -1296,6 +1397,16 @@ class ConfigSnapshotRepository:
         self.session.commit()
         self.session.refresh(pending)
         return _config_snapshot_from_orm(pending)
+
+    def clear_pending(self, paper_run_id: str) -> bool:
+        """Discard a superseded pending snapshot without mutating the active one."""
+        run = self.session.get(models.PaperRun, paper_run_id)
+        if run is None:
+            return False
+        run.pending_config_snapshot_id = None
+        run.pending_config_hash = None
+        self.session.commit()
+        return True
 
 
 class RiskProfileRepository:

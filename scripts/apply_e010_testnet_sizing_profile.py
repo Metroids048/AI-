@@ -1,18 +1,17 @@
 """E-010: apply the operator-authorized Testnet aggressive sizing profile.
 
-Scope (authorized 2026-08-12): raise the automated entry EXPOSURE only, on the
-Binance Testnet operator profile.
+Scope (authorized 2026-08-12): set the automated Testnet entry margin budget to
+5% of equity and leverage to 50x.
 
-    max_symbol_exposure  0.35 -> 0.05   (target notional = 5% of account equity)
-    max_leverage         40   -> 50
-    risk_per_trade       0.10 -> unchanged (outside this authorization)
+    max_margin_fraction  0.05
+    max_symbol_exposure  2.50 (0.05 margin x 50 leverage)
+    max_total_exposure   5.00 (two BTC/ETH entry slots)
+    max_leverage         50
+    risk_per_trade       0.10 (unchanged stop-loss risk budget)
 
-"5% position" means the target NOTIONAL is 5% of equity (~365 USDT at ~7300
-USDT equity). It is NOT "5% of equity as margin, times 50x leverage" — that
-would be 18250 USDT, 250% of equity. Leverage only relaxes the margin ceiling;
-the 5% exposure cap is what sets the size. See
-tests/automated_trading/application/test_e010_aggressive_sizing.py::
-test_s004_five_percent_is_notional_not_margin_times_leverage.
+5% of equity is margin (~365 USDT at ~7300 USDT equity), so the entry notional
+is ~18,250 USDT at 50x. The V2 sizing path keeps the stop-loss risk budget as
+an independent, stricter ceiling when it binds.
 
 MEASURED BASELINE (live Testnet profile, 2026-08-12, equity 7349 USDT):
 
@@ -23,11 +22,8 @@ MARGIN, not position size. Therefore moving exposure 0.35 -> 0.05 is a ~7x
 REDUCTION in notional (2572 -> 367), not an increase, and it drops margin to
 ~7.3 USDT at 50x.
 
-Raising leverage alone does NOT enlarge the position: _calculate_quantity takes
-min(risk_notional, equity*exposure, equity*leverage), and while the exposure cap
-binds, 40x and 50x resolve to the identical notional (verified by
-test_s005_leverage_raises_capacity_without_inflating_notional). Leverage only
-frees margin. To make positions LARGER than today, exposure must go ABOVE 0.35.
+The V2 sizing path takes the minimum of risk-based sizing, the per-symbol
+notional ceiling, and the explicit margin budget (`equity * 0.05 * 50`).
 
 CHAIN-STALL CAUTION: the cap gates new entries only and never reduces or closes
 an open position. But a symbol already above the requested cap has every new
@@ -36,7 +32,7 @@ stop/target. The script reports this before writing.
 
 Explicitly NOT in scope: entry signal thresholds, gate conditions, stop/target
 geometry, protection orders, reconciliation, the external-position baseline, and
-production/Mainnet defaults (shared PAPER_RUNTIME_LIMITS stays 40x/0.35/0.10).
+production/Mainnet defaults, or the existing open position.
 
 Writes into the pending ConfigSnapshot so the change activates on the NEXT cycle
 through the existing bootstrap path — it never mutates an in-flight cycle.
@@ -44,7 +40,7 @@ through the existing bootstrap path — it never mutates an in-flight cycle.
 Usage:
     python scripts/apply_e010_testnet_sizing_profile.py --dry-run
     python scripts/apply_e010_testnet_sizing_profile.py --apply
-    python scripts/apply_e010_testnet_sizing_profile.py --leverage 50 --exposure 0.35 --apply
+    python scripts/apply_e010_testnet_sizing_profile.py --leverage 50 --margin 0.05 --apply
 """
 
 from __future__ import annotations
@@ -57,11 +53,13 @@ from pathlib import Path
 from typing import Any
 
 TARGET_MAX_LEVERAGE = 50.0
-TARGET_MAX_SYMBOL_EXPOSURE = 0.05
+TARGET_MAX_MARGIN_FRACTION = 0.05
+TARGET_MAX_SYMBOL_EXPOSURE = TARGET_MAX_MARGIN_FRACTION * TARGET_MAX_LEVERAGE
+TARGET_MAX_TOTAL_EXPOSURE = TARGET_MAX_SYMBOL_EXPOSURE * 2
 
 # risk_per_trade is deliberately NOT changed. The operator authorized exactly two
-# things this round: 5% notional exposure and 50x leverage. Under a 0.35% stop the
-# exposure ceiling binds first anyway, so touching risk_per_trade would change
+# things this round: a 5% equity margin budget and 50x leverage. Under a 0.35%
+# stop the exposure ceiling binds first anyway, so touching risk_per_trade would change
 # nothing observable while widening the diff beyond the authorization.
 EXECUTION_SYMBOLS = ("BTC/USDT", "ETH/USDT")
 
@@ -85,17 +83,21 @@ def _resolved_preview(profile: dict[str, Any]) -> list[str]:
         settings = resolve_v2_execution_settings(symbol, profile)
         lines.append(
             f"    {symbol}: leverage={settings.max_leverage}x "
+            f"max_margin_fraction={settings.max_margin_fraction} "
             f"max_position_fraction={settings.max_position_fraction} "
             f"risk_per_trade={settings.risk_per_trade}"
         )
     return lines
 
 
-def _apply_targets(profile: dict[str, Any], *, leverage: float, exposure: float) -> dict[str, Any]:
-    """Return a copy with the requested leverage/exposure applied, tiers included."""
+def _apply_targets(profile: dict[str, Any], *, leverage: float, margin: float) -> dict[str, Any]:
+    """Return a copy with the requested leverage/margin applied, tiers included."""
     updated = copy.deepcopy(profile)
+    exposure = margin * leverage
     updated["max_leverage"] = leverage
+    updated["max_margin_fraction"] = margin
     updated["max_symbol_exposure"] = exposure
+    updated["max_total_exposure"] = exposure * 2
 
     # Asset tiers override profile-wide values for BTC/ETH, so they must move too
     # or the tier would silently keep the previous band.
@@ -166,6 +168,16 @@ def _chain_stall_warnings(exposure: float) -> list[str]:
     return warnings
 
 
+def _require_no_pending_snapshot(snapshots: Any, paper_run_id: str) -> None:
+    """Fail closed rather than discard another operator's NEXT_CYCLE change."""
+    pending = snapshots.get_pending(paper_run_id)
+    if pending is not None:
+        raise RuntimeError(
+            "a pending ConfigSnapshot already exists; refusing to overwrite "
+            f"{pending.config_snapshot_id}. Activate or reconcile that change, then rerun."
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
@@ -178,14 +190,10 @@ def main() -> int:
         help=f"requested leverage (default {TARGET_MAX_LEVERAGE:g})",
     )
     parser.add_argument(
-        "--exposure",
+        "--margin",
         type=float,
-        default=TARGET_MAX_SYMBOL_EXPOSURE,
-        help=(
-            "target notional exposure as a fraction of equity "
-            f"(default {TARGET_MAX_SYMBOL_EXPOSURE:g}). This IS the position size; "
-            "it is never multiplied by leverage."
-        ),
+        default=TARGET_MAX_MARGIN_FRACTION,
+        help=f"target margin fraction (default {TARGET_MAX_MARGIN_FRACTION:g})",
     )
     args = parser.parse_args()
 
@@ -219,32 +227,31 @@ def main() -> int:
         print("\nCurrent profile-wide values:")
         print(f"  risk_per_trade      = {current.get('risk_per_trade')}")
         print(f"  max_leverage        = {current.get('max_leverage')}")
+        print(f"  max_margin_fraction = {current.get('max_margin_fraction')}")
         print(f"  max_symbol_exposure = {current.get('max_symbol_exposure')}")
         print("\nCurrent resolved settings (what the cycle receives):")
         for line in _resolved_preview(current):
             print(line)
 
-        print(f"\nApplying targets (leverage={args.leverage:g}x exposure={args.exposure:g}):")
-        updated = _apply_targets(current, leverage=args.leverage, exposure=args.exposure)
+        print(f"\nApplying targets (leverage={args.leverage:g}x margin={args.margin:g}):")
+        updated = _apply_targets(current, leverage=args.leverage, margin=args.margin)
 
         print("\nTarget profile-wide values:")
         print(f"  risk_per_trade      = {updated['risk_per_trade']}")
         print(f"  max_leverage        = {updated['max_leverage']}")
+        print(f"  max_margin_fraction = {updated['max_margin_fraction']}")
         print(f"  max_symbol_exposure = {updated['max_symbol_exposure']}")
+        print(f"  max_total_exposure  = {updated['max_total_exposure']}")
         print("\nTarget resolved settings:")
         for line in _resolved_preview(updated):
             print(line)
 
         equity_example = 7349.0
-        notional = equity_example * args.exposure
+        notional = equity_example * args.margin * args.leverage
         print(f"\nExpected notional at {equity_example:.0f} USDT equity: {notional:.2f} USDT")
         print(f"  margin at {args.leverage:g}x            : {notional / args.leverage:.2f} USDT")
-        print(
-            "  (exposure IS the notional; it is never multiplied by leverage — "
-            f"that misreading would give {notional * args.leverage:.0f} USDT)"
-        )
 
-        stalls = _chain_stall_warnings(args.exposure)
+        stalls = _chain_stall_warnings(updated["max_symbol_exposure"])
         if stalls:
             print("\nCHAIN-STALL WARNING (entries blocked, positions NOT touched):")
             for warning in stalls:
@@ -264,22 +271,30 @@ def main() -> int:
 
         snapshots = ConfigSnapshotRepository(session)
         active = snapshots.get_active(run.paper_run_id)
+        try:
+            _require_no_pending_snapshot(snapshots, run.paper_run_id)
+        except RuntimeError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
         config_payload = dict(active.config) if active is not None else {}
         config_payload["execution_profile"] = updated
 
-        snapshot = ConfigSnapshot(
+        snapshot = ConfigSnapshot.create(
             paper_run_id=run.paper_run_id,
             config=config_payload,
-            config_hash=_config_hash(config_payload),
             created_by="e010_testnet_sizing_script",
+            effective_cycle_id="NEXT_CYCLE",
             previous_snapshot_id=active.config_snapshot_id if active is not None else None,
         )
-        staged = snapshots.create_snapshot(
-            snapshot,
-            base_config_hash=run.active_config_hash,
-        )
-        run.execution_profile = updated
-        session.commit()
+        try:
+            staged = snapshots.stage_execution_profile_snapshot(
+                snapshot,
+                execution_profile=updated,
+                base_config_hash=run.active_config_hash,
+            )
+        except Exception as exc:  # fail closed: no partial profile/snapshot write
+            print(f"ERROR: failed to stage sizing configuration safely: {exc}", file=sys.stderr)
+            return 1
 
         print(f"\nAPPLIED. Staged ConfigSnapshot {staged.config_snapshot_id}")
         print("Activates on the next scheduler cycle via activate_pending;")

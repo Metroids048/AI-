@@ -911,6 +911,86 @@ class AutomatedTradingRepository:
             stmt = stmt.where(V2ManagedPosition.symbol == symbol)
         return list(self.session.scalars(stmt))
 
+    def list_managed_positions(
+        self,
+        *,
+        execution_mode: V2ExecutionMode,
+        limit: int = 200,
+        include_terminal: bool = True,
+    ) -> list[V2ManagedPosition]:
+        """List V2 position facts for runtime observability.
+
+        Runtime Truth must read the same projection used by the V2 cycle, rather
+        than the legacy compatibility position table.
+        """
+        stmt = (
+            select(V2ManagedPosition)
+            .where(V2ManagedPosition.execution_mode == execution_mode.value)
+            .order_by(V2ManagedPosition.projected_at.desc())
+            .limit(limit)
+        )
+        if not include_terminal:
+            stmt = stmt.where(V2ManagedPosition.state.not_in(["CLOSED", "QUARANTINED"]))
+        return list(self.session.scalars(stmt))
+
+    def list_exchange_orders(
+        self,
+        *,
+        execution_mode: V2ExecutionMode,
+        symbol: str | None = None,
+        limit: int = 200,
+    ) -> list[tuple[V2ExchangeOrder, V2ExecutionIntent]]:
+        """List V2 order facts with their intent attribution for Runtime Truth."""
+        stmt = (
+            select(V2ExchangeOrder, V2ExecutionIntent)
+            .join(V2ExecutionIntent, V2ExchangeOrder.intent_id == V2ExecutionIntent.intent_id)
+            .where(V2ExecutionIntent.execution_mode == execution_mode.value)
+            .order_by(V2ExchangeOrder.created_at.desc())
+            .limit(limit)
+        )
+        if symbol is not None:
+            stmt = stmt.where(V2ExecutionIntent.symbol == symbol)
+        return [(order, intent) for order, intent in self.session.execute(stmt)]
+
+    def list_protection_records(
+        self,
+        *,
+        execution_mode: V2ExecutionMode,
+        limit: int = 200,
+    ) -> list[tuple[V2ProtectionRecord, V2ManagedPosition]]:
+        """List V2 protection facts with their managed-position attribution."""
+        stmt = (
+            select(V2ProtectionRecord, V2ManagedPosition)
+            .join(V2ManagedPosition, V2ProtectionRecord.position_id == V2ManagedPosition.position_id)
+            .where(V2ManagedPosition.execution_mode == execution_mode.value)
+            .order_by(V2ProtectionRecord.created_at.desc())
+            .limit(limit)
+        )
+        return [(protection, position) for protection, position in self.session.execute(stmt)]
+
+    def list_exchange_fills(
+        self,
+        *,
+        execution_mode: V2ExecutionMode,
+        limit: int = 200,
+    ) -> list[tuple[V2ExchangeFill, V2ExecutionIntent]]:
+        """List V2 fill receipts with their execution intent attribution."""
+        stmt = (
+            select(V2ExchangeFill, V2ExecutionIntent)
+            .join(V2ExecutionIntent, V2ExchangeFill.intent_id == V2ExecutionIntent.intent_id)
+            .where(V2ExecutionIntent.execution_mode == execution_mode.value)
+            .order_by(V2ExchangeFill.received_at.desc())
+            .limit(limit)
+        )
+        return [(fill, intent) for fill, intent in self.session.execute(stmt)]
+
+    def list_exchange_unknown_intents(self, *, execution_mode: V2ExecutionMode) -> list[V2ExecutionIntent]:
+        stmt = select(V2ExecutionIntent).where(
+            V2ExecutionIntent.execution_mode == execution_mode.value,
+            V2ExecutionIntent.state == "EXCHANGE_UNKNOWN",
+        )
+        return list(self.session.scalars(stmt))
+
     def get_position_by_id(self, position_id: str) -> V2ManagedPosition | None:
         return self.session.get(V2ManagedPosition, position_id)
 
@@ -922,13 +1002,21 @@ class AutomatedTradingRepository:
         stmt = select(V2ExecutionCycle).order_by(V2ExecutionCycle.started_at.desc()).limit(limit)
         return list(self.session.scalars(stmt))
 
-    def list_recent_decisions(self, limit: int = 50) -> list[tuple[V2ExecutionDecision, V2ExecutionCycle]]:
-        stmt = (
-            select(V2ExecutionDecision, V2ExecutionCycle)
-            .join(V2ExecutionCycle, V2ExecutionDecision.cycle_id == V2ExecutionCycle.cycle_id)
-            .order_by(V2ExecutionDecision.created_at.desc())
-            .limit(limit)
+    def list_recent_decisions(
+        self,
+        *,
+        symbol: str | None = None,
+        since: datetime | None = None,
+        limit: int = 50,
+    ) -> list[tuple[V2ExecutionDecision, V2ExecutionCycle]]:
+        stmt = select(V2ExecutionDecision, V2ExecutionCycle).join(
+            V2ExecutionCycle, V2ExecutionDecision.cycle_id == V2ExecutionCycle.cycle_id
         )
+        if symbol:
+            stmt = stmt.where(V2ExecutionCycle.symbol == symbol)
+        if since:
+            stmt = stmt.where(V2ExecutionDecision.created_at >= since)
+        stmt = stmt.order_by(V2ExecutionDecision.created_at.desc()).limit(limit)
         return [(decision, cycle) for decision, cycle in self.session.execute(stmt)]
 
     def list_recent_incidents(self, limit: int = 20) -> list[V2ExecutionIncident]:

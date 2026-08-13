@@ -39,6 +39,7 @@ LINK_VERIFICATION_RUNTIME_KEY = "link_verification"
 OPERATOR_AUTO_SETTING_KEYS = (
     "risk_per_trade",
     "max_leverage",
+    "max_margin_fraction",
     "order_notional_usdt",
     "max_open_positions",
     "max_symbol_exposure",
@@ -143,6 +144,7 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
         "risk_per_trade": PAPER_RUNTIME_LIMITS["risk_per_trade"],
         "max_portfolio_initial_risk_fraction": PAPER_RUNTIME_LIMITS["max_portfolio_initial_risk_fraction"],
         "max_leverage": PAPER_RUNTIME_LIMITS["max_leverage"],
+        "max_margin_fraction": PAPER_RUNTIME_LIMITS["max_margin_fraction"],
         "max_position_fraction": PAPER_RUNTIME_LIMITS["max_symbol_exposure"],
         "min_notional_usdt": PAPER_RUNTIME_LIMITS["min_notional_usdt"],
     },
@@ -158,7 +160,7 @@ def resolve_auto_paper_technical_evidence() -> tuple[dict[str, Any], tuple[str, 
     manifest_path = CANONICAL_MANIFEST_ROOT / f"{AUTO_PAPER_TECHNICAL_KEY}.json"
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if int(manifest["schema_version"]) != 2:
+        if int(manifest["schema_version"]) not in {2, 3}:
             raise ValueError("unsupported manifest schema")
         candidate_id = str(manifest["candidate_id"])
         config = get_candidate(candidate_id).get_config()
@@ -347,10 +349,14 @@ def default_mirror_to_gateway() -> bool:
 
 
 def bootstrap_medium_risk_profile() -> str:
-    """Ensure the medium-risk profile exists for auto Paper/Testnet cycles."""
+    """Ensure the medium-risk profile exists for auto Paper/Testnet cycles.
+
+    Defaults establish the profile once.  They must never overwrite an
+    operator-edited risk profile during a later bootstrap or restart; active
+    immutable ConfigSnapshots remain the runtime authority for a cycle.
+    """
     from services.database import get_session_factory
     from services.strategy_library import RiskProfileRepository
-    from shared.models import RiskProfileUpdate
 
     profile = medium_risk_profile()
     with get_session_factory()() as session:
@@ -361,12 +367,7 @@ def bootstrap_medium_risk_profile() -> str:
             session.commit()
             logger.info("created medium risk profile: %s", MEDIUM_RISK_PROFILE_KEY)
         else:
-            repo.update_profile(
-                MEDIUM_RISK_PROFILE_KEY,
-                RiskProfileUpdate(**profile.model_dump(exclude={"risk_profile_id"})),
-            )
-            session.commit()
-            logger.info("updated medium risk profile: %s", MEDIUM_RISK_PROFILE_KEY)
+            logger.info("preserved existing medium risk profile: %s", MEDIUM_RISK_PROFILE_KEY)
     return MEDIUM_RISK_PROFILE_KEY
 
 
@@ -540,7 +541,12 @@ def _ensure_auto_paper_run(
                 paper_run = paper_candidate
                 break
         max_leverage = float(rules["position_rules"]["max_leverage"])
-        max_symbol_exposure = float(rules["position_rules"].get("max_position_fraction", 0.2))
+        max_margin_fraction = float(
+            rules["position_rules"].get("max_margin_fraction", PAPER_RUNTIME_LIMITS["max_margin_fraction"])
+        )
+        max_symbol_exposure = float(
+            rules["position_rules"].get("max_position_fraction", max_margin_fraction * max_leverage)
+        )
         execution_profile = {
             "auto_paper_runtime_key": runtime_key,
             "strategy_lane": strategy_lane,
@@ -558,6 +564,7 @@ def _ensure_auto_paper_run(
             "risk_per_trade": PAPER_RUNTIME_LIMITS["risk_per_trade"],
             "max_portfolio_initial_risk_fraction": PAPER_RUNTIME_LIMITS["max_portfolio_initial_risk_fraction"],
             "max_total_exposure": PAPER_RUNTIME_LIMITS["max_total_exposure"],
+            "max_margin_fraction": max_margin_fraction,
             "daily_loss_limit": PAPER_RUNTIME_LIMITS["daily_loss_limit"],
             "min_notional_usdt": PAPER_RUNTIME_LIMITS["min_notional_usdt"],
             "max_leverage": max_leverage,

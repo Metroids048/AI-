@@ -564,11 +564,17 @@ def test_q1_counts_each_entry_once() -> None:
 
     verdict, evidence = answer_q1_entry_has_edge([strong] * 10)
     assert verdict == Verdict.INSUFFICIENT_SAMPLE
-    assert "10 entries" in evidence
+    assert evidence.sample_count == 10
+    assert "n=10" in evidence.describe()
 
     verdict, evidence = answer_q1_entry_has_edge([strong] * 30)
     assert verdict == Verdict.SUPPORTED
-    assert "n=30" in evidence
+    assert evidence.sample_count == 30
+    assert "n=30" in evidence.describe()
+    # The observed numbers must survive regardless of the verdict, so a small sample
+    # still reports real evidence instead of an empty string.
+    assert evidence.mean_mfe_r == Decimal("2")
+    assert evidence.positive_mfe_count == 30
 
 
 def test_db_timestamp_format_matches_stored_convention() -> None:

@@ -19,6 +19,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from services.automated_trading.application.production_strategy import EntryAuthority, resolve_entry_authority
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from shared.config import settings
 
@@ -84,6 +85,12 @@ class RuntimeSchedulerStatus:
     external_baseline_value: dict[str, str] | None = None
     external_baseline_source: str | None = None
     entry_authorized: bool = False
+    entry_authority: str = EntryAuthority.NONE.value
+    entry_authority_reason: str = "production_pending"
+    production_authorization_state: str = "PENDING"
+    active_entry_strategy: str | None = None
+    promotion_eligible: bool = False
+    trading_state: str = "ENTRY_PAUSED"
     startup_contract_errors: tuple[str, ...] = ()
 
     def model_dump(self) -> dict[str, Any]:
@@ -113,6 +120,12 @@ class RuntimeSchedulerStatus:
             "external_baseline_value": self.external_baseline_value,
             "external_baseline_source": self.external_baseline_source,
             "entry_authorized": self.entry_authorized,
+            "entry_authority": self.entry_authority,
+            "entry_authority_reason": self.entry_authority_reason,
+            "production_authorization_state": self.production_authorization_state,
+            "active_entry_strategy": self.active_entry_strategy,
+            "promotion_eligible": self.promotion_eligible,
+            "trading_state": self.trading_state,
             "startup_contract_errors": self.startup_contract_errors,
         }
 
@@ -213,6 +226,43 @@ def _active_entry_authorization() -> tuple[bool, bool, tuple[str, ...]]:
         return False, False, ("ENTRY_CONTRACT_STATE_UNAVAILABLE",)
 
 
+def _active_execution_strategy_identity() -> tuple[str, bool]:
+    """Expose only a manifest-approved candidate as the ACTIVE entry brain."""
+    from services.automated_trading.application.production_strategy import resolve_production_authorization
+    from services.database import get_session_factory
+    from services.strategy_library import ConfigSnapshotRepository, PaperRunRepository
+
+    try:
+        with get_session_factory()() as session:
+            runs = [
+                run
+                for run in PaperRunRepository(session).list_paper_runs()
+                if run.paper_status == "running" and run.execution_profile.get("strategy_lane") == "directional"
+            ]
+            if len(runs) != 1 or runs[0].paper_run_id is None:
+                return "production_strategy_pending", False
+            snapshot = ConfigSnapshotRepository(session).get_active(runs[0].paper_run_id)
+            if snapshot is None:
+                return "production_strategy_pending", False
+            authorizations = (
+                resolve_production_authorization(
+                    snapshot_config=snapshot.config,
+                    snapshot_hash=snapshot.config_hash,
+                    symbol=symbol,
+                )
+                for symbol in ("BTC/USDT", "ETH/USDT")
+            )
+            resolved = tuple(authorizations)
+            if not resolved or not all(item.authorized for item in resolved):
+                return "production_strategy_pending", False
+            candidate_id = resolved[0].candidate_id
+            if not candidate_id or any(item.candidate_id != candidate_id for item in resolved):
+                return "production_strategy_pending", False
+            return candidate_id, True
+    except Exception:  # noqa: BLE001
+        return "production_strategy_pending", False
+
+
 class RuntimeScheduler:
     """Run local recurring jobs inside the FastAPI event loop."""
 
@@ -301,7 +351,7 @@ class RuntimeScheduler:
         scheduled_jobs = _resolve_runtime_scheduler_jobs(v2_activation)
         self.status.engine_activation = v2_activation.v2_activation.value
         self.status.execution_mode = v2_activation.execution_mode.value
-        self.status.execution_strategy_id = "testnet_sampling_v2"
+        self.status.execution_strategy_id = "production_strategy_pending"
         self.status.registered_jobs = tuple(sorted(scheduled_jobs))
         self.status.legacy_writer_enabled = v2_activation.allow_legacy_writer
         self.status.startup_contract_errors = ()
@@ -311,8 +361,21 @@ class RuntimeScheduler:
         self.status.external_baseline_value = None
         self.status.external_baseline_source = None
         self.status.entry_authorized = False
+        self.status.entry_authority = EntryAuthority.NONE.value
+        self.status.entry_authority_reason = "production_pending"
+        self.status.production_authorization_state = "PENDING"
+        self.status.active_entry_strategy = None
+        self.status.promotion_eligible = False
+        self.status.trading_state = "ENTRY_PAUSED"
         if v2_activation.v2_activation.value == "ACTIVE":
             entry_enabled, sampling_enabled, contract_errors = _active_entry_authorization()
+            strategy_id, production_authorized = _active_execution_strategy_identity()
+            authority = resolve_entry_authority(
+                production_authorized=production_authorized,
+                production_strategy_id=(strategy_id if production_authorized else None),
+                execution_mode=v2_activation.execution_mode.value,
+                operator_testnet_canary_enabled=sampling_enabled,
+            )
             baseline_captured, baseline_value, baseline_source = _external_baseline_capture()
             errors = list(contract_errors)
             if v2_activation.execution_mode.value != "BINANCE_TESTNET":
@@ -321,19 +384,27 @@ class RuntimeScheduler:
                 errors.append("V2_CYCLE_NOT_REGISTERED")
             if v2_activation.allow_legacy_writer:
                 errors.append("LEGACY_WRITER_ENABLED")
-            if not entry_enabled:
-                errors.append("ENTRY_DISABLED")
-            if not sampling_enabled:
-                errors.append("SAMPLING_PERMISSION_DISABLED")
             if not baseline_captured:
                 errors.append("EXTERNAL_BASELINE_NOT_CAPTURED")
             self.status.entry_enabled = entry_enabled
+            self.status.execution_strategy_id = strategy_id
             self.status.sampling_fallback_enabled = sampling_enabled
             self.status.external_baseline_captured = baseline_captured
             self.status.external_baseline_value = baseline_value
             self.status.external_baseline_source = baseline_source
             self.status.startup_contract_errors = tuple(dict.fromkeys(errors))
-            self.status.entry_authorized = not self.status.startup_contract_errors
+            # ACTIVE can keep reconciling/protecting existing V2 positions with
+            # entries paused.  Candidate-level authorization is checked inside
+            # each cycle against the immutable ConfigSnapshot and manifest.
+            self.status.entry_authorized = bool(entry_enabled and authority.authority is not EntryAuthority.NONE)
+            self.status.entry_authority = authority.authority.value
+            self.status.entry_authority_reason = authority.reason
+            self.status.production_authorization_state = "APPROVED" if production_authorized else "PENDING"
+            self.status.active_entry_strategy = authority.active_strategy_id
+            self.status.promotion_eligible = authority.promotion_eligible
+            self.status.trading_state = (
+                "TRADING" if entry_enabled and authority.authority is not EntryAuthority.NONE else "ENTRY_PAUSED"
+            )
             if self.status.startup_contract_errors:
                 self.status.running = False
                 self.status.scheduler_error = "ACTIVE_STARTUP_CONTRACT_FAILED: " + ";".join(
@@ -718,8 +789,40 @@ class RuntimeScheduler:
         self.status.scheduler_error = (
             "; ".join(f"{task_name}: {error}" for task_name, error in sorted(self._scheduler_errors.items())) or None
         )
+        if name == "automated_trading_v2_cycle" and isinstance(self.status.last_results[name], dict):
+            self._refresh_entry_authority_from_v2_cycle(self.status.last_results[name])
         self._publish_external_state()
         return self.status.last_results[name]
+
+    def _refresh_entry_authority_from_v2_cycle(self, cycle_result: dict[str, Any]) -> None:
+        """Publish the authority actually resolved by the just-completed V2 cycle."""
+        resolved = [
+            item
+            for item in cycle_result.get("results", [])
+            if isinstance(item, dict) and item.get("status") == "completed"
+        ]
+        if not resolved:
+            return
+        authorities = {str(item.get("entry_authority") or "NONE") for item in resolved}
+        if len(authorities) != 1:
+            self.status.entry_authority = EntryAuthority.NONE.value
+            self.status.entry_authorized = False
+            self.status.entry_authority_reason = "cycle_authority_inconsistent"
+            self.status.active_entry_strategy = None
+            self.status.promotion_eligible = False
+            self.status.trading_state = "ENTRY_PAUSED"
+            return
+        authority = authorities.pop()
+        first = resolved[0]
+        self.status.entry_authority = authority
+        self.status.entry_authorized = bool(first.get("entry_authorized"))
+        self.status.entry_authority_reason = str(first.get("entry_authority_reason") or "unknown")
+        self.status.production_authorization_state = str(
+            first.get("production_authorization_state") or self.status.production_authorization_state
+        )
+        self.status.active_entry_strategy = first.get("active_entry_strategy")
+        self.status.promotion_eligible = bool(first.get("promotion_eligible"))
+        self.status.trading_state = str(first.get("trading_state") or "ENTRY_PAUSED")
 
     def _publish_external_state(self) -> None:
         """Persist scheduler health for the separately hosted desktop API."""
@@ -766,6 +869,12 @@ class RuntimeScheduler:
                 "external_baseline_value": self.status.external_baseline_value,
                 "external_baseline_source": self.status.external_baseline_source,
                 "entry_authorized": self.status.entry_authorized,
+                "entry_authority": self.status.entry_authority,
+                "entry_authority_reason": self.status.entry_authority_reason,
+                "production_authorization_state": self.status.production_authorization_state,
+                "active_entry_strategy": self.status.active_entry_strategy,
+                "promotion_eligible": self.status.promotion_eligible,
+                "trading_state": self.status.trading_state,
                 "startup_contract_errors": list(self.status.startup_contract_errors),
             }
         )

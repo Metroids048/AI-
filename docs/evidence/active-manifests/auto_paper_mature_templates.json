@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "strategy_key": "auto_paper_mature_templates",
   "candidate_id": "trend_momentum_v2_enriched",
   "rules_hash": "1da72b9aaabb3b412f8c0cbbfb6c8658df1a0c773f0b80e7c39e6f92d24c5e78",
@@ -9,5 +9,15 @@
   ],
   "computed_at": "2026-08-07T15:20:00.000000+00:00",
   "report_path": null,
-  "change_rationale": "2026-08-07: switch from trend_momentum_v1 (single MACD entry, zero signals in 48h testnet run) to trend_momentum_v2_enriched (4 entry signals: macd, price_action, dow_trend, bollinger) to address signal scarcity while retaining 4h EMA+ADX trend filter."
+  "change_rationale": "2026-08-07: switch from trend_momentum_v1 (single MACD entry, zero signals in 48h testnet run) to trend_momentum_v2_enriched (4 entry signals: macd, price_action, dow_trend, bollinger) to address signal scarcity while retaining 4h EMA+ADX trend filter.",
+  "production_authorization": {
+    "state": "PENDING",
+    "candidate_id": "trend_momentum_v2_enriched",
+    "candidate_version": "2.0.0",
+    "rules_hash": "1da72b9aaabb3b412f8c0cbbfb6c8658df1a0c773f0b80e7c39e6f92d24c5e78",
+    "config_snapshot_hash": null,
+    "eligible_symbols": ["BTC/USDT", "ETH/USDT"],
+    "validation_evidence_ref": null,
+    "approval": {"approved_by": null, "approved_at": null}
+  }
 }

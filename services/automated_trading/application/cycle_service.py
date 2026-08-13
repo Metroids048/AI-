@@ -51,6 +51,7 @@ from services.automated_trading.application.fact_persistence import (
     persist_exit_submission_result,
     reconcile_closed_position_protections,
 )
+from services.automated_trading.application.production_strategy import EntryAuthority
 from services.automated_trading.application.protection_service import (
     build_protection_plan,
     ensure_protection,
@@ -106,6 +107,7 @@ class CycleRequest:
     now: datetime
     risk_per_trade: Decimal = Decimal("0.01")
     max_leverage: int = 10
+    max_margin_fraction: Decimal = Decimal("0.05")
     order_notional_usdt: Decimal | None = None
     max_position_fraction: Decimal = Decimal("0.05")
     account_equity: Decimal = Decimal("10000")
@@ -122,6 +124,17 @@ class CycleRequest:
     decision_id: str | None = None
     # Sampling requires an explicit operator opt-in.  The safe default is off.
     sampling_fallback_enabled: bool = False
+    # The scheduler resolves this once before constructing the request.  The
+    # cycle never infers a second writer from a strategy candidate.
+    entry_authority: EntryAuthority = EntryAuthority.NONE
+    entry_authority_reason: str = "production_pending"
+    # Only the scheduler may supply a candidate here, after it has bound the
+    # approved manifest authorization to the immutable active ConfigSnapshot.
+    production_candidate: TradeCandidate | None = None
+    production_authorized: bool = False
+    production_authorization_reason: str = "NO_AUTHORIZED_PRODUCTION_STRATEGY"
+    production_decision_reason: str = "NO_AUTHORIZED_PRODUCTION_STRATEGY"
+    production_trace: dict[str, Any] = field(default_factory=dict)
     # Wall-clock budget for the advisory AI review that runs between RISK_APPROVED
     # and PRICE_DRIFT_APPROVED.  The review is advisory only (a failure yields
     # SKIPPED and never blocks execution), but it sits on the hot path: every
@@ -212,12 +225,14 @@ class CycleResult:
 
 
 def _sampling_execution_allowed(request: CycleRequest, candidate: TradeCandidate) -> bool:
-    """Allow the bounded sampling lane to submit only to active Testnet V2."""
+    """Canary sampling may write only on the explicit Testnet authority."""
     return (
-        candidate.non_promotable
-        and request.persist_facts
+        request.entry_authority is EntryAuthority.TESTNET_CANARY
         and request.execution_mode is V2ExecutionMode.BINANCE_TESTNET
         and request.engine_activation is EngineActivation.ACTIVE
+        and request.sampling_fallback_enabled
+        and candidate.lane is CandidateLane.TESTNET_SAMPLING
+        and candidate.non_promotable
     )
 
 
@@ -593,13 +608,15 @@ def _calculate_quantity(
     stop_distance: Decimal | None = None,
     reference_price: Decimal | None = None,
 ) -> Decimal:
-    """Resolve entry notional as risk-based sizing under two hard ceilings.
+    """Resolve entry notional as risk-based sizing under three hard ceilings.
 
     ``risk_per_trade`` is the fraction of equity risked if the stop is hit, so the
     notional that expresses it is ``equity * risk_per_trade / stop_distance_pct``.
     Two ceilings then apply and neither may be exceeded:
 
     * ``equity * max_position_fraction`` — the operator's per-symbol exposure cap.
+    * ``equity * max_margin_fraction * max_leverage`` — the operator's per-entry
+      margin budget expressed separately from both risk budget and notional.
     * ``equity * max_leverage`` — margin capacity; a notional above this is
       unfundable regardless of intent.
 
@@ -617,10 +634,11 @@ def _calculate_quantity(
     """
     equity = max(snapshot.equity, Decimal("1"))
     exposure_ceiling = equity * request.max_position_fraction
+    margin_budget_ceiling = equity * request.max_margin_fraction * Decimal(request.max_leverage)
     margin_ceiling = equity * Decimal(request.max_leverage)
 
     if request.order_notional_usdt is not None:
-        return min(request.order_notional_usdt, exposure_ceiling, margin_ceiling)
+        return min(request.order_notional_usdt, exposure_ceiling, margin_budget_ceiling, margin_ceiling)
 
     risk_budget = equity * request.risk_per_trade
     stop_fraction: Decimal | None = None
@@ -631,10 +649,10 @@ def _calculate_quantity(
         # No usable stop geometry: fall back to the risk budget as a plain
         # notional. This is deliberately the small, conservative branch — it must
         # never silently size up without a measured stop distance.
-        return min(risk_budget, exposure_ceiling, margin_ceiling)
+        return min(risk_budget, exposure_ceiling, margin_budget_ceiling, margin_ceiling)
 
     risk_notional = risk_budget / stop_fraction
-    return min(risk_notional, exposure_ceiling, margin_ceiling)
+    return min(risk_notional, exposure_ceiling, margin_budget_ceiling, margin_ceiling)
 
 
 def _persist_reconciliation_fact(
@@ -1492,72 +1510,170 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                     except Exception as exc:  # noqa: BLE001
                         result.record_error(f"exit fill persistence failed: {exc}")
 
-    if not request.sampling_fallback_enabled:
+    if request.entry_authority is EntryAuthority.NONE:
+        # Sampling remains observable, but a missing authority is an explicit
+        # paused-entry runtime state, not a healthy no-signal decision.
+        sampling_context = DecisionContext(
+            cycle_id=request.cycle_id,
+            symbol=request.symbol,
+            lane=CandidateLane.TESTNET_SAMPLING,
+            strategy_id="testnet_sampling_v2",
+            strategy_version="1.0.0",
+            entry_timeframe=request.entry_timeframe,
+            now=request.now,
+            already_evaluated_bars=request.already_evaluated_bars,
+        )
+        sampling = evaluate_symbol(sampling_context)
+        terminal_reason = (
+            request.production_decision_reason
+            if request.production_authorized
+            else DecisionReasonCode.NO_AUTHORIZED_PRODUCTION_STRATEGY.value
+        )
         result.funnel_payload = {
-            "terminal_stage": "SAMPLING_DISABLED",
-            "reason_code": "SAMPLING_FALLBACK_DISABLED",
-            "execution_policy": "SAMPLING_DISABLED",
+            "cycle_id": request.cycle_id,
+            "symbol": request.symbol,
+            "lane": CandidateLane.PRODUCTION.value,
+            "strategy_id": "production_strategy_pending",
+            "strategy_version": None,
+            "terminal_stage": "RISK_APPROVED",
+            "reason_code": terminal_reason,
+            "execution_policy": "ENTRY_PAUSED",
+            "entry_authority": EntryAuthority.NONE.value,
+            "entry_authorized": False,
+            "entry_authority_reason": request.entry_authority_reason,
+            "trading_state": "ENTRY_PAUSED",
+            "active_entry_strategy": None,
+            "promotion_eligible": False,
+            "production_authorization_reason": request.production_authorization_reason,
+            "sampling_decision": sampling.funnel.to_payload(),
         }
         return result
 
-    decision_context = DecisionContext(
-        cycle_id=request.cycle_id,
-        symbol=request.symbol,
-        lane=CandidateLane.TESTNET_SAMPLING,
-        strategy_id="testnet_sampling_v2",
-        strategy_version="1.0.0",
-        entry_timeframe=request.entry_timeframe,
-        now=request.now,
-        already_evaluated_bars=request.already_evaluated_bars,
-    )
-    outcome = evaluate_symbol(decision_context)
-    result.funnel_payload = outcome.funnel.to_payload()
-
-    if not outcome.has_candidate:
-        if request.persist_facts:
-            try:
-                _record_trade_review_skip(request, "NO_CANDIDATE")
-            except Exception as exc:  # noqa: BLE001
-                result.record_error(f"AI skip persistence failed: {exc}")
+    candidate = request.production_candidate
+    if request.entry_authority is EntryAuthority.TESTNET_CANARY:
+        sampling_context = DecisionContext(
+            cycle_id=request.cycle_id,
+            symbol=request.symbol,
+            lane=CandidateLane.TESTNET_SAMPLING,
+            strategy_id="testnet_sampling_v2",
+            strategy_version="2.0.0",
+            entry_timeframe=request.entry_timeframe,
+            now=request.now,
+            already_evaluated_bars=request.already_evaluated_bars,
+        )
+        sampling = evaluate_symbol(sampling_context)
+        candidate = sampling.candidate
+        if candidate is None:
+            result.funnel_payload = {
+                "cycle_id": request.cycle_id,
+                "symbol": request.symbol,
+                "lane": CandidateLane.TESTNET_SAMPLING.value,
+                "strategy_id": "testnet_sampling_v2",
+                "terminal_stage": sampling.terminal_stage.value,
+                "reason_code": sampling.reason_code.value,
+                "execution_policy": "AUTHORIZED_TESTNET_CANARY",
+                "entry_authority": EntryAuthority.TESTNET_CANARY.value,
+                "entry_authorized": True,
+                "entry_authority_reason": request.entry_authority_reason,
+                "trading_state": "TRADING",
+                "active_entry_strategy": "testnet_sampling_v2",
+                "promotion_eligible": False,
+                "production_authorization_reason": request.production_authorization_reason,
+            }
+            return result
+        if not _sampling_execution_allowed(request, candidate):
+            raise RuntimeError("TESTNET_CANARY candidate bypassed its authority contract")
+    elif request.entry_authority is EntryAuthority.PRODUCTION and request.production_authorized and candidate is None:
+        result.funnel_payload = {
+            "cycle_id": request.cycle_id,
+            "symbol": request.symbol,
+            "lane": CandidateLane.PRODUCTION.value,
+            "strategy_id": "production_strategy",
+            "terminal_stage": "MANIFEST_EVALUATED",
+            "reason_code": request.production_decision_reason,
+            "execution_policy": "AUTHORIZED_PRODUCTION",
+            "entry_authority": EntryAuthority.PRODUCTION.value,
+            "entry_authorized": True,
+            "entry_authority_reason": request.entry_authority_reason,
+            "trading_state": "TRADING",
+            "active_entry_strategy": "production_strategy",
+            "promotion_eligible": True,
+            "production_authorization_reason": request.production_authorization_reason,
+        }
         return result
-
-    candidate = outcome.candidate
+    elif (
+        candidate is None
+        or not request.production_authorized
+        or candidate.lane is not CandidateLane.PRODUCTION
+        or candidate.candidate_type is not V2CandidateType.PRIMARY
+        or candidate.non_promotable
+    ):
+        result.funnel_payload = {
+            "cycle_id": request.cycle_id,
+            "symbol": request.symbol,
+            "lane": CandidateLane.PRODUCTION.value,
+            "strategy_id": "production_strategy_pending",
+            "terminal_stage": "RISK_APPROVED",
+            "reason_code": DecisionReasonCode.NO_AUTHORIZED_PRODUCTION_STRATEGY.value,
+            "execution_policy": "ENTRY_PAUSED",
+            "entry_authority": EntryAuthority.NONE.value,
+            "entry_authorized": False,
+            "entry_authority_reason": request.entry_authority_reason,
+            "trading_state": "ENTRY_PAUSED",
+            "active_entry_strategy": None,
+            "promotion_eligible": False,
+            "production_authorization_reason": request.production_authorization_reason,
+        }
+        return result
     assert candidate is not None
-
-    # Sampling remains non-promotable, but an explicitly armed Testnet
-    # sampling fallback is allowed to exercise the real Exchange-First lane.
-    # This is the bounded Gate 17 canary path: it can never run in SHADOW,
-    # local Paper, or Mainnet, and its fills stay excluded from promotion
-    # metrics by the SAMPLING candidate type.
-    sampling_execution_allowed = _sampling_execution_allowed(request, candidate)
-    if candidate.non_promotable and not sampling_execution_allowed:
+    result.funnel_payload = {
+        "cycle_id": request.cycle_id,
+        "symbol": request.symbol,
+        "lane": CandidateLane.PRODUCTION.value,
+        "strategy_id": candidate.strategy_id,
+        "strategy_version": candidate.strategy_version,
+        "candidate_key": candidate.strategy_id,
+        "terminal_stage": "MANIFEST_EVALUATED",
+        "reason_code": "CANDIDATE_READY",
+        "execution_policy": (
+            "AUTHORIZED_TESTNET_CANARY"
+            if request.entry_authority is EntryAuthority.TESTNET_CANARY
+            else "AUTHORIZED_PRODUCTION"
+        ),
+        "entry_authority": request.entry_authority.value,
+        "entry_authorized": True,
+        "entry_authority_reason": request.entry_authority_reason,
+        "trading_state": "TRADING",
+        "active_entry_strategy": candidate.strategy_id,
+        "promotion_eligible": not candidate.non_promotable,
+        "strategy_trace": dict(request.production_trace),
+    }
+    if candidate.non_promotable and request.entry_authority is not EntryAuthority.TESTNET_CANARY:
         result.funnel_payload["execution_policy"] = "DECISION_TRACE_ONLY"
         return result
-    if sampling_execution_allowed:
-        result.funnel_payload["execution_policy"] = "TESTNET_SAMPLING_EXECUTION"
 
-        # Binance one-way mode aggregates positions by symbol.  An external
-        # baseline can therefore only be extended in the same direction;
-        # submitting the opposite side would reduce or flip the operator's
-        # unmanaged position instead of creating an attributable increment.
-        baseline_directions = {
-            key.rsplit(":", 1)[-1]
-            for key, quantity in _load_external_baseline_positions().items()
-            if key.startswith(f"{request.symbol}:") and quantity > 0
-        }
-        if baseline_directions and candidate.direction not in baseline_directions:
-            _append_funnel_stage(
-                result.funnel_payload,
-                stage="RISK_APPROVED",
-                outcome="REJECTED",
-                reason_code=DecisionReasonCode.UNMANAGED_EXTERNAL_POSITION.value,
-                metrics={
-                    "detail": "external baseline direction conflict",
-                    "baseline_directions": "|".join(sorted(baseline_directions)),
-                    "candidate_direction": candidate.direction,
-                },
-            )
-            return result
+    # Binance one-way mode aggregates a symbol's exposure.  A captured external
+    # baseline may only be extended in its existing direction; the opposite
+    # side would reduce or flip an unmanaged operator position.  This applies
+    # to every authorized writer, including the Testnet Canary.
+    baseline_directions = {
+        key.rsplit(":", 1)[-1]
+        for key, quantity in local_state.external_baseline_positions.items()
+        if key.startswith(f"{request.symbol}:") and quantity > 0
+    }
+    if baseline_directions and candidate.direction not in baseline_directions:
+        _append_funnel_stage(
+            result.funnel_payload,
+            stage="RISK_APPROVED",
+            outcome="REJECTED",
+            reason_code=DecisionReasonCode.UNMANAGED_EXTERNAL_POSITION.value,
+            metrics={
+                "detail": "external baseline direction conflict",
+                "baseline_directions": "|".join(sorted(baseline_directions)),
+                "candidate_direction": candidate.direction,
+            },
+        )
+        return result
 
     entry_enabled = True if not request.persist_facts else _runtime_entry_enabled()
     result.entry_blocked_by_runtime_control = request.persist_facts and not entry_enabled
@@ -1724,7 +1840,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                 symbol=request.symbol,
                 direction=candidate.direction,
                 candidate_key=getattr(candidate, "candidate_key", candidate.strategy_id),
-                candidate_type=V2CandidateType.SAMPLING,
+                candidate_type=candidate.candidate_type,
                 execution_mode=request.execution_mode,
                 decision_bar_timestamp=(
                     request.entry_timeframe.last_closed.timestamp
@@ -1827,7 +1943,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                 symbol=request.symbol,
                 direction=candidate.direction,
                 candidate_key=getattr(candidate, "candidate_key", candidate.strategy_id),
-                candidate_type=V2CandidateType.SAMPLING,
+                candidate_type=candidate.candidate_type,
                 execution_mode=request.execution_mode,
                 decision_bar_timestamp=(
                     request.entry_timeframe.last_closed.timestamp

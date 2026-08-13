@@ -11,6 +11,11 @@ from decimal import Decimal
 from pathlib import Path
 
 from services.research.exit_policy_shadow.contracts import Bar, RealEntry, Regime
+from services.research.exit_policy_shadow.regime import RegimeLabelResult, project_regime_label
+from services.strategy_library.context import TIMEFRAME_DELTAS, MarketContext, MarketContextBuilder
+from services.strategy_library.proposal_pipeline import PROPOSAL_CONTEXT_WINDOW_LENGTHS
+from services.strategy_library.regime.scorer_v2 import RegimeScorerV2
+from shared.models import Exchange, OHLCVBar, Timeframe
 
 
 def load_real_entries(db_path: Path) -> list[RealEntry]:
@@ -189,13 +194,101 @@ def compute_atr(bars: list[Bar], *, period: int = ATR_PERIOD) -> Decimal | None:
     return atr
 
 
-def classify_regime(*, bars: list[Bar]) -> Regime:
-    """Classify the entry-time regime from point-in-time bars only.
+def load_context_bars(
+    db_path: Path,
+    *,
+    symbol: str,
+    timeframe: str,
+    decision_bar: datetime,
+    limit: int,
+) -> list[OHLCVBar]:
+    """Load the most recent ``limit`` bars closed at or before ``decision_bar``.
 
-    Deliberately conservative: P2-A has no validated regime classifier, and the
-    frozen scope forbids inventing one to make a slice look better. Callers pass
-    bars that closed at or before the decision bar, and this returns UNKNOWN so the
-    regime-aware policy fails closed onto the baseline rather than fabricating a
-    label. Real classification is a separate, reviewable piece of work.
+    Mirrors the production loader (`_load_v2_market_context`): the end bound is
+    ``decision_bar - interval`` on the bar's open time, which is the same closed-bar
+    condition `MarketContextBuilder` re-applies. Rows are fetched newest-first and
+    reversed so the window is the *latest* N bars, exactly as
+    ``DataRepository.list_ohlcv_bars(limit=...)`` returns them; taking the oldest N
+    instead would score a window from a year ago.
     """
-    return Regime.UNKNOWN
+    delta = TIMEFRAME_DELTAS[timeframe]
+    uri = f"file:{db_path.as_posix()}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT time, exchange, open, high, low, close, volume
+        FROM ohlcv_bars
+        WHERE symbol = ? AND timeframe = ?
+          AND time <= ?
+        ORDER BY time DESC
+        LIMIT ?
+        """,
+        (symbol, timeframe, _to_db_timestamp(decision_bar - delta), limit),
+    )
+    rows = list(reversed(cur.fetchall()))
+    conn.close()
+
+    bars: list[OHLCVBar] = []
+    for row in rows:
+        bar_time = datetime.fromisoformat(str(row["time"]).replace(" ", "T")).replace(tzinfo=UTC)
+        bars.append(
+            OHLCVBar(
+                symbol=symbol,
+                exchange=Exchange(row["exchange"]),
+                timeframe=Timeframe(timeframe),
+                time=bar_time,
+                open=Decimal(str(row["open"])),
+                high=Decimal(str(row["high"])),
+                low=Decimal(str(row["low"])),
+                close=Decimal(str(row["close"])),
+                volume=Decimal(str(row["volume"])),
+            )
+        )
+    return bars
+
+
+def build_point_in_time_context(db_path: Path, *, symbol: str, decision_bar: datetime) -> MarketContext:
+    """Build the production point-in-time context for ``decision_bar``.
+
+    Uses the production window lengths so a research label is computed over the same
+    evidence a runtime label would have been.
+    """
+    bars_by_timeframe = {
+        timeframe: load_context_bars(
+            db_path,
+            symbol=symbol,
+            timeframe=timeframe,
+            decision_bar=decision_bar,
+            limit=limit,
+        )
+        for timeframe, limit in PROPOSAL_CONTEXT_WINDOW_LENGTHS.items()
+    }
+    return MarketContextBuilder().build(
+        symbol=symbol,
+        decision_time=decision_bar,
+        bars_by_timeframe=bars_by_timeframe,
+        source_ids=("p2a_exit_policy_shadow",),
+    )
+
+
+def classify_entry_regime(db_path: Path, *, symbol: str, decision_bar: datetime) -> RegimeLabelResult:
+    """Classify the entry-time regime for one real fill. Read-only.
+
+    Pipeline: point-in-time bars -> `MarketContextBuilder` -> `RegimeScorerV2` ->
+    research-only label projection. The score producer is the production one; only the
+    final label projection is research-owned.
+    """
+    context = build_point_in_time_context(db_path, symbol=symbol, decision_bar=decision_bar)
+    score = RegimeScorerV2().score(context)
+    return project_regime_label(context=context, score=score)
+
+
+def classify_regime(db_path: Path, *, symbol: str, decision_bar: datetime) -> Regime:
+    """Convenience wrapper returning only the label. Prefer :func:`classify_entry_regime`.
+
+    The full result carries the score vector and versions needed to recompute a label
+    later; callers that discard it cannot.
+    """
+    return classify_entry_regime(db_path, symbol=symbol, decision_bar=decision_bar).regime

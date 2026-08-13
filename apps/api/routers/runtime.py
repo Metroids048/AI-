@@ -13,17 +13,23 @@ from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, s
 from sqlalchemy.orm import Session
 
 from apps.api.auth import websocket_token_is_valid
+from services.automated_trading.domain.enums import V2ExecutionMode
+from services.automated_trading.infrastructure.models import (
+    V2ExchangeFill,
+    V2ExchangeOrder,
+    V2ExecutionIntent,
+    V2ManagedPosition,
+    V2ProtectionRecord,
+)
+from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
 from services.database import get_db_session, get_session_factory
 from services.execution.gateway import configured_gateways
 from services.execution.runtime_state import load_external_scheduler_state
 from services.strategy_library import (
-    DecisionFunnelRepository,
-    ExecutionRepository,
     LlmInvocationRepository,
     PaperRunRepository,
 )
 from shared.models import PaperRun, RuntimeDatum
-from shared.models.execution_truth import ExchangeOrderState, ExecutionMode
 
 router = APIRouter(prefix="/runtime", tags=["runtime-truth"])
 # Serve-from-cache window. This MUST exceed the console poll interval
@@ -203,7 +209,7 @@ def _platform_symbol(value: object) -> str:
 def _position_truth(
     *,
     exchange: dict,
-    local_open: list,
+    local_open: list[V2ManagedPosition],
     observed_at: datetime,
 ) -> tuple[dict, set[str]]:
     exchange_positions: dict[tuple[str, str], float] = {}
@@ -216,9 +222,7 @@ def _position_truth(
         if symbol and side and quantity > 0:
             exchange_positions[(symbol, side)] = quantity
     local_positions = {
-        (item.symbol, item.position_side.value): abs(float(item.quantity))
-        for item in local_open
-        if abs(float(item.quantity)) > 0
+        (item.symbol, item.direction): abs(float(item.quantity)) for item in local_open if abs(float(item.quantity)) > 0
     }
     exchange_keys = set(exchange_positions)
     local_keys = set(local_positions)
@@ -235,7 +239,7 @@ def _position_truth(
     exchange_only = sorted(exchange_keys - local_keys)
     local_only = sorted(local_keys - exchange_keys)
     blocked_symbols = {symbol for symbol, _side in [*exchange_only, *local_only]}
-    blocked_symbols.update(item["symbol"] for item in quantity_mismatches)
+    blocked_symbols.update(str(item["symbol"]) for item in quantity_mismatches)
     available = exchange.get("status") == "available"
     consistent = available and not exchange_only and not local_only and not quantity_mismatches
     return (
@@ -255,13 +259,120 @@ def _position_truth(
     )
 
 
-def _exchange_linked_positions(local_open: list) -> list:
-    return [
-        item
-        for item in local_open
-        if item.execution_mode is ExecutionMode.BINANCE_TESTNET
-        or item.exchange_account.startswith("binance:usdt_perpetual:testnet")
-    ]
+def _v2_repo(db: Session) -> AutomatedTradingRepository:
+    return AutomatedTradingRepository(db)
+
+
+def _v2_decision_payload(decision, cycle) -> dict:
+    """Normalize the persisted V2 decision fact for the Runtime Truth UI."""
+    payload = dict(decision.payload or {})
+    stages = payload.get("stages")
+    exchange_submitted = any(
+        isinstance(stage, dict) and stage.get("stage") == "EXCHANGE_SUBMITTED" and stage.get("outcome") == "PASSED"
+        for stage in (stages if isinstance(stages, list) else [])
+    )
+    return {
+        "decision_id": decision.decision_id,
+        "cycle_id": cycle.cycle_id,
+        "symbol": cycle.symbol,
+        "created_at": decision.created_at.isoformat(),
+        "last_decision_at": decision.created_at.isoformat(),
+        "strategy": payload.get("active_entry_strategy") or payload.get("strategy_id"),
+        "entry_authority": payload.get("entry_authority"),
+        "signal_generated": bool(payload.get("candidate_key")),
+        "entry_gate_result": payload.get("terminal_stage") or cycle.decision_terminal or "UNKNOWN",
+        "entry_submitted": exchange_submitted,
+        "terminal_reason": decision.terminal_reason or payload.get("reason_code") or "UNKNOWN",
+    }
+
+
+def _v2_position_payload(position: V2ManagedPosition) -> dict:
+    """Keep established Runtime Truth names while sourcing V2 position facts."""
+    return {
+        "position_record_id": position.position_id,
+        "intent_id": position.intent_id,
+        "order_record_id": position.order_record_id,
+        "symbol": position.symbol,
+        "position_side": position.direction,
+        "direction": position.direction,
+        "quantity": float(position.quantity),
+        "entry_price": float(position.entry_price),
+        "entry_fee": float(position.entry_fee),
+        "management_status": position.state,
+        "state": position.state,
+        "execution_mode": position.execution_mode,
+        "opened_at": position.projected_at.isoformat() if position.projected_at else None,
+        "protected_at": position.protected_at.isoformat() if position.protected_at else None,
+        "closed_at": position.closed_at.isoformat() if position.closed_at else None,
+        "realized_pnl": float(position.realized_pnl) if position.realized_pnl is not None else None,
+    }
+
+
+def _v2_order_payload(order: V2ExchangeOrder, intent: V2ExecutionIntent) -> dict:
+    return {
+        "exchange_order_record_id": order.order_record_id,
+        "intent_id": order.intent_id,
+        "client_order_id": order.client_order_id,
+        "exchange_order_id": order.exchange_order_id,
+        "symbol": intent.symbol,
+        "side": intent.direction,
+        "direction": intent.direction,
+        "state": intent.state,
+        "requested_quantity": float(order.quantity),
+        "filled_quantity": float(order.filled_quantity) if order.filled_quantity is not None else None,
+        "average_fill_price": float(order.average_fill_price) if order.average_fill_price is not None else None,
+        "leverage": order.leverage,
+        "submitted_at": order.submitted_at.isoformat() if order.submitted_at else None,
+        "acknowledged_at": order.acknowledged_at.isoformat() if order.acknowledged_at else None,
+        "fill_timestamp": order.fill_timestamp.isoformat() if order.fill_timestamp else None,
+        "created_at": order.created_at.isoformat() if order.created_at else None,
+        "rejection_reason": order.rejection_reason,
+        "execution_mode": intent.execution_mode,
+    }
+
+
+def _v2_protection_payload(protection: V2ProtectionRecord, position: V2ManagedPosition) -> dict:
+    return {
+        "protection_record_id": protection.protection_id,
+        "position_id": protection.position_id,
+        "symbol": position.symbol,
+        "position_side": position.direction,
+        "direction": position.direction,
+        "status": protection.state,
+        "state": protection.state,
+        "stop_loss_price": float(protection.stop_loss_price),
+        "take_profit_price": (
+            float(protection.take_profit_price) if protection.take_profit_price is not None else None
+        ),
+        "stop_client_order_id": protection.stop_client_order_id,
+        "tp_client_order_id": protection.tp_client_order_id,
+        "stop_exchange_order_id": protection.stop_exchange_order_id,
+        "tp_exchange_order_id": protection.tp_exchange_order_id,
+        "created_at": protection.created_at.isoformat() if protection.created_at else None,
+        "activated_at": protection.activated_at.isoformat() if protection.activated_at else None,
+        "execution_mode": position.execution_mode,
+    }
+
+
+def _v2_fill_payload(fill: V2ExchangeFill, intent: V2ExecutionIntent) -> dict:
+    return {
+        "fill_receipt_id": fill.fill_id,
+        "intent_id": fill.intent_id,
+        "exchange_order_record_id": fill.exchange_order_record_id,
+        "exchange_order_id": fill.exchange_order_id,
+        "trade_id": fill.trade_id,
+        "symbol": fill.symbol,
+        "side": fill.side,
+        "direction": intent.direction,
+        "reduce_only": fill.reduce_only,
+        "filled_quantity": float(fill.filled_quantity),
+        "fill_price": float(fill.fill_price),
+        "commission": float(fill.commission) if fill.commission is not None else None,
+        "commission_asset": fill.commission_asset,
+        "exchange_event_time": fill.exchange_event_time.isoformat(),
+        "received_at": fill.received_at.isoformat(),
+        "execution_mode": intent.execution_mode,
+    }
 
 
 def _select_strategy_evidence_run(paper_runs: list[PaperRun]) -> PaperRun | None:
@@ -310,36 +421,50 @@ def _strategy_evidence_datum(*, paper_runs: list[PaperRun], observed_at: datetim
 @router.get("/snapshot")
 def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
     observed_at = datetime.now(UTC)
-    execution_repo = ExecutionRepository(db)
+    v2_repo = _v2_repo(db)
     exchange = _exchange_truth()
-    position_records = execution_repo.list_position_records(limit=200)
-    local_open = [
-        item for item in position_records if item.management_status.value not in {"CLOSED", "RECONCILED_GHOST"}
-    ]
+    local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
     mismatch, _blocked_symbols = _position_truth(
         exchange=exchange,
-        local_open=_exchange_linked_positions(local_open),
+        local_open=local_open,
         observed_at=observed_at,
     )
     scheduler = load_external_scheduler_state(now=observed_at)
     paper_runs = PaperRunRepository(db).list_paper_runs()
+    entry_runtime = {
+        "entry_authority": scheduler.entry_authority or "NONE",
+        "entry_authorized": bool(scheduler.entry_authorized),
+        "entry_authority_reason": scheduler.entry_authority_reason or scheduler.reason,
+        "production_authorization_state": scheduler.production_authorization_state or "PENDING",
+        "active_entry_strategy": scheduler.active_entry_strategy,
+        "promotion_eligible": bool(scheduler.promotion_eligible),
+        "trading_state": scheduler.trading_state or "ENTRY_PAUSED",
+    }
     return {
         "observed_at": observed_at.isoformat(),
         "exchange": exchange,
         "local_projection": _datum(
-            value=[item.model_dump(mode="json") for item in local_open],
-            source="LOCAL_SQL_PROJECTION",
+            value=[_v2_position_payload(item) for item in local_open],
+            source="V2_MANAGED_POSITION_FACTS",
             observed_at=observed_at,
         ),
         "mismatch": mismatch,
         "scheduler": _datum(
             value={
                 **scheduler.__dict__,
+                **entry_runtime,
                 "heartbeat_at": (scheduler.heartbeat_at.isoformat() if scheduler.heartbeat_at else None),
                 "last_auto_cycle_at": (
                     scheduler.last_auto_cycle_at.isoformat() if scheduler.last_auto_cycle_at else None
                 ),
             },
+            source="RUNTIME_SCHEDULER_HEARTBEAT",
+            observed_at=scheduler.heartbeat_at,
+            status="available" if scheduler.running else "unavailable",
+            error=None if scheduler.running else scheduler.reason,
+        ),
+        "entry_runtime": _datum(
+            value=entry_runtime,
             source="RUNTIME_SCHEDULER_HEARTBEAT",
             observed_at=scheduler.heartbeat_at,
             status="available" if scheduler.running else "unavailable",
@@ -359,8 +484,14 @@ def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
         ),
         "strategy_evidence": _strategy_evidence_datum(paper_runs=paper_runs, observed_at=observed_at),
         "protections": _datum(
-            value=[item.model_dump(mode="json") for item in execution_repo.list_protection_records(limit=200)],
-            source="LOCAL_SQL_PROJECTION",
+            value=[
+                _v2_protection_payload(protection, position)
+                for protection, position in v2_repo.list_protection_records(
+                    execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+                    limit=200,
+                )
+            ],
+            source="V2_PROTECTION_FACTS",
             observed_at=observed_at,
         ),
     }
@@ -375,14 +506,14 @@ def runtime_decisions(
     db: Session = Depends(get_db_session),
 ) -> dict:
     del cursor
-    items = DecisionFunnelRepository(db).list_terminals(
+    items = _v2_repo(db).list_recent_decisions(
         symbol=symbol,
         since=since,
         limit=limit,
     )
     return {
-        "items": [item.model_dump(mode="json") for item in items],
-        "next_cursor": items[-1].terminal_id if len(items) == limit else None,
+        "items": [_v2_decision_payload(decision, cycle) for decision, cycle in items],
+        "next_cursor": items[-1][0].decision_id if len(items) == limit else None,
     }
 
 
@@ -395,22 +526,33 @@ def runtime_exchange_orders(
     db: Session = Depends(get_db_session),
 ) -> dict:
     del cursor
-    items = ExecutionRepository(db).list_exchange_orders(symbol=symbol, limit=limit)
+    items = _v2_repo(db).list_exchange_orders(
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        symbol=symbol,
+        limit=limit,
+    )
     if since is not None:
-        items = [item for item in items if item.created_at is not None and item.created_at >= since]
+        items = [item for item in items if item[0].created_at is not None and item[0].created_at >= since]
     return {
-        "items": [item.model_dump(mode="json") for item in items],
-        "next_cursor": (items[-1].exchange_order_record_id if len(items) == limit else None),
+        "items": [_v2_order_payload(order, intent) for order, intent in items],
+        "next_cursor": (items[-1][0].order_record_id if len(items) == limit else None),
     }
 
 
 @router.get("/positions")
 def runtime_positions(db: Session = Depends(get_db_session)) -> dict:
+    v2_repo = _v2_repo(db)
     return {
         "exchange": _exchange_truth(),
         "local": _datum(
-            value=[item.model_dump(mode="json") for item in ExecutionRepository(db).list_position_records(limit=200)],
-            source="LOCAL_SQL_PROJECTION",
+            value=[
+                _v2_position_payload(item)
+                for item in v2_repo.list_managed_positions(
+                    execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+                    limit=200,
+                )
+            ],
+            source="V2_MANAGED_POSITION_FACTS",
             observed_at=datetime.now(UTC),
         ),
     }
@@ -443,15 +585,11 @@ def runtime_llm_invocations(
 def runtime_reconciliation(db: Session = Depends(get_db_session)) -> dict:
     observed_at = datetime.now(UTC)
     exchange = _exchange_truth()
-    execution_repo = ExecutionRepository(db)
-    local_open = [
-        item
-        for item in execution_repo.list_position_records(limit=200)
-        if item.management_status.value not in {"CLOSED", "RECONCILED_GHOST"}
-    ]
+    v2_repo = _v2_repo(db)
+    local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
     mismatch, blocked_symbols = _position_truth(
         exchange=exchange,
-        local_open=_exchange_linked_positions(local_open),
+        local_open=local_open,
         observed_at=observed_at,
     )
     paper_runs = PaperRunRepository(db).list_paper_runs()
@@ -462,11 +600,7 @@ def runtime_reconciliation(db: Session = Depends(get_db_session)) -> dict:
         (int(run.paper_metrics_summary.get("reconciliation_consecutive_failures", 0)) for run in paper_runs),
         default=0,
     )
-    unknown_orders = [
-        order
-        for order in execution_repo.list_exchange_orders(limit=500)
-        if order.state is ExchangeOrderState.EXCHANGE_UNKNOWN
-    ]
+    unknown_orders = v2_repo.list_exchange_unknown_intents(execution_mode=V2ExecutionMode.BINANCE_TESTNET)
     exchange_status = str(exchange.get("status") or "")
     exchange_has_snapshot = exchange.get("value") is not None
     # Stale cached truth is degraded for ops UI, but must not invent a full BTC/ETH
@@ -505,7 +639,7 @@ def runtime_reconciliation(db: Session = Depends(get_db_session)) -> dict:
         ),
         "consecutive_failures": consecutive_failures,
         "entry_kill_switch_active": bool(active_kill_switch_runs),
-        "unresolved_exchange_order_ids": [order.exchange_order_record_id for order in unknown_orders],
+        "unresolved_exchange_order_ids": [order.intent_id for order in unknown_orders],
     }
 
 
@@ -521,19 +655,31 @@ async def runtime_events(
     try:
         while True:
             with get_session_factory()() as db:
-                latest = DecisionFunnelRepository(db).list_terminals(limit=20)
-                orders = ExecutionRepository(db).list_exchange_orders(limit=20)
-                receipts = ExecutionRepository(db).list_exchange_fill_receipts(limit=20)
-                protections = ExecutionRepository(db).list_protection_records(limit=20)
+                v2_repo = _v2_repo(db)
+                latest = v2_repo.list_recent_decisions(limit=20)
+                orders = v2_repo.list_exchange_orders(
+                    execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+                    limit=20,
+                )
+                protections = v2_repo.list_protection_records(
+                    execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+                    limit=20,
+                )
+                fills = v2_repo.list_exchange_fills(
+                    execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+                    limit=20,
+                )
                 llm_invocations = LlmInvocationRepository(db).list_invocations(limit=20)
                 await websocket.send_json(
                     {
                         "event": "runtime_truth",
                         "observed_at": datetime.now(UTC).isoformat(),
-                        "decisions": [item.model_dump(mode="json") for item in latest],
-                        "exchange_orders": [item.model_dump(mode="json") for item in orders],
-                        "fill_receipts": [item.model_dump(mode="json") for item in receipts],
-                        "protections": [item.model_dump(mode="json") for item in protections],
+                        "decisions": [_v2_decision_payload(decision, cycle) for decision, cycle in latest],
+                        "exchange_orders": [_v2_order_payload(order, intent) for order, intent in orders],
+                        "fill_receipts": [_v2_fill_payload(fill, intent) for fill, intent in fills],
+                        "protections": [
+                            _v2_protection_payload(protection, position) for protection, position in protections
+                        ],
                         "llm_invocations": [item.model_dump(mode="json") for item in llm_invocations],
                     }
                 )

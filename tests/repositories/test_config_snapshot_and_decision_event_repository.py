@@ -8,6 +8,7 @@ from services.strategy_library.repository import (
     ConfigConflictError,
     ConfigSnapshotRepository,
     DecisionEventRepository,
+    PaperRunRepository,
 )
 from shared.models import BlockCode, ConfigSnapshot, DecisionEvent, DecisionEventType
 from tests.repositories.test_decision_snapshot_repository import _create_paper_run
@@ -66,6 +67,118 @@ def test_config_snapshot_rejects_stale_base_hash(db_session) -> None:
             ),
             base_config_hash="sha256:stale",
         )
+
+
+def test_stage_execution_profile_snapshot_is_atomic_and_preserves_pending_writer(db_session) -> None:
+    """A sizing update cannot replace a concurrent NEXT_CYCLE configuration."""
+    run = _create_paper_run(db_session)
+    repo = ConfigSnapshotRepository(db_session)
+    paper_repo = PaperRunRepository(db_session)
+    initial = repo.create_snapshot(
+        ConfigSnapshot.create(
+            paper_run_id=run.paper_run_id,
+            config={"execution_profile": {"max_leverage": 40}},
+            created_by="bootstrap",
+            effective_cycle_id="cycle-1",
+        ),
+        base_config_hash=None,
+    )
+    competing = repo.create_snapshot(
+        ConfigSnapshot.create(
+            paper_run_id=run.paper_run_id,
+            config={"execution_profile": {"max_leverage": 40}, "operator_note": "keep"},
+            created_by="operator",
+            effective_cycle_id="NEXT_CYCLE",
+            previous_snapshot_id=initial.config_snapshot_id,
+        ),
+        base_config_hash=initial.config_hash,
+    )
+
+    with pytest.raises(ConfigConflictError, match="pending snapshot"):
+        repo.stage_execution_profile_snapshot(
+            ConfigSnapshot.create(
+                paper_run_id=run.paper_run_id,
+                config={"execution_profile": {"max_leverage": 50, "max_margin_fraction": 0.05}},
+                created_by="sizing",
+                effective_cycle_id="NEXT_CYCLE",
+                previous_snapshot_id=initial.config_snapshot_id,
+            ),
+            execution_profile={"max_leverage": 50, "max_margin_fraction": 0.05},
+            base_config_hash=initial.config_hash,
+        )
+
+    stored = paper_repo.get_paper_run(run.paper_run_id)
+    assert stored is not None
+    assert stored.execution_profile == run.execution_profile
+    assert repo.get_pending(run.paper_run_id).config_snapshot_id == competing.config_snapshot_id
+
+
+def test_create_snapshot_refuses_to_replace_existing_pending_snapshot(db_session) -> None:
+    """Every snapshot writer shares the same single-pending contract."""
+    run = _create_paper_run(db_session)
+    repo = ConfigSnapshotRepository(db_session)
+    initial = repo.create_snapshot(
+        ConfigSnapshot.create(
+            paper_run_id=run.paper_run_id,
+            config={"version": 1},
+            created_by="bootstrap",
+            effective_cycle_id="cycle-1",
+        ),
+        base_config_hash=None,
+    )
+    pending = repo.create_snapshot(
+        ConfigSnapshot.create(
+            paper_run_id=run.paper_run_id,
+            config={"version": 2},
+            created_by="operator-a",
+            effective_cycle_id="NEXT_CYCLE",
+            previous_snapshot_id=initial.config_snapshot_id,
+        ),
+        base_config_hash=initial.config_hash,
+    )
+
+    with pytest.raises(ConfigConflictError, match="pending configuration"):
+        repo.create_snapshot(
+            ConfigSnapshot.create(
+                paper_run_id=run.paper_run_id,
+                config={"version": 3},
+                created_by="operator-b",
+                effective_cycle_id="NEXT_CYCLE",
+                previous_snapshot_id=initial.config_snapshot_id,
+            ),
+            base_config_hash=initial.config_hash,
+        )
+
+    assert repo.get_pending(run.paper_run_id).config_snapshot_id == pending.config_snapshot_id
+
+
+def test_stage_execution_profile_snapshot_writes_profile_and_snapshot_together(db_session) -> None:
+    run = _create_paper_run(db_session)
+    repo = ConfigSnapshotRepository(db_session)
+    initial = repo.create_snapshot(
+        ConfigSnapshot.create(
+            paper_run_id=run.paper_run_id,
+            config={"execution_profile": {"max_leverage": 40}},
+            created_by="bootstrap",
+            effective_cycle_id="cycle-1",
+        ),
+        base_config_hash=None,
+    )
+    profile = {"max_leverage": 50, "max_margin_fraction": 0.05}
+    staged = repo.stage_execution_profile_snapshot(
+        ConfigSnapshot.create(
+            paper_run_id=run.paper_run_id,
+            config={"execution_profile": profile},
+            created_by="sizing",
+            effective_cycle_id="NEXT_CYCLE",
+            previous_snapshot_id=initial.config_snapshot_id,
+        ),
+        execution_profile=profile,
+        base_config_hash=initial.config_hash,
+    )
+
+    assert repo.get_pending(run.paper_run_id).config_snapshot_id == staged.config_snapshot_id
+    assert PaperRunRepository(db_session).get_paper_run(run.paper_run_id).execution_profile == profile
 
 
 def test_existing_non_active_snapshot_can_be_restaged_for_next_cycle(db_session) -> None:

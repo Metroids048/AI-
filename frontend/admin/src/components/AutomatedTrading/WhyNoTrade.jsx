@@ -42,20 +42,24 @@ function ReasonTag({ code }) {
 }
 
 function DecisionRow({ decision }) {
+  const evaluatedAt = decision.last_decision_at ?? decision.evaluated_at;
+  const terminalStage = decision.entry_gate_result ?? decision.terminal_stage;
+  const terminalReason = decision.terminal_reason ?? decision.reason_code;
+  const exchangeSubmitted = decision.entry_submitted ?? decision.exchange_submitted;
   return (
     <div className="why-no-trade-row">
       <div className="why-no-trade-row-head">
         <span className="why-no-trade-symbol">{formatSymbol(decision.symbol)}</span>
-        <span className="why-no-trade-time">{formatClock(decision.evaluated_at)}</span>
+        <span className="why-no-trade-time">{formatClock(evaluatedAt)}</span>
       </div>
       <div className="why-no-trade-row-body">
         <span className="why-no-trade-label">停在</span>
-        <span className="why-no-trade-stage" title={decision.terminal_stage ?? undefined}>
-          {formatDecisionStage(decision.terminal_stage)}
+        <span className="why-no-trade-stage" title={terminalStage ?? undefined}>
+          {formatDecisionStage(terminalStage)}
         </span>
-        <ReasonTag code={decision.reason_code} />
+        <ReasonTag code={terminalReason} />
       </div>
-      {decision.exchange_submitted ? (
+      {exchangeSubmitted ? (
         <div className="why-no-trade-submitted">已提交至交易所</div>
       ) : null}
     </div>
@@ -76,7 +80,9 @@ export function WhyNoTrade({ decisions }) {
   const bySymbol = {};
   for (const decision of decisions) {
     const current = bySymbol[decision.symbol];
-    if (!current || decision.evaluated_at > current.evaluated_at) {
+    const decisionTime = decision.last_decision_at ?? decision.evaluated_at ?? "";
+    const currentTime = current?.last_decision_at ?? current?.evaluated_at ?? "";
+    if (!current || decisionTime > currentTime) {
       bySymbol[decision.symbol] = decision;
     }
   }

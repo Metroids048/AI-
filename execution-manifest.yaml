@@ -1,533 +1,181 @@
-contract_version: 1
-contract_name: frontend-runtime-truth-consolidation
-status: READY_FOR_PROMPT3_PREFLIGHT
-base_commit: 4029e7f19f3ffd488d4f6973cc4797865ef17b2d
-branch: backup/2026-08-10-wip
-baseline_note:
-  from: 720a36e
-  to: 4029e7f
-  meaning: only_read_only_research_package_added; active_runtime_chain_unchanged
-document: project-solution-and-agent-plan.md
-document_sha256: 53b72dd528296575b33928772bf8019cc9cc01dd6735d8c8fc6329249a169a14
-commit_allowed: false
-push_allowed: false
-temporary_commit_allowed: false
-stash_allowed: false
-branch_creation_allowed: false
-worktree_creation_allowed: false
+contract:
+  name: crypto-quant-v2-production-finalization
+  schema: FROZEN_EXECUTION_CONTRACT
+  prompt_version: Prompt_2_v3
+  status: BLOCKED_EVIDENCE
+  document: project-solution-and-agent-plan.md
+  document_sha256: 4bb4fac6c9139bdf817d85fc9477e3ae922f5d06e29d5b30887247c09d6c2803
+  committed_base:
+    branch: backup/2026-08-10-wip
+    head: 46cf24d2b36c66906ffda96097e021bc920862ed
+    origin_delta_command: git log origin/backup/2026-08-10-wip..HEAD --oneline
+    origin_delta: empty
+  effective_working_baseline:
+    definition: committed_base plus the current user-owned uncommitted worktree overlay
+    overlay_identity: git status --short plus git diff --stat/name-only and cached diff stat/name-only
+    overlay_contains: [V2_authority_restore, Runtime_Truth, strategy_adapter, tests]
+    head_contains_overlay: false
+    preflight_change_policy: any_non_mechanical_change_is_BLOCKED_BASELINE
+
+permissions:
+  prompt_2_contract_correction_only: true
+  code_implementation: false
+  test_edits: false
+  database_writes: false
+  exchange_orders: false
+  testnet_runtime: false
+  commit: false
+  push: false
+  branch_or_worktree: false
+  prompt_3_implementation_authorized: false
+
+scope:
+  symbols: [BTC/USDT, ETH/USDT]
+  incumbent: trend_momentum_v2_enriched
+  permanently_excluded_from_production_competition: [testnet_sampling_v2]
+  frozen_values:
+    risk_per_trade: 0.10
+    max_leverage: 50
+    max_margin_fraction: 0.05
+    max_position_fraction: 2.50
+  must_not_change: [business_code, tests, production_authorization_approval, Binance_Testnet_state]
+
+problems:
+  - id: P-001
+    title: V2 risk authority and portfolio-stop evidence
+    status: BLOCKED
+    implementation_authorized: false
+    conclusion_preserved: V2_sizing_and_entry_gates_are_mapped_but_portfolio_initial_risk_daily_loss_and_drawdown_lack_proven_V2_native_authority
+    classification_summary:
+      sizing_constraints: [risk_per_trade, max_symbol_exposure_or_max_position_fraction, max_leverage]
+      entry_hard_gates: [existing_position, cooldown, reconciliation, kill_switch, min_notional]
+      exit_exemptions: [reduce_only_exit_for_existing_positions]
+      dead_or_unused_in_active_V2: [max_portfolio_initial_risk_fraction, daily_loss_or_drawdown]
+    blocked_evidence:
+      - V2_ConfigSnapshot_owner_and_fields_for_portfolio_initial_risk_daily_loss_drawdown
+      - V2_fact_queries_for_portfolio_risk_realized_daily_pnl_equity_peak_and_current_equity
+      - V2_trading_day_reset_timezone
+      - exact_V2_native_entry_only_gate_symbol
+    allowed_next_step: Evidence-A_read_only_only
+    forbidden_resolution: [legacy_Gatekeeper_reattachment, invented_risk_thresholds, code_implementation]
+
+  - id: P-002
+    title: Runtime Truth exchange-probe failure recovery
+    status: ALREADY_SATISFIED
+    implementation_authorized: false
+    conclusion_preserved: cache_reuse_stale_unavailable_single_flight_timeout_continuation_and_background_recovery_are_already_covered
+    regression_contract: [retry_opportunity_within_30_seconds, one_inflight_exchange_probe, polling_safe, stale_not_zero, unavailable_not_zero, post_timeout_background_recovery]
+    forbidden_resolution: [mechanical_cache_constant_rewrite, code_task_without_new_measured_regression]
+
+  - id: P-003
+    title: B-mode Production entry and exit competition
+    status: BLOCKED
+    implementation_authorized: false
+    conclusion_preserved: no_BTC_ETH_hash_bound_OOS_evidence_or_promotable_exit_result_exists_and_no_champion_may_be_selected
+    blocked_evidence:
+      - perpetual_market_data_source_and_BTCUSDT_ETHUSDT_15m_1h_4h_bar_checksums
+      - exact_coverage_start_end_and_walk_forward_boundaries
+      - point_in_time_funding_and_funding_checksum
+      - gap_duplicate_and_ordering_checks
+      - candidate_rules_hashes
+      - fee_slippage_fill_and_sizing_contract
+      - candidate_by_symbol_by_window_trades_expectancy_PF_Sharpe_MaxDD_signal_density_trade_density
+      - distribution_derived_significant_deterioration_tolerances
+      - distribution_derived_minimum_density_ratio
+      - fixed_entry_exit_comparison_results
+    allowed_next_step: Evidence-B_read_only_public_market_data_only
+    forbidden_resolution: [strategy_threshold_change, testnet_sampling_v2_authority, entry_and_exit_change_together, code_implementation]
+
+tasks:
+  - id: PRE-000
+    type: VERIFY_ONLY
+    status: REQUIRED_BEFORE_ANY_FUTURE_PROMPT_3
+    problem_ids: [P-001, P-002, P-003]
+    code_implementation: false
+    file_allowlist: []
+    commands:
+      - git status --short
+      - git branch --show-current
+      - git rev-parse HEAD
+      - git diff --stat
+      - git diff --name-only
+      - git diff --cached --stat
+      - git diff --cached --name-only
+      - git log origin/backup/2026-08-10-wip..HEAD --oneline
+    required_identity: [branch, HEAD, worktree_overlay_identity_and_scope, origin_delta]
+    stop_state_on_non_mechanical_change: BLOCKED_BASELINE
+    must_not_change: [all_repository_files]
+
+global_regression:
+  required_before_any_future_implementation: true
+  baseline_known_failures:
+    - tests/test_candidate_registry.py::test_registry_has_nine_candidates
+    - tests/test_candidate_registry.py::test_list_candidates
+  baseline_known_lint_findings:
+    - scripts/run_proposal_research_replay.py:326:B023
+    - scripts/verify_gate17_e2e.py:77:C416
+  focused_evidence:
+    - "pytest -q tests/api/test_runtime_truth_api.py tests/services/test_automated_trading_entry.py tests/services/test_automated_trading_cycle.py => 69 passed, 2 warnings"
+  full_suite_evidence: "pytest -q => 1541 passed, 7 skipped, 2 failed"
+  typecheck_evidence: "mypy => Success: no issues found in 236 source files"
+  diff_check: "git diff --check => PASS"
+  preexisting_out_of_scope: [candidate_registry_count_assertions, unrelated_ruff_script_findings]
+
+independent_review:
+  required: true
+  status: REQUIRED_AFTER_A_FUTURE_IMPLEMENTATION_ONLY
+  separate_read_only_reviewer: true
+  implementation_commit_required: true
+  current_review_result: contract_correction_not_an_implementation_review
+  checks: [authority_chain, evidence_hashes, frozen_values, diff_scope, no_legacy_Gatekeeper_reattachment, no_second_execution_truth]
+
 external_validation:
   required: true
-  status: NOT_RUN_UNTIL_REVIEWED_COMMIT_EXISTS
-  invariant: external_testnet_validation_requires_an_immutable_reviewed_commit_baseline
-  order_submission_allowed: false
-  private_truth_source: repository_binance_testnet_runtime_truth
-  plugin_scope: public_usdt_m_contract_semantics_only
+  separate_run: true
+  reviewed_implementation_commit_required: true
+  code_changes_forbidden: true
+  test_changes_forbidden: true
+  validation_script_changes_forbidden: true
+  stages:
+    - id: EV-001
+      name: Browser_Acceptance
+      status: NOT_RUN_SEPARATE_GATE
+      prerequisites: [future_implementation_complete, independent_review_passed]
+      acceptance: [seven_navigation_pages, 900p, 1080p, first_fold, loading_empty_stale_unavailable_current, console_errors, network_polling, exchange_probe_recovery, BTC_ETH_reconciliation_side_qty_status_consistency]
+      failure_handling: new_independent_Prompt_1_or_Prompt_2_issue_no_patch_during_acceptance
+    - id: EV-002
+      name: Natural_Binance_Testnet_Trading_Acceptance
+      status: NOT_RUN_NOT_AUTHORIZED
+      prerequisites: [production_candidate_evidence_complete, independent_review_passed, explicit_user_operator_approval]
+      acceptance: [natural_production_signal, production_primary_TradeCandidate, V2_entry_gate, real_Binance_Testnet_order, real_fill, fill_based_protection, correct_reduce_only_side, natural_or_SL_or_TP_exit, V2_CLOSED, protection_retired, realized_PnL_exactly_once, reconciliation_HEALTHY, no_duplicate_order_exit_ghost_position_or_PnL]
+      forbidden: [sampling_signal, forced_entry, acceptance_order, lowered_strategy_threshold, disabled_risk_control, scheduler_change_for_acceptance]
 
-solution:
-  selected: B
-  title: existing_runtime_truth_as_single_runtime_source
-  rejected:
-    - A_mixed_console_data_automated_runtime_testnet_account
-    - C_full_frontend_rewrite
-  runtime_truth_endpoints:
-    - /api/v1/runtime/snapshot
-    - /api/v1/runtime/decisions
-    - /api/v1/runtime/exchange-orders
-    - /api/v1/runtime/positions
-    - /api/v1/runtime/llm-invocations
-    - /api/v1/runtime/reconciliation
-    - /api/v1/runtime/events
-  scope:
-    localization: seven_main_navigation_pages_and_direct_shared_components
-    excluded: detail_routes
-
-problem_ids:
-  - id: P-001
-    title: multiple_runtime_truth_sources
-    assertions: [T-001, T-005]
-    tests: [frontend/admin/src/pages/PaperConsole.deskSync.test.jsx, frontend/admin/src/components/TradingSummaryHero.test.jsx]
-  - id: P-002
-    title: page_and_request_lifecycle
-    assertions: [T-002, T-003, T-004]
-    tests: [frontend/admin/src/hooks/useRuntimeTruth.test.jsx, frontend/admin/src/hooks/useConsoleData.test.jsx]
-  - id: P-003
-    title: high_frequency_legacy_testnet_account_probe
-    assertions: [T-005]
-    tests: [tests/api/test_runtime_truth_api.py, frontend/admin/src/pages/PaperConsole.deskSync.test.jsx]
-  - id: P-004
-    title: missing_unified_data_state
-    assertions: [T-001, T-007]
-    tests: [frontend/admin/src/components/TradingSummaryHero.test.jsx, frontend/admin/src/components/DataState.test.jsx]
-  - id: P-005
-    title: review_and_ops_not_on_active_runtime_chain
-    assertions: [T-006]
-    tests: [frontend/admin/src/pages/ReviewCenter.test.jsx, frontend/admin/src/pages/OpsConsole.test.jsx]
-  - id: P-006
-    title: missing_chinese_presentation_mapping
-    assertions: [T-008]
-    tests: [frontend/admin/src/utils/format.test.js]
-  - id: P-007
-    title: trading_visual_hierarchy_and_dual_css
-    assertions: [T-009]
-    tests: [frontend/admin/src/pages/PaperConsole.layout.test.jsx]
-  - id: P-008
-    title: mock_only_acceptance
-    assertions: [T-001, T-002, T-003, T-004, T-005, T-006, T-007, T-008, T-009]
-    tests: [frontend/admin/src/pages/PaperConsole.layout.test.jsx, tests/api/test_runtime_truth_api.py]
-
-business_assertions:
-  T-001:
-    name: unavailable_never_becomes_zero_or_normal
-    given: runtime_exchange_unavailable
-    expect:
-      account: 暂不可用
-      positions: 暂不可用
-      risk: 状态待确认
-    forbidden: ["0", "+0.00", 正常]
-  T-002:
-    name: navigation_retains_last_runtime_truth
-    given: trading_with_wallet_balance_10000_then_review_then_trading
-    expect: first_return_frame_shows_10000_and_last_updated_before_background_refresh
-  T-003:
-    name: slow_request_is_single_flight
-    given: one_runtime_request_pending_for_60_seconds
-    expect: refresh_at_30_seconds_does_not_add_a_second_request
-  T-004:
-    name: cancellation_is_not_service_failure
-    given: BTC_market_request_pending_then_selection_changes_to_ETH
-    expect: BTC_request_aborted_and_no_service_unavailable_message
-  T-005:
-    name: paper_console_uses_runtime_account_truth
-    given: runtime_snapshot_has_wallet_balance_available_balance_positions_and_orders
-    expect: PaperConsole_does_not_call_execution_binance_testnet_account
-  T-006:
-    name: review_uses_current_runtime_decisions
-    given: reviews_empty_and_failures_empty_and_runtime_decisions_has_5_items
-    expect: review_shows_current_automatic_trading_activity
-  T-007:
-    name: loading_is_not_empty
-    given: api_promise_unresolved
-    expect: loading_state
-    only_after_successful_empty_items: empty_state
-  T-008:
-    name: internal_enums_are_not_bare_in_user_dom
-    forbidden_tokens: [configured, missing, pending, not_probed, scheduler_error, implementation_status, grid_search]
-    exceptions: [code_paths, external_proper_nouns, professional_terms_allowlist]
-  T-009:
-    name: desktop_first_fold_contract
-    viewports: ["1600x900", "1920x1080"]
-    expect_visible_without_full_page_scroll: [account_status, kline, records_tabs]
-
-machine_contract:
-  runtime_api:
-    endpoint: /api/v1/runtime/snapshot
-    location: exchange.value.account
-    numeric_fields:
-      - wallet_balance
-      - available_balance
-      - margin_balance
-      - unrealized_pnl
-      - open_position_count
-    unavailable_semantics: runtime_datum_is_STALE_or_UNAVAILABLE_never_numeric_zero_placeholder
-    exchange_probe:
-      cache_seconds: 15
-      hard_timeout_seconds: 8
-      single_probe_lock: true
-      stale_fallback: true
-    gateway_reconcile:
-      account_summary_option_default: false
-      existing_automatic_scheduler_behavior: regression_equivalent
-      allowed_behavior: read_reconcile_account_summary_only
-  runtime_provider:
-    mount: QueryClientProvider_inside__PlatformLayout_outside_Outlet
-    rest_websocket_chain: one_shared_chain_for_the_whole_application
-    page_responsibility: read_filter_present_only
-    forbidden_active_runtime_sources:
-      - useAutomatedTradingRuntime
-      - fetchPositions
-      - /api/v1/execution/binance-testnet-account
-      - legacy_overview_orders_as_exchange_orders
-  request_lifecycle:
-    request_forwards_abort_signal: true
-    abort_error_is_service_error: false
-    selection_single_flight: true
-    abort_on_selection_change: true
-    abort_on_unmount: true
-    schedule_next_only_after_refresh_complete: true
-  data_state:
-    values: [LOADING, AVAILABLE, STALE, UNAVAILABLE, EMPTY]
-    empty_requires_successful_empty_response: true
-    stale_keeps_last_valid_value: true
-    unknown_risk_maps_to: 状态待确认
-    unknown_risk_may_map_to_normal: false
-    readiness_layers: [api, scheduler, frontend, automated_trading_engine, market_data, binance_testnet, account_data]
-  presentation:
-    owner: frontend/admin/src/utils/format.js
-    mappings:
-      pending: 待处理
-      healthy: 正常
-      degraded: 异常/降级
-      configured: 已配置
-      missing: 未配置
-      long: 做多
-      short: 做空
-      ACTIVE: 已启用
-      BINANCE_TESTNET: 币安模拟盘
-      "true": 是
-      "false": 否
-    field_labels:
-      execution_engine: 执行引擎
-      optimization_method: 优化方式
-      implementation_status: 接入状态
-      scheduler_error: 调度器异常
-      next_cycle_eta_seconds: 距下次执行
-      risk_profile: 风控配置
-      operator_risk_per_trade: 单笔风险比例
-      generic_risk_profile_max_leverage: 默认最大杠杆
-    professional_terms_allowlist: [BTC, ETH, SOL, Binance, GitHub, LLM, RAG, API, MACD, RSI, EMA, ADX, VWAP, Sharpe, Freqtrade, Hyperopt]
-    create_parallel_i18n_layer: false
-  layout:
-    direction: binance_inspired_light_workstation
-    kline_height: clamp(280px, 38vh, 420px)
-    kline_min_height: 280px
-    desktop_first_fold: [account_status, kline, records_tabs]
-    record_area_scroll: internal_only
-    dark_usage: [tooltip, chart_local, special_risk_warning]
-    forbidden: [large_dark_hero_as_separate_theme, fixed_500px_kline, fixed_610px_trading_min_height, third_theme_override]
-
-global_must_not_change:
-  - services/automated_trading/domain/**
-  - services/automated_trading/application/decision_service.py
-  - strategy_generation_algorithms
-  - entry_decision_algorithms
-  - exit_decision_algorithms
-  - position_sizing_algorithms
-  - protection_order_business_logic
-  - Gatekeeper
-  - v2_execution_mode
-  - scheduler_cycle_business_logic
-  - database_migrations
-  - dependency_or_lock_files
-  - 一键启动.cmd
-  - default_v2_active_mode
-  - LIVE_TRADING_ENABLED_false_boundary
-  - BINANCE_TESTNET_boundary
-  - MAINNET_boundary
-  - existing_testnet_open_close_chain
-global_allowed_gateway_scope:
-  - read_reconcile_account_summary_only
-  - must_not_modify_submit_order_close_order_leverage_protection
-
-planned_new_test_files:
-  - frontend/admin/src/components/DataState.test.jsx
-  - frontend/admin/src/pages/ReviewCenter.test.jsx
-  - frontend/admin/src/utils/format.test.js
-  - frontend/admin/src/pages/PaperConsole.layout.test.jsx
-
-task_order: [E-001, E-002, E-003, E-004, E-005, E-006, E-007, E-008, E-009]
-tasks:
-  - id: E-001
-    title: runtime_exchange_truth_account_summary
-    problems: [P-001, P-003, P-004]
-    must_change:
-      - apps/api/routers/runtime.py
-      - services/execution/gateway.py
-      - tests/api/test_runtime_truth_api.py
-    may_change:
-      - apps/api/routers/runtime.py::response_model_or_test_helpers
-    must_not_change:
-      - services/automated_trading/**
-      - services/execution/gateway.py::submit_order
-      - services/execution/gateway.py::close_order
-      - services/execution/gateway.py::leverage
-      - services/execution/gateway.py::protection
-    red_tests:
-      - snapshot_exchange_account_missing_required_numeric_fields
-      - account_timeout_with_cached_value_not_stale
-      - reconcile_default_triggers_account_probe
-    business_assertions: [T-001, T-005]
-    focused_commands:
-      - "& $env:AGENT_PYTHON -m pytest tests/api/test_runtime_truth_api.py -q"
-    diff_gate: gateway_changes_are_read_reconcile_account_summary_only
-    stop_if: [default_scheduler_behavior_changes, execution_write_path_changes, global_must_not_change_touched]
-  - id: E-002
-    title: paper_console_runtime_truth_migration
-    problems: [P-001, P-003, P-004]
-    must_change:
-      - frontend/admin/src/pages/PaperConsole.jsx
-      - frontend/admin/src/components/TradingSummaryHero.jsx
-      - frontend/admin/src/hooks/useRuntimeTruth.js
-      - frontend/admin/src/pages/PaperConsole.deskSync.test.jsx
-      - frontend/admin/src/components/TradingSummaryHero.test.jsx
-    may_change: []
-    must_not_change:
-      - frontend/admin/src/api/automatedTrading.js
-      - legacy_api_compatibility_contracts
-      - trading_order_controls
-      - strategy_or_risk_decision_logic
-    red_tests:
-      - paper_console_calls_legacy_account_endpoint
-      - paper_console_consumes_v2_automated_runtime_as_runtime_truth
-      - unavailable_exchange_renders_zero_or_normal
-    business_assertions: [T-001, T-005]
-    focused_commands:
-      - "npm --workspace frontend/admin run test -- --run src/pages/PaperConsole.deskSync.test.jsx src/components/TradingSummaryHero.test.jsx src/hooks/useRuntimeTruth.test.jsx"
-    diff_gate: paper_console_runtime_imports_and_calls_are_runtime_truth_only
-    stop_if: [legacy_runtime_truth_reintroduced, global_must_not_change_touched]
-  - id: E-003
-    title: single_flight_abort_and_provider_persistence
-    problems: [P-002]
-    must_change:
-      - frontend/admin/src/hooks/useConsoleData.js
-      - frontend/admin/src/api/client.js
-      - frontend/admin/src/router.jsx
-      - frontend/admin/src/hooks/useRuntimeTruth.js
-      - frontend/admin/src/hooks/useConsoleData.test.jsx
-      - frontend/admin/src/hooks/useRuntimeTruth.test.jsx
-    may_change:
-      - frontend/admin/src/components/Common.jsx
-    must_not_change:
-      - business_api_payloads
-      - route_urls
-      - scheduler_business_logic
-      - strategy_or_execution_logic
-    red_tests:
-      - slow_request_starts_overlapping_refresh
-      - selection_change_does_not_abort_old_request
-      - abort_error_becomes_service_error
-      - navigation_loses_last_runtime_value
-    business_assertions: [T-002, T-003, T-004]
-    focused_commands:
-      - "npm --workspace frontend/admin run test -- --run src/hooks/useConsoleData.test.jsx src/hooks/useRuntimeTruth.test.jsx"
-    diff_gate: abort_errors_are_not_wrapped_and_next_poll_is_post_completion
-    stop_if: [provider_mount_inside_route_outlet, global_must_not_change_touched]
-  - id: E-004
-    title: shared_data_state_and_layered_readiness
-    problems: [P-004]
-    must_change:
-      - frontend/admin/src/components/Common.jsx
-      - frontend/admin/src/components/TradingSummaryHero.jsx
-      - frontend/admin/src/pages/PaperConsole.jsx
-      - frontend/admin/src/hooks/useRuntimeTruth.js
-      - frontend/admin/src/components/DataState.test.jsx
-    may_change:
-      - frontend/admin/src/pages/OpsConsole.jsx
-    must_not_change:
-      - backend_trading_status_protocol
-      - default_risk_decision_logic
-      - 一键启动.cmd
-      - scheduler_business_logic
-    red_tests:
-      - unresolved_promise_renders_empty
-      - unknown_risk_renders_normal
-      - unavailable_account_renders_zero
-    business_assertions: [T-001, T-007]
-    focused_commands:
-      - "npm --workspace frontend/admin run test -- --run src/components/DataState.test.jsx src/components/TradingSummaryHero.test.jsx"
-    diff_gate: unknown_risk_has_no_normal_default
-    stop_if: [empty_state_without_successful_response, global_must_not_change_touched]
-  - id: E-005
-    title: review_and_ops_current_runtime_truth
-    problems: [P-005, P-004, P-006]
-    must_change:
-      - frontend/admin/src/pages/ReviewCenter.jsx
-      - frontend/admin/src/pages/OpsConsole.jsx
-      - frontend/admin/src/hooks/useRuntimeTruth.js
-      - frontend/admin/src/pages/ReviewCenter.test.jsx
-      - frontend/admin/src/pages/OpsConsole.test.jsx
-    may_change:
-      - frontend/admin/src/components/Common.jsx
-      - frontend/admin/src/utils/format.js
-    must_not_change:
-      - reviews_failures_decision_memory_backend_contracts
-      - execution_trading_status_backend_contract
-      - automated_trading_business_logic
-      - scheduler_business_logic
-    red_tests:
-      - current_runtime_decisions_hidden_when_historical_lists_empty
-      - ops_runtime_status_disagrees_with_trading_console
-    business_assertions: [T-006]
-    focused_commands:
-      - "npm --workspace frontend/admin run test -- --run src/pages/ReviewCenter.test.jsx src/pages/OpsConsole.test.jsx"
-    diff_gate: current_runtime_review_and_historical_knowledge_are_explicitly_separated
-    stop_if: [runtime_truth_is_replaced_by_legacy_status, global_must_not_change_touched]
-  - id: E-006
-    title: main_navigation_loading_empty_error_stale
-    problems: [P-004, P-005, P-006]
-    must_change:
-      - frontend/admin/src/pages/StrategyLibrary.jsx
-      - frontend/admin/src/pages/RiskConsole.jsx
-      - frontend/admin/src/pages/ValidationCenter.jsx
-      - frontend/admin/src/pages/ResearchDesk.jsx
-    may_change:
-      - frontend/admin/src/components/Common.jsx
-      - frontend/admin/src/utils/format.js
-      - frontend/admin/src/pages/ReviewCenter.test.jsx
-    must_not_change:
-      - strategy_calculation
-      - backtest_calculation
-      - validation_calculation
-      - research_refresh_scheduler
-      - backend_refresh_contract
-    red_tests:
-      - undefined_asArray_renders_empty
-      - passive_page_mount_uses_refresh_true
-      - stale_or_error_renders_empty
-    business_assertions: [T-007]
-    focused_commands:
-      - "npm --workspace frontend/admin run test -- --run src/pages/ReviewCenter.test.jsx src/components/DataState.test.jsx"
-    diff_gate: passive_get_requests_use_refresh_false
-    stop_if: [page_mount_creates_background_third_party_refresh, global_must_not_change_touched]
-  - id: E-007
-    title: chinese_presentation_mapping
-    problems: [P-006]
-    must_change:
-      - frontend/admin/src/utils/format.js
-      - frontend/admin/src/pages/PaperConsole.jsx
-      - frontend/admin/src/pages/ReviewCenter.jsx
-      - frontend/admin/src/pages/OpsConsole.jsx
-      - frontend/admin/src/pages/StrategyLibrary.jsx
-      - frontend/admin/src/pages/RiskConsole.jsx
-      - frontend/admin/src/pages/ValidationCenter.jsx
-      - frontend/admin/src/pages/ResearchDesk.jsx
-      - frontend/admin/src/utils/format.test.js
-    may_change:
-      - frontend/admin/src/components/Common.jsx
-      - frontend/admin/src/components/TradingSummaryHero.jsx
-      - frontend/admin/src/styles.css
-    must_not_change:
-      - backend_protocol_enums
-      - api_field_names
-      - detail_routes
-      - professional_terms_allowlist
-    red_tests:
-      - forbidden_internal_tokens_visible_in_user_dom
-      - unknown_enum_maps_to_normal
-      - parallel_i18n_layer_created
-    business_assertions: [T-008]
-    focused_commands:
-      - "npm --workspace frontend/admin run test -- --run src/utils/format.test.js"
-    diff_gate: format_js_is_single_presentation_mapping_owner
-    stop_if: [protocol_enum_rewritten, parallel_i18n_layer_created, global_must_not_change_touched]
-  - id: E-008
-    title: light_trading_layout_and_internal_scroll
-    problems: [P-007, P-004, P-006]
-    must_change:
-      - frontend/admin/src/styles.css
-      - frontend/admin/src/components/TradingSummaryHero.jsx
-      - frontend/admin/src/pages/PaperConsole.jsx
-      - frontend/admin/src/pages/PaperConsole.layout.test.jsx
-    may_change:
-      - frontend/admin/src/components/Common.jsx
-      - frontend/admin/src/pages/StrategyLibrary.jsx
-      - frontend/admin/src/pages/ReviewCenter.jsx
-    must_not_change:
-      - chart_data_calculation
-      - trading_behavior
-      - detail_route_redesign
-      - global_theme_framework_rewrite
-    red_tests:
-      - fixed_500px_or_610px_layout_hides_records_tabs_at_900p
-      - dark_hero_is_separate_theme
-      - records_force_unbounded_document_scroll
-    business_assertions: [T-009]
-    focused_commands:
-      - "npm --workspace frontend/admin run test -- --run src/pages/PaperConsole.layout.test.jsx src/components/TradingSummaryHero.test.jsx"
-    diff_gate: kline_uses_frozen_clamp_and_no_third_theme_override
-    stop_if: [first_fold_contract_fails, global_must_not_change_touched]
-  - id: E-009
-    title: full_regression_independent_review_and_browser_acceptance
-    problems: [P-001, P-002, P-003, P-004, P-005, P-006, P-007, P-008]
-    must_change:
-      - frontend/admin/src/hooks/useRuntimeTruth.test.jsx
-      - frontend/admin/src/hooks/useConsoleData.test.jsx
-      - frontend/admin/src/pages/PaperConsole.deskSync.test.jsx
-      - frontend/admin/src/pages/OpsConsole.test.jsx
-      - frontend/admin/src/components/TradingSummaryHero.test.jsx
-      - tests/api/test_runtime_truth_api.py
-    may_change:
-      - frontend/admin/src/components/DataState.test.jsx
-      - frontend/admin/src/pages/ReviewCenter.test.jsx
-      - frontend/admin/src/utils/format.test.js
-      - frontend/admin/src/pages/PaperConsole.layout.test.jsx
-    must_not_change:
-      - production_business_code_for_acceptance_only
-      - global_must_not_change
-      - external_testnet_order_submission
-      - launcher_or_runtime_safety_boundary
-    red_tests:
-      - any_T_001_through_T_009_failure
-      - diff_check_failure
-      - whitelist_escape
-      - reviewer_finds_legacy_runtime_truth_reentry
-    business_assertions: [T-001, T-002, T-003, T-004, T-005, T-006, T-007, T-008, T-009]
-    focused_commands:
-      - "npm --workspace frontend/admin run test -- --run"
-      - "& $env:AGENT_PYTHON -m pytest tests/api/test_runtime_truth_api.py -q"
-      - "git diff --check"
-    diff_gate: independent_read_only_review_and_cumulative_whitelist_pass
-    stop_if: [test_failure, reviewer_blocker, browser_console_error, abnormal_network_polling, whitelist_escape]
-
-verification:
-  required_regression_commands:
-    - "npm --workspace frontend/admin run test -- --run"
-    - "& $env:AGENT_PYTHON -m pytest tests/api/test_runtime_truth_api.py -q"
-    - "git diff --check"
-  browser:
-    required: true
-    pages: [/trading, /strategy, /review, /risk, /validation, /research, /ops]
-    inspect: [console_errors, console_warnings, network_frequency, unavailable_after_8_second_timeout, recovery_within_30_seconds, first_fold_at_900p_and_1080p]
-  independent_reviewer:
-    required: true
-    mode: read_only
-    inspect: [runtime_truth_chain, forbidden_scope, cumulative_diff_whitelist, user_behavior_assertions]
-  external_testnet:
-    required: true
-    current_status: NOT_RUN_UNTIL_REVIEWED_COMMIT_EXISTS
-    check: [wallet_balance, positions, open_orders, runtime_truth_correspondence]
-
-no_commit_diff_protocol:
-  per_task:
-    - create_read_only_temporary_snapshot_outside_repository
-    - compare_task_increment_to_must_may_must_not_sets
-    - check_cumulative_git_diff_name_only_against_whitelist
-    - run_red_then_focused_regression_and_git_diff_check
-    - delete_temporary_snapshot
-  prohibited: [temporary_commit, stash, branch, worktree]
-  failure_status: STOP_AT_CURRENT_TASK_WITH_REPRODUCIBLE_EVIDENCE
+delivery:
+  final_status: BLOCKED_EVIDENCE
+  production_authorization:
+    state: PENDING
+    operator_approval_owner: user
+    agent_may_set_approved: false
+    required_bindings: [candidate_id, candidate_version, lifecycle_state, rules_hash, ConfigSnapshot_hash, BTC_ETH_scope, entry_validation_evidence, exit_validation_evidence, walk_forward_evidence, risk_contract_hash, operator_approval_state]
+  next_step: Evidence-Completion
+  evidence_completion_order: [Evidence-A_P-001_risk_contract, Evidence-B_P-003_production_competition_dataset, narrow_Prompt_2_Final_Freeze]
+  no_prompt_3_before: [P-001_and_P-003_blocked_evidence_resolved, final_freeze_status_READY_WITH_SEPARATE_EXTERNAL_VALIDATION]
+  allowed_artifacts_for_this_correction: [project-solution-and-agent-plan.md, execution-manifest.yaml]
 
 contract_lint:
+  required: true
   parser: PyYAML
-  required_top_level_keys:
-    - contract_version
-    - status
-    - base_commit
-    - branch
-    - document
-    - document_sha256
-    - commit_allowed
-    - push_allowed
-    - external_validation
-    - problem_ids
-    - task_order
-    - tasks
-    - machine_contract
-    - global_must_not_change
-    - contract_lint
   checks:
-    - required_keys_present
-    - P_ids_exact_unique_P_001_to_P_008
-    - E_ids_exact_unique_E_001_to_E_009
-    - task_order_is_strict
-    - every_problem_has_assertion_and_test_coverage
-    - every_task_has_must_may_must_not_and_they_are_disjoint
-    - must_or_may_paths_do_not_intersect_global_forbidden_patterns
-    - existing_declared_paths_exist
-    - nonexisting_test_paths_must_be_in_planned_new_test_files
-    - machine_runtime_api_state_presentation_layout_contracts_present
-    - markdown_yaml_baseline_branch_ids_permissions_external_status_match
-    - markdown_sha256_matches_document_sha256
-    - repository_diff_contains_only_project_solution_and_manifest_at_contract_stage
-    - git_diff_check_passes
-  final_status: READY_FOR_PROMPT3_PREFLIGHT
-  forbidden_statuses: [EXECUTION_READY, EXTERNAL_TESTNET_ACCEPTED]
+    - yaml_parses
+    - markdown_and_manifest_problem_statuses_agree
+    - BLOCKED_problems_have_no_code_implementation_task
+    - ALREADY_SATISFIED_problems_have_no_code_implementation_task
+    - external_validation_stages_are_not_tasks
+    - PREEXISTING_OUT_OF_SCOPE_is_not_a_task
+    - no_empty_CODE_IMPLEMENTATION_task
+    - every_task_has_defined_file_allowlist
+    - prompt_3_has_no_implementation_permission_while_BLOCKED_EVIDENCE
+    - production_authorization_is_PENDING
+    - worktree_overlay_is_not_described_as_HEAD_content
+    - document_sha256_matches
+  final_status: BLOCKED_EVIDENCE

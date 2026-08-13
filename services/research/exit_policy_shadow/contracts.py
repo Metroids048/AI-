@@ -176,6 +176,20 @@ class ShadowOutcome(FrozenModel):
     ambiguous_intrabar: bool
     sensitivity_net_pnl_usdt: Decimal | None = None
     regime_selection_reason: str | None = None
+    regime_selected_policy: ExitPolicyId | None = None
+    """For E only: the concrete policy this entry's regime routed to.
+
+    Recorded so a regime-aware result can be audited against the frozen mapping, and so
+    an UNKNOWN fail-closed to CONTROL stays distinguishable from a deliberate routing.
+    """
+    post_exit_remaining_mfe_r: Decimal | None = None
+    """Additional favourable excursion, in R, between this policy's exit and the fixed
+    post-entry horizon.
+
+    Research-only: it measures whether price kept moving the entry's way after the exit.
+    It is never part of realised PnL, because this policy had already exited and could
+    not have captured it.
+    """
 
     @property
     def total_cost_usdt(self) -> Decimal:
@@ -276,6 +290,7 @@ class Verdict(StrEnum):
     SUPPORTED = "SUPPORTED"
     NOT_SUPPORTED = "NOT_SUPPORTED"
     INSUFFICIENT_SAMPLE = "INSUFFICIENT_SAMPLE"
+    INSUFFICIENT_SLICE_SAMPLE = "INSUFFICIENT_SLICE_SAMPLE"
 
 
 MINIMUM_TRADES_FOR_VERDICT = 30
@@ -284,3 +299,97 @@ MINIMUM_TRADES_FOR_VERDICT = 30
 Consistent with the repository's existing >=30-sample edge-statistics gate. This
 threshold is a reporting honesty rule, not a promotion threshold.
 """
+
+MINIMUM_TRADES_PER_REGIME_SLICE = 10
+"""Below this, a per-regime policy comparison cannot name a winner.
+
+A research evidence gate only. It never gates production trading, and it must not be
+lowered to let a thin slice produce a headline.
+"""
+
+
+class Q1Evidence(FrozenModel):
+    """Entry-quality evidence, measured once per entry over a fixed horizon."""
+
+    sample_count: int
+    positive_mfe_count: int
+    mean_mfe_r: Decimal | None
+    median_mfe_r: Decimal | None
+    mean_mae_r: Decimal | None
+    median_mae_r: Decimal | None
+    mfe_mae_ratio: Decimal | None
+    horizon_hours: int
+
+    def describe(self) -> str:
+        """One-line rendering for the report."""
+        if self.mean_mfe_r is None or self.mean_mae_r is None:
+            return f"n={self.sample_count}, no R-denominated excursions available"
+        ratio = f"{self.mfe_mae_ratio:.2f}" if self.mfe_mae_ratio is not None else "N/A"
+        return (
+            f"n={self.sample_count}, positive_MFE={self.positive_mfe_count}/{self.sample_count}, "
+            f"mean_MFE={self.mean_mfe_r:.2f}R, median_MFE={self.median_mfe_r:.2f}R, "
+            f"mean_MAE={self.mean_mae_r:.2f}R, median_MAE={self.median_mae_r:.2f}R, "
+            f"MFE/|MAE|={ratio}, horizon={self.horizon_hours}h"
+        )
+
+
+class Q2Evidence(FrozenModel):
+    """Exit-leakage evidence across two explicitly separate horizons.
+
+    The two horizons are reported side by side and never divided into one another:
+    ``policy_horizon_capture`` is measured up to the policy's own exit, while
+    ``fixed_horizon_*`` is measured over the fixed post-entry window. Dividing a
+    quantity measured over one window by a quantity measured over a longer window
+    produces a ratio that describes neither.
+    """
+
+    sample_count: int
+    median_policy_horizon_capture: Decimal | None
+    capture_sample_count: int
+    mean_fixed_horizon_mfe_r: Decimal | None
+    median_post_exit_remaining_mfe_r: Decimal | None
+    post_exit_sample_count: int
+    trades_with_material_post_exit_mfe: int
+    best_alternative_policy: ExitPolicyId | None
+    best_alternative_net_expectancy: Decimal | None
+    control_net_expectancy: Decimal | None
+    alternative_improvement_is_concentrated: bool | None
+
+    def describe(self) -> str:
+        parts = [f"n={self.sample_count}"]
+        if self.median_policy_horizon_capture is not None:
+            parts.append(
+                f"median policy-horizon capture={self.median_policy_horizon_capture:.2%} "
+                f"(defined on {self.capture_sample_count})"
+            )
+        else:
+            parts.append(f"policy-horizon capture undefined on all {self.sample_count}")
+        if self.mean_fixed_horizon_mfe_r is not None:
+            parts.append(f"mean fixed-horizon MFE={self.mean_fixed_horizon_mfe_r:.2f}R")
+        if self.median_post_exit_remaining_mfe_r is not None:
+            parts.append(
+                f"median post-exit remaining MFE={self.median_post_exit_remaining_mfe_r:.2f}R "
+                f"(material on {self.trades_with_material_post_exit_mfe}/{self.post_exit_sample_count})"
+            )
+        if self.best_alternative_policy is not None and self.best_alternative_net_expectancy is not None:
+            parts.append(
+                f"best alternative={self.best_alternative_policy.value} "
+                f"({self.best_alternative_net_expectancy:+.2f} vs CONTROL "
+                f"{self.control_net_expectancy:+.2f})"
+                if self.control_net_expectancy is not None
+                else f"best alternative={self.best_alternative_policy.value}"
+            )
+        if self.alternative_improvement_is_concentrated is True:
+            parts.append("alternative improvement is concentrated in few trades")
+        return "; ".join(parts)
+
+
+class RegimeSliceComparison(FrozenModel):
+    """Per-regime policy comparison with its own sample verdict."""
+
+    regime: Regime
+    trade_count: int
+    verdict: Verdict
+    observed_best_policy: ExitPolicyId | None
+    observed_best_net_expectancy: Decimal | None
+    aggregates: tuple[PolicyAggregate, ...]

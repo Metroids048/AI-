@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 
 import { request } from "../api/client";
 import { WhyNoTrade } from "../components/AutomatedTrading";
+import { RuntimeTruthPanel } from "../components/RuntimeTruthPanel";
 import { TradingSummaryHero } from "../components/TradingSummaryHero";
 import { AppShell, DataState } from "../components/Common";
 import { KlinePanel, MarketHeader } from "../components/MarketPanels";
@@ -384,6 +385,7 @@ export function PaperConsole() {
         selectedSymbol={symbol}
         lastSuccessAt={runtime.lastSuccessAt}
       />
+      <RuntimeTruthPanel runtime={runtime} symbol={symbol} />
       <MarketList
         universe={data.universe}
         universeStatus={data.universeStatus}

@@ -962,6 +962,7 @@ def update_paper_run_auto_settings(
             **strategy.rules.position_rules,
             "risk_per_trade": body.risk_per_trade,
             "max_leverage": body.max_leverage,
+            "max_margin_fraction": body.max_margin_fraction,
             "max_position_fraction": body.max_symbol_exposure,
         }
         if body.order_notional_usdt is not None:
@@ -1183,6 +1184,7 @@ def get_paper_decision_trace(paper_run_id: str, db: Session = Depends(get_db_ses
             for key in (
                 "execution_mode",
                 "max_leverage",
+                "max_margin_fraction",
                 "risk_per_trade",
                 "order_notional_usdt",
                 "max_open_positions",

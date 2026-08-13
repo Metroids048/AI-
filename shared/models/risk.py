@@ -26,10 +26,14 @@ PAPER_RUNTIME_LIMITS: dict[str, int | float] = {
     # max_symbol_exposure and margin capacity. Simulation/Testnet sampling band —
     # must be re-tightened before any live promotion.
     "risk_per_trade": 0.10,
-    "max_symbol_exposure": 0.35,
-    "max_total_exposure": 0.90,
+    # Operator decision (2026-08-12): each Testnet BTC/ETH entry may use at
+    # most 5% of equity as margin at 50x.  These are not risk-budget values:
+    # 0.05 x 50 = 2.50x equity maximum notional per symbol.
+    "max_margin_fraction": 0.05,
+    "max_symbol_exposure": 2.50,
+    "max_total_exposure": 5.00,
     "max_open_positions": 2,
-    "max_leverage": 40.0,
+    "max_leverage": 50.0,
     "max_portfolio_initial_risk_fraction": 0.25,
     "daily_loss_limit": 0.20,
     "weekly_loss_limit": 0.25,

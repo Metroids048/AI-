@@ -41,8 +41,8 @@ def test_medium_risk_profile_uses_btc_eth_sampling_sizing() -> None:
     profile = medium_risk_profile()
     assert profile.risk_profile_id == MEDIUM_RISK_PROFILE_KEY
     assert profile.max_open_positions == 2
-    assert profile.max_total_exposure == 0.90
-    assert profile.max_leverage == 40.0
+    assert profile.max_total_exposure == 5.00
+    assert profile.max_leverage == 50.0
     assert profile.daily_loss_limit == 0.20
     assert profile.hard_stop_drawdown_limit == 0.40
 
@@ -57,3 +57,24 @@ def test_bootstrap_medium_risk_profile_is_idempotent(db_session) -> None:
     stored = RiskProfileRepository(db_session).get_profile(MEDIUM_RISK_PROFILE_KEY)
     assert stored is not None
     assert stored.max_leverage == medium_risk_profile().max_leverage
+
+
+def test_bootstrap_medium_risk_profile_preserves_operator_edits(db_session) -> None:
+    """A restart must not restore defaults over an operator-owned risk profile."""
+    from services.execution.bootstrap import bootstrap_medium_risk_profile
+    from services.strategy_library import RiskProfileRepository
+    from shared.models import RiskProfileUpdate
+
+    repo = RiskProfileRepository(db_session)
+    repo.create_profile(medium_risk_profile())
+    repo.update_profile(
+        MEDIUM_RISK_PROFILE_KEY,
+        RiskProfileUpdate(max_leverage=37.0, max_symbol_exposure=0.42),
+    )
+
+    assert bootstrap_medium_risk_profile() == MEDIUM_RISK_PROFILE_KEY
+    db_session.expire_all()
+    stored = repo.get_profile(MEDIUM_RISK_PROFILE_KEY)
+    assert stored is not None
+    assert stored.max_leverage == 37.0
+    assert stored.max_symbol_exposure == 0.42

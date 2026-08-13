@@ -20,7 +20,7 @@ from services.research.exit_policy_shadow.contracts import (
     ShadowOutcome,
 )
 from services.research.exit_policy_shadow.excursions import compute_excursions
-from services.research.exit_policy_shadow.policies import build_initial_geometry
+from services.research.exit_policy_shadow.policies import build_initial_geometry, resolve_regime_policy
 
 
 def replay_entry_under_policy(
@@ -82,14 +82,23 @@ def replay_entry(
         regime=regime,
     )
 
+    # E delegates its *exit mechanics*, not just its geometry. Dispatching on the
+    # requested policy alone would give a regime-aware TREND entry the ladder's stop
+    # and first target while still exiting in a single leg, so the reported result
+    # would not be the policy the mapping selected.
+    effective_policy = policy
+    if policy == ExitPolicyId.REGIME_AWARE:
+        effective_policy = resolve_regime_policy(regime).policy
+
     # Scale-out policies produce multiple legs; single-target policies have one.
-    if policy == ExitPolicyId.SCALE_OUT_RUNNER:
+    if effective_policy == ExitPolicyId.SCALE_OUT_RUNNER:
         return _replay_scale_out(
             entry=entry,
             bars=bars,
             initial_stop=initial_stop,
             initial_target=initial_target,
             regime=regime,
+            reported_policy=policy,
         )
 
     # Single-target policies (A, B, C, or E-delegated).
@@ -200,11 +209,11 @@ def _replay_single_target(
     holding_minutes = (exit_bar.time - entry.fill_timestamp).total_seconds() / 60
 
     regime_reason: str | None = None
+    regime_selected: ExitPolicyId | None = None
     if policy == ExitPolicyId.REGIME_AWARE:
-        from services.research.exit_policy_shadow.policies import resolve_regime_policy
-
         selection = resolve_regime_policy(regime)
         regime_reason = selection.reason
+        regime_selected = selection.policy
 
     leg = ExitLeg(
         label="exit",
@@ -239,6 +248,7 @@ def _replay_single_target(
         ambiguous_intrabar=(intrabar_resolution != IntrabarResolution.UNAMBIGUOUS),
         sensitivity_net_pnl_usdt=sensitivity_net,
         regime_selection_reason=regime_reason,
+        regime_selected_policy=regime_selected,
     )
 
 
@@ -249,6 +259,7 @@ def _replay_scale_out(
     initial_stop: Decimal,
     initial_target: Decimal | None,
     regime: Regime,
+    reported_policy: ExitPolicyId = ExitPolicyId.SCALE_OUT_RUNNER,
 ) -> ShadowOutcome:
     """Replay a laddered exit: 35% at 1R, 40% at 1.8R, 25% runner with trailing stop.
 
@@ -259,7 +270,7 @@ def _replay_scale_out(
         # Fallback: treat as single-target if risk is ill-defined.
         return _replay_single_target(
             entry=entry,
-            policy=ExitPolicyId.SCALE_OUT_RUNNER,
+            policy=reported_policy,
             bars=bars,
             initial_stop=initial_stop,
             initial_target=initial_target,
@@ -392,11 +403,13 @@ def _replay_scale_out(
 
     holding_minutes = (exit_bar.time - entry.fill_timestamp).total_seconds() / 60
 
+    ladder_selection = resolve_regime_policy(regime) if reported_policy == ExitPolicyId.REGIME_AWARE else None
+
     return ShadowOutcome(
         position_id=entry.position_id,
         symbol=entry.symbol,
         side=entry.side,
-        policy=ExitPolicyId.SCALE_OUT_RUNNER,
+        policy=reported_policy,
         regime=regime,
         entry_price=entry.average_fill_price,
         entry_quantity=entry.filled_quantity,
@@ -414,7 +427,8 @@ def _replay_scale_out(
         net_pnl_usdt=net_pnl,
         ambiguous_intrabar=False,
         sensitivity_net_pnl_usdt=None,
-        regime_selection_reason=None,
+        regime_selection_reason=ladder_selection.reason if ladder_selection else None,
+        regime_selected_policy=ladder_selection.policy if ladder_selection else None,
     )
 
 

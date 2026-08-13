@@ -11,6 +11,7 @@ import os
 import socket
 import uuid
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -18,6 +19,12 @@ from typing import Any
 from services.automated_trading.application.cycle_service import CycleRequest, run_automated_trading_cycle
 from services.automated_trading.application.decision_service import BarView, TimeframeView
 from services.automated_trading.application.operator_profile import V2ExecutionSettings, resolve_v2_execution_settings
+from services.automated_trading.application.production_strategy import (
+    NO_AUTHORIZED_PRODUCTION_STRATEGY,
+    evaluate_authorized_production_strategy,
+    resolve_entry_authority,
+    resolve_production_authorization,
+)
 from services.automated_trading.domain.enums import V2ExecutionMode
 from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
 from services.automated_trading.infrastructure.runtime_lock import (
@@ -433,7 +440,40 @@ def _load_v2_operator_execution_settings(*, symbol: str, cycle_id: str) -> V2Exe
         active = snapshots.get_active(run.paper_run_id)
         active_profile = active.config.get("execution_profile") if active is not None else None
         profile = active_profile if isinstance(active_profile, Mapping) else run.execution_profile
-        return resolve_v2_execution_settings(symbol, profile)
+        settings = resolve_v2_execution_settings(symbol, profile)
+        return replace(
+            settings,
+            active_snapshot_config=dict(active.config) if active is not None else None,
+            active_snapshot_hash=active.config_hash if active is not None else None,
+        )
+
+
+def _load_authorized_production_decision(
+    *,
+    settings: V2ExecutionSettings,
+    cycle_id: str,
+    symbol: str,
+    now: datetime,
+) -> tuple[Any | None, bool, str, str, dict[str, Any]]:
+    """Evaluate only an approved immutable snapshot through the mature pipeline."""
+    authorization = resolve_production_authorization(
+        snapshot_config=settings.active_snapshot_config,
+        snapshot_hash=settings.active_snapshot_hash,
+        symbol=symbol,
+    )
+    if not authorization.authorized:
+        return None, False, NO_AUTHORIZED_PRODUCTION_STRATEGY, NO_AUTHORIZED_PRODUCTION_STRATEGY, {}
+    from services.data.repository import DataRepository
+
+    with get_session_factory()() as session:
+        decision = evaluate_authorized_production_strategy(
+            authorization=authorization,
+            data_repo=DataRepository(session),
+            cycle_id=cycle_id,
+            symbol=symbol,
+            now=now,
+        )
+    return decision.candidate, True, authorization.reason, decision.reason, decision.trace
 
 
 def _finalize_v2_cycle_decision(
@@ -599,6 +639,33 @@ def execute_v2_automated_trading_cycles(
                 task_failed = True
                 continue
 
+            try:
+                (
+                    production_candidate,
+                    production_authorized,
+                    production_reason,
+                    production_decision_reason,
+                    production_trace,
+                ) = _load_authorized_production_decision(
+                    settings=operator_settings,
+                    cycle_id=cycle_id,
+                    symbol=symbol,
+                    now=now,
+                )
+            except Exception as exc:  # noqa: BLE001
+                production_candidate = None
+                production_authorized = False
+                production_reason = NO_AUTHORIZED_PRODUCTION_STRATEGY
+                production_decision_reason = NO_AUTHORIZED_PRODUCTION_STRATEGY
+                production_trace = {"production_adapter_error": _safe_error_message(exc)}
+
+            entry_authority = resolve_entry_authority(
+                production_authorized=production_authorized,
+                production_strategy_id=(production_candidate.strategy_id if production_candidate is not None else None),
+                execution_mode=config.execution_mode.value,
+                operator_testnet_canary_enabled=operator_settings.sampling_fallback_enabled,
+            )
+
             bar_timestamp = entry_timeframe.last_closed.timestamp if entry_timeframe.last_closed else bar_slot
             decision_id = str(uuid.uuid4())
             try:
@@ -627,6 +694,7 @@ def execute_v2_automated_trading_cycles(
                 now=now,
                 risk_per_trade=operator_settings.risk_per_trade,
                 max_leverage=operator_settings.max_leverage,
+                max_margin_fraction=operator_settings.max_margin_fraction,
                 order_notional_usdt=operator_settings.order_notional_usdt,
                 max_position_fraction=operator_settings.max_position_fraction,
                 already_evaluated_bars=_load_already_evaluated_bars(
@@ -637,6 +705,13 @@ def execute_v2_automated_trading_cycles(
                 persist_facts=config.v2_activation is EngineActivation.ACTIVE,
                 decision_id=decision_id,
                 sampling_fallback_enabled=operator_settings.sampling_fallback_enabled,
+                entry_authority=entry_authority.authority,
+                entry_authority_reason=entry_authority.reason,
+                production_candidate=production_candidate,
+                production_authorized=production_authorized,
+                production_authorization_reason=production_reason,
+                production_decision_reason=production_decision_reason,
+                production_trace=production_trace,
                 ai_review_budget_seconds=settings.v2_ai_review_budget_seconds,
             )
             try:
@@ -648,7 +723,7 @@ def execute_v2_automated_trading_cycles(
                 continue
 
             funnel_payload = dict(result.funnel_payload)
-            active_strategy_id = str(funnel_payload.get("strategy_id") or "testnet_sampling_v2")
+            active_strategy_id = str(funnel_payload.get("strategy_id") or "production_strategy_pending")
             active_decision = str(funnel_payload.get("terminal_stage") or "UNKNOWN")
             active_terminal_reason = str(funnel_payload.get("reason_code") or "UNKNOWN")
             funnel_payload.update(
@@ -688,6 +763,13 @@ def execute_v2_automated_trading_cycles(
                     "reconciliation_status": result.reconciliation_status.value,
                     "terminal_stage": result.funnel_payload.get("terminal_stage"),
                     "entry_submitted": result.entry_submitted,
+                    "entry_authority": funnel_payload.get("entry_authority"),
+                    "entry_authorized": funnel_payload.get("entry_authorized"),
+                    "entry_authority_reason": funnel_payload.get("entry_authority_reason"),
+                    "production_authorization_state": "APPROVED" if production_authorized else "PENDING",
+                    "active_entry_strategy": funnel_payload.get("active_entry_strategy"),
+                    "promotion_eligible": funnel_payload.get("promotion_eligible"),
+                    "trading_state": funnel_payload.get("trading_state"),
                     "errors": list(result.errors),
                 }
             )

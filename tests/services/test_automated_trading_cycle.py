@@ -34,12 +34,13 @@ from services.automated_trading.application.exit_service import (
 from services.automated_trading.application.fact_persistence import (
     persist_entry_and_protection,
 )
+from services.automated_trading.application.production_strategy import EntryAuthority
 from services.automated_trading.application.reconciliation_service import (
     LocalPositionView,
     LocalStateView,
 )
 from services.automated_trading.application.recovery_service import RecoveryActionType
-from services.automated_trading.domain.candidates import TradeCandidate
+from services.automated_trading.domain.candidates import CandidateLane, TradeCandidate
 from services.automated_trading.domain.client_order_id import exit_client_order_id
 from services.automated_trading.domain.enums import (
     V2CandidateType,
@@ -57,6 +58,7 @@ from services.automated_trading.infrastructure.market_snapshot_provider import (
 )
 from services.automated_trading.infrastructure.models import (
     V2ExchangeFill,
+    V2ExecutionIntent,
     V2ManagedPosition,
     V2ProtectionRecord,
 )
@@ -203,24 +205,76 @@ def test_shadow_mode_never_submits_to_exchange() -> None:
     assert not result.entry_submitted
 
 
-def test_active_sampling_candidate_is_decision_trace_only() -> None:
-    """Offline/unit sampling remains decision-trace-only."""
+def test_pending_production_with_enabled_testnet_canary_reaches_existing_entry() -> None:
+    """T1: a natural sampling candidate may write only through Canary authority."""
     adapter = build_adapter_with_successful_cycle()
-    result = run_automated_trading_cycle(build_request(), adapter)
+    result = run_automated_trading_cycle(build_request(entry_authority=EntryAuthority.TESTNET_CANARY), adapter)
+
+    adapter.submit_market_order.assert_called_once()
+    assert result.entry_submitted
+    assert result.funnel_payload["entry_authority"] == "TESTNET_CANARY"
+    assert result.funnel_payload["promotion_eligible"] is False
+    assert result.funnel_payload["active_entry_strategy"] == "testnet_sampling_v2"
+
+
+def test_testnet_canary_rejects_opposite_unmanaged_external_baseline(monkeypatch) -> None:
+    """A Canary must never reduce or flip an operator-owned one-way position."""
+    from services.automated_trading.application import cycle_service
+
+    adapter = build_adapter_with_successful_cycle()
+    monkeypatch.setattr(
+        cycle_service,
+        "_build_local_state",
+        lambda *_args, **_kwargs: LocalStateLoadResult(
+            status="OK",
+            state=LocalStateView(external_baseline_positions={"BTC/USDT:short": Decimal("0.01")}),
+        ),
+    )
+
+    result = run_automated_trading_cycle(build_request(entry_authority=EntryAuthority.TESTNET_CANARY), adapter)
 
     adapter.submit_market_order.assert_not_called()
-    adapter.submit_protection.assert_not_called()
-    assert not result.entry_submitted
-    assert not result.position_projected
-    assert not result.protection_active
-    assert result.funnel_payload["execution_policy"] == "DECISION_TRACE_ONLY"
+    assert result.funnel_payload["reason_code"] == "UNMANAGED_EXTERNAL_POSITION"
 
 
-def test_sampling_execution_is_limited_to_persisted_active_testnet() -> None:
-    """The sampling fallback may execute only in the armed V2 Testnet lane."""
-    candidate = cast(TradeCandidate, SimpleNamespace(non_promotable=True))
+def test_persisted_testnet_canary_intent_stays_sampling_and_non_promotable(monkeypatch) -> None:
+    """T5: Canary execution facts remain permanently outside Production evidence."""
+    from services.automated_trading.application import cycle_service
 
-    assert _sampling_execution_allowed(build_request(persist_facts=True), candidate)
+    adapter = build_adapter_with_successful_cycle()
+    monkeypatch.setattr(cycle_service, "_runtime_entry_enabled", lambda: True)
+    monkeypatch.setattr(
+        cycle_service,
+        "_run_trade_review_budgeted",
+        lambda *_args, **_kwargs: {"status": "skipped", "provider": None, "model": None, "result": None, "error": None},
+    )
+
+    result = run_automated_trading_cycle(
+        build_request(
+            cycle_id="canary-persisted-cycle",
+            decision_id="canary-persisted-decision",
+            entry_authority=EntryAuthority.TESTNET_CANARY,
+            persist_facts=True,
+        ),
+        adapter,
+    )
+
+    with get_session_factory()() as session:
+        intent = session.query(V2ExecutionIntent).filter_by(cycle_id="canary-persisted-cycle").one()
+        assert intent.candidate_type == V2CandidateType.SAMPLING.value
+    assert result.funnel_payload["promotion_eligible"] is False
+
+
+def test_sampling_execution_requires_explicit_testnet_canary_authority() -> None:
+    candidate = cast(
+        TradeCandidate,
+        SimpleNamespace(non_promotable=True, lane=CandidateLane.TESTNET_SAMPLING),
+    )
+
+    assert not _sampling_execution_allowed(build_request(persist_facts=True), candidate)
+    assert _sampling_execution_allowed(
+        build_request(persist_facts=True, entry_authority=EntryAuthority.TESTNET_CANARY), candidate
+    )
     assert not _sampling_execution_allowed(build_request(), candidate)
     assert not _sampling_execution_allowed(
         build_request(persist_facts=True, engine_activation=EngineActivation.SHADOW),
@@ -232,14 +286,36 @@ def test_sampling_execution_is_limited_to_persisted_active_testnet() -> None:
     )
 
 
-def test_sampling_fallback_is_disabled_by_default() -> None:
-    """S-101: an absent operator opt-in must not evaluate the sampling lane."""
+def test_pending_production_with_disabled_canary_is_explicitly_entry_paused() -> None:
     adapter = build_adapter_with_successful_cycle()
 
-    result = run_automated_trading_cycle(build_request(sampling_fallback_enabled=False), adapter)
+    result = run_automated_trading_cycle(
+        build_request(sampling_fallback_enabled=False, entry_authority=EntryAuthority.NONE), adapter
+    )
 
     adapter.submit_market_order.assert_not_called()
-    assert result.funnel_payload["execution_policy"] == "SAMPLING_DISABLED"
+    assert result.funnel_payload["execution_policy"] == "ENTRY_PAUSED"
+    assert result.funnel_payload["production_authorization_reason"] == "NO_AUTHORIZED_PRODUCTION_STRATEGY"
+    assert result.funnel_payload["reason_code"] == "NO_AUTHORIZED_PRODUCTION_STRATEGY"
+    assert result.funnel_payload["trading_state"] == "ENTRY_PAUSED"
+    assert result.funnel_payload["entry_authority"] == "NONE"
+    assert result.funnel_payload["sampling_decision"]["strategy_id"] == "testnet_sampling_v2"
+
+
+def test_authorized_production_silence_is_not_reported_as_missing_authority() -> None:
+    adapter = build_adapter_with_successful_cycle()
+
+    result = run_automated_trading_cycle(
+        build_request(
+            production_authorized=True,
+            production_authorization_reason="AUTHORIZED",
+            production_decision_reason="multi_timeframe_disagreement",
+        ),
+        adapter,
+    )
+
+    adapter.submit_market_order.assert_not_called()
+    assert result.funnel_payload["reason_code"] == "multi_timeframe_disagreement"
 
 
 def test_risk_sizing_has_no_price_linked_sampling_floor() -> None:

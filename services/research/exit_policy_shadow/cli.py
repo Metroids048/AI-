@@ -11,22 +11,29 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from statistics import median
 
 from services.research.exit_policy_shadow.contracts import (
     MINIMUM_TRADES_FOR_VERDICT,
+    MINIMUM_TRADES_PER_REGIME_SLICE,
+    Bar,
     ExcursionMetrics,
     ExitPolicyId,
     PolicyAggregate,
     Regime,
+    RegimeSliceComparison,
     ShadowOutcome,
+    Verdict,
 )
-from services.research.exit_policy_shadow.excursions import compute_excursions
+from services.research.exit_policy_shadow.excursions import (
+    compute_excursions,
+    compute_post_exit_remaining_mfe_r,
+)
 from services.research.exit_policy_shadow.loader import (
     build_entry_context,
+    classify_entry_regime,
     load_bars,
     load_real_entries,
 )
@@ -37,12 +44,35 @@ from services.research.exit_policy_shadow.metrics import (
     answer_q3_policy_by_regime,
 )
 from services.research.exit_policy_shadow.policies import build_initial_geometry
+from services.research.exit_policy_shadow.regime import (
+    CLASSIFIER_VERSION,
+    RegimeLabelResult,
+)
 from services.research.exit_policy_shadow.replay import replay_entry_under_policy
+from services.strategy_library.regime.scorer_v2 import SCORER_VERSION
 
 # Fixed observation horizon for entry-level excursions (Q1). Covers the longest real
 # holding time in the sample, so entry quality is measured over a window every entry
 # actually had, independent of any policy's exit.
 ENTRY_HORIZON_HOURS = 24
+
+# Reported as a proxy, not as structure recognition: policy C's stop and target are
+# plain ATR multiples. The enum value stays unchanged so existing artifacts remain
+# comparable; only the display label carries the caveat.
+POLICY_DISPLAY_NAMES = {
+    ExitPolicyId.STRUCTURE_INVALIDATION: "C_STRUCTURE_PROXY",
+}
+
+
+def _display(policy: ExitPolicyId) -> str:
+    return POLICY_DISPLAY_NAMES.get(policy, policy.value)
+
+
+def _as_display_names(text: str) -> str:
+    """Apply the proxy caveat to policy ids embedded in a prose evidence string."""
+    for policy, display in POLICY_DISPLAY_NAMES.items():
+        text = text.replace(policy.value, display)
+    return text
 
 
 def main() -> None:
@@ -71,13 +101,18 @@ def main() -> None:
     end = max(e.fill_timestamp for e in entries)
     print(f"SAMPLE_START={start.isoformat()}")
     print(f"SAMPLE_END={end.isoformat()}")
+    print(f"TOTAL_TRADES={len(entries)}")
     print()
 
-    # Split by symbol.
+    # Split by symbol and side.
     btc_entries = [e for e in entries if e.symbol == "BTC/USDT"]
     eth_entries = [e for e in entries if e.symbol == "ETH/USDT"]
+    long_entries = [e for e in entries if e.side == "long"]
+    short_entries = [e for e in entries if e.side == "short"]
     print(f"BTC_TRADES={len(btc_entries)}")
     print(f"ETH_TRADES={len(eth_entries)}")
+    print(f"LONG_TRADES={len(long_entries)}")
+    print(f"SHORT_TRADES={len(short_entries)}")
     print()
 
     if len(entries) < MINIMUM_TRADES_FOR_VERDICT:
@@ -95,6 +130,7 @@ def main() -> None:
 
     all_outcomes: list[ShadowOutcome] = []
     entry_excursions: list[ExcursionMetrics] = []
+    regime_labels: dict[str, RegimeLabelResult] = {}
     replayed_entries = 0
     skipped_no_bars = 0
     skipped_no_atr = 0
@@ -130,6 +166,13 @@ def main() -> None:
             skipped_no_atr += 1
             continue
 
+        # Entry-time regime, classified strictly from bars closed at or before the
+        # decision bar. This is what makes the Q3 slice meaningful: before P2-A2 the
+        # label was hardcoded UNKNOWN, so E always fell back to CONTROL and every
+        # regime comparison was vacuous.
+        label = classify_entry_regime(db_path, symbol=entry.symbol, decision_bar=entry.decision_bar_timestamp)
+        regime_labels[entry.position_id] = label
+
         # Entry-level excursions over one fixed horizon, measured before any exit
         # policy is applied. Q1 ("does the entry have edge") must not be answered
         # from per-policy excursions, which are truncated at each policy's own exit.
@@ -138,18 +181,18 @@ def main() -> None:
             side=entry.side,
             entry_price=entry.average_fill_price,
             entry_context=entry_context,
-            regime=Regime.UNKNOWN,
+            regime=label.regime,
         )
-        horizon_bars = [
-            bar for bar in bars_1m if bar.time <= entry.fill_timestamp + timedelta(hours=ENTRY_HORIZON_HOURS)
-        ]
+        risk_per_unit = abs(entry.average_fill_price - control_stop)
+        horizon_end = entry.fill_timestamp + timedelta(hours=ENTRY_HORIZON_HOURS)
+        horizon_bars = [bar for bar in bars_1m if bar.time <= horizon_end]
         entry_excursions.append(
             compute_excursions(
                 side=entry.side,
                 entry_price=entry.average_fill_price,
                 quantity=entry.filled_quantity,
                 bars=horizon_bars,
-                risk_per_unit=abs(entry.average_fill_price - control_stop),
+                risk_per_unit=risk_per_unit,
             )
         )
 
@@ -158,10 +201,10 @@ def main() -> None:
                 entry=entry,
                 bars=bars_1m,
                 policy=policy,
-                regime=Regime.UNKNOWN,
+                regime=label.regime,
                 entry_context=entry_context,
             )
-            all_outcomes.append(outcome)
+            all_outcomes.append(_with_post_exit_continuation(outcome, bars=bars_1m, horizon_end=horizon_end))
         replayed_entries += 1
 
     print(f"REPLAYED_ENTRIES={replayed_entries}")
@@ -173,6 +216,8 @@ def main() -> None:
     if not all_outcomes:
         print("BLOCKED: no entry could be replayed with point-in-time inputs.")
         sys.exit(2)
+
+    _print_regime_distribution(regime_labels)
 
     # Aggregate overall.
     overall = aggregate_outcomes(all_outcomes, slice_key="overall")
@@ -213,21 +258,35 @@ def main() -> None:
     print("=" * 80)
     print()
 
-    q1_verdict, q1_evidence = answer_q1_entry_has_edge(entry_excursions)
+    q1_verdict, q1_evidence = answer_q1_entry_has_edge(entry_excursions, horizon_hours=ENTRY_HORIZON_HOURS)
     print(f"Q1_ENTRY_HAS_EDGE={q1_verdict.value}")
-    print(f"Q1_EVIDENCE={q1_evidence}")
-    _print_observed_entry_excursions(entry_excursions)
+    print(f"Q1_OBSERVED_EVIDENCE={q1_evidence.describe()}")
+    if q1_verdict == Verdict.INSUFFICIENT_SAMPLE:
+        print("Q1_NOTE=OBSERVED_ONLY — the numbers above are real but are NOT a conclusion.")
     print()
 
     control_outcomes = [o for o in all_outcomes if o.policy == ExitPolicyId.CURRENT_CONTROL]
-    q2_verdict, q2_evidence = answer_q2_exit_leakage(control_outcomes)
+    q2_verdict, q2_evidence = answer_q2_exit_leakage(
+        control_outcomes,
+        entry_excursions=entry_excursions,
+        all_outcomes=all_outcomes,
+    )
     print(f"Q2_EXIT_LEAKAGE={q2_verdict.value}")
-    print(f"Q2_EVIDENCE={q2_evidence}")
+    print(f"Q2_OBSERVED_EVIDENCE={_as_display_names(q2_evidence.describe())}")
+    print(
+        "Q2_NOTE=policy-horizon capture and fixed-24h opportunity are separate measurements; "
+        "they are reported side by side and never divided into one another."
+    )
+    if q2_verdict == Verdict.INSUFFICIENT_SAMPLE:
+        print("Q2_NOTE=OBSERVED_ONLY — the numbers above are real but are NOT a conclusion.")
     print()
 
-    q3_verdict, q3_evidence = answer_q3_policy_by_regime(all_outcomes)
+    q3_verdict, q3_evidence, regime_comparisons = answer_q3_policy_by_regime(all_outcomes)
     print(f"Q3_POLICY_BY_REGIME={q3_verdict.value}")
-    print(f"Q3_EVIDENCE={q3_evidence}")
+    print(f"Q3_OBSERVED_EVIDENCE={q3_evidence}")
+    print()
+    _print_regime_slices(regime_comparisons)
+    best_by_regime = _print_best_by_regime(regime_comparisons)
     print()
 
     # Rank policies.
@@ -246,15 +305,41 @@ def main() -> None:
             if control_exp is not None
             else "CURRENT_CONTROL_NET_EXPECTANCY=N/A"
         )
-        print(f"BEST_OBSERVED_POLICY={best_policy.value}")
+        print(f"BEST_OBSERVED_POLICY={_display(best_policy)}")
         print(f"BEST_OBSERVED_NET_EXPECTANCY={best_exp:.2f} USDT")
         print()
+        _print_policy_results(overall)
+        print()
+
+    next_step = _next_research_step(
+        total_entries=replayed_entries,
+        q1_verdict=q1_verdict,
+        q2_verdict=q2_verdict,
+        q3_verdict=q3_verdict,
+    )
+    final_status = (
+        "P2A_RESEARCH_COMPLETE"
+        if replayed_entries >= MINIMUM_TRADES_FOR_VERDICT and q3_verdict != Verdict.INSUFFICIENT_SLICE_SAMPLE
+        else "RESEARCH_INFRA_COMPLETE_DATA_ACCUMULATING"
+    )
+    print(f"NEXT_RESEARCH_STEP={next_step}")
+    print("PRODUCTION_CHANGED=NO")
+    print(f"FINAL_STATUS={final_status}")
+    print()
 
     print("SAMPLE_LIMITATIONS=")
     if len(entries) < MINIMUM_TRADES_FOR_VERDICT:
         print(f"  - Only {len(entries)} trades; statistical power is low. Verdicts may flip with more data.")
-    if len(entries) < 20:
-        print("  - Small sample prevents confident regime segmentation. Q3 likely INSUFFICIENT_SAMPLE.")
+    thin_slices = [
+        comparison
+        for comparison in regime_comparisons.values()
+        if comparison.verdict == Verdict.INSUFFICIENT_SLICE_SAMPLE
+    ]
+    for comparison in sorted(thin_slices, key=lambda c: c.regime.value):
+        print(
+            f"  - {comparison.regime.value} slice has {comparison.trade_count} entries "
+            f"(<{MINIMUM_TRADES_PER_REGIME_SLICE}); no winner may be declared for it."
+        )
     print()
 
     # Write the evidence artifact under docs/audits, not into the source package:
@@ -266,15 +351,44 @@ def main() -> None:
         "sample_start": start.isoformat(),
         "sample_end": end.isoformat(),
         "total_entries": len(entries),
+        "replayed_entries": replayed_entries,
         "btc_entries": len(btc_entries),
         "eth_entries": len(eth_entries),
+        "long_entries": len(long_entries),
+        "short_entries": len(short_entries),
+        "regime_scorer_version": SCORER_VERSION,
+        "regime_classifier_version": CLASSIFIER_VERSION,
+        "regime_distribution": _regime_distribution(regime_labels),
+        "regime_labels": {
+            position_id: label.model_dump(mode="json") for position_id, label in sorted(regime_labels.items())
+        },
         "q1_verdict": q1_verdict.value,
-        "q1_evidence": q1_evidence,
+        "q1_evidence": q1_evidence.model_dump(mode="json"),
         "q2_verdict": q2_verdict.value,
-        "q2_evidence": q2_evidence,
+        "q2_evidence": q2_evidence.model_dump(mode="json"),
         "q3_verdict": q3_verdict.value,
         "q3_evidence": q3_evidence,
+        "q3_by_regime": {
+            regime.value: {
+                "trade_count": comparison.trade_count,
+                "verdict": comparison.verdict.value,
+                "observed_best_policy": (
+                    _display(comparison.observed_best_policy) if comparison.observed_best_policy else None
+                ),
+                "observed_best_net_expectancy": (
+                    float(comparison.observed_best_net_expectancy)
+                    if comparison.observed_best_net_expectancy is not None
+                    else None
+                ),
+                "policies": [_agg_to_dict(aggregate) for aggregate in comparison.aggregates],
+            }
+            for regime, comparison in sorted(regime_comparisons.items(), key=lambda kv: kv[0].value)
+        },
+        "best_by_regime": best_by_regime,
         "overall": {pol.value: _agg_to_dict(agg) for pol, agg in overall.items() if agg is not None},
+        "next_research_step": next_step,
+        "production_changed": "NO",
+        "final_status": final_status,
     }
     with open(artifact_path, "w", encoding="utf-8") as f:
         json.dump(artifact, f, indent=2, default=str)
@@ -282,35 +396,176 @@ def main() -> None:
     print(f"✅ Artifact written: {artifact_path}")
     print()
     print("=" * 80)
-    print("P2A_IMPLEMENTATION_COMPLETE_PENDING_REVIEW")
+    print(final_status)
     print("=" * 80)
 
 
-def _print_observed_entry_excursions(excursions: list[ExcursionMetrics]) -> None:
-    """Print observed entry-level excursions.
+def _with_post_exit_continuation(
+    outcome: ShadowOutcome,
+    *,
+    bars: list[Bar],
+    horizon_end: datetime,
+) -> ShadowOutcome:
+    """Attach post-exit continuation to ``outcome``.
 
-    Printed even when the verdict is INSUFFICIENT_SAMPLE: the numbers are what the
-    data actually shows and are useful, but they are explicitly labelled as not
-    constituting a conclusion so they cannot be quoted as one.
+    Measured after the policy's own exit, so it can only be computed once the replay
+    has produced that exit. It never feeds realised PnL.
     """
-    if not excursions:
-        return
-    mfe_r = [e.mfe_r for e in excursions if e.mfe_r is not None]
-    mae_r = [e.mae_r for e in excursions if e.mae_r is not None]
-    if not mfe_r or not mae_r:
-        return
+    if not outcome.legs:
+        return outcome
 
-    avg_mfe = sum(mfe_r, Decimal("0")) / Decimal(len(mfe_r))
-    avg_mae = sum(mae_r, Decimal("0")) / Decimal(len(mae_r))
-    positive_mfe = sum(1 for value in mfe_r if value > 0)
-
-    print(
-        f"Q1_OBSERVED_ONLY (n={len(excursions)}, NOT a conclusion): "
-        f"avg MFE={avg_mfe:.2f}R, avg MAE={avg_mae:.2f}R, "
-        f"median MFE={median(mfe_r):.2f}R, median MAE={median(mae_r):.2f}R, "
-        f"entries with positive MFE={positive_mfe}/{len(mfe_r)}, "
-        f"horizon={ENTRY_HORIZON_HOURS}h"
+    exit_time = max(leg.filled_at for leg in outcome.legs)
+    risk_per_unit = abs(outcome.entry_price - outcome.initial_stop_price)
+    remaining = compute_post_exit_remaining_mfe_r(
+        side=outcome.side,
+        entry_price=outcome.entry_price,
+        exit_time=exit_time,
+        horizon_end=horizon_end,
+        bars=bars,
+        in_policy_mfe_pct=outcome.excursions.mfe_pct,
+        risk_per_unit=risk_per_unit if risk_per_unit > 0 else None,
     )
+    return outcome.model_copy(update={"post_exit_remaining_mfe_r": remaining})
+
+
+def _regime_distribution(labels: dict[str, RegimeLabelResult]) -> dict[str, int]:
+    """Count entries per regime, including regimes with zero observations."""
+    counts = {regime.value: 0 for regime in Regime}
+    for label in labels.values():
+        counts[label.regime.value] += 1
+    return counts
+
+
+def _print_regime_distribution(labels: dict[str, RegimeLabelResult]) -> None:
+    """Print the entry-time regime distribution and the classifier provenance."""
+    print("=" * 80)
+    print("ENTRY-TIME REGIME DISTRIBUTION (point-in-time)")
+    print("=" * 80)
+    print()
+    print(f"REGIME_SCORER_VERSION={SCORER_VERSION}")
+    print(f"REGIME_CLASSIFIER_VERSION={CLASSIFIER_VERSION}")
+    print()
+
+    counts = _regime_distribution(labels)
+    total = len(labels)
+    for regime in ("TREND", "RANGE", "EXPANSION", "UNKNOWN"):
+        print(f"{regime}_COUNT={counts[regime]}")
+    unknown_rate = Decimal(counts["UNKNOWN"]) / Decimal(total) if total else Decimal("0")
+    print(f"UNKNOWN_RATE={unknown_rate:.1%}")
+    print()
+
+    # Distinguish low-confidence abstention from unusable data: they call for different
+    # follow-up, and collapsing them would hide a data-collection problem.
+    forced = [label for label in labels.values() if label.data_quality_reason]
+    print(f"UNKNOWN_FROM_DATA_QUALITY={len(forced)}")
+    print(f"UNKNOWN_FROM_LOW_CONFIDENCE={counts['UNKNOWN'] - len(forced)}")
+    if forced:
+        for reason in sorted({label.data_quality_reason for label in forced}):
+            print(f"  data_quality_reason={reason}")
+    print()
+
+    headers = ["POSITION", "REGIME", "DIR", "UP", "DOWN", "RANGE", "EXPANS", "UNSTAB"]
+    print(" | ".join(f"{header:>10}" for header in headers))
+    print("-" * (11 * len(headers) + (len(headers) - 1) * 3))
+    for position_id, label in sorted(labels.items(), key=lambda kv: kv[0]):
+        row = [
+            position_id[:10],
+            label.regime.value[:10],
+            label.trend_direction.value[:10],
+            f"{label.trend_up:.3f}",
+            f"{label.trend_down:.3f}",
+            f"{label.range:.3f}",
+            f"{label.expansion:.3f}",
+            f"{label.unstable:.3f}",
+        ]
+        print(" | ".join(f"{cell:>10}" for cell in row))
+    print()
+
+
+def _print_regime_slices(comparisons: dict[Regime, RegimeSliceComparison]) -> None:
+    """Print the per-regime policy comparison, one table per regime."""
+    for regime, comparison in sorted(comparisons.items(), key=lambda kv: kv[0].value):
+        print("=" * 80)
+        print(f"REGIME {regime.value}: {comparison.trade_count} entries — {comparison.verdict.value}")
+        print("=" * 80)
+        print()
+        _print_comparison_table({aggregate.policy: aggregate for aggregate in comparison.aggregates})
+        print()
+
+
+def _print_best_by_regime(comparisons: dict[Regime, RegimeSliceComparison]) -> dict[str, str]:
+    """Print BEST_*_POLICY lines and return them for the artifact.
+
+    A thin slice still shows its observed best, tagged INSUFFICIENT_SLICE_SAMPLE, so the
+    number is visible but cannot be read as a winner.
+    """
+    result: dict[str, str] = {}
+    for regime in (Regime.TREND, Regime.RANGE, Regime.EXPANSION):
+        comparison = comparisons.get(regime)
+        key = f"BEST_{regime.value}_POLICY"
+        if comparison is None or comparison.observed_best_policy is None:
+            value = "N/A_NO_TRADES"
+        elif comparison.verdict == Verdict.INSUFFICIENT_SLICE_SAMPLE:
+            value = (
+                f"{_display(comparison.observed_best_policy)} "
+                f"(observed only, n={comparison.trade_count}, INSUFFICIENT_SLICE_SAMPLE)"
+            )
+        else:
+            value = _display(comparison.observed_best_policy)
+        result[key] = value
+        print(f"{key}={value}")
+    return result
+
+
+def _next_research_step(
+    *,
+    total_entries: int,
+    q1_verdict: Verdict,
+    q2_verdict: Verdict,
+    q3_verdict: Verdict,
+) -> str:
+    """Decide the next research step from the verdicts, per the frozen case table."""
+    if total_entries < MINIMUM_TRADES_FOR_VERDICT:
+        return "DATA_ACCUMULATION"
+    if q3_verdict == Verdict.INSUFFICIENT_SLICE_SAMPLE:
+        return "DATA_ACCUMULATION"
+    if q1_verdict == Verdict.NOT_SUPPORTED:
+        return "P2B_ENTRY_STRATEGY_COMPARISON"
+    if q1_verdict == Verdict.SUPPORTED and q2_verdict == Verdict.SUPPORTED:
+        return "EXIT_POLICY_REFINEMENT"
+    if q1_verdict == Verdict.SUPPORTED and q2_verdict == Verdict.NOT_SUPPORTED:
+        return "KEEP_CONTROL_AND_COLLECT_MORE"
+    return "DATA_ACCUMULATION"
+
+
+def _print_policy_results(aggregates: dict[ExitPolicyId, PolicyAggregate]) -> None:
+    """Print the five *_RESULT lines the review contract asks for."""
+    labels = {
+        ExitPolicyId.CURRENT_CONTROL: "CONTROL_RESULT",
+        ExitPolicyId.ATR_ADAPTIVE: "ATR_RESULT",
+        ExitPolicyId.STRUCTURE_INVALIDATION: "STRUCTURE_PROXY_RESULT",
+        ExitPolicyId.SCALE_OUT_RUNNER: "SCALE_OUT_RESULT",
+        ExitPolicyId.REGIME_AWARE: "REGIME_AWARE_RESULT",
+    }
+    for policy, key in labels.items():
+        aggregate = aggregates.get(policy)
+        if aggregate is None or aggregate.net_expectancy_usdt is None:
+            print(f"{key}=N/A")
+            continue
+        capture = (
+            f"{aggregate.median_profit_capture_ratio:.1%}"
+            if aggregate.median_profit_capture_ratio is not None
+            else "N/A"
+        )
+        profit_factor = f"{aggregate.profit_factor:.2f}" if aggregate.profit_factor is not None else "N/A"
+        avg_r = f"{aggregate.avg_r:.2f}" if aggregate.avg_r is not None else "N/A"
+        median_r = f"{aggregate.median_r:.2f}" if aggregate.median_r is not None else "N/A"
+        print(
+            f"{key}=n={aggregate.trade_count}, net_expectancy={aggregate.net_expectancy_usdt:+.2f} USDT, "
+            f"PF={profit_factor}, avg_R={avg_r}, median_R={median_r}, "
+            f"max_DD={aggregate.max_drawdown_usdt:.2f}, capture={capture}, "
+            f"fee_drag={aggregate.fee_drag_usdt:.2f}"
+        )
 
 
 def _print_per_trade_detail(outcomes: list[ShadowOutcome]) -> None:

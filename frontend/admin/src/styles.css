@@ -1780,6 +1780,20 @@ td {
   color: #ff9cac;
 }
 
+.truth-canary {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #2f806e;
+  border-radius: 8px;
+  background: #102d29;
+  color: #8fe4cb;
+}
+
+.truth-canary p,
+.truth-blocker p {
+  margin: 5px 0 0;
+}
+
 .truth-unavailable {
   border: 1px solid #6f5c2b;
   background: #2c2617;

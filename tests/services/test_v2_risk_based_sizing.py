@@ -56,6 +56,7 @@ def _request(**overrides) -> CycleRequest:  # noqa: ANN003
         "now": now,
         "risk_per_trade": Decimal("0.10"),
         "max_leverage": 40,
+        "max_margin_fraction": Decimal("0.05"),
         "max_position_fraction": Decimal("0.35"),
     }
     base.update(overrides)
@@ -67,7 +68,7 @@ def test_sizing_uses_the_stop_distance_not_the_raw_risk_fraction() -> None:
     stop_distance = PRICE * Decimal("0.01")  # 1% stop
 
     notional = _calculate_quantity(
-        _request(max_position_fraction=Decimal("100")),  # ceilings lifted
+        _request(max_position_fraction=Decimal("100"), max_margin_fraction=Decimal("100")),  # ceilings lifted
         _Snapshot(),
         stop_distance=stop_distance,
         reference_price=PRICE,
@@ -80,13 +81,13 @@ def test_sizing_uses_the_stop_distance_not_the_raw_risk_fraction() -> None:
 def test_tighter_stop_produces_a_larger_position() -> None:
     """Risk-based sizing must be inversely proportional to stop distance."""
     wide = _calculate_quantity(
-        _request(max_position_fraction=Decimal("100")),
+        _request(max_position_fraction=Decimal("100"), max_margin_fraction=Decimal("100")),
         _Snapshot(),
         stop_distance=PRICE * Decimal("0.04"),
         reference_price=PRICE,
     )
     tight = _calculate_quantity(
-        _request(max_position_fraction=Decimal("100")),
+        _request(max_position_fraction=Decimal("100"), max_margin_fraction=Decimal("100")),
         _Snapshot(),
         stop_distance=PRICE * Decimal("0.01"),
         reference_price=PRICE,
@@ -110,13 +111,25 @@ def test_exposure_cap_is_a_hard_ceiling() -> None:
 def test_margin_capacity_is_a_hard_ceiling() -> None:
     """A notional above equity * max_leverage is unfundable and must be clamped."""
     notional = _calculate_quantity(
-        _request(max_leverage=2, max_position_fraction=Decimal("100")),
+        _request(max_leverage=2, max_position_fraction=Decimal("100"), max_margin_fraction=Decimal("100")),
         _Snapshot(),
         stop_distance=PRICE * Decimal("0.0001"),  # absurdly tight -> huge risk notional
         reference_price=PRICE,
     )
 
     assert notional == EQUITY * Decimal("2")
+
+
+def test_margin_budget_is_a_hard_ceiling_separate_from_risk_budget() -> None:
+    """A 5% margin budget at 50x caps each new entry at 2.5x equity notional."""
+    notional = _calculate_quantity(
+        _request(max_leverage=50, max_position_fraction=Decimal("2.50")),
+        _Snapshot(),
+        stop_distance=PRICE * Decimal("0.0001"),
+        reference_price=PRICE,
+    )
+
+    assert notional == EQUITY * Decimal("0.05") * Decimal("50")
 
 
 def test_missing_stop_geometry_falls_back_to_the_small_conservative_branch() -> None:

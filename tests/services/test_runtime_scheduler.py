@@ -122,15 +122,15 @@ def test_external_scheduler_state_exposes_actual_active_mode_contract(monkeypatc
             "heartbeat_at": now.isoformat(),
             "engine_activation": "ACTIVE",
             "execution_mode": "BINANCE_TESTNET",
-            "execution_strategy_id": "testnet_sampling_v2",
+            "execution_strategy_id": "production_strategy_pending",
             "execution_coverage_count": 2,
             "execution_symbols": ["BTC/USDT", "ETH/USDT"],
             "registered_jobs": ["automated_trading_v2_cycle"],
             "legacy_writer_enabled": False,
-            "entry_enabled": True,
-            "sampling_fallback_enabled": True,
+            "entry_enabled": False,
+            "sampling_fallback_enabled": False,
             "external_baseline_captured": True,
-            "entry_authorized": True,
+            "entry_authorized": False,
             "startup_contract_errors": [],
         }
     )
@@ -139,7 +139,7 @@ def test_external_scheduler_state_exposes_actual_active_mode_contract(monkeypatc
 
     assert state.engine_activation == "ACTIVE"
     assert state.execution_mode == "BINANCE_TESTNET"
-    assert state.execution_strategy_id == "testnet_sampling_v2"
+    assert state.execution_strategy_id == "production_strategy_pending"
     assert state.registered_jobs == ("automated_trading_v2_cycle",)
     assert runtime_state.active_startup_contract_errors(state, requested_engine="v2_active") == ()
 
@@ -197,7 +197,7 @@ def test_active_startup_contract_rejects_actual_shadow_state() -> None:
 
     assert "ENGINE_ACTIVATION_MISMATCH" in errors
     assert "LEGACY_WRITER_ENABLED" in errors
-    assert "ENTRY_NOT_AUTHORIZED" in errors
+    assert "EXECUTION_STRATEGY_UNAUTHORIZED" in errors
 
 
 def test_scheduler_publishes_only_active_execution_scope(monkeypatch) -> None:
@@ -316,8 +316,6 @@ def test_active_scheduler_fails_before_job_registration_when_contract_is_incompl
     assert scheduler._tasks == []
     assert captured["running"] is False
     assert captured["entry_authorized"] is False
-    assert "ENTRY_DISABLED" in captured["startup_contract_errors"]
-    assert "SAMPLING_PERMISSION_DISABLED" in captured["startup_contract_errors"]
     assert "EXTERNAL_BASELINE_NOT_CAPTURED" in captured["startup_contract_errors"]
 
 
@@ -419,6 +417,52 @@ async def test_optional_source_failure_does_not_mark_scheduler_unhealthy() -> No
         "status": "error",
         "error": "upstream returned 403",
     }
+
+
+@pytest.mark.asyncio
+async def test_v2_cycle_refreshes_runtime_truth_with_cycle_resolved_authority() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_authority = "TESTNET_CANARY"
+    scheduler.status.entry_authorized = True
+    scheduler.status.trading_state = "TRADING"
+
+    await scheduler._run_once(
+        name="automated_trading_v2_cycle",
+        runner=lambda: {
+            "status": "completed",
+            "results": [
+                {
+                    "status": "completed",
+                    "entry_authority": "PRODUCTION",
+                    "entry_authorized": True,
+                    "entry_authority_reason": "production_approved",
+                    "production_authorization_state": "APPROVED",
+                    "active_entry_strategy": "approved_primary_v1",
+                    "promotion_eligible": True,
+                    "trading_state": "TRADING",
+                },
+                {
+                    "status": "completed",
+                    "entry_authority": "PRODUCTION",
+                    "entry_authorized": True,
+                    "entry_authority_reason": "production_approved",
+                    "production_authorization_state": "APPROVED",
+                    "active_entry_strategy": "approved_primary_v1",
+                    "promotion_eligible": True,
+                    "trading_state": "TRADING",
+                },
+            ],
+        },
+    )
+
+    assert scheduler.status.entry_authority == "PRODUCTION"
+    assert scheduler.status.entry_authority_reason == "production_approved"
+    assert scheduler.status.production_authorization_state == "APPROVED"
+    assert scheduler.status.active_entry_strategy == "approved_primary_v1"
+    assert scheduler.status.promotion_eligible is True
+    published = load_external_scheduler_state()
+    assert published.entry_authority == "PRODUCTION"
+    assert published.production_authorization_state == "APPROVED"
 
 
 @pytest.mark.asyncio

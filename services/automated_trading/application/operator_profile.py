@@ -22,9 +22,12 @@ class V2ExecutionSettings:
 
     risk_per_trade: Decimal
     max_leverage: int
+    max_margin_fraction: Decimal
     order_notional_usdt: Decimal | None
     max_position_fraction: Decimal
     sampling_fallback_enabled: bool
+    active_snapshot_config: dict[str, Any] | None = None
+    active_snapshot_hash: str | None = None
 
 
 def _decimal(value: Any) -> Decimal:
@@ -44,6 +47,7 @@ def resolve_v2_execution_settings(symbol: str, execution_profile: Mapping[str, A
     has_tiers = isinstance(tiers, Mapping) and bool(tiers)
 
     fallback_leverage = _decimal(PAPER_RUNTIME_LIMITS["max_leverage"])
+    fallback_margin_fraction = _decimal(PAPER_RUNTIME_LIMITS["max_margin_fraction"])
     fallback_exposure = _decimal(PAPER_RUNTIME_LIMITS["max_symbol_exposure"])
     profile_exposure = (
         _decimal(profile["max_symbol_exposure"]) if "max_symbol_exposure" in profile else fallback_exposure
@@ -63,10 +67,14 @@ def resolve_v2_execution_settings(symbol: str, execution_profile: Mapping[str, A
         if "risk_per_trade" in profile
         else _decimal(PAPER_RUNTIME_LIMITS["risk_per_trade"])
     )
+    max_margin_fraction = (
+        _decimal(profile["max_margin_fraction"]) if "max_margin_fraction" in profile else fallback_margin_fraction
+    )
 
     return V2ExecutionSettings(
         risk_per_trade=risk_per_trade,
         max_leverage=int(leverage),
+        max_margin_fraction=max_margin_fraction,
         order_notional_usdt=order_notional,
         max_position_fraction=max_position_fraction,
         sampling_fallback_enabled=bool(profile.get("simulation_sampling_fallback_enabled", False)),

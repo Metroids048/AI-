@@ -46,8 +46,8 @@ def test_default_asset_risk_tiers_separate_core_and_standard_symbols() -> None:
     standard = resolve_asset_risk_tier("XRP/USDT", tiers)
 
     assert core.tier == "core"
-    assert core.leverage == 40
-    assert core.max_position_fraction == 0.35
+    assert core.leverage == 50
+    assert core.max_position_fraction == 2.50
     assert standard.tier == "standard"
     assert standard.leverage == 15
     assert standard.max_position_fraction == 0.09
@@ -91,7 +91,8 @@ def test_atr_pct_from_daily_bars_needs_enough_history() -> None:
     assert value is not None and value > 0
 
 
-def test_tier_position_fraction_caps_notional_without_multiplying_leverage(db_session) -> None:
+def test_legacy_paper_signal_path_keeps_its_own_notional_cap(db_session) -> None:
+    """The frozen legacy path is not the V2 Binance entry-sizing authority."""
     paper_run = _paper_run()
     strategy = _strategy()
     generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
@@ -118,8 +119,8 @@ def test_tier_position_fraction_caps_notional_without_multiplying_leverage(db_se
         stoploss_price=Decimal("0.975"),
     )
 
-    assert core_leverage == 40
-    assert core_notional == 3_500
+    assert core_leverage == 50
+    assert core_notional == 4_000
     assert standard_notional == 900
 
 
@@ -158,9 +159,9 @@ def test_scale_asset_risk_tiers_falls_back_to_defaults_when_missing() -> None:
 def test_medium_risk_profile_allows_core_tier_but_keeps_hard_limits() -> None:
     profile = medium_risk_profile()
 
-    assert profile.max_leverage == 40.0
-    assert profile.max_symbol_exposure == 0.35
-    assert profile.max_total_exposure == 0.90
+    assert profile.max_leverage == 50.0
+    assert profile.max_symbol_exposure == 2.50
+    assert profile.max_total_exposure == 5.00
     assert profile.max_open_positions == 2
     assert profile.daily_loss_limit == 0.20
     assert profile.hard_stop_drawdown_limit == 0.40

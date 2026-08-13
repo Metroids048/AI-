@@ -1,5 +1,13 @@
 # Task History
 
+### [TASK-LAUNCHER-ACTIVE-SCOPE] Fix false ACTIVE startup failure before the first market heartbeat
+- **Date**: 2026-08-11
+- **Type**: Local launcher reliability / automated-trading execution defect
+- **Summary**: The one-click launcher could report `EXECUTION_SCOPE_MISMATCH;EXECUTION_SCOPE_INCOMPLETE` even though the isolated `v2_active` scheduler subsequently became healthy. Root cause: `_publish_external_state()` derived the fixed BTC/ETH execution scope from the first asynchronous `market_data_heartbeat`; its initial empty result published an empty execution scope, while the launcher correctly enforced the ACTIVE contract before that heartbeat completed. The scope now comes directly from the invariant `AUTO_SIMULATION_EXECUTION_SYMBOLS`; `data_fresh` still remains false until the heartbeat has actually observed both symbols, so no data-freshness or trading gate was weakened.
+- **Verification**: New RED regression reproduced `execution_symbols=[]`; post-fix scheduler + launcher-contract tests `21 passed`; real cold start through `launch-paper-console.ps1 -AutomatedTradingEngine v2_active -EnableNaturalTestnet -PreserveExternalTestnetBaseline -OpenBrowser:$false` exited `0`; API/frontend returned `200`; `ACTIVE_STARTUP_CONTRACT_PASSED`; targeted Ruff and full mypy (`235` source files) passed.
+- **Limits**: Full non-integration pytest was `1511 passed, 5 skipped, 2 failed` solely because the committed candidate registry now contains `trend_momentum_v2_enriched` (10 candidates) while `tests/test_candidate_registry.py` still expects 9. This is the known independent registry-test baseline also recorded by the 2026-08-10 task; it was not changed here. Full-repo Ruff likewise retains 3 unrelated script findings.
+- **Safety**: No strategy, risk parameter, stop/take-profit, leverage, order logic, credential, Mainnet, or execution universe changed. This repairs only startup-state publication.
+
 ### [TASK-V2-GATE16-MANUAL-BASELINE] Preserve manual Testnet positions during contract proof
 - **Date**: 2026-08-04
 - **Type**: Automated Trading V2 / Testnet execution evidence
@@ -908,3 +916,86 @@
 - **Verification**: markdown-only change; 3 pre-existing unrelated Ruff
   findings remain in baseline (not introduced by this task); skill-copy sync
   passed.
+
+## 2026-08-12 — V2 strategy authority recovery
+
+- **Change**: Kept V2 ACTIVE as the sole Testnet writer but removed sampling entry authority.
+  `testnet_sampling_v2` remains decision evidence only; ACTIVE now stays healthy with entries
+  paused under `NO_AUTHORIZED_PRODUCTION_STRATEGY` while existing V2 reconciliation,
+  protection, recovery, and reduce-only exits continue.
+- **Authorization**: Extended the canonical mature manifest to schema v3 with a default
+  `production_authorization.state=PENDING`. Approval is bound to candidate/version, rules hash,
+  immutable ConfigSnapshot hash, BTC/ETH scope, validation evidence, and operator identity/time.
+  Missing, stale, mismatched, or unapproved records fail closed.
+- **Adapter**: Added a pure read-only adapter from the existing mature DecisionPipeline into a
+  single-target V2 `PRODUCTION`/`PRIMARY` TradeCandidate. It preserves trace/provenance and
+  derives ATR stop plus configured 2R geometry; absolute protection still resolves post-fill.
+- **Runtime Truth**: `/runtime` snapshot, positions, reconciliation, orders, protections, fills,
+  and websocket views now read V2 fact tables directly and ignore stale legacy projections.
+- **Boundary**: No risk/leverage/SL/TP/Gatekeeper thresholds, Binance adapter, legacy writer,
+  database migration, mainnet path, or real Testnet order was changed or executed.
+- **Verification**: Focused V2/runtime/authorization/scheduler tests passed (`64 passed`, then
+  scheduler integration `51 passed`); targeted Ruff and mypy passed. Full mypy passed (`236`
+  source files); full pytest found only two pre-existing candidate-registry count assertions
+  (`1540 passed, 7 skipped, 2 failed`). Full Ruff found three unrelated script findings.
+
+## 2026-08-12 — Testnet Canary authority continuity
+
+- Restored a strictly isolated `TESTNET_CANARY` authority for
+  `testnet_sampling_v2` only on `BINANCE_TESTNET`, while the manifest's
+  Production authorization remains `PENDING`. Resolver precedence is
+  `PRODUCTION > TESTNET_CANARY > NONE`; Canary stays non-promotable and cannot
+  create a second writer when Production is approved.
+- Runtime Truth and transaction desk now expose entry authority, authorization
+  reason, active entry strategy, production state, promotion eligibility, and
+  `TRADING` versus `ENTRY_PAUSED`. The operator can see open-entry and
+  reduce-only exit status separately, plus per-symbol decision/gate/submission
+  facts without reading logs.
+- Formal launcher evidence: `ACTIVE/BINANCE_TESTNET`, entry authority
+  `TESTNET_CANARY`, `entry_authorized=true`, production `PENDING`, and
+  `promotion_eligible=false`. A natural scheduler Canary entry persisted
+  intent `ea23a85f-abb6-47b8-b17c-4d37178a9f54`, position
+  `9ead2ee8-b88e-4dae-a654-c67082f53773`, Binance Testnet fill trade
+  `313315568`; it is not production evidence. No forced order or exit used.
+- Verification: focused V2 regression `139 passed`; runtime API `19 passed`;
+  frontend `103 passed`; target mypy passed (6 files); frontend build passed.
+
+## 2026-08-12 — Testnet Canary authority continuity, review repair
+
+- Independent review found and the task repaired: (1) an opposite Canary
+  signal could bypass the unmanaged external baseline direction guard; (2) the
+  Why-No-Trade API/WebSocket read legacy funnel rows instead of V2 facts; (3)
+  scheduler authority was stale after startup; (4) Canary non-promotability
+  lacked a persisted-fact assertion.
+- Added narrow contracts for the conflicting baseline, persisted `SAMPLING`
+  intent, V2 Runtime Truth record, and post-cycle Production authority refresh.
+  The console now consumes normalized V2 fields in both the Runtime Truth and
+  existing Why-No-Trade panels.
+- Official launcher restarted with `v2_active`, `EnableNaturalTestnet`, and
+  preserved baseline. ACTIVE contract passed; API reported
+  `entry_authority=TESTNET_CANARY`, `entry_authorized=true`, Production
+  `PENDING`, strategy `testnet_sampling_v2`, `promotion_eligible=false`, and
+  `trading_state=TRADING`. No forced order or exit was submitted.
+- Evidence: `72 passed` targeted Python; `105 passed` frontend; targeted Ruff
+  and mypy clean; full mypy `236` clean; full pytest `1539 passed, 16 skipped,
+  2` existing candidate-registry-count failures; full Ruff retains 3 unrelated
+  script findings. Independent reviewer final verdict: PASS.
+
+## 2026-08-13 — Corrected Testnet sizing semantics and overwrite guard
+
+- **Authorized runtime setting**: Binance Testnet new entries use `50x` and at
+  most `5%` of current equity as margin. V2 translates this into a hard
+  per-symbol notional ceiling of `equity * 0.05 * 50` (`2.5x` equity); it is not
+  a 5% notional ceiling. `risk_per_trade=0.10`, signals, gates, stop/target,
+  existing ETH position, protection, reconciliation, and Mainnet were unchanged.
+- **Persistence/overwrite repair**: profile application persists PaperRun
+  `execution_profile` and stages an immutable next-cycle snapshot. It now fails
+  closed if a different pending snapshot exists. Bootstrap only creates a missing
+  medium risk profile and preserves existing operator values across restarts.
+- **Runtime proof**: after the official `v2_active` Testnet restart, dry-run
+  resolved both BTC/ETH to 50x / 0.05 margin / 2.5 exposure / 5.0 total. The
+  scheduler was ACTIVE, reconciliation HEALTHY; ETH stayed short `1.364` with
+  two reduce-only protection orders. No forced order was sent.
+- **Verification**: focused regression suite `84 passed in 12.39s`; targeted
+  Ruff `All checks passed!`; `git diff --check` passed. Natural Binance receipt
+  at the new size remains pending a real signal.

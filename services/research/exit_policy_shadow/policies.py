@@ -17,6 +17,12 @@ class RegimeSelection:
 
     policy: ExitPolicyId
     reason: str
+    fallback: bool = False
+    """True when this selection is the UNKNOWN fail-closed path.
+
+    Reported explicitly so an unclassifiable entry is never silently indistinguishable
+    from a deliberate RANGE routing, which also resolves to CONTROL.
+    """
 
 
 def build_initial_geometry(
@@ -65,26 +71,37 @@ def resolve_regime_policy(regime: Regime) -> RegimeSelection:
 
     This is the E (regime-aware) policy's dispatch logic. It must depend only on
     ``regime``, which was determined at entry time, never from post-exit bars.
+
+    The mapping is **frozen in advance**. Picking each regime's policy after seeing
+    which one earned most on the current sample would be selecting on the very outcome
+    being measured, and at this sample size that is indistinguishable from fitting
+    noise.
+
+    C_STRUCTURE_INVALIDATION is deliberately excluded. It is not structure recognition:
+    its stop and target are plain ATR multiples (see `_structure_geometry`), so routing
+    entries into it would endorse an ATR proxy under a name implying structural
+    analysis. It stays in the report as an independent benchmark, labelled as a proxy.
     """
     if regime == Regime.TREND:
         return RegimeSelection(
             policy=ExitPolicyId.SCALE_OUT_RUNNER,
-            reason="TREND regime prefers laddered runner exits",
+            reason="TREND regime routes to D_SCALE_OUT_RUNNER (frozen mapping)",
         )
     if regime == Regime.RANGE:
         return RegimeSelection(
-            policy=ExitPolicyId.STRUCTURE_INVALIDATION,
-            reason="RANGE regime exits at structural boundaries",
+            policy=ExitPolicyId.CURRENT_CONTROL,
+            reason="RANGE regime routes to A_CURRENT_CONTROL (frozen mapping)",
         )
     if regime == Regime.EXPANSION:
         return RegimeSelection(
             policy=ExitPolicyId.ATR_ADAPTIVE,
-            reason="EXPANSION regime uses volatility-adaptive geometry",
+            reason="EXPANSION regime routes to B_ATR_ADAPTIVE (frozen mapping)",
         )
-    # Unknown / unclassifiable regime fails closed to the baseline.
+    # Unknown / unclassifiable regime fails closed to the baseline, visibly.
     return RegimeSelection(
         policy=ExitPolicyId.CURRENT_CONTROL,
-        reason="UNKNOWN regime defaults to baseline CONTROL policy",
+        reason="UNKNOWN regime falls back to A_CURRENT_CONTROL (visible fail-closed)",
+        fallback=True,
     )
 
 

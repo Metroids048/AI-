@@ -53,6 +53,16 @@ def stage_promoted_runtime_config(
 
     config_repo = ConfigSnapshotRepository(session)
     active = config_repo.get_active(paper_run.paper_run_id)
+    pending = config_repo.get_pending(paper_run.paper_run_id)
+    if pending is not None:
+        # Another update is already queued. Bootstrap may refresh derived run
+        # metadata, but it must not replace an operator's NEXT_CYCLE contract.
+        return RuntimeConfigMigrationResult(
+            paper_run_id=paper_run.paper_run_id,
+            config_snapshot_id=pending.config_snapshot_id or "",
+            config_hash=pending.config_hash,
+            status="pending_preserved",
+        )
     config = {
         "execution_profile": paper_run.execution_profile,
         "strategy_rules": promoted_rules,

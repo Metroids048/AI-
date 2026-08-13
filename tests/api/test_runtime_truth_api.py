@@ -7,6 +7,13 @@ from starlette.websockets import WebSocketDisconnect
 
 from apps.api.config import settings
 from apps.api.routers import runtime
+from services.automated_trading.infrastructure.models import (
+    V2ExecutionCycle,
+    V2ExecutionDecision,
+    V2ExecutionIntent,
+    V2ManagedPosition,
+)
+from services.execution.runtime_state import write_external_scheduler_state
 from services.strategy_library import LlmInvocationRepository, PaperRunRepository
 from services.strategy_library.repository import ExecutionRepository
 from shared.models import (
@@ -21,6 +28,104 @@ from shared.models import (
     TradeSide,
 )
 from shared.models.execution_truth import ExecutionMode
+
+
+def _v2_position(*, position_id: str, symbol: str, direction: str, quantity: float) -> V2ManagedPosition:
+    observed_at = datetime.now(UTC)
+    return V2ManagedPosition(
+        position_id=position_id,
+        intent_id=f"intent-{position_id}",
+        order_record_id=f"order-{position_id}",
+        symbol=symbol,
+        direction=direction,
+        execution_mode="BINANCE_TESTNET",
+        quantity=quantity,
+        entry_price=65000,
+        entry_fee=0,
+        state="PROTECTED",
+        projected_at=observed_at,
+    )
+
+
+def test_runtime_snapshot_exposes_entry_paused_as_an_explicit_runtime_state(api_client, monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(tmp_path / "scheduler-state.json"))
+    now = datetime.now(UTC)
+    write_external_scheduler_state(
+        {
+            "running": True,
+            "heartbeat_at": now.isoformat(),
+            "entry_authority": "NONE",
+            "entry_authorized": False,
+            "entry_authority_reason": "production_pending",
+            "production_authorization_state": "PENDING",
+            "active_entry_strategy": None,
+            "promotion_eligible": False,
+            "trading_state": "ENTRY_PAUSED",
+        }
+    )
+
+    body = api_client.get("/api/v1/runtime/snapshot").json()
+
+    assert body["entry_runtime"]["status"] == "available"
+    assert body["entry_runtime"]["value"] == {
+        "entry_authority": "NONE",
+        "entry_authorized": False,
+        "entry_authority_reason": "production_pending",
+        "production_authorization_state": "PENDING",
+        "active_entry_strategy": None,
+        "promotion_eligible": False,
+        "trading_state": "ENTRY_PAUSED",
+    }
+
+
+def test_runtime_decisions_reads_persisted_v2_canary_fact(api_client, db_session) -> None:
+    observed_at = datetime.now(UTC)
+    db_session.add(
+        V2ExecutionCycle(
+            cycle_id="runtime-canary-cycle",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            bar_timestamp=observed_at,
+            execution_mode="BINANCE_TESTNET",
+            fencing_token="runtime-canary-fence",
+            decision_terminal="RISK_APPROVED",
+        )
+    )
+    db_session.add(
+        V2ExecutionDecision(
+            decision_id="runtime-canary-decision",
+            cycle_id="runtime-canary-cycle",
+            candidate_key="testnet_sampling_v2",
+            terminal_reason="NO_ENTRY_SIGNAL",
+            payload={
+                "strategy_id": "testnet_sampling_v2",
+                "candidate_key": "testnet_sampling_v2",
+                "entry_authority": "TESTNET_CANARY",
+                "terminal_stage": "RISK_APPROVED",
+                "reason_code": "NO_ENTRY_SIGNAL",
+                "stages": [{"stage": "EXCHANGE_SUBMITTED", "outcome": "REJECTED", "reason_code": "NO_ENTRY_SIGNAL"}],
+            },
+        )
+    )
+    db_session.commit()
+
+    body = api_client.get("/api/v1/runtime/decisions?symbol=BTC/USDT").json()
+
+    assert body["items"] == [
+        {
+            "decision_id": "runtime-canary-decision",
+            "cycle_id": "runtime-canary-cycle",
+            "symbol": "BTC/USDT",
+            "created_at": body["items"][0]["created_at"],
+            "last_decision_at": body["items"][0]["last_decision_at"],
+            "strategy": "testnet_sampling_v2",
+            "entry_authority": "TESTNET_CANARY",
+            "signal_generated": True,
+            "entry_gate_result": "RISK_APPROVED",
+            "entry_submitted": False,
+            "terminal_reason": "NO_ENTRY_SIGNAL",
+        }
+    ]
 
 
 def test_runtime_exchange_truth_reuses_one_snapshot_for_parallel_endpoint_reads(monkeypatch) -> None:
@@ -283,7 +388,7 @@ def test_runtime_snapshot_exposes_exchange_unavailable_without_zero_fallback(
     assert body["mismatch"]["value"]["consistent"] is False
 
 
-def test_runtime_snapshot_does_not_compare_local_paper_positions_to_binance(
+def test_runtime_snapshot_excludes_legacy_local_paper_positions_from_v2_truth(
     api_client,
     db_session,
     monkeypatch,
@@ -314,12 +419,85 @@ def test_runtime_snapshot_does_not_compare_local_paper_positions_to_binance(
 
     body = api_client.get("/api/v1/runtime/snapshot").json()
 
-    assert len(body["local_projection"]["value"]) == 1
+    assert body["local_projection"]["value"] == []
     assert body["mismatch"]["value"]["consistent"] is True
     assert body["mismatch"]["value"]["local_only_positions"] == []
 
 
-def test_runtime_reconciliation_reports_persisted_kill_switch_and_unknown_order(
+def test_runtime_snapshot_uses_v2_position_facts_not_stale_legacy_rows(
+    api_client,
+    db_session,
+    monkeypatch,
+) -> None:
+    observed_at = datetime.now(UTC)
+    monkeypatch.setattr(
+        runtime,
+        "_exchange_truth",
+        lambda: runtime._datum(
+            value={
+                "positions": [{"symbol": "BTC/USDT", "side": "long", "contracts": 0.5}],
+                "open_orders": [],
+            },
+            source="BINANCE_USDT_M_TESTNET",
+            observed_at=observed_at,
+        ),
+    )
+    db_session.add(_v2_position(position_id="v2-btc", symbol="BTC/USDT", direction="long", quantity=0.5))
+    ExecutionRepository(db_session).create_position_record(
+        PositionRecord(
+            exchange_account="binance:usdt_perpetual:testnet",
+            symbol="BTC/USDT",
+            position_side=TradeSide.SHORT,
+            opened_at=observed_at,
+            quantity=99,
+            order_origin="stale-legacy-projection",
+            run_id="legacy-run",
+            management_status=PositionManagementStatus.LEGACY_UNVERIFIED,
+            execution_mode=ExecutionMode.BINANCE_TESTNET,
+        )
+    )
+    db_session.commit()
+
+    body = api_client.get("/api/v1/runtime/snapshot").json()
+
+    assert body["local_projection"]["source"] == "V2_MANAGED_POSITION_FACTS"
+    assert len(body["local_projection"]["value"]) == 1
+    assert body["local_projection"]["value"][0]["position_record_id"] == "v2-btc"
+    assert body["local_projection"]["value"][0]["position_side"] == "long"
+    assert body["local_projection"]["value"][0]["quantity"] == 0.5
+    assert body["mismatch"]["value"]["consistent"] is True
+
+
+def test_runtime_reconciliation_detects_v2_side_and_quantity_mismatch(
+    api_client,
+    db_session,
+    monkeypatch,
+) -> None:
+    observed_at = datetime.now(UTC)
+    monkeypatch.setattr(
+        runtime,
+        "_exchange_truth",
+        lambda: runtime._datum(
+            value={
+                "positions": [{"symbol": "ETH/USDT", "side": "long", "contracts": 1.0}],
+                "open_orders": [],
+            },
+            source="BINANCE_USDT_M_TESTNET",
+            observed_at=observed_at,
+        ),
+    )
+    db_session.add(_v2_position(position_id="v2-eth", symbol="ETH/USDT", direction="short", quantity=2))
+    db_session.commit()
+
+    body = api_client.get("/api/v1/runtime/reconciliation").json()
+
+    assert body["status"] == "degraded"
+    assert body["mismatch"]["value"]["exchange_only_positions"] == [{"symbol": "ETH/USDT", "side": "long"}]
+    assert body["mismatch"]["value"]["local_only_positions"] == [{"symbol": "ETH/USDT", "side": "short"}]
+    assert body["entry_blocked_symbols"] == ["ETH/USDT"]
+
+
+def test_runtime_reconciliation_reports_persisted_kill_switch_while_ignoring_legacy_unknown_order(
     api_client,
     db_session,
     monkeypatch,
@@ -355,7 +533,7 @@ def test_runtime_reconciliation_reports_persisted_kill_switch_and_unknown_order(
             paper_run_id="runtime-kill-switch-run",
         )
     )
-    unknown = execution_repo.create_exchange_order(
+    execution_repo.create_exchange_order(
         ExchangeOrderRecord(
             local_order_execution_id=local_order.order_execution_id or "",
             exchange_account="binance:usdt_perpetual:testnet",
@@ -374,11 +552,59 @@ def test_runtime_reconciliation_reports_persisted_kill_switch_and_unknown_order(
     assert set(body["entry_blocked_symbols"]) == {"BTC/USDT", "ETH/USDT"}
     assert body["entry_kill_switch_active"] is True
     assert body["consecutive_failures"] == 3
-    assert body["unresolved_exchange_order_ids"] == [unknown.exchange_order_record_id]
+    assert body["unresolved_exchange_order_ids"] == []
     assert body["actions"] == [
         "ENTRY_KILL_SWITCH_ACTIVE",
-        "EXCHANGE_UNKNOWN_REQUIRES_RECONCILIATION",
     ]
+
+
+def test_runtime_reconciliation_reports_v2_exchange_unknown_intent(
+    api_client,
+    db_session,
+    monkeypatch,
+) -> None:
+    observed_at = datetime.now(UTC)
+    monkeypatch.setattr(
+        runtime,
+        "_exchange_truth",
+        lambda: runtime._datum(
+            value={"positions": [], "open_orders": []},
+            source="BINANCE_USDT_M_TESTNET",
+            observed_at=observed_at,
+        ),
+    )
+    db_session.add(
+        V2ExecutionCycle(
+            cycle_id="runtime-unknown-cycle",
+            symbol="BTC/USDT",
+            timeframe="15m",
+            bar_timestamp=observed_at,
+            execution_mode="BINANCE_TESTNET",
+            fencing_token="runtime-unknown-fence",
+        )
+    )
+    db_session.add(
+        V2ExecutionIntent(
+            intent_id="runtime-v2-unknown",
+            cycle_id="runtime-unknown-cycle",
+            symbol="BTC/USDT",
+            direction="long",
+            candidate_key="production-candidate",
+            candidate_type="PRIMARY",
+            execution_mode="BINANCE_TESTNET",
+            decision_bar_timestamp=observed_at,
+            state="EXCHANGE_UNKNOWN",
+            version=0,
+        )
+    )
+    db_session.commit()
+
+    body = api_client.get("/api/v1/runtime/reconciliation").json()
+
+    assert body["status"] == "degraded"
+    assert body["entry_blocked_symbols"] == ["BTC/USDT"]
+    assert body["actions"] == ["EXCHANGE_UNKNOWN_REQUIRES_RECONCILIATION"]
+    assert body["unresolved_exchange_order_ids"] == ["runtime-v2-unknown"]
 
 
 def test_runtime_reconciliation_stale_cache_does_not_force_full_entry_block(

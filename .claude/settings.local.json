@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(git add *)",
-      "PowerShell($env:PYTHONIOENCODING='utf-8'; & ./scripts/launch-paper-console.ps1 -AutomatedTradingEngine v2_active -EnableNaturalTestnet -OpenBrowser:$false 2>&1 | Select-Object -Last 40)"
+      "PowerShell($env:PYTHONIOENCODING='utf-8'; & ./scripts/launch-paper-console.ps1 -AutomatedTradingEngine v2_active -EnableNaturalTestnet -OpenBrowser:$false 2>&1 | Select-Object -Last 40)",
+      "Bash(xargs echo \"dirty entries:\")"
     ]
   }
 }

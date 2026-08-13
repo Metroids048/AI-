@@ -166,6 +166,22 @@ describe("WhyNoTrade", () => {
     expect(screen.getByText("CANDIDATE_READY")).toBeTruthy();
     expect(screen.queryByText("NO_ENTRY_SIGNAL")).toBeNull();
   });
+
+  it("renders normalized V2 Runtime Truth decision fields", () => {
+    const decisions = [
+      {
+        symbol: "BTC/USDT",
+        last_decision_at: new Date().toISOString(),
+        entry_gate_result: "CANDLE_CLOSED",
+        terminal_reason: "DUPLICATE_DECISION",
+        entry_submitted: false,
+      },
+    ];
+    render(<WhyNoTrade decisions={decisions} />);
+    expect(screen.getByText("CANDLE_CLOSED")).toBeTruthy();
+    const reason = screen.getByText("重复决策");
+    expect(reason.getAttribute("title")).toBe("DUPLICATE_DECISION");
+  });
 });
 
 // ---------------------------------------------------------------------------

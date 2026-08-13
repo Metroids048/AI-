@@ -44,6 +44,12 @@ class ExternalSchedulerState:
     external_baseline_value: dict[str, str] | None = None
     external_baseline_source: str | None = None
     entry_authorized: bool | None = None
+    entry_authority: str | None = None
+    entry_authority_reason: str | None = None
+    production_authorization_state: str | None = None
+    active_entry_strategy: str | None = None
+    promotion_eligible: bool | None = None
+    trading_state: str | None = None
     startup_contract_errors: tuple[str, ...] = ()
 
 
@@ -132,6 +138,20 @@ def load_external_scheduler_state(
             raw.get("external_baseline_source") if isinstance(raw.get("external_baseline_source"), str) else None
         ),
         entry_authorized=raw.get("entry_authorized") if isinstance(raw.get("entry_authorized"), bool) else None,
+        entry_authority=raw.get("entry_authority") if isinstance(raw.get("entry_authority"), str) else None,
+        entry_authority_reason=(
+            raw.get("entry_authority_reason") if isinstance(raw.get("entry_authority_reason"), str) else None
+        ),
+        production_authorization_state=(
+            raw.get("production_authorization_state")
+            if isinstance(raw.get("production_authorization_state"), str)
+            else None
+        ),
+        active_entry_strategy=(
+            raw.get("active_entry_strategy") if isinstance(raw.get("active_entry_strategy"), str) else None
+        ),
+        promotion_eligible=(raw.get("promotion_eligible") if isinstance(raw.get("promotion_eligible"), bool) else None),
+        trading_state=raw.get("trading_state") if isinstance(raw.get("trading_state"), str) else None,
         startup_contract_errors=startup_contract_errors,
     )
 
@@ -151,8 +171,8 @@ def active_startup_contract_errors(
         errors.append("ENGINE_ACTIVATION_MISMATCH")
     if state.execution_mode != "BINANCE_TESTNET":
         errors.append("EXECUTION_MODE_MISMATCH")
-    if state.execution_strategy_id != "testnet_sampling_v2":
-        errors.append("EXECUTION_STRATEGY_MISMATCH")
+    if state.execution_strategy_id in (None, "", "testnet_sampling_v2"):
+        errors.append("EXECUTION_STRATEGY_UNAUTHORIZED")
     expected_symbols = ("BTC/USDT", "ETH/USDT")
     if tuple(sorted(state.execution_symbols)) != expected_symbols:
         errors.append("EXECUTION_SCOPE_MISMATCH")
@@ -164,14 +184,8 @@ def active_startup_contract_errors(
         errors.append("LEGACY_JOB_REGISTERED")
     if state.legacy_writer_enabled is not False:
         errors.append("LEGACY_WRITER_ENABLED")
-    if state.entry_enabled is not True:
-        errors.append("ENTRY_DISABLED")
-    if state.sampling_fallback_enabled is not True:
-        errors.append("SAMPLING_PERMISSION_DISABLED")
     if state.external_baseline_captured is not True:
         errors.append("EXTERNAL_BASELINE_NOT_CAPTURED")
-    if state.entry_authorized is not True:
-        errors.append("ENTRY_NOT_AUTHORIZED")
     errors.extend(error for error in state.startup_contract_errors if error not in errors)
     return tuple(errors)
 

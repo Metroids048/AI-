@@ -28,8 +28,8 @@ def default_asset_risk_tiers() -> dict[str, dict[str, Any]]:
         "core": AssetRiskTierSettings(
             tier="core",
             symbols=list(CORE_SYMBOLS),
-            leverage=40,
-            max_position_fraction=0.35,
+            leverage=50,
+            max_position_fraction=2.50,
         ).model_dump(mode="json"),
         "standard": AssetRiskTierSettings(
             tier="standard",
@@ -76,7 +76,7 @@ def scale_asset_risk_tiers(
         payload = raw.model_dump(mode="json") if isinstance(raw, AssetRiskTierSettings) else dict(raw)
         leverage_ratio, fraction_ratio = TIER_SCALE_RATIOS.get(name, (1.0, 1.0))
         payload["leverage"] = max(1.0, min(125.0, round(max_leverage * leverage_ratio, 2)))
-        payload["max_position_fraction"] = max(0.01, min(1.0, round(max_symbol_exposure * fraction_ratio, 4)))
+        payload["max_position_fraction"] = max(0.01, min(5.0, round(max_symbol_exposure * fraction_ratio, 4)))
         payload.setdefault("tier", name)
         scaled[name] = AssetRiskTierSettings.model_validate(payload).model_dump(mode="json")
     return scaled

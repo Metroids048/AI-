@@ -24,6 +24,7 @@ def test_operator_profile_overrides_v2_runtime_defaults_without_asset_tiers() ->
     assert settings.risk_per_trade == Decimal("0.012")
     assert settings.order_notional_usdt == Decimal("123")
     assert settings.max_position_fraction == Decimal("0.11")
+    assert settings.max_margin_fraction == Decimal("0.05")
     assert settings.sampling_fallback_enabled is False
 
 
@@ -47,3 +48,4 @@ def test_operator_asset_tier_has_precedence_over_profile_max_leverage() -> None:
 
     assert settings.max_leverage == 6
     assert settings.max_position_fraction == Decimal("0.10")
+    assert settings.max_margin_fraction == Decimal("0.05")

@@ -438,6 +438,7 @@ def test_v2_scheduler_uses_operator_profile_after_next_cycle_activation(v2_db, m
             "strategy_lane": "directional",
             "risk_per_trade": 0.05,
             "max_leverage": 40,
+            "max_margin_fraction": 0.05,
             "simulation_sampling_fallback_enabled": True,
         }
         run = paper_repo.create_paper_run(
@@ -461,6 +462,7 @@ def test_v2_scheduler_uses_operator_profile_after_next_cycle_activation(v2_db, m
             **initial_profile,
             "risk_per_trade": 0.012,
             "max_leverage": 7,
+            "max_margin_fraction": 0.03,
             "order_notional_usdt": 123,
             "max_symbol_exposure": 0.11,
             "simulation_sampling_fallback_enabled": False,
@@ -512,6 +514,7 @@ def test_v2_scheduler_uses_operator_profile_after_next_cycle_activation(v2_db, m
     request = captured_requests[0]
     assert request.risk_per_trade == Decimal("0.012")
     assert request.max_leverage == 7
+    assert request.max_margin_fraction == Decimal("0.03")
     assert request.order_notional_usdt == Decimal("123")
     assert request.max_position_fraction == Decimal("0.11")
     assert request.sampling_fallback_enabled is False

@@ -26,6 +26,8 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
   const exchange = snapshot?.exchange;
   const localProjection = snapshot?.local_projection;
   const scheduler = snapshot?.scheduler;
+  const entryRuntime = snapshot?.entry_runtime;
+  const entryRuntimeValue = entryRuntime?.value;
   const dataFreshness = snapshot?.data_freshness;
   const strategyEvidence = snapshot?.strategy_evidence;
   const schedulerValue = scheduler?.value ?? scheduler;
@@ -66,16 +68,46 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
           交易所数据不可用：{exchange?.error || runtime.error || "未接通"}。不会用 0 或旧值代替。
         </div>
       ) : null}
+      {entryRuntimeValue?.trading_state === "ENTRY_PAUSED" ? (
+        <div className="truth-blocker" role="alert">
+          <strong>新开仓已暂停</strong>
+          <p>原因：{entryRuntimeValue.entry_authority_reason || "NO_ENTRY_AUTHORITY"}</p>
+          <p>调度、已有仓位保护、恢复与 reduce-only 平仓仍正常运行。</p>
+        </div>
+      ) : null}
+      {entryRuntimeValue?.entry_authority === "TESTNET_CANARY" ? (
+        <div className="truth-canary" role="status">
+          <strong>Testnet Canary 自动交易中</strong>
+          <p>Production Strategy 尚未授权；Canary 交易不进入 Production 晋升证据。</p>
+        </div>
+      ) : null}
 
       <div className="runtime-truth-grid">
+        <article>
+          <h3>自动开仓</h3>
+          <strong>{entryRuntimeValue?.trading_state === "TRADING" ? "运行中" : "已暂停"}</strong>
+          <p>Authority：{entryRuntimeValue?.entry_authority || "NONE"}</p>
+          <p>策略：{entryRuntimeValue?.active_entry_strategy || "无"}</p>
+          <p>Production：{entryRuntimeValue?.production_authorization_state || "PENDING"}</p>
+        </article>
+        <article>
+          <h3>自动平仓</h3>
+          <strong>{scheduler?.status === "available" ? "运行中" : "已暂停"}</strong>
+          <p>对账 / 保护 / recovery / reduce-only</p>
+        </article>
         <article>
           <h3>{symbol}</h3>
           {terminal ? (
             <>
               <strong>{terminal.status === "PASSED" ? "本根 K 线已通过" : "本根 K 线未开仓"}</strong>
-              <p>终止阶段：{terminal.terminal_stage}</p>
-              <p>原因：{terminal.reason_code}</p>
-              <small>决策 K 线：{formatTime(terminal.bar_time)}</small>
+              <p>终止阶段：{terminal.entry_gate_result || terminal.terminal_stage || "未评估"}</p>
+              <p>原因：{terminal.terminal_reason || terminal.reason_code || "未记录"}</p>
+              <p>策略：{terminal.strategy || terminal.strategy_id || "未知"}</p>
+              <p>开仓权限：{terminal.entry_authority || "未知"}</p>
+              <p>已产生信号：{terminal.signal_generated ? "是" : "否"}</p>
+              <p>Entry Gate：{terminal.entry_gate_result || "未评估"}</p>
+              <p>订单已提交：{terminal.entry_submitted ? "是" : "否"}</p>
+              <small>最后策略判断：{formatTime(terminal.last_decision_at || terminal.bar_time)}</small>
             </>
           ) : (
             <p className="empty-copy">暂无闭合 K 线决策终态，不能推断为“无信号”。</p>

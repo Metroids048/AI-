@@ -24,6 +24,7 @@ from services.execution.bootstrap import (
     default_mirror_to_gateway,
 )
 from services.execution.paper import PaperOrchestrationService
+from services.strategy_library import ConfigSnapshotRepository
 from shared.config import settings
 from shared.models import PaperRun, RunStatus, StrategyRules
 from shared.models.risk import medium_risk_profile
@@ -186,8 +187,8 @@ def test_signal_observation_run_is_automatically_scheduled_but_cannot_mirror_to_
     assert paper_run.execution_profile.get("execution_mode") == "local_paper"
     assert paper_run.execution_profile.get("mirror_to_gateway") is False
     assert paper_run.candidate_symbols == list(AUTO_PAPER_RESEARCH_SYMBOLS)
-    assert paper_run.execution_profile["asset_risk_tiers"]["core"]["leverage"] == 40.0
-    assert paper_run.execution_profile["asset_risk_tiers"]["core"]["max_position_fraction"] == 0.35
+    assert paper_run.execution_profile["asset_risk_tiers"]["core"]["leverage"] == 50.0
+    assert paper_run.execution_profile["asset_risk_tiers"]["core"]["max_position_fraction"] == 2.50
 
 
 def test_signal_observation_bootstrap_clears_mistaken_simulation_authorization(db_session) -> None:
@@ -270,7 +271,7 @@ def test_high_density_paper_limits_are_kept_in_sync() -> None:
     assert 0 < PAPER_RUNTIME_LIMITS["risk_per_trade"] <= 0.20
     assert PAPER_RUNTIME_LIMITS["max_symbol_exposure"] <= PAPER_RUNTIME_LIMITS["max_total_exposure"]
     assert position_rules["max_portfolio_initial_risk_fraction"] == 0.25
-    assert profile.max_total_exposure == 0.90
+    assert profile.max_total_exposure == 5.00
     assert profile.max_open_positions == 2
     assert profile.daily_loss_limit == 0.20
     assert profile.weekly_loss_limit == 0.25
@@ -411,6 +412,9 @@ def test_bootstrap_rearms_stale_directional_run_from_existing_exact_acceptance(d
     assert refreshed.execution_profile["mirror_to_gateway"] is True
     assert refreshed.execution_profile["cost_gate_verified"] is True
     assert refreshed.execution_profile["acceptance_symbols"] == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    pending = ConfigSnapshotRepository(db_session).get_pending(run_id)
+    assert pending is not None
+    assert pending.config_hash != refreshed.active_config_hash
 
 
 def test_has_verified_testnet_acceptance_ignores_recent_task_window(db_session) -> None:
