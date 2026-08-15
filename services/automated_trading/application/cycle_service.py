@@ -20,6 +20,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from services.automated_trading.application.decision_service import (
@@ -231,6 +232,33 @@ class CycleResult:
     def record_error(self, msg: str) -> None:
         logger.error("[cycle %s %s] %s", self.cycle_id, self.symbol, msg)
         self.errors.append(msg)
+
+
+class R2CostGatePolicy(StrEnum):
+    """Whether the calculated R2 cost outcome blocks a new entry."""
+
+    DISABLED = "DISABLED"
+    DIAGNOSTIC = "DIAGNOSTIC"
+    BLOCKING = "BLOCKING"
+
+
+def _resolve_r2_cost_gate_policy(request: CycleRequest, candidate: TradeCandidate) -> R2CostGatePolicy:
+    """Keep the established Testnet Canary sampling contract explicit.
+
+    Canary entries retain a full R2 trace for later cost analysis, but the
+    diagnostic does not replace the lane's existing entry policy. Production
+    and every other R2-enabled caller preserve the blocking behavior.
+    """
+
+    if not request.r2_cost_gate_enabled:
+        return R2CostGatePolicy.DISABLED
+    if (
+        request.entry_authority is EntryAuthority.TESTNET_CANARY
+        and candidate.lane is CandidateLane.TESTNET_SAMPLING
+        and candidate.strategy_id == "testnet_sampling_v2"
+    ):
+        return R2CostGatePolicy.DIAGNOSTIC
+    return R2CostGatePolicy.BLOCKING
 
 
 def _sampling_execution_allowed(request: CycleRequest, candidate: TradeCandidate) -> bool:
@@ -1945,6 +1973,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         stop_distance=candidate.stop_distance,
         take_profit_distance=candidate.take_profit_distance,
     )
+    r2_policy = _resolve_r2_cost_gate_policy(request, candidate)
     result.funnel_payload["r2_cost_gate"] = {
         "cost_R": str(cost_gate.cost_r),
         "theoretical_net_payoff": str(cost_gate.theoretical_net_payoff),
@@ -1954,8 +1983,11 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         "slippage_R": str(cost_gate.slippage_r),
         "minimum_theoretical_net_payoff": "1.15",
         "status": "PASS" if cost_gate.passed else "REJECT",
+        "policy": r2_policy.value,
+        "would_block": not cost_gate.passed,
+        "enforced": r2_policy is R2CostGatePolicy.BLOCKING,
     }
-    if request.r2_cost_gate_enabled:
+    if r2_policy is R2CostGatePolicy.BLOCKING:
         entry_runtime = replace(
             entry_runtime,
             theoretical_net_payoff=cost_gate.theoretical_net_payoff,

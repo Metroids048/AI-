@@ -217,6 +217,68 @@ def test_pending_production_with_enabled_testnet_canary_reaches_existing_entry()
     assert result.funnel_payload["active_entry_strategy"] == "testnet_sampling_v2"
 
 
+def test_r2_cost_gate_is_diagnostic_for_testnet_sampling_canary() -> None:
+    """Regression: R2 evidence must not make the established Canary unreachable."""
+    adapter = build_adapter_with_successful_cycle()
+
+    result = run_automated_trading_cycle(
+        build_request(
+            entry_authority=EntryAuthority.TESTNET_CANARY,
+            r2_cost_gate_enabled=True,
+        ),
+        adapter,
+    )
+
+    adapter.submit_market_order.assert_called_once()
+    assert result.entry_submitted
+    r2_gate = result.funnel_payload["r2_cost_gate"]
+    assert r2_gate["status"] == "REJECT"
+    assert r2_gate["policy"] == "DIAGNOSTIC"
+    assert r2_gate["would_block"] is True
+    assert r2_gate["enforced"] is False
+
+
+def test_r2_cost_gate_still_blocks_an_authorized_production_candidate() -> None:
+    adapter = build_adapter_with_successful_cycle()
+    candidate = TradeCandidate(
+        candidate_id="production-r2-candidate",
+        cycle_id="production-r2-cycle",
+        strategy_id="production-r2-strategy",
+        strategy_version="1.0.0",
+        lane=CandidateLane.PRODUCTION,
+        candidate_type=V2CandidateType.PRIMARY,
+        symbol="BTC/USDT",
+        side="LONG",
+        signal_candle_close_time=LAST_BAR_TS,
+        signal_reference_price=Decimal("101"),
+        confidence=Decimal("0.8"),
+        stop_distance=Decimal("0.3535"),
+        take_profit_distance=Decimal("0.53025"),
+        max_entry_drift_bps=Decimal("20"),
+        expires_at=CYCLE_NOW + timedelta(seconds=65),
+        non_promotable=False,
+    )
+
+    result = run_automated_trading_cycle(
+        build_request(
+            entry_authority=EntryAuthority.PRODUCTION,
+            production_authorized=True,
+            production_candidate=candidate,
+            r2_cost_gate_enabled=True,
+        ),
+        adapter,
+    )
+
+    adapter.submit_market_order.assert_not_called()
+    assert not result.entry_submitted
+    assert result.funnel_payload["reason_code"] == "NO_TRADE_COST_INEFFICIENT"
+    r2_gate = result.funnel_payload["r2_cost_gate"]
+    assert r2_gate["status"] == "REJECT"
+    assert r2_gate["policy"] == "BLOCKING"
+    assert r2_gate["would_block"] is True
+    assert r2_gate["enforced"] is True
+
+
 def test_testnet_canary_rejects_opposite_unmanaged_external_baseline(monkeypatch) -> None:
     """A Canary must never reduce or flip an operator-owned one-way position."""
     from services.automated_trading.application import cycle_service
