@@ -664,6 +664,7 @@ def run_generation_one(
     output: Path,
     split: MasterSplitPlan,
     generation_zero: dict[str, Any],
+    resume: bool = False,
 ) -> dict[str, Any]:
     """Run a small OFAT grid on the best observed candidate of each family."""
 
@@ -703,8 +704,12 @@ def run_generation_one(
     specs = tuple(selected_specs[:1])
     ledger = TrialLedger(output / "trial-ledger.jsonl")
     research_windows = _research_windows(split)
-    results: dict[str, Any] = {}
+    partial_path = output / "GENERATION_1_PARTIAL.json"
+    partial = _json_read(partial_path) if resume and partial_path.is_file() else {}
+    results: dict[str, Any] = dict(partial.get("results", {}))
     for spec in specs:
+        if spec.variant_id in results:
+            continue
         results[spec.variant_id] = _run_variant(
             database=database,
             output=output,
@@ -712,6 +717,15 @@ def run_generation_one(
             windows=research_windows,
             data_end=split.research_end,
             ledger=ledger,
+        )
+        _json_write(
+            partial_path,
+            {
+                "generation": 1,
+                "parents": parents,
+                "variants": [item.as_record() for item in specs],
+                "results": results,
+            },
         )
     return {
         "generation": 1,
@@ -771,13 +785,18 @@ def _generation_two_specs(generation_one: dict[str, Any]) -> tuple[VariantSpec, 
 
 
 def run_generation_two(
-    *, database: Path, output: Path, split: MasterSplitPlan, generation_one: dict[str, Any]
+    *, database: Path, output: Path, split: MasterSplitPlan, generation_one: dict[str, Any], resume: bool = False
 ) -> dict[str, Any]:
     specs = _generation_two_specs(generation_one)
     ledger = TrialLedger(output / "trial-ledger.jsonl")
     windows = _research_windows(split)
-    results = {
-        spec.variant_id: _run_variant(
+    partial_path = output / "GENERATION_2_PARTIAL.json"
+    partial = _json_read(partial_path) if resume and partial_path.is_file() else {}
+    results: dict[str, Any] = dict(partial.get("results", {}))
+    for spec in specs:
+        if spec.variant_id in results:
+            continue
+        results[spec.variant_id] = _run_variant(
             database=database,
             output=output,
             spec=spec,
@@ -785,8 +804,10 @@ def run_generation_two(
             data_end=split.research_end,
             ledger=ledger,
         )
-        for spec in specs
-    }
+        _json_write(
+            partial_path,
+            {"generation": 2, "hypotheses": [item.as_record() for item in specs], "results": results},
+        )
     return {
         "generation": 2,
         "hypotheses": [spec.as_record() for spec in specs],
@@ -1092,11 +1113,17 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
     validation = {candidate_id: result["master_metrics"] for candidate_id, result in validation_results.items()}
     _json_write(output / "VALIDATION.json", validation)
 
-    generation_one = run_generation_one(
-        database=database,
-        output=output,
-        split=split,
-        generation_zero=generation_zero,
+    generation_one_path = output / "GENERATION_1.json"
+    generation_one = (
+        _json_read(generation_one_path)
+        if resume and generation_one_path.is_file()
+        else run_generation_one(
+            database=database,
+            output=output,
+            split=split,
+            generation_zero=generation_zero,
+            resume=resume,
+        )
     )
     _json_write(output / "GENERATION_1.json", generation_one)
     g1_ranked = sorted(
@@ -1127,6 +1154,7 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
         output=output,
         split=split,
         generation_one=generation_one,
+        resume=resume,
     )
     _json_write(output / "GENERATION_2.json", generation_two)
     g2_validation: dict[str, Any] = {}
