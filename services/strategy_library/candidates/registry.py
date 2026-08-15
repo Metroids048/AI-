@@ -431,6 +431,60 @@ FAILED_BREAKOUT_REVERSAL_V1 = StrategyCandidate(
 )
 
 
+def _loss_aware_trend_pullback_v1_config() -> dict[str, Any]:
+    config = _operator_heuristic_v1_config()
+    config["entry_rules"] = {
+        **config["entry_rules"],
+        "candidate_id": "loss_aware_trend_pullback_v1",
+        "research_only": True,
+        "proposal_generator": "loss_aware_trend_pullback_v1",
+        "entry_timeframe": "15m",
+    }
+    return config
+
+
+LOSS_AWARE_TREND_PULLBACK_V1 = StrategyCandidate(
+    candidate_id="loss_aware_trend_pullback_v1",
+    source="live_loss_attribution_research",
+    hypothesis=(
+        "A stricter trend-aligned pullback addresses stop-dominated live losses without changing execution risk."
+    ),
+    version="1.0.0-live-loss-hypothesis",
+    created_at=datetime(2026, 8, 14),
+    market="BTC/USDT,ETH/USDT",
+    timeframe="15m",
+    config_factory=_loss_aware_trend_pullback_v1_config,
+    lifecycle_state="RESEARCH_ONLY",
+    execution_eligible=False,
+)
+
+
+def _breakout_continuation_v1_config() -> dict[str, Any]:
+    config = _operator_heuristic_v1_config()
+    config["entry_rules"] = {
+        **config["entry_rules"],
+        "candidate_id": "breakout_continuation_v1",
+        "research_only": True,
+        "proposal_generator": "breakout_continuation_v1",
+        "entry_timeframe": "15m",
+    }
+    return config
+
+
+BREAKOUT_CONTINUATION_V1 = StrategyCandidate(
+    candidate_id="breakout_continuation_v1",
+    source="compression_expansion_research",
+    hypothesis="Closed-bar compression release with volume and regime confirmation can improve breakout selection.",
+    version="1.0.0-research",
+    created_at=datetime(2026, 8, 14),
+    market="BTC/USDT,ETH/USDT",
+    timeframe="15m",
+    config_factory=_breakout_continuation_v1_config,
+    lifecycle_state="RESEARCH_ONLY",
+    execution_eligible=False,
+)
+
+
 def _trend_pullback_v2_config() -> dict[str, Any]:
     config = _operator_heuristic_v1_config()
     config["entry_rules"] = {
@@ -674,6 +728,15 @@ CANDIDATE_REGISTRY: dict[str, StrategyCandidate] = {
     "trend_pullback_v2": TREND_PULLBACK_V2,
     "range_sweep_reversion_v1": RANGE_SWEEP_REVERSION_V1,
     "aggressive_multi_regime_v1": AGGRESSIVE_MULTI_REGIME_V1,
+    "loss_aware_trend_pullback_v1": LOSS_AWARE_TREND_PULLBACK_V1,
+    "breakout_continuation_v1": BREAKOUT_CONTINUATION_V1,
+    # These candidates already have deterministic proposal generators.  Keep
+    # them research-only until the master loop produces frozen OOS evidence.
+    "htf_trend_continuation_v1": HTF_TREND_CONTINUATION_V1,
+    "breakout_retest_v1": BREAKOUT_RETEST_V1,
+    "donchian_breakout_retest_v1": DONCHIAN_BREAKOUT_RETEST_V1,
+    "momentum_continuation_v1": MOMENTUM_CONTINUATION_V1,
+    "volatility_expansion_v1": VOLATILITY_EXPANSION_V1,
 }
 
 

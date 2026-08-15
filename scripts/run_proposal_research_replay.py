@@ -24,7 +24,7 @@ from typing import Any
 from scripts.generate_strategy_golden_baseline import source_tree_manifest
 from services.strategy_library.canonical import canonical_hash
 from services.strategy_library.context import MarketContext, MarketContextBuilder
-from services.strategy_library.proposal_pipeline import run_proposal_pipeline
+from services.strategy_library.proposal_pipeline import CandidateEvaluator, run_proposal_pipeline
 from services.validation.proposal_replay import (
     ProposalReplayMetrics,
     ProposalReplayRunner,
@@ -47,7 +47,13 @@ REFERENCE_CANDIDATE_IDS = (
     "trend_pullback_v2",
     "range_sweep_reversion_v1",
 )
-GENERATION_NEXT_CANDIDATE_IDS = ("htf_trend_continuation_v1", "breakout_retest_v1")
+GENERATION_NEXT_CANDIDATE_IDS = (
+    "htf_trend_continuation_v1",
+    "breakout_retest_v1",
+    "donchian_breakout_retest_v1",
+    "momentum_continuation_v1",
+    "volatility_expansion_v1",
+)
 ALL_CANDIDATE_IDS = REFERENCE_CANDIDATE_IDS + GENERATION_NEXT_CANDIDATE_IDS
 from services.validation.proposal_walk_forward import (
     ProposalWalkForwardWindow,
@@ -135,7 +141,13 @@ def _parse_time(value: str) -> int:
     return int((parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)).timestamp())
 
 
-def _load_series(connection: sqlite3.Connection, *, symbol: str, timeframe: str) -> RawSeries:
+def _load_series(
+    connection: sqlite3.Connection,
+    *,
+    symbol: str,
+    timeframe: str,
+    end_at: datetime = FINAL_HOLDOUT_START,
+) -> RawSeries:
     rows = connection.execute(
         """
         SELECT time, open, high, low, close, volume
@@ -147,7 +159,7 @@ def _load_series(connection: sqlite3.Connection, *, symbol: str, timeframe: str)
             symbol,
             timeframe,
             WARMUP_START.replace(tzinfo=None).isoformat(sep=" "),
-            FINAL_HOLDOUT_START.replace(tzinfo=None).isoformat(sep=" "),
+            end_at.replace(tzinfo=None).isoformat(sep=" "),
         ),
     ).fetchall()
     parsed_rows: tuple[tuple[float, float, float, float, float], ...] = tuple(
@@ -167,7 +179,12 @@ def _load_series(connection: sqlite3.Connection, *, symbol: str, timeframe: str)
     )
 
 
-def _load_funding_series(connection: sqlite3.Connection, *, symbol: str) -> RawFundingSeries:
+def _load_funding_series(
+    connection: sqlite3.Connection,
+    *,
+    symbol: str,
+    end_at: datetime = FINAL_HOLDOUT_START,
+) -> RawFundingSeries:
     rows = connection.execute(
         """
         SELECT time, funding_rate
@@ -178,7 +195,7 @@ def _load_funding_series(connection: sqlite3.Connection, *, symbol: str) -> RawF
         (
             symbol,
             WARMUP_START.replace(tzinfo=None).isoformat(sep=" "),
-            FINAL_HOLDOUT_START.replace(tzinfo=None).isoformat(sep=" "),
+            end_at.replace(tzinfo=None).isoformat(sep=" "),
         ),
     ).fetchall()
     return RawFundingSeries(
@@ -292,12 +309,17 @@ def _walk_forward_windows() -> tuple[ProposalWalkForwardWindow, ...]:
 
 
 def _build_window_runs(
-    *, database_path: Path, windows: tuple[ProposalWalkForwardWindow, ...], candidate_ids: tuple[str, ...]
+    *,
+    database_path: Path,
+    windows: tuple[ProposalWalkForwardWindow, ...],
+    candidate_ids: tuple[str, ...],
+    evaluator_overrides: dict[str, CandidateEvaluator] | None = None,
+    data_end: datetime = FINAL_HOLDOUT_START,
 ) -> tuple[dict[str, Any], ...]:
     runs: list[dict[str, Any]] = []
     with sqlite3.connect(f"file:{database_path.resolve().as_posix()}?mode=ro", uri=True) as connection:
         for symbol in SYMBOLS:
-            funding = _load_funding_series(connection, symbol=symbol)
+            funding = _load_funding_series(connection, symbol=symbol, end_at=data_end)
             cost_model = ReplayCostModel(
                 taker_fee_bps_per_side=Decimal(str(_configured_taker_fee_bps())),
                 funding_points=funding.points(),
@@ -306,7 +328,7 @@ def _build_window_runs(
                 funding_provenance="OBSERVED" if funding.observations_complete else "UNAVAILABLE",
             )
             series = {
-                timeframe: _load_series(connection, symbol=symbol, timeframe=timeframe)
+                timeframe: _load_series(connection, symbol=symbol, timeframe=timeframe, end_at=data_end)
                 for timeframe in TIMEFRAME_SECONDS
             }
             # Memory note: materialising every (context, next_bar) pair for the
@@ -335,11 +357,16 @@ def _build_window_runs(
                 cost_model=cost_model,
             ) -> None:
                 contexts, bars = zip(*pairs, strict=True) if pairs else ((), ())
+                pipeline = partial(
+                    run_proposal_pipeline,
+                    candidate_ids=frozenset(candidate_ids),
+                    evaluator_overrides=evaluator_overrides,
+                )
                 metrics_by_window[index] = ProposalReplayRunner(cost_model=cost_model).replay(
                     strategy_id="proposal_pipeline",
                     contexts=contexts,
                     next_entry_bars=bars,
-                    pipeline=partial(run_proposal_pipeline, candidate_ids=frozenset(candidate_ids)),
+                    pipeline=pipeline,
                     mode="v2_single_target",
                 )
 
@@ -392,8 +419,16 @@ def _candidate_metric_payload(
 
 
 def _result_for_candidate(
-    *, candidate_id: str, window_runs: tuple[dict[str, Any], ...], ledger: TrialLedger
+    *,
+    candidate_id: str,
+    window_runs: tuple[dict[str, Any], ...],
+    ledger: TrialLedger,
+    windows: tuple[ProposalWalkForwardWindow, ...] | None = None,
+    ledger_strategy_id: str | None = None,
+    ledger_parameters: dict[str, Any] | None = None,
+    ledger_status: str = "phase1_observed_no_parameter_optimization",
 ) -> dict[str, Any]:
+    active_windows = windows or _walk_forward_windows()
     all_trades = tuple(
         sorted(
             (trade for run in window_runs for trade in run["metrics"].trades if trade.strategy_id == candidate_id),
@@ -406,7 +441,7 @@ def _result_for_candidate(
     )
     symbol_payload: dict[str, Any] = {}
     window_payload: dict[str, Any] = {}
-    for window in _walk_forward_windows():
+    for window in active_windows:
         window_payload[window.window_id] = {"window": window.as_record(), "symbols": {}}
         for symbol in SYMBOLS:
             matching = tuple(
@@ -426,16 +461,18 @@ def _result_for_candidate(
             symbol_payload[symbol] = _candidate_metric_payload(
                 trades=symbol_trades, metrics=symbol_metrics, candidate_id=candidate_id
             )
+            trial_strategy_id = ledger_strategy_id or candidate_id
             ledger.record(
-                trial_id=f"{candidate_id}:{symbol}:{window.window_id}",
-                strategy_id=candidate_id,
+                trial_id=f"{trial_strategy_id}:{symbol}:{window.window_id}",
+                strategy_id=trial_strategy_id,
                 parameters={
                     "window": window.as_record(),
                     "symbol": symbol,
                     "metrics": payload,
                     "parameter_optimization": False,
+                    **(ledger_parameters or {}),
                 },
-                status="phase1_observed_no_parameter_optimization",
+                status=ledger_status,
             )
     return {
         "candidate_id": candidate_id,

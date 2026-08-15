@@ -14,7 +14,7 @@ from services.strategy_library.candidates.registry import (
 
 def test_registry_has_eleven_candidates():
     """验证注册表包含全部可回放候选。"""
-    assert len(CANDIDATE_REGISTRY) == 11
+    assert len(CANDIDATE_REGISTRY) == 18
     assert "operator_heuristic_v1" in CANDIDATE_REGISTRY
     assert "trend_momentum_v1" in CANDIDATE_REGISTRY
     assert "trend_breakout_v1" in CANDIDATE_REGISTRY
@@ -25,12 +25,19 @@ def test_registry_has_eleven_candidates():
     assert "trend_pullback_v2" in CANDIDATE_REGISTRY
     assert "range_sweep_reversion_v1" in CANDIDATE_REGISTRY
     assert "aggressive_multi_regime_v1" in CANDIDATE_REGISTRY
+    assert "loss_aware_trend_pullback_v1" in CANDIDATE_REGISTRY
+    assert "breakout_continuation_v1" in CANDIDATE_REGISTRY
+    assert "htf_trend_continuation_v1" in CANDIDATE_REGISTRY
+    assert "breakout_retest_v1" in CANDIDATE_REGISTRY
+    assert "donchian_breakout_retest_v1" in CANDIDATE_REGISTRY
+    assert "momentum_continuation_v1" in CANDIDATE_REGISTRY
+    assert "volatility_expansion_v1" in CANDIDATE_REGISTRY
 
 
 def test_list_candidates():
     """验证list_candidates返回所有候选ID。"""
     candidates = list_candidates()
-    assert len(candidates) == 11
+    assert len(candidates) == 18
     assert set(candidates) == {
         "operator_heuristic_v1",
         "trend_momentum_v1",
@@ -43,6 +50,13 @@ def test_list_candidates():
         "range_sweep_reversion_v1",
         "trend_momentum_v2_enriched",
         "aggressive_multi_regime_v1",
+        "loss_aware_trend_pullback_v1",
+        "breakout_continuation_v1",
+        "htf_trend_continuation_v1",
+        "breakout_retest_v1",
+        "donchian_breakout_retest_v1",
+        "momentum_continuation_v1",
+        "volatility_expansion_v1",
     }
 
 

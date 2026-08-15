@@ -102,6 +102,7 @@ def run_proposal_pipeline(
     now: datetime | None = None,
     selector: CandidateSelectorV2 | None = None,
     candidate_ids: frozenset[str] | None = None,
+    evaluator_overrides: dict[str, CandidateEvaluator] | None = None,
 ) -> ProposalPipelineResult:
     """Evaluate all candidates exactly once from one immutable market context."""
 
@@ -113,9 +114,11 @@ def run_proposal_pipeline(
     if candidate_ids is not None and not candidate_ids <= available_ids:
         unknown = ",".join(sorted(candidate_ids - available_ids))
         raise ValueError(f"unknown proposal candidate ids: {unknown}")
-    for strategy_id, evaluator in _evaluators():
+    overrides = evaluator_overrides or {}
+    for strategy_id, default_evaluator in _evaluators():
         if candidate_ids is not None and strategy_id not in candidate_ids:
             continue
+        evaluator = overrides.get(strategy_id, default_evaluator)
         try:
             proposal = evaluator(context, regime)
         except Exception as exc:  # noqa: BLE001

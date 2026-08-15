@@ -1092,3 +1092,62 @@
 - Forward verifier after restart: `190` cycles replayed, decision/feature/candidate/TradeCandidate match rates `100%`, immutable violations `0`, mismatches `[]`.
 - This is `RUNNING_FORWARD_VALIDATION`; no profitability or result-acceptance claim is made until new natural trades close.
 - Post-restart reconciliation also found one pre-existing managed ETH/USDT long (`9.334` at exchange fill `1884.9997`, decision bar `17:15 UTC`) with live stop/TP orders. It is carried forward unchanged and is excluded from the new-policy performance claim; the service remains running and will reconcile it normally.
+
+## 2026-08-15 — P0 no-trade observability and runtime restart
+
+- Root cause of the apparent 12-hour no-trade outage: the running API had been
+  started outside the official launcher and used the unresolved `timescaledb`
+  database host; the no-trade endpoint also compared SQLite naive timestamps
+  with aware UTC timestamps and returned HTTP 500.
+- Fixed UTC normalization, classified `NO_TRADE_COST_INEFFICIENT` as an entry
+  blocker, and added a 12-hour funnel covering signals, candidates, R2 rejects,
+  intents, exchange submissions/fills, and protection confirmation. The UI now
+  renders the R2 reason and funnel counts.
+- Full validation after the fix: backend `1612 passed, 7 skipped, 7 warnings`;
+  frontend `112 passed`; touched Ruff and scoped mypy passed.
+- Official launcher restarted `v2_active` / `BINANCE_TESTNET` / `TESTNET_CANARY`.
+  Natural runtime evidence after restart: scheduler running, entry authorized,
+  exchange info ready, data fresh, reconciliation healthy, account flat.
+- Observed 12-hour funnel at 2026-08-15 12:18 CST: `36` effective cycles,
+  `16` signals/candidates, all `16` rejected by `NO_TRADE_COST_INEFFICIENT`,
+  `0` position rejects, `0` drift rejects, `2` intents, `2` exchange submissions,
+  `17` non-reduce-only fills in the window, and `1` protection confirmation.
+  This is runtime diagnosis only; no profitability or result-acceptance claim.
+
+## 2026-08-15 — R2.1 calibration loop stopped at evidence gate
+
+- Re-audited the current 12-hour cohort: `42` R2 rejects versus `2` intents;
+  decision-id and cycle-id overlap is empty, so the historical `14/14` versus
+  `2/2` funnel cannot be used for parameter selection.
+- Replayed frozen `testnet_sampling_v2` with non-overlapping one-position-per-
+  symbol semantics. Layer 1 (`1.15/1.05/0.95/0.85`, TP `1.5R`) and Layer 2
+  (TP `1.5R/1.8R/2.0R` crossed with those thresholds) produced no
+  `stable_positive_oos` configuration. Production R2 remains unchanged at
+  `1.15`; no R2.1 promotion or service restart was performed.
+- Evidence artifacts: `artifacts/r2-cohort-audit-current.json` and
+  `artifacts/r2_calibration-layer*-nonoverlap.json`. Runtime remains
+  `ACTIVE/BINANCE_TESTNET`, flat on exchange and local projection, with healthy
+  reconciliation and scheduler heartbeat.
+- Validation: mypy `250` source files; pytest `1612 passed, 7 skipped`; touched
+  Ruff clean. Full Ruff still reports one pre-existing C416 in
+  `scripts/verify_gate17_e2e.py`, unrelated to this calibration loop.
+
+## 2026-08-15 — Bounded Alpha Champion Master Loop infrastructure
+
+- Added `scripts/run_alpha_champion_master_loop.py` with append-only baseline,
+  inventory, split, generation, validation, checkpoint, and final-report artifacts.
+- Canonical proposal replay now accepts evaluator overrides and dynamic data ends;
+  variant ledger records retain parent candidate, hypothesis, parameters, stage,
+  and fold metrics. Generation 1/2 are hard-capped and never alter execution,
+  R1, R2, or Testnet Canary semantics.
+- Added chronological Research/Validation/Final split metadata (60/20/20),
+  resume baseline drift checks, and honest terminal handling. No Champion or
+  Testnet promotion authority was created by this loop.
+- Verification: focused loop/registry/replay tests `18 passed`; full backend
+  suite `1618 passed, 7 skipped, 7 warnings`; touched Ruff and mypy clean.
+- Full Ruff remains blocked by the pre-existing `C416` in
+  `scripts/verify_gate17_e2e.py`; full mypy remains blocked by pre-existing
+  duplicate-module and legacy script typing errors. The real G0 replay completed
+  and produced canonical artifacts; long-running bounded variant replay was
+  interrupted before a terminal Champion decision and must not be reported as
+  promotion evidence.
