@@ -123,6 +123,17 @@ def test_no_entry_fill_uses_real_fill_not_decision_timestamp():
     assert result["hours_since_last_entry"] > 1.3
 
 
+def test_sqlite_naive_decision_timestamp_is_normalized_to_utc():
+    now = datetime.now(UTC)
+    naive_recent = (now - timedelta(minutes=5)).replace(tzinfo=None)
+    result = build_no_trade_summary(
+        **_facts(decisions=[{"at": naive_recent, "reason": "NO_TRADE_COST_INEFFICIENT"}])
+    )
+
+    assert result["summary_code"] == "ENTRY_BLOCKED"
+    assert result["decisions"]["dominant_reason"] == "NO_TRADE_COST_INEFFICIENT"
+
+
 def test_reduce_only_fill_is_not_counted_as_entry():
     now = datetime.now(UTC)
     result = build_no_trade_summary(

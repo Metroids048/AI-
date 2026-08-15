@@ -10,6 +10,7 @@ from threading import Lock
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.auth import websocket_token_is_valid
@@ -427,6 +428,7 @@ _ENTRY_BLOCKING_REASONS = frozenset(
         "RISK_LIMIT_EXCEEDED",
         "PRICE_DRIFT_EXCEEDED",
         "NET_EDGE_AFTER_COST_NEGATIVE",
+        "NO_TRADE_COST_INEFFICIENT",
         "PRETRADE_DECISION_STALE",
         "RECONCILIATION_BLOCKED",
     }
@@ -441,7 +443,7 @@ def _iso_datetime(value: datetime | None) -> str | None:
 def _decision_at(item: dict) -> datetime | None:
     value = item.get("at")
     if isinstance(value, datetime):
-        return value
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     if isinstance(value, str):
         try:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -466,6 +468,7 @@ def build_no_trade_summary(
     entry_runtime: dict,
     decisions: list[dict],
     entry_fills: list[dict],
+    funnel: dict | None = None,
 ) -> dict:
     """Project existing Runtime Truth facts into one deterministic no-trade status."""
     window_start = observed_at - timedelta(hours=window_hours)
@@ -568,6 +571,7 @@ def build_no_trade_summary(
             "reason_counts": reason_counts,
             "dominant_reason": dominant_reason,
         },
+        "funnel": funnel or {},
         "summary_code": summary_code,
     }
 
@@ -662,13 +666,19 @@ def runtime_no_trade_summary(
     scheduler = load_external_scheduler_state(now=observed_at)
     exchange = _exchange_truth()
     reconciliation = runtime_reconciliation(db)
-    decisions = [
-        {
-            "at": decision.created_at,
-            "reason": decision.terminal_reason or (decision.payload or {}).get("reason_code") or "UNKNOWN",
-        }
-        for decision, _cycle in v2_repo.list_recent_decisions(since=window_start, limit=500)
-    ]
+    decision_rows = v2_repo.list_recent_decisions(since=window_start, limit=500)
+    decisions = []
+    for decision, cycle in decision_rows:
+        payload = _v2_decision_payload(decision, cycle)
+        decisions.append(
+            {
+                "at": decision.created_at,
+                "reason": payload["terminal_reason"],
+                "signal_generated": payload["signal_generated"],
+                "entry_gate_result": payload["entry_gate_result"],
+                "entry_submitted": payload["entry_submitted"],
+            }
+        )
     fills = [
         {"at": fill.received_at, "reduce_only": fill.reduce_only}
         for fill, _intent in v2_repo.list_exchange_fills(
@@ -676,7 +686,7 @@ def runtime_no_trade_summary(
             limit=500,
         )
     ]
-    return build_no_trade_summary(
+    summary = build_no_trade_summary(
         observed_at=observed_at,
         window_hours=window_hours,
         scheduler={
@@ -699,6 +709,68 @@ def runtime_no_trade_summary(
         decisions=decisions,
         entry_fills=fills,
     )
+    effective = [item for item in decisions if item["reason"] != "DUPLICATE_DECISION"]
+    orders = v2_repo.list_exchange_orders(execution_mode=V2ExecutionMode.BINANCE_TESTNET, limit=500)
+    order_rows = [
+        (order, intent)
+        for order, intent in orders
+        if (created_at := order.created_at) is not None
+        and (created_at if created_at.tzinfo else created_at.replace(tzinfo=UTC)) >= window_start
+    ]
+    fill_rows = [
+        (fill, intent)
+        for fill, intent in v2_repo.list_exchange_fills(
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            limit=500,
+        )
+        if not fill.reduce_only
+        and fill.received_at is not None
+        and (
+            fill.received_at
+            if fill.received_at.tzinfo
+            else fill.received_at.replace(tzinfo=UTC)
+        ) >= window_start
+    ]
+    protection_rows = [
+        (protection, position)
+        for protection, position in v2_repo.list_protection_records(
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            limit=500,
+        )
+        if (created_at := protection.created_at) is not None
+        and (created_at if created_at.tzinfo else created_at.replace(tzinfo=UTC)) >= window_start
+    ]
+    intent_rows = [
+        intent
+        for intent in db.scalars(
+            select(V2ExecutionIntent)
+            .where(V2ExecutionIntent.execution_mode == V2ExecutionMode.BINANCE_TESTNET.value)
+            .order_by(V2ExecutionIntent.created_at.desc())
+            .limit(500)
+        )
+        if (created_at := intent.created_at) is not None
+        and (created_at if created_at.tzinfo else created_at.replace(tzinfo=UTC)) >= window_start
+    ]
+    summary["funnel"] = {
+        "decision_cycles": len(effective),
+        "signal_generated": sum(bool(item.get("signal_generated")) for item in effective),
+        "candidate_created": sum(
+            bool(item.get("signal_generated"))
+            and item.get("reason") != "NO_ENTRY_SIGNAL"
+            for item in effective
+        ),
+        "r2_cost_rejected": sum(item["reason"] == "NO_TRADE_COST_INEFFICIENT" for item in effective),
+        "position_rejected": sum(item["reason"].startswith("POSITION_") for item in effective),
+        "price_drift_rejected": sum(item["reason"].startswith("PRICE_DRIFT_") for item in effective),
+        "intent_created": len(intent_rows),
+        "exchange_submitted": sum(order.submitted_at is not None for order, _intent in order_rows),
+        "exchange_filled": len(fill_rows),
+        "protection_confirmed": sum(
+            protection.state in {"PROTECTION_ACTIVE", "PROTECTION_FILLED"}
+            for protection, _position in protection_rows
+        ),
+    }
+    return summary
 
 
 @router.get("/decisions")

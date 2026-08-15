@@ -28,6 +28,7 @@ const BLOCKED_REASONS = new Set([
   "SYMBOL_COOLDOWN_ACTIVE",
   "RISK_LIMIT_EXCEEDED",
   "NET_EDGE_AFTER_COST_NEGATIVE",
+  "NO_TRADE_COST_INEFFICIENT",
   "VETOED",
 ]);
 
@@ -93,6 +94,17 @@ function SummaryCard({ summary }) {
         {rows.map(([code, count]) => <span key={code}>{formatDecisionReason(code)} {count} 次</span>)}
         <span>重复轮询 {decisions.duplicate ?? 0} 次</span>
       </div>
+      {summary.funnel ? (
+        <div className="why-no-trade-stats">
+          <span>信号 {summary.funnel.signal_generated ?? 0}</span>
+          <span>候选 {summary.funnel.candidate_created ?? 0}</span>
+          <span>R2 拒绝 {summary.funnel.r2_cost_rejected ?? 0}</span>
+          <span>Intent {summary.funnel.intent_created ?? 0}</span>
+          <span>提交 {summary.funnel.exchange_submitted ?? 0}</span>
+          <span>成交 {summary.funnel.exchange_filled ?? 0}</span>
+          <span>保护 {summary.funnel.protection_confirmed ?? 0}</span>
+        </div>
+      ) : null}
     </div>
   );
 }

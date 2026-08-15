@@ -1,0 +1,8 @@
+{
+  "name": "codex-strategy-supervisor",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@openai/codex-sdk": "^0.144.0"
+  }
+}

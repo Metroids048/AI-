@@ -1,0 +1,47 @@
+{
+  "status": "UNFINISHED_EXTERNAL_MARKET",
+  "recorded_at": "2026-08-15T08:47:00Z",
+  "commit": "fe870d5e540d7b61f5fd49c7f65d8e569d5b0eab",
+  "active_strategy": {
+    "strategy_id": "testnet_sampling_v2",
+    "strategy_version": "2.0.0",
+    "policy": {
+      "entry": "15m EMA50 + MACD histogram + RSI band",
+      "stop": "max(1.2 * ATR14, reference_price * 0.0035)",
+      "target": "1.5R",
+      "p1": "unchanged"
+    }
+  },
+  "runtime": {
+    "activation": "ACTIVE",
+    "execution_mode": "BINANCE_TESTNET",
+    "entry_enabled": true,
+    "scheduler_running": true,
+    "binance_positions": 0,
+    "local_open_positions": 0,
+    "open_orders": 0,
+    "reconciliation": "HEALTHY",
+    "last_observed_cycle": "2026-08-15T08:44:13",
+    "last_decision_reason": "DUPLICATE_DECISION"
+  },
+  "evidence": {
+    "real_closed_entries": 30,
+    "real_trade_context_report": "artifacts/active_strategy_optimization/real_trade_context_20260815.json",
+    "current_control_exit_policy": "A_CURRENT_CONTROL",
+    "control_geometry_change_supported": false,
+    "hypothesis_for_chronological_oos": "Require 4h EMA50 direction alignment before the existing 15m sampling signal.",
+    "four_hour_aligned": {
+      "trades": 20,
+      "direction_hit_rate": "0.90",
+      "profit_factor": "1.82",
+      "net_expectancy_usdt": "3.24"
+    },
+    "four_hour_conflicting": {
+      "trades": 10,
+      "direction_hit_rate": "0.40",
+      "profit_factor": "0.20",
+      "net_expectancy_usdt": "-30.03"
+    }
+  },
+  "next_gate": "P3/P4: replay the exact current evaluator and the 4h-aligned challenger over .strategy_refactor_history.db using chronological development/OOS splits. Deploy no strategy change unless OOS expectancy improves, PF is not lower, and drawdown is acceptable."
+}

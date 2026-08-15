@@ -1,0 +1,75 @@
+{
+  "success": false,
+  "status": "ACTIVE_STRATEGY_LOOP_RUNNING",
+  "updated_at": "2026-08-15T10:46:31Z",
+  "evidence": {
+    "action": "one_closed_bar_confirmation",
+    "artifact": "artifacts/active_strategy_optimization/one_closed_bar_confirmation_20260815.json",
+    "artifact_sha256": "b80de9705f5a28c39cd248ab4a9fc096da700cb4eae269f6e9a5208d1ce46e64",
+    "evaluator_parity": {
+      "sampled_windows": 400,
+      "side_mismatches": 0
+    },
+    "split": "70/30 chronological development/OOS over .strategy_refactor_history.db; Final Holdout not accessed",
+    "r2_threshold": "1.15",
+    "baseline_oos": {
+      "BTC/USDT": {
+        "candidates": 2545,
+        "trades": 2545,
+        "direction_hit_rate": "0.6742632612966601178781925344",
+        "win_rate": "0.3988212180746561886051080550",
+        "avg_win_r": "1.238302963463678265186027738",
+        "avg_loss_r": "-1.262307659191375159638888372",
+        "win_loss_ratio": "0.9809834824712430859337604157",
+        "net_expectancy_r": "-0.2650110847336623006222714851",
+        "profit_factor": "0.6507831599400730275965796222",
+        "net_r": "-674.4532106471705550836809295",
+        "max_drawdown_r": "676.8924701186956516087774546"
+      },
+      "ETH/USDT": {
+        "candidates": 3001,
+        "trades": 3001,
+        "direction_hit_rate": "0.6751082972342552482505831390",
+        "win_rate": "0.4051982672442519160279906698",
+        "avg_win_r": "1.282510471600987427163394574",
+        "avg_loss_r": "-1.214646921652982495160450620",
+        "win_loss_ratio": "1.055871009705150473664717786",
+        "net_expectancy_r": "-0.2028030728703009138389591612",
+        "profit_factor": "0.7192936402249092302388217526",
+        "net_r": "-608.6120216837730424307164429",
+        "max_drawdown_r": "611.1111055441885814000124598"
+      }
+    },
+    "challenger_oos": {
+      "BTC/USDT": {
+        "candidates": 1938,
+        "trades": 1938,
+        "direction_hit_rate": "0.6723426212590299277605779154",
+        "win_rate": "0.4004127966976264189886480908",
+        "avg_win_r": "1.236111113415949189618851039",
+        "avg_loss_r": "-1.260959785633663484258930908",
+        "win_loss_ratio": "0.9802938424358813138702556357",
+        "net_expectancy_r": "-0.2611006433929517015297467763",
+        "profit_factor": "0.6546540634511565400717025586",
+        "net_r": "-506.0130468955403975646492525",
+        "max_drawdown_r": "507.1987611812546832789349668"
+      },
+      "ETH/USDT": {
+        "candidates": 2261,
+        "trades": 2261,
+        "direction_hit_rate": "0.6696152145068553737284387439",
+        "win_rate": "0.4024767801857585139318885449",
+        "avg_win_r": "1.283563869886473683029955532",
+        "avg_loss_r": "-1.214562031841609460810098403",
+        "win_loss_ratio": "1.056812115178866980896663385",
+        "net_expectancy_r": "-0.2091243624154459663853088733",
+        "profit_factor": "0.7118423573743663601894623838",
+        "net_r": "-472.8301834213233299971833626",
+        "max_drawdown_r": "473.3440675767195784991157525"
+      }
+    },
+    "promotion_rule": "challenger must improve OOS expectancy, not lower PF, and keep acceptable drawdown for both BTC/USDT and ETH/USDT",
+    "result": "REJECTED",
+    "reason": "BTC/USDT improved marginally, but ETH/USDT expectancy and profit factor both declined; no promotion."
+  }
+}

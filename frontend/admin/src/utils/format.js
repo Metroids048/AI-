@@ -145,6 +145,7 @@ const DECISION_REASON_LABELS = {
   MANIFEST_UNAVAILABLE: "策略清单不可用",
   // Risk / gates
   NET_EDGE_AFTER_COST_NEGATIVE: "扣除成本后预期为负",
+  NO_TRADE_COST_INEFFICIENT: "成本导致净盈亏比不足",
   RISK_LIMIT_EXCEEDED: "超出风控限额",
   PRICE_DRIFT_EXCEEDED: "价格漂移超限",
   DAILY_TRADE_LIMIT_REACHED: "已达当日交易上限",
