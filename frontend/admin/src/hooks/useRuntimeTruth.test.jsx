@@ -27,6 +27,7 @@ function queueRefresh({
   positions = { exchange: { status: "available" }, local: { value: [] } },
   llmInvocations = { items: [] },
   reconciliation = { status: "healthy" },
+  noTradeSummary = { summary_code: "HEALTHY_WAITING_FOR_SIGNAL" },
 } = {}) {
   for (const value of [
     snapshot,
@@ -35,6 +36,7 @@ function queueRefresh({
     positions,
     llmInvocations,
     reconciliation,
+    noTradeSummary,
   ]) {
     if (value instanceof Error) request.mockRejectedValueOnce(value);
     else request.mockResolvedValueOnce(value);
@@ -55,13 +57,22 @@ describe("useRuntimeTruth", () => {
     request.mockImplementation(() => new Promise(() => {}));
     const { useRuntimeTruth } = await import("./useRuntimeTruth");
     const { result } = renderHook(() => useRuntimeTruth("BTC/USDT"));
-    await waitFor(() => expect(request).toHaveBeenCalledTimes(6));
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(7));
 
     await act(async () => {
       await result.current.refresh();
     });
 
-    expect(request).toHaveBeenCalledTimes(6);
+    expect(request).toHaveBeenCalledTimes(7);
+  });
+
+  it("loads the deterministic no-trade summary with the runtime truth burst", async () => {
+    queueRefresh({ noTradeSummary: { summary_code: "SCHEDULER_OFFLINE" } });
+    const { useRuntimeTruth } = await import("./useRuntimeTruth");
+    const { result } = renderHook(() => useRuntimeTruth("BTC/USDT"));
+
+    await waitFor(() => expect(result.current.noTradeSummary.summary_code).toBe("SCHEDULER_OFFLINE"));
+    expect(request).toHaveBeenCalledWith("/api/v1/runtime/no-trade-summary", expect.anything());
   });
 
   // T-002: Trading -> Review -> Trading must show the last real account value on

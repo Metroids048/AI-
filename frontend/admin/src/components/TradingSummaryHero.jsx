@@ -2,7 +2,7 @@
  * 交易总览 Hero - 主页核心信息卡片
  * 展示账户、持仓、盈亏、策略状态等关键指标
  */
-import { formatRuntimeError } from "../utils/format";
+import { formatDecisionReason, formatNoTradeSummary, formatNumber, formatRuntimeError } from "../utils/format";
 
 const DEFAULT_BINANCE_TESTNET_URL = "https://testnet.binancefuture.com/en/futures/BTCUSDT";
 
@@ -11,6 +11,7 @@ export function TradingSummaryHero({
   positions,
   orders,
   decisions,
+  noTradeSummary,
   tradingStatus,
   globalRiskStatus,
   streamStatus,
@@ -70,7 +71,7 @@ export function TradingSummaryHero({
   // 最新决策摘要
   const latestDecision = Array.isArray(decisions) && decisions.length > 0 ? decisions[0] : null;
   const decisionSymbol = latestDecision?.symbol || selectedSymbol;
-  const decisionReasonText = latestDecision?.terminal_reason || "暂无决策";
+  const decisionReasonText = latestDecision ? formatDecisionReason(latestDecision.terminal_reason || latestDecision.reason_code) : "暂无决策";
 
   // 后端字段是 web_ui_url；断连时也必须保留默认可跳转入口（勿依赖错误字段 testnet_url）
   const binanceTestnetUrl = account?.web_ui_url || DEFAULT_BINANCE_TESTNET_URL;
@@ -78,6 +79,12 @@ export function TradingSummaryHero({
   // text as a tooltip so the exact backend reason is still recoverable.
   const rawConnectionError = !isExchangeConnected && account?.error ? String(account.error) : null;
   const connectionError = rawConnectionError ? formatRuntimeError(rawConnectionError) : null;
+  const noTradeReason = noTradeSummary?.entry_runtime?.reason ?? noTradeSummary?.decisions?.dominant_reason;
+  const noTradeCount = noTradeReason
+    ? Number(noTradeSummary?.decisions?.reason_counts?.[noTradeReason] ?? 0)
+    : 0;
+  const noTradeConclusion = formatNoTradeSummary(noTradeSummary?.summary_code, noTradeReason, noTradeCount);
+  const noTradeHours = noTradeSummary?.hours_since_last_entry;
 
   return (
     <div className="trading-summary-hero">
@@ -153,6 +160,14 @@ export function TradingSummaryHero({
           )}
         </div>
       )}
+
+      {noTradeSummary ? (
+        <section className="trading-summary-no-trade" aria-label="不开单监控">
+          <h3>不开单监控</h3>
+          <p>{noTradeHours != null ? `已 ${formatNumber(noTradeHours, 1)} 小时未产生新开仓` : "当前查询窗口内没有新开仓成交记录"}</p>
+          <strong>{noTradeConclusion}</strong>
+        </section>
+      ) : null}
 
       <div className="trading-summary-actions">
         <a

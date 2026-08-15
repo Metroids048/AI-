@@ -8,9 +8,16 @@ from typing import Any
 
 from pydantic import Field
 
+from services.strategy_library.candidates.breakout_continuation_v1 import evaluate_breakout_continuation
+from services.strategy_library.candidates.breakout_retest_v1 import evaluate_breakout_retest
+from services.strategy_library.candidates.donchian_breakout_retest_v1 import evaluate_donchian_breakout_retest
 from services.strategy_library.candidates.failed_breakout_reversal_v1 import evaluate_failed_breakout_reversal
+from services.strategy_library.candidates.htf_trend_continuation_v1 import evaluate_htf_trend_continuation
+from services.strategy_library.candidates.loss_aware_trend_pullback_v1 import evaluate_loss_aware_trend_pullback
+from services.strategy_library.candidates.momentum_continuation_v1 import evaluate_momentum_continuation
 from services.strategy_library.candidates.range_sweep_reversion_v1 import evaluate_range_sweep_reversion
 from services.strategy_library.candidates.trend_pullback_v2 import evaluate_trend_pullback_v2
+from services.strategy_library.candidates.volatility_expansion_v1 import evaluate_volatility_expansion
 from services.strategy_library.canonical import canonical_hash
 from services.strategy_library.context import FrozenContract, MarketContext
 from services.strategy_library.ensemble.selector_v2 import CandidateSelectorV2, SelectionResult
@@ -47,14 +54,23 @@ class ProposalPipelineResult(FrozenContract):
 
 PIPELINE_VERSION = "proposal-pipeline-v1"
 RESEARCH_CANDIDATE_IDS: tuple[str, ...] = (
+    "loss_aware_trend_pullback_v1",
     "trend_pullback_v2",
     "range_sweep_reversion_v1",
     "failed_breakout_reversal_v1",
+    "breakout_continuation_v1",
 )
 RESEARCH_CANDIDATE_VERSIONS: dict[str, str] = {
+    "htf_trend_continuation_v1": "1.0.0-generation-1",
+    "breakout_retest_v1": "1.0.0-generation-1",
+    "loss_aware_trend_pullback_v1": "1.0.0-live-loss-hypothesis",
     "trend_pullback_v2": "2.0.0-research",
     "range_sweep_reversion_v1": "1.0.0-research",
     "failed_breakout_reversal_v1": "1.0.0-research",
+    "breakout_continuation_v1": "1.0.0-research",
+    "volatility_expansion_v1": "1.0.0-generation-3",
+    "donchian_breakout_retest_v1": "1.0.0-generation-4",
+    "momentum_continuation_v1": "1.0.0-generation-5",
 }
 PROPOSAL_CONTEXT_WINDOW_LENGTHS: dict[str, int] = {
     "1m": 2,
@@ -67,9 +83,16 @@ PROPOSAL_CONTEXT_WINDOW_LENGTHS: dict[str, int] = {
 
 def _evaluators() -> tuple[tuple[str, CandidateEvaluator], ...]:
     return (
+        ("htf_trend_continuation_v1", evaluate_htf_trend_continuation),
+        ("breakout_retest_v1", evaluate_breakout_retest),
+        ("loss_aware_trend_pullback_v1", evaluate_loss_aware_trend_pullback),
         ("trend_pullback_v2", evaluate_trend_pullback_v2),
         ("range_sweep_reversion_v1", evaluate_range_sweep_reversion),
         ("failed_breakout_reversal_v1", evaluate_failed_breakout_reversal),
+        ("breakout_continuation_v1", evaluate_breakout_continuation),
+        ("volatility_expansion_v1", evaluate_volatility_expansion),
+        ("donchian_breakout_retest_v1", evaluate_donchian_breakout_retest),
+        ("momentum_continuation_v1", evaluate_momentum_continuation),
     )
 
 

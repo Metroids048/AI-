@@ -83,6 +83,59 @@ describe("RuntimeOverview", () => {
 // ---------------------------------------------------------------------------
 
 describe("WhyNoTrade", () => {
+  it("shows scheduler failure instead of implying the strategy is waiting", () => {
+    render(
+      <WhyNoTrade
+        decisions={[]}
+        noTradeSummary={{
+          summary_code: "SCHEDULER_OFFLINE",
+          runtime_status: "异常",
+          window_hours: 3,
+          hours_since_last_entry: null,
+          scheduler: { running: false },
+        }}
+      />,
+    );
+    expect(screen.getByText("自动交易程序异常：调度器心跳中断")).toBeTruthy();
+    expect(screen.queryByText("策略正在等待交易机会")).toBeNull();
+  });
+
+  it("uses the healthy time-window summary and excludes duplicate decisions from effective counts", () => {
+    render(
+      <WhyNoTrade
+        decisions={[]}
+        noTradeSummary={{
+          summary_code: "HEALTHY_WAITING_FOR_SIGNAL",
+          runtime_status: "正常",
+          window_hours: 3,
+          hours_since_last_entry: 3.25,
+          decisions: { total: 12, effective: 5, duplicate: 7, reason_counts: { NO_ENTRY_SIGNAL: 5 } },
+        }}
+      />,
+    );
+    expect(screen.getByText("已 3.3 小时未产生新开仓")).toBeTruthy();
+    expect(screen.getByText("有效策略判断 5 次")).toBeTruthy();
+    expect(screen.getByText("重复轮询 7 次")).toBeTruthy();
+    expect(screen.getByText("策略正在等待交易机会")).toBeTruthy();
+    expect(screen.queryByText("DUPLICATE_DECISION")).toBeNull();
+  });
+
+  it("shows the deterministic entry-block reason in Chinese", () => {
+    render(
+      <WhyNoTrade
+        decisions={[]}
+        noTradeSummary={{
+          summary_code: "ENTRY_BLOCKED",
+          runtime_status: "正常",
+          window_hours: 3,
+          hours_since_last_entry: 4,
+          decisions: { total: 4, effective: 4, duplicate: 0, reason_counts: { PRICE_DRIFT_EXCEEDED: 4 }, dominant_reason: "PRICE_DRIFT_EXCEEDED" },
+        }}
+      />,
+    );
+    expect(screen.getByText("新开仓被拦截：价格漂移超限（4 次）")).toBeTruthy();
+  });
+
   it("shows empty message when no decisions", () => {
     render(<WhyNoTrade decisions={[]} />);
     expect(screen.getByText(/暂无决策记录/)).toBeTruthy();

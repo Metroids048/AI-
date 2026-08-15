@@ -20,6 +20,7 @@ from services.automated_trading.application.exit_service import (
     ExitExecutionStatus,
     ExitReason,
 )
+from services.automated_trading.audit.forward_baseline import build_shadow_outcome
 from services.automated_trading.domain.enums import (
     V2CandidateType,
     V2ExecutionMode,
@@ -29,6 +30,7 @@ from services.automated_trading.domain.enums import (
 )
 from services.automated_trading.domain.receipts import ProtectionReceipt
 from services.automated_trading.infrastructure.models import (
+    V2DecisionSnapshot,
     V2ExchangeOrder,
     V2ExecutionCycle,
     V2ExecutionDecision,
@@ -741,6 +743,25 @@ def persist_exit_result(
                 else (position.entry_price - result.average_fill_price) * result.reduced_quantity
             )
             position.realized_pnl = gross_pnl - position.entry_fee - result.total_fee
+            if entry_intent.decision_id:
+                snapshot = session.scalar(
+                    select(V2DecisionSnapshot).where(V2DecisionSnapshot.decision_id == entry_intent.decision_id)
+                )
+                if snapshot is not None:
+                    outcome = build_shadow_outcome(
+                        dict(snapshot.payload),
+                        direction=position.direction,
+                        entry_price=position.entry_price,
+                        exit_price=result.average_fill_price,
+                        quantity=result.reduced_quantity,
+                        commission=position.entry_fee + result.total_fee,
+                        exit_reason=reason.value,
+                    )
+                    for shadow in repo.list_shadow_records(snapshot_id=snapshot.snapshot_id):
+                        repo.append_shadow_outcome(
+                            shadow_id=shadow.shadow_id,
+                            payload={**outcome, "variant": shadow.variant},
+                        )
         elif result.remaining_quantity is not None and result.remaining_quantity > 0:
             position.quantity = result.remaining_quantity
 

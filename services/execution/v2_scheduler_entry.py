@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import socket
+import subprocess
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import replace
@@ -24,6 +25,12 @@ from services.automated_trading.application.production_strategy import (
     evaluate_authorized_production_strategy,
     resolve_entry_authority,
     resolve_production_authorization,
+)
+from services.automated_trading.audit.forward_baseline import (
+    build_decision_snapshot,
+    build_decision_snapshot_from_funnel,
+    build_shadow_records,
+    serialize_trade_candidate,
 )
 from services.automated_trading.domain.enums import V2ExecutionMode
 from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
@@ -163,6 +170,70 @@ def _research_shadow_payload(context: MarketContext) -> dict[str, Any]:
 
 def _safe_error_message(exc: Exception) -> str:
     return " ".join(str(exc).split())[:240] or "research shadow evaluation failed"
+
+
+def _strategy_commit() -> str:
+    """Capture the exact code revision used by the running scheduler."""
+    configured = os.getenv("STRATEGY_COMMIT") or os.getenv("GIT_COMMIT")
+    if configured:
+        return configured
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
+def _forward_snapshot_inputs(settings: V2ExecutionSettings) -> tuple[dict[str, Any], dict[str, Any]]:
+    risk_inputs = {
+        "sizing_policy": "R1_EQUAL_RISK",
+        "risk_per_trade": str(settings.risk_per_trade),
+        "score_based_sizing": False,
+        "max_leverage": settings.max_leverage,
+        "max_margin_fraction": str(settings.max_margin_fraction),
+        "max_position_fraction": str(settings.max_position_fraction),
+        "order_notional_usdt": (
+            str(settings.order_notional_usdt) if settings.order_notional_usdt is not None else None
+        ),
+    }
+    cost_inputs = {
+        "maker_bps": "2",
+        "taker_bps": "5",
+        "round_trip_slippage_bps": "6",
+        "funding_bps": "0",
+        "r2_min_theoretical_net_payoff": "1.15",
+        "expected_cost_r": None,
+    }
+    return risk_inputs, cost_inputs
+
+
+def _persist_forward_baseline(
+    *,
+    snapshot: dict[str, Any],
+) -> tuple[str, int]:
+    from services.database import get_session_factory
+
+    with get_session_factory()() as session:
+        repo = AutomatedTradingRepository(session)
+        row = repo.append_forward_snapshot(
+            snapshot_id=str(uuid.uuid4()),
+            cycle_id=str(snapshot["cycle_id"]),
+            decision_id=str(snapshot["decision_id"]),
+            symbol=str(snapshot["symbol"]),
+            decision_time=datetime.fromisoformat(str(snapshot["decision_time"])),
+            snapshot_hash=str(snapshot["snapshot_hash"]),
+            payload=snapshot,
+        )
+        shadows = repo.append_shadow_records(
+            snapshot_id=row.snapshot_id,
+            records=build_shadow_records(snapshot),
+        )
+        session.commit()
+        return row.snapshot_id, len(shadows)
 
 
 def _payload_mapping(value: Any) -> dict[str, Any]:
@@ -692,6 +763,8 @@ def execute_v2_automated_trading_cycles(
                 engine_activation=config.v2_activation,
                 fencing_token=cycle_fencing_token,
                 now=now,
+                # R1: one configured risk unit for every candidate.  Confidence
+                # never changes the requested risk budget.
                 risk_per_trade=operator_settings.risk_per_trade,
                 max_leverage=operator_settings.max_leverage,
                 max_margin_fraction=operator_settings.max_margin_fraction,
@@ -713,6 +786,7 @@ def execute_v2_automated_trading_cycles(
                 production_decision_reason=production_decision_reason,
                 production_trace=production_trace,
                 ai_review_budget_seconds=settings.v2_ai_review_budget_seconds,
+                r2_cost_gate_enabled=True,
             )
             try:
                 result = run_automated_trading_cycle(request, adapter)
@@ -744,6 +818,60 @@ def execute_v2_automated_trading_cycles(
                 funnel_payload=funnel_payload,
                 completed_at=datetime.now(UTC),
             )
+            snapshot_hash = None
+            shadow_count = 0
+            try:
+                risk_inputs, cost_inputs = _forward_snapshot_inputs(operator_settings)
+                snapshot_kwargs = {
+                    "cycle_id": cycle_id,
+                    "decision_id": decision_id,
+                    "symbol": symbol,
+                    "decision_time": now,
+                    "strategy_commit": _strategy_commit(),
+                    "strategy_version": str(funnel_payload.get("strategy_version") or "unknown"),
+                    "config_hash": str(operator_settings.active_snapshot_hash or "unknown"),
+                    "market_data_source": "runtime_data_repository",
+                    "entry_timeframe": entry_timeframe,
+                    "initial_risk_inputs": risk_inputs,
+                    "cost_inputs": cost_inputs,
+                    "config_snapshot_id": None,
+                    "already_evaluated_bars": request.already_evaluated_bars,
+                    "execution_mode": config.execution_mode.value,
+                    "engine_activation": config.v2_activation.value,
+                }
+                if result.decision_outcome is not None:
+                    snapshot = build_decision_snapshot(
+                        outcome=result.decision_outcome,
+                        **snapshot_kwargs,
+                    )
+                else:
+                    snapshot = build_decision_snapshot_from_funnel(
+                        funnel_payload=funnel_payload,
+                        candidate_payload=(
+                            funnel_payload.get("candidate")
+                            if isinstance(funnel_payload.get("candidate"), dict)
+                            else serialize_trade_candidate(production_candidate)
+                        ),
+                        **snapshot_kwargs,
+                    )
+                snapshot_id, shadow_count = _persist_forward_baseline(snapshot=snapshot)
+                snapshot_hash = str(snapshot["snapshot_hash"])
+                symbol_result["forward_snapshot_id"] = snapshot_id
+                symbol_result["forward_snapshot_hash"] = snapshot_hash
+                symbol_result["shadow_records"] = shadow_count
+            except Exception as exc:  # noqa: BLE001
+                symbol_result.update(
+                    {
+                        "forward_snapshot_status": "FORWARD_BASELINE_NOT_RECORDED",
+                        "forward_snapshot_error": _safe_error_message(exc),
+                    }
+                )
+                logger.error(
+                    "Forward baseline snapshot failed cycle=%s symbol=%s error=%s",
+                    cycle_id,
+                    symbol,
+                    _safe_error_message(exc),
+                )
             pending_research.append(
                 {
                     "decision_id": decision_id,

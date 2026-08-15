@@ -829,3 +829,141 @@
 - Regression protection: the sizing apply script now refuses to overwrite any
   pre-existing pending ConfigSnapshot, and bootstrap preserves an existing
   operator-owned medium risk profile instead of restoring defaults on restart.
+
+## 2026-08-13 — Frozen P0/P1 cloud lift-and-shift and no-trade observability
+
+- P0 deployment layer reuses the existing API and `v2_active` RuntimeScheduler
+  entrypoints with systemd restart/boot recovery, persistent SQLite/runtime
+  state, and Testnet-only fail-closed preflight. No V2 trading business files
+  were changed.
+- P1 added deterministic `/api/v1/runtime/no-trade-summary`; duplicate
+  decisions are excluded from effective counts, and only non-reduce-only fills
+  inside the query window count as recent entries.
+- PaperConsole now shows account/position/PnL/recent activity plus Chinese
+  no-trade monitoring; full Runtime Truth remains on OpsConsole. Shared
+  formatter owns no-trade labels.
+- Verification: frontend `112 passed`, build passed; mypy `236` source files
+  passed; focused API/deploy suites passed. Full pytest remains `1571 passed,
+  16 skipped, 2 failed` only on pre-existing candidate-registry count assertions
+  (expected 9, actual 10). Full Ruff retains three unrelated script findings.
+- Boundary: no strategy/risk/Binance semantics, second scheduler, second DB,
+  Celery writer, or external Linux VM validation was performed.
+
+## 2026-08-13 — Aggressive Multi-Regime V1 implementation pending OOS
+
+- Strategy-layer implementation is present but not production-authorized: `execution-manifest.yaml` remains `IMPLEMENTATION_COMPLETE_PENDING_OOS`, `final_status=BLOCKED_PENDING_OOS_AND_TESTNET`, and `production_authorization=PENDING`.
+- Added higher-timeframe regime weights (4h/1h/15m = 0.45/0.35/0.20), Breakout Continuation research candidate, selector conflict/score gates (0.08/0.58), deterministic V2 single-target projection, score-tier sizing capped by operator risk, and replay `v2_single_target` mode.
+- Research runner now evaluates four proposal candidates with single-target geometry. Aggressive registry candidate remains `RESEARCH_ONLY` and `execution_eligible=false`; authorization fails closed until approved evidence and operator authorization exist.
+- Full repository verification on 2026-08-13: `1584 passed, 16 skipped, 2 warnings`. No cycle/entry/exit/protection/reconciliation/recovery/Binance adapter files were changed.
+- This is not `RESULT_ACCEPTED`: no eight-window OOS promotion evidence or seven-day natural Binance Testnet forward evidence exists yet.
+
+## 2026-08-14 — Binance Testnet history audit and loss-aware strategy loop
+
+- Read-only audit completed from the first available exchange trade
+  `2026-07-07T16:52:55.936Z` through `2026-08-14T07:30:35.847Z` for BTC/USDT and
+  ETH/USDT. Exchange `userTrades` plus income are authoritative for fills, fees,
+  realised PnL and funding; orders/algo-orders are best-effort because Binance
+  retention can omit older unfilled/cancelled history.
+- Canonical artifacts are under `artifacts/trading_audit/`: raw exchange/local
+  facts, `exchange_fills.csv`, `trade_episodes.csv`, `strategy_decisions.csv`,
+  `unmatched_records.csv`, completeness, live evaluation, loss attribution,
+  cost-stress and optimization reports.
+- Completeness: 449 exchange trades, 282 orders, 575 income records, 204 algo
+  orders, 141 local V2 fills, V2 fill match rate `1.0`, 308 unmatched records;
+  status `PASS`.
+- V2 entry-matched live result: 25 closed episodes, net PnL `-454.11402372` USDT,
+  commission `172.83684269`, funding `-88.23480101`, PF `0.3370`, expectancy
+  `-18.16456095`, win rate `48%`, max drawdown `509.94780122` USDT. Top loss cause
+  is `STOP` (12 episodes, `-675.23621504` USDT); regime/score buckets were not
+  persisted for those matched decisions. Reconciliation defects: 1773; open
+  incidents: 12. Slippage and latency remain explicitly unmeasured.
+- Generation N+1 research candidate `loss_aware_trend_pullback_v1` was added to
+  the pure proposal pipeline only. It failed OOS (1,099 trades, PF `0.7081`,
+  expectancy `-0.001229`). Best nonzero candidate was `trend_pullback_v2`
+  (405 trades, PF `0.8210`, expectancy `-0.0007721`), also rejected; cost stress
+  stayed negative from 0 to 20 bps/side. No live counterfactual was measured.
+- Final status: `AUDIT_PASS / STRATEGY_NOT_ACCEPTED / EXECUTION_FROZEN`.
+  No Binance adapter, scheduler, intent/order writer, protection, reconciliation,
+  recovery, risk, or execution semantics were changed by this audit loop.
+
+## 2026-08-14 — Edge-First Event method also rejected
+
+- Replaced strategy-family guessing with a read-only Event -> Outcome -> Quality
+  Gate experiment. The dataset contains `HTF_STRUCTURE_BREAK` and
+  `HTF_BREAK_RETEST` events only; entries use next 15m open, fixed 1R stop / 1.5R
+  target, and equal-risk outcomes.
+- Eight 12-month-train / 3-month-OOS windows learned a finite gate from training
+  only. Development ended at the sealed boundary `2026-01-29T00:00:00Z` and the
+  report records `holdout_accessed=false`.
+- Preliminary (superseded) aggregate frozen-gate OOS: 172 trades, win rate `44.19%`, Net-R payoff `1.2089`,
+  PF `0.9570`, expectancy `-0.02698R`, max drawdown `23.08R`, positive windows
+  `3/8`. Status: `STRATEGY_EDGE_NOT_FOUND`.
+- No candidate was registered or armed; execution semantics, risk ceilings,
+  protection geometry, scheduler, and Binance adapter were untouched.
+
+### Correction after independent review
+
+- The first Event-First report was not used as final evidence. Independent review
+  found entry-bar omission, overlapping events, non-chronological drawdown, and a
+  gate selector that could retain negative training expectancy.
+- Those defects were fixed. The corrected replay uses the entry 15m bar, one-symbol
+  occupancy, chronological metrics, nested train/validation gate selection, LCB95,
+  and cost-stress PF checks. Corrected result: 1,258 events, 23 selected OOS trades,
+  43.48% win rate, 1.178 payoff, PF 0.9065, expectancy -0.06098R, LCB95 -0.5826R,
+  positive windows 0/8, `STRATEGY_EDGE_NOT_FOUND`.
+
+## 2026-08-14 — Market Alpha + Meta-Label source exhausted
+
+- Replaced overlapping OHLCV strategy tuning with public Binance spot/perpetual 1h
+  data, taker-buy pressure, spot/perp basis, point-in-time funding, BTC/ETH lead-lag,
+  equal-risk outcomes, and nested Logistic/GBM probability gating.
+- Corrected the first replay's two methodological defects: train/validation/OOS rows
+  are now time-ordered rather than symbol-block ordered, and validation threshold
+  selection no longer requires final promotion metrics (only expected Net-R after cost
+  plus a 15-trade minimum). Final gates remain locked and are evaluated separately.
+- Development artifact: 37,856 events, 40 arms, 8 windows, `holdout_accessed=false`.
+  Only 6 arms configured any windows and 3 produced OOS trades; the best non-zero arm
+  had 4 trades, 50% win rate, payoff 1.23, PF 1.23, expectancy +0.14R, LCB95 -1.43R,
+  1/8 positive windows, and 1.5x-cost expectancy +0.02R with stress PF 1.04.
+  `accepted_arms=0`.
+- Final status: `CURRENT_MARKET_ALPHA_SOURCE_EXHAUSTED`. No candidate registration,
+  promotion, Testnet order, execution-plane change, or holdout read occurred.
+
+## 2026-08-14 — Generation Next closed with no historical edge
+
+- R-normalized payoff audit completed for all 25 V2 episodes: winner average net
+  `+0.7809R`, loser average net `-1.3537R`, loser/winner initial-risk ratio
+  `1.7716x`, total cost drag `261.07164370` USDT, stop average MFE `0.4553R`,
+  average giveback `0.9982R`.
+- Five research generations were run on the existing eight temporal walk-forward
+  windows. HTF continuation, breakout-retest, volatility expansion, Donchian
+  breakout-retest, and momentum continuation all failed standalone OOS gates;
+  Generation 5 was `2109` trades, PF `0.82594`, expectancy `-0.0013823`, LCB
+  `-0.0020221`, max DD `292.66%`, positive windows `1/8`.
+- Final artifact `artifacts/trading_audit/reports/optimization_result.md` is
+  `STRATEGY_EDGE_NOT_FOUND`. No candidate was armed, no live counterfactual was
+  claimed, and old STOP avoidance was not estimated from a rejected strategy.
+- Execution regression suite passed (`1596 passed, 7 skipped`); targeted V2
+  execution suite passed (`199 passed`). Execution research changes remain
+  strategy-only; reconciliation defects `1773` and open incidents `12` remain a
+  separate audit requirement.
+
+## 2026-08-14 — Forward Baseline snapshot contract added
+
+- Added `v2_decision_snapshots`, `v2_shadow_records`, and
+  `v2_shadow_outcomes` as hash-sealed append-only V2 evidence tables
+  (migration `0021`). Repository writes reject divergent rewrites and ORM
+  updates are fail-closed.
+- Each completed V2 cycle now captures exact closed bars, strategy commit/version,
+  config hash, decision/funnel/features, candidate payload, risk inputs, and
+  cost inputs. Opportunity cycles append `ACTUAL`, `R1_SHADOW`, `R2_SHADOW`,
+  and `R3_SHADOW`; no Shadow row has an execution side effect.
+- `scripts/verify_forward_baseline.py` replays snapshots deterministically and
+  reports the required 100-cycle gate with first divergence points. Runtime
+  schema was upgraded `0020 -> 0021`, but no post-change natural cycles have
+  been captured, so status remains `FORWARD_BASELINE_NOT_REPRODUCIBLE`.
+- No strategy rule, threshold, leverage, stop/target, exchange adapter, or
+  order semantics were changed by this baseline work.
+- Confirmed reduce-only close persistence now appends ACTUAL/R1/R2/R3 outcome
+  payloads (`gross_R`, `net_R`, `commission_R`, `funding_R`, `MFE_R`, `MAE_R`)
+  from the confirmed exchange fill; no local synthetic fill is used.

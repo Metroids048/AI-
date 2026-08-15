@@ -26,6 +26,7 @@ from services.automated_trading.domain.state import (
     validate_protection_transition,
 )
 from services.automated_trading.infrastructure.models import (
+    V2DecisionSnapshot,
     V2ExchangeFill,
     V2ExchangeOrder,
     V2ExecutionCycle,
@@ -37,7 +38,10 @@ from services.automated_trading.infrastructure.models import (
     V2ProtectionRecord,
     V2ReconciliationSnapshot,
     V2RuntimeControl,
+    V2ShadowOutcome,
+    V2ShadowRecord,
 )
+from services.strategy_library.canonical import canonical_hash
 
 if TYPE_CHECKING:
     from services.automated_trading.domain.enums import (
@@ -113,6 +117,117 @@ class AutomatedTradingRepository:
         self.session.add(decision)
         self.session.flush()
         return decision
+
+    def append_forward_snapshot(
+        self,
+        *,
+        snapshot_id: str,
+        cycle_id: str,
+        decision_id: str,
+        symbol: str,
+        decision_time: datetime,
+        snapshot_hash: str,
+        payload: dict,
+    ) -> V2DecisionSnapshot:
+        """Insert one hash-sealed snapshot, refusing divergent rewrites."""
+        existing = self.session.get(V2DecisionSnapshot, snapshot_id)
+        if existing is not None:
+            if existing.snapshot_hash != snapshot_hash or existing.payload != payload:
+                raise ValueError("FORWARD_SNAPSHOT_IMMUTABLE_VIOLATION")
+            return existing
+        existing_decision = self.session.scalar(
+            select(V2DecisionSnapshot).where(V2DecisionSnapshot.decision_id == decision_id)
+        )
+        if existing_decision is not None:
+            if existing_decision.snapshot_hash != snapshot_hash:
+                raise ValueError("FORWARD_SNAPSHOT_DECISION_IMMUTABLE_VIOLATION")
+            return existing_decision
+        row = V2DecisionSnapshot(
+            snapshot_id=snapshot_id,
+            cycle_id=cycle_id,
+            decision_id=decision_id,
+            symbol=symbol,
+            decision_time=decision_time,
+            snapshot_hash=snapshot_hash,
+            payload=payload,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def append_shadow_records(self, *, snapshot_id: str, records: list[dict]) -> list[V2ShadowRecord]:
+        """Insert idempotent, non-executable Shadow evidence rows."""
+        result: list[V2ShadowRecord] = []
+        for record in records:
+            variant = str(record["variant"])
+            payload = dict(record)
+            payload_hash = canonical_hash(payload)
+            existing = self.session.scalar(
+                select(V2ShadowRecord).where(
+                    V2ShadowRecord.snapshot_id == snapshot_id,
+                    V2ShadowRecord.variant == variant,
+                )
+            )
+            if existing is not None:
+                if existing.payload_hash != payload_hash or existing.payload != payload:
+                    raise ValueError("SHADOW_RECORD_IMMUTABLE_VIOLATION")
+                result.append(existing)
+                continue
+            row = V2ShadowRecord(
+                snapshot_id=snapshot_id,
+                variant=variant,
+                payload_hash=payload_hash,
+                payload=payload,
+            )
+            self.session.add(row)
+            self.session.flush()
+            result.append(row)
+        return result
+
+    def append_shadow_outcome(self, *, shadow_id: str, payload: dict) -> V2ShadowOutcome:
+        """Append one immutable outcome backfill for a Shadow row."""
+        outcome_hash = canonical_hash(payload)
+        existing = self.session.scalar(select(V2ShadowOutcome).where(V2ShadowOutcome.shadow_id == shadow_id))
+        if existing is not None:
+            if existing.outcome_hash != outcome_hash or existing.payload != payload:
+                raise ValueError("SHADOW_OUTCOME_IMMUTABLE_VIOLATION")
+            return existing
+        row = V2ShadowOutcome(shadow_id=shadow_id, outcome_hash=outcome_hash, payload=dict(payload))
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def list_forward_snapshots(
+        self,
+        *,
+        cycle_id: str | None = None,
+        symbol: str | None = None,
+        limit: int | None = None,
+    ) -> list[V2DecisionSnapshot]:
+        stmt = select(V2DecisionSnapshot).order_by(V2DecisionSnapshot.decision_time.asc())
+        if cycle_id is not None:
+            stmt = stmt.where(V2DecisionSnapshot.cycle_id == cycle_id)
+        if symbol is not None:
+            stmt = stmt.where(V2DecisionSnapshot.symbol == symbol)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return list(self.session.scalars(stmt))
+
+    def list_shadow_records(
+        self,
+        *,
+        snapshot_id: str | None = None,
+        variant: str | None = None,
+        limit: int | None = None,
+    ) -> list[V2ShadowRecord]:
+        stmt = select(V2ShadowRecord).order_by(V2ShadowRecord.created_at.asc())
+        if snapshot_id is not None:
+            stmt = stmt.where(V2ShadowRecord.snapshot_id == snapshot_id)
+        if variant is not None:
+            stmt = stmt.where(V2ShadowRecord.variant == variant)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return list(self.session.scalars(stmt))
 
     def create_intent(
         self,
@@ -657,6 +772,8 @@ class AutomatedTradingRepository:
         state: V2ProtectionState,
         stop_exchange_order_id: str | None = None,
         tp_exchange_order_id: str | None = None,
+        original_stop_loss_price: float | None = None,
+        policy: str = "P1",
     ) -> None:
         """Create a protection intent record.
 
@@ -679,6 +796,9 @@ class AutomatedTradingRepository:
             protection_id=protection_id,
             position_id=position_id,
             stop_loss_price=stop_loss_price,
+            original_stop_loss_price=original_stop_loss_price
+            if original_stop_loss_price is not None
+            else stop_loss_price,
             take_profit_price=take_profit_price,
             stop_client_order_id=stop_client_order_id,
             tp_client_order_id=tp_client_order_id,
@@ -686,8 +806,39 @@ class AutomatedTradingRepository:
             tp_exchange_order_id=tp_exchange_order_id,
             state=state.value,
             version=0,
+            policy=policy,
         )
         self.session.add(protection)
+        self.session.flush()
+
+    def update_protection_stop(
+        self,
+        *,
+        protection_id: str,
+        stop_loss_price: Decimal,
+        stop_client_order_id: str,
+        stop_exchange_order_id: str,
+        occurred_at: datetime | None = None,
+    ) -> None:
+        """Persist a confirmed one-way stop tightening."""
+        protection = self.session.get(V2ProtectionRecord, protection_id)
+        if protection is None:
+            raise ValueError(f"Protection {protection_id!r} not found")
+        protection.stop_loss_price = stop_loss_price
+        protection.stop_client_order_id = stop_client_order_id
+        protection.stop_exchange_order_id = stop_exchange_order_id
+        protection.version = int(protection.version) + 1
+        self.append_event(
+            aggregate_id=protection_id,
+            aggregate_type="PROTECTION",
+            event_type="ProfitProtectionStopTightened",
+            event_payload={
+                "stop_loss_price": str(stop_loss_price),
+                "stop_exchange_order_id": stop_exchange_order_id,
+                "version": protection.version,
+            },
+            occurred_at=occurred_at or datetime.now(UTC),
+        )
         self.session.flush()
 
     def transition_protection(

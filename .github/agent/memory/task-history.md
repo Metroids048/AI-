@@ -1,5 +1,14 @@
 # Task History
 
+### [TASK-MARKET-ALPHA-META-LABEL] New information-source research exhausted
+- **Date**: 2026-08-14
+- **Type**: Strategy research / read-only validation
+- **Summary**: Replaced the prior strategy-family loop with public Binance spot/perpetual 1h klines, taker-buy pressure, spot/perpetual basis, point-in-time funding, BTC/ETH lead-lag features, equal-risk outcomes, and nested Logistic/GBM meta-label gating. The runner evaluates 40 declared arms over 37,856 development events and never reads the sealed holdout.
+- **Method correction**: Final replay sorts train/validation/OOS rows by event time (the initial draft split by symbol-file order) and selects thresholds only on validation expected Net-R after base cost with a 15-trade minimum. Final historical acceptance is evaluated separately with payoff, PF, expectancy, LCB95, positive windows, drawdown, and 1.5x-cost stress.
+- **Result**: `CURRENT_MARKET_ALPHA_SOURCE_EXHAUSTED`; `holdout_accessed=false`; `accepted_arms=0`. Only 6 arms had configured windows and 3 produced any OOS trades. Best non-zero arm: 4 trades, 50% win rate, 1.23 payoff, PF 1.23, expectancy +0.14R, LCB95 -1.43R, 1/8 positive windows, 1.5x-cost expectancy +0.02R and PF 1.04.
+- **Safety**: No V2 execution, scheduler, risk, Binance adapter, credentials, database schema, active strategy manifest, or Testnet order was changed. No candidate was promoted or armed. Next work requires a new authorized information source or hypothesis; no more OHLCV strategy-name iterations.
+- **Evidence**: `docs/audit/2026-08-14-market-alpha-meta-label.md`, `artifacts/market_alpha/reports/market_alpha_meta_research.json`, `artifacts/market_alpha/canonical/market_alpha_events.jsonl`.
+
 ### [TASK-LAUNCHER-ACTIVE-SCOPE] Fix false ACTIVE startup failure before the first market heartbeat
 - **Date**: 2026-08-11
 - **Type**: Local launcher reliability / automated-trading execution defect
@@ -999,3 +1008,87 @@
 - **Verification**: focused regression suite `84 passed in 12.39s`; targeted
   Ruff `All checks passed!`; `git diff --check` passed. Natural Binance receipt
   at the new size remains pending a real signal.
+
+## 2026-08-14 — Real Testnet trade audit and strategy optimization loop
+
+- **Scope**: Read-only Binance Testnet history extraction, local V2 fact export,
+  fill/episode reconciliation, live loss attribution, and research-only OOS
+  candidate generation. Execution chain stayed frozen.
+- **Facts**: 449 exchange trades, 282 orders, 575 income rows, 204 algo-orders;
+  141/141 local V2 fills matched (`1.0`); 308 unmatched records; completeness
+  `PASS`; range `2026-07-07T16:52:55.936Z`–`2026-08-14T07:30:35.847Z`.
+- **Live V2**: 25 closed episodes, net PnL `-454.11402372` USDT, PF `0.3370`,
+  expectancy `-18.16456095`, win rate `48%`, max DD `509.94780122`; STOP was the
+  dominant loss cause (12, `-675.23621504`).
+- **Research**: added `loss_aware_trend_pullback_v1` as research-only; OOS failed
+  (1,099 trades, PF `0.7081`, expectancy `-0.001229`). `trend_pullback_v2` was
+  the best nonzero candidate but also failed (405 trades, PF `0.8210`, expectancy
+  `-0.0007721`). No candidate was armed or promoted.
+- **Final**: `AUDIT_PASS / STRATEGY_NOT_ACCEPTED / EXECUTION_FROZEN`.
+
+## 2026-08-14 — Generation Next strategy rebuild result
+
+- Completed `LIVE_PAYOFF_ROOT_CAUSE` with R-normalized winners/losers and cost,
+  sizing, entry, geometry, and giveback attribution.
+- Ran five frozen research generations; all failed OOS and cost-stress gates.
+- Final status: `STRATEGY_EDGE_NOT_FOUND`; execution regression tests passed and
+  no execution-plane file was intentionally changed by this loop.
+
+## 2026-08-14 — Final Edge-First Event experiment
+
+- Added `services/strategy_library/event_edge.py` and the read-only runner
+  `scripts/run_edge_first_event_research.py`.
+- Added focused tests for feature gates and Net-R metrics. The runner writes a
+  canonical event dataset and an eight-window ledger under `artifacts/trading_audit/`
+  without reading the sealed holdout.
+- Preliminary (superseded) result: `STRATEGY_EDGE_NOT_FOUND`; 172 OOS trades, 44.19% win rate, 1.2089
+  payoff, PF 0.9570, expectancy -0.02698R, 3/8 positive windows.
+- This closes the requested method change honestly. Do not promote, arm, or tune
+  the event gate against the holdout; any future work needs a new data or
+  hypothesis authorization rather than another `v2/v3` parameter pass.
+
+### Independent-review correction
+
+- Before finalizing, a read-only review found four material metric risks. The
+  implementation was repaired and the replay rerun in 144.6 seconds.
+- Final corrected artifact is `STRATEGY_EDGE_NOT_FOUND`: 23 selected OOS trades,
+  43.48% win rate, Net-R payoff 1.178, PF 0.9065, expectancy -0.06098R,
+  LCB95 -0.5826R, 0/8 positive windows, holdout untouched.
+
+## 2026-08-14 — Forward Baseline and Shadow evidence foundation
+
+- Implemented the locked prerequisite before any further strategy work:
+  immutable decision snapshots with exact 15m bars, feature metrics, strategy
+  commit/version, config hash, candidate payload, and canonical snapshot hash.
+- Added deterministic replay with forced candidate identity so replay can prove
+  decision, feature, and `TradeCandidate` equality instead of comparing only
+  direction or nominal geometry.
+- Added append-only ACTUAL/R1/R2/R3 Shadow records and outcome backfill storage;
+  Shadow persistence is isolated from exchange side effects.
+- Focused validation: `4` Forward Baseline tests, `67` V2 scheduler/cycle tests,
+  Ruff clean, mypy clean for touched modules. Runtime verifier currently reports
+  `0` captured cycles and `FORWARD_BASELINE_NOT_REPRODUCIBLE`; mandatory `>=100`
+  natural-cycle evidence is still pending and must not be inferred from tests or
+  historical rows.
+- Confirmed exits now backfill all linked Shadow variants from exchange fill
+  facts with R-normalized outcome fields; partial reductions remain pending
+  until the position is actually closed.
+
+## 2026-08-14 — Forward Baseline natural replay gate passed
+
+- Fixed the first observed replay divergence by persisting `already_evaluated_bars`; duplicate-bar decisions now replay identically.
+- Added runtime mode markers to snapshots and filtered the verifier to natural `ACTIVE + BINANCE_TESTNET` cycles only.
+- Official Testnet runtime produced `144` natural decision cycles with `100%` decision/feature/candidate/TradeCandidate matches, `0` immutable violations, and no mismatches.
+- Shadow evidence currently has `32` records and `0` completed outcomes because the new protected positions have not naturally exited yet. Strategy Plane remains frozen; no profitability or strategy-improvement claim is valid.
+
+## 2026-08-14 — R1/R2/R3 forward deployment
+
+- Synced the operator-reported manual close against Binance Testnet; observed external BTC/ETH baseline is `{}` and the persisted baseline was refreshed.
+- Implemented R1 equal-risk sizing by removing the scheduler score-based sizing branch and recording `R1_EQUAL_RISK` in snapshots.
+- Implemented R2 target-relative cost gate with commission, funding, slippage inputs and `theoretical_net_payoff >= 1.15`; rejection reason is `NO_TRADE_COST_INEFFICIENT`.
+- Implemented R3 P1 one-way stop tightening from exchange mark price, with P2/P3 shadow policy calculations and persisted original stop geometry. Replacement stop is acknowledged before the old stop is cancelled.
+- Focused tests: `63 passed`; full suite: `1611 passed, 7 skipped, 7 warnings`; touched Ruff and scoped mypy passed.
+- Official launcher restarted with `v2_active`, natural Testnet authorization, and preserved flat baseline. Runtime is `ACTIVE / BINANCE_TESTNET / TESTNET_CANARY`, entry authorized, scheduler healthy, and latest observed account baseline remains `{}`.
+- Forward verifier after restart: `190` cycles replayed, decision/feature/candidate/TradeCandidate match rates `100%`, immutable violations `0`, mismatches `[]`.
+- This is `RUNNING_FORWARD_VALIDATION`; no profitability or result-acceptance claim is made until new natural trades close.
+- Post-restart reconciliation also found one pre-existing managed ETH/USDT long (`9.334` at exchange fill `1884.9997`, decision bar `17:15 UTC`) with live stop/TP orders. It is carried forward unchanged and is excluded from the new-policy performance claim; the service remains running and will reconcile it normally.

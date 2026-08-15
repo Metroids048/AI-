@@ -52,11 +52,11 @@ def test_optimizer_cannot_read_final_holdout() -> None:
 @pytest.mark.parametrize(
     ("field", "value", "reason"),
     [
-        ("win_rate", 0.49, "win_rate_below_50_percent"),
-        ("average_profit_loss_ratio", 1.19, "average_profit_loss_ratio_below_1_20"),
-        ("profit_factor", 1.49, "profit_factor_below_1_50"),
+        ("total_trades", 59, "closed_trades_below_60"),
+        ("positive_windows", 4, "positive_windows_below_5_of_8"),
+        ("profit_factor", 1.34, "profit_factor_below_1_35"),
         ("net_expectancy", -0.0001, "net_expectancy_not_positive"),
-        ("max_drawdown", 0.151, "max_drawdown_exceeds_15_percent"),
+        ("max_drawdown", 0.301, "max_drawdown_exceeds_30_percent"),
         ("expectancy_lcb", 0.0, "expectancy_lcb_not_positive"),
     ],
 )
@@ -68,6 +68,11 @@ def test_promotion_gate_rejects_each_joint_requirement(field: str, value: float,
         net_expectancy=0.001,
         max_drawdown=0.15,
         expectancy_lcb=0.0001,
+        total_trades=60,
+        positive_windows=5,
+        net_return=0.1,
+        canary_net_return=0.0,
+        canary_net_expectancy=0.0,
     ).model_copy(update={field: value})
 
     result = evaluate_promotion(metrics)

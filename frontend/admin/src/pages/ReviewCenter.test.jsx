@@ -19,6 +19,7 @@ request.mockImplementation(async (path) => {
   if (path === "/api/v1/runtime/positions") return { exchange: { status: "available", value: { positions: [], open_orders: [] } }, local: { value: [] } };
   if (path.startsWith("/api/v1/runtime/llm-invocations")) return { items: [] };
   if (path === "/api/v1/runtime/reconciliation") return { status: "healthy", entry_blocked_symbols: [] };
+  if (path === "/api/v1/runtime/no-trade-summary") return { summary_code: "HEALTHY_WAITING_FOR_SIGNAL", decisions: { effective: 1, duplicate: 0, reason_counts: {} } };
   if (path === "/api/v1/reviews") return { items: [] };
   if (path.startsWith("/api/v1/failures")) return { items: [] };
   if (path === "/api/v1/decision-memory") return { items: [] };

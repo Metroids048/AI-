@@ -25,6 +25,7 @@ function useRuntimeTruthState(symbol) {
     positions: null,
     llmInvocations: [],
     reconciliation: null,
+    noTradeSummary: null,
     streamStatus: "connecting",
     lastSuccessAt: null,
     error: "",
@@ -47,6 +48,7 @@ function useRuntimeTruthState(symbol) {
         request("/api/v1/runtime/positions", { signal: controller.signal }),
         request(`/api/v1/runtime/llm-invocations${symbolQuery}`, { signal: controller.signal }),
         request("/api/v1/runtime/reconciliation", { signal: controller.signal }),
+        request("/api/v1/runtime/no-trade-summary", { signal: controller.signal }),
       ]);
       if (!mounted.current || controller.signal.aborted) return;
       const value = (index) => (results[index].status === "fulfilled" ? results[index].value : null);
@@ -73,6 +75,11 @@ function useRuntimeTruthState(symbol) {
           status: "unavailable",
           entry_blocked_symbols: ["BTC/USDT", "ETH/USDT"],
           error: failureMessage(5),
+        },
+        noTradeSummary: value(6) ?? {
+          summary_code: "RUNTIME_TRUTH_UNAVAILABLE",
+          runtime_status: "异常",
+          error: failureMessage(6),
         },
         lastSuccessAt: results.some((result) => result.status === "fulfilled")
           ? new Date().toISOString()

@@ -79,7 +79,7 @@ def _context(*, side: str, overextended: bool = False) -> MarketContext:
                     open_price=Decimal("98.5"),
                     high=Decimal("105") if overextended else Decimal("100.8"),
                     low=Decimal("98.4"),
-                    close=Decimal("104.5") if overextended else Decimal("100.5"),
+                    close=Decimal("104.5") if overextended else Decimal("100.4"),
                     volume=Decimal("16"),
                 ),
             ]
@@ -100,7 +100,7 @@ def _context(*, side: str, overextended: bool = False) -> MarketContext:
                     open_price=Decimal("101.5"),
                     high=Decimal("101.6"),
                     low=Decimal("95") if overextended else Decimal("99.2"),
-                    close=Decimal("95.5") if overextended else Decimal("99.5"),
+                    close=Decimal("95.5") if overextended else Decimal("99.6"),
                     volume=Decimal("16"),
                 ),
             ]

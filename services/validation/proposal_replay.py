@@ -19,6 +19,7 @@ from services.strategy_library.context import MarketContext
 from services.strategy_library.exit.adaptive_exit import build_adaptive_exit
 from services.strategy_library.proposal_pipeline import ProposalPipelineResult, run_proposal_pipeline
 from services.strategy_library.proposals import StrategyProposal
+from services.strategy_library.v2_projection import project_single_target
 from shared.models import OHLCVBar
 
 ProposalGenerator = Callable[[MarketContext], StrategyProposal | None]
@@ -234,6 +235,7 @@ class _OpenProposalPosition:
     last_exit_price: Decimal | None = None
     bars_held: int = 0
     funding_rate: Decimal | None = None
+    mode: str = "adaptive_exit"
 
 
 def _directional_return(*, side: str, entry: Decimal, exit_price: Decimal) -> Decimal:
@@ -267,6 +269,7 @@ class ProposalReplayRunner:
         next_entry_bars: Iterable[OHLCVBar],
         generator: ProposalGenerator | None = None,
         pipeline: ProposalPipeline = run_proposal_pipeline,
+        mode: str = "adaptive_exit",
     ) -> ProposalReplayMetrics:
         """Replay contexts ordered by their closed 15m decision time.
 
@@ -316,7 +319,7 @@ class ProposalReplayRunner:
                         expired += 1
                         expired_counts[proposal.strategy_id] = expired_counts.get(proposal.strategy_id, 0) + 1
                         continue
-                    position = self._open(proposal=proposal, bar=entry_bar, context=context)
+                    position = self._open(proposal=proposal, bar=entry_bar, context=context, mode=mode)
                     if position is None:
                         drift_rejected += 1
                         drift_counts[proposal.strategy_id] = drift_counts.get(proposal.strategy_id, 0) + 1
@@ -364,7 +367,7 @@ class ProposalReplayRunner:
         )
 
     def _open(
-        self, *, proposal: StrategyProposal, bar: OHLCVBar, context: MarketContext
+        self, *, proposal: StrategyProposal, bar: OHLCVBar, context: MarketContext, mode: str = "adaptive_exit"
     ) -> _OpenProposalPosition | None:
         expected = proposal.entry_trigger.reference_price
         drift_bps = abs(bar.open - expected) / expected * Decimal("10000")
@@ -377,18 +380,35 @@ class ProposalReplayRunner:
         if proposal.side == "short" and filled_price >= proposal.invalidation.stop_price:
             return None
         atr = abs(proposal.entry_trigger.reference_price - proposal.invalidation.stop_price)
-        exit_plan = build_adaptive_exit(proposal, filled_price=filled_price, atr=max(atr, Decimal("0.00000001")))
-        targets = tuple((target.label, target.price, target.quantity_fraction) for target in exit_plan.targets)
+        targets: tuple[tuple[str, Decimal, Decimal], ...]
+        if mode == "v2_single_target":
+            projected = project_single_target(proposal)
+            initial_stop = (
+                filled_price - projected.stop_distance
+                if proposal.side == "long"
+                else filled_price + projected.stop_distance
+            )
+            target_price = (
+                filled_price + projected.take_profit_distance
+                if proposal.side == "long"
+                else filled_price - projected.take_profit_distance
+            )
+            targets = ((projected.target_label, target_price, Decimal("1")),)
+        else:
+            exit_plan = build_adaptive_exit(proposal, filled_price=filled_price, atr=max(atr, Decimal("0.00000001")))
+            initial_stop = exit_plan.initial_stop
+            targets = tuple((target.label, target.price, target.quantity_fraction) for target in exit_plan.targets)
         entry_cost = self.cost_model.taker_fee_bps_per_side / Decimal("10000") * self.cost_model.partial_fill_fraction
         return _OpenProposalPosition(
             proposal=proposal,
             opened_at=bar.timestamp,
             entry_price=filled_price,
             filled_fraction=self.cost_model.partial_fill_fraction,
-            initial_stop=exit_plan.initial_stop,
+            initial_stop=initial_stop,
             targets=targets,
             remaining_fraction=self.cost_model.partial_fill_fraction,
             realized_cost=entry_cost,
+            mode=mode,
         )
 
     def _advance(self, *, position: _OpenProposalPosition, bar: OHLCVBar) -> ProposalReplayTrade | None:
@@ -425,13 +445,14 @@ class ProposalReplayRunner:
                 position.last_exit_price = realized_target
         if position.remaining_fraction <= Decimal("0"):
             return self._close(position=position, closed_at=bar.timestamp, exit_price=bar.close, reason="all_targets")
-        time_exit = build_adaptive_exit(
-            position.proposal,
-            filled_price=position.entry_price,
-            atr=max(abs(position.entry_price - position.initial_stop), Decimal("0.00000001")),
-        )
-        if position.bars_held >= time_exit.time_exit_bars:
-            return self._close(position=position, closed_at=bar.timestamp, exit_price=bar.close, reason="time_exit")
+        if position.mode != "v2_single_target":
+            time_exit = build_adaptive_exit(
+                position.proposal,
+                filled_price=position.entry_price,
+                atr=max(abs(position.entry_price - position.initial_stop), Decimal("0.00000001")),
+            )
+            if position.bars_held >= time_exit.time_exit_bars:
+                return self._close(position=position, closed_at=bar.timestamp, exit_price=bar.close, reason="time_exit")
         return None
 
     def _close(

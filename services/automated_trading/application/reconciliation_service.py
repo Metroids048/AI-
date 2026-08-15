@@ -85,6 +85,12 @@ class LocalPositionView:
     protection_exchange_order_ids: frozenset[str] = frozenset()
     # (exchange_order_id, client_order_id, exit_reason)
     protection_order_refs: tuple[tuple[str, str, str], ...] = ()
+    entry_price: Decimal = Decimal("0")
+    original_stop_price: Decimal | None = None
+    current_stop_price: Decimal | None = None
+    protection_id: str | None = None
+    protection_policy: str = "P1"
+    protection_version: int = 0
 
 
 @dataclass(frozen=True)

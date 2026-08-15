@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { formatBoolean, formatEnum, formatFieldLabel } from "./format";
+import { formatBoolean, formatEnum, formatFieldLabel, formatNoTradeSummary } from "./format";
 
 describe("presentation mapping", () => {
   it("maps protocol enums and field names without changing machine values", () => {
@@ -55,6 +55,12 @@ describe("presentation mapping", () => {
     expect(formatEnum("some_unknown_state")).not.toBe("正常");
     expect(formatEnum(undefined)).not.toBe("正常");
     expect(formatEnum(null)).not.toBe("正常");
+  });
+
+  it("formats deterministic no-trade summary codes for the Chinese homepage", () => {
+    expect(formatNoTradeSummary("SCHEDULER_OFFLINE")).toBe("自动交易程序异常：调度器心跳中断");
+    expect(formatNoTradeSummary("HEALTHY_WAITING_FOR_SIGNAL")).toBe("策略正在等待交易机会");
+    expect(formatNoTradeSummary("ENTRY_BLOCKED", "PRICE_DRIFT_EXCEEDED", 4)).toBe("新开仓被拦截：价格漂移超限（4 次）");
   });
 
   it("preserves professional terms and proper nouns verbatim", () => {

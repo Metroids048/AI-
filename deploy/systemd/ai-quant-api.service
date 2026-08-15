@@ -1,0 +1,17 @@
+[Unit]
+Description=AI Quant cloud API (API-only process)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ai-quant
+EnvironmentFile=-/etc/ai-quant/cloud.env
+ExecStart=/usr/bin/env bash /opt/ai-quant/deploy/cloud/start_cloud_runtime.sh api
+Restart=always
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

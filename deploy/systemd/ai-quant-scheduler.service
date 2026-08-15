@@ -1,0 +1,18 @@
+[Unit]
+Description=AI Quant cloud RuntimeScheduler (single ACTIVE writer)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ai-quant
+EnvironmentFile=-/etc/ai-quant/cloud.env
+Environment=SCHEDULER_PID_PATH=/var/lib/ai-quant/runtime/scheduler.pid
+ExecStart=/usr/bin/env bash /opt/ai-quant/deploy/cloud/start_cloud_runtime.sh scheduler
+Restart=always
+RestartSec=10
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

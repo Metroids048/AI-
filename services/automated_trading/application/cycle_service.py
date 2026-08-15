@@ -17,13 +17,14 @@ import os
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import TYPE_CHECKING, Any
 
 from services.automated_trading.application.decision_service import (
     DecisionContext,
+    DecisionOutcome,
     TimeframeView,
     evaluate_symbol,
 )
@@ -69,6 +70,12 @@ from services.automated_trading.application.recovery_service import (
     RecoveryActionType,
     recover_pending_state,
 )
+from services.automated_trading.application.risk_controls import (
+    calculate_cost_gate,
+    p1_profit_protection,
+    shadow_profit_protection,
+)
+from services.automated_trading.audit.forward_baseline import serialize_trade_candidate
 from services.automated_trading.domain.candidates import CandidateLane, TradeCandidate
 from services.automated_trading.domain.client_order_id import (
     entry_client_order_id,
@@ -144,6 +151,7 @@ class CycleRequest:
     # rejected at 29.32bps against a 20bps ceiling.  Budgeting the advisory step
     # keeps drift attributable to the market instead of to a dead provider.
     ai_review_budget_seconds: float = 1.5
+    r2_cost_gate_enabled: bool = False
 
     @property
     def reconcile_existing_positions(self) -> bool:
@@ -212,6 +220,7 @@ class CycleResult:
     exit_submitted: bool = False
     reconciliation_status: ReconciliationStatus = ReconciliationStatus.UNAVAILABLE
     funnel_payload: dict[str, Any] = field(default_factory=dict)
+    decision_outcome: DecisionOutcome | None = None
     errors: list[str] = field(default_factory=list)
     entry_blocked_by_runtime_control: bool = False
     # Set when terminal-exit projection could not finish (exchange lookup failed).
@@ -286,6 +295,7 @@ def _build_local_state(
                 active_protections = tuple(
                     protection for protection in protections if protection.state == "PROTECTION_ACTIVE"
                 )
+                active_protection = active_protections[-1] if active_protections else None
 
                 claim_keys = {
                     position.position_id,
@@ -347,6 +357,20 @@ def _build_local_state(
                         has_active_protection=bool(active_protections),
                         protection_exchange_order_ids=frozenset(protection_exchange_order_ids),
                         protection_order_refs=tuple(protection_order_refs),
+                        entry_price=Decimal(str(position.entry_price)),
+                        original_stop_price=(
+                            Decimal(
+                                str(active_protection.original_stop_loss_price or active_protection.stop_loss_price)
+                            )
+                            if active_protection is not None
+                            else None
+                        ),
+                        current_stop_price=(
+                            Decimal(str(active_protection.stop_loss_price)) if active_protection is not None else None
+                        ),
+                        protection_id=active_protection.protection_id if active_protection is not None else None,
+                        protection_policy=active_protection.policy if active_protection is not None else "P1",
+                        protection_version=int(active_protection.version) if active_protection is not None else 0,
                     )
                 )
                 # A Managed V2 position is created only from an acknowledged order
@@ -1095,8 +1119,118 @@ def _recover_confirmed_v2_entry_gap(
             exchange_order_id,
             [fill.trade_id for fill in fills],
         )
-        return True
-    return False
+    return True
+
+
+def _apply_profit_protection(
+    request: CycleRequest,
+    *,
+    adapter,
+    snapshot: AuthoritativeAccountSnapshot,
+    local_state: LocalStateView,
+    tick_size: Decimal,
+    result: CycleResult,
+) -> None:
+    """Tighten P1 stops from exchange mark prices; P2/P3 are shadow-only."""
+    if not request.persist_facts or request.engine_activation is not EngineActivation.ACTIVE:
+        return
+    from services.automated_trading.domain.client_order_id import stop_client_order_id
+    from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
+    from services.database import get_session_factory
+
+    with get_session_factory()() as session:
+        repo = AutomatedTradingRepository(session)
+        for position in local_state.positions:
+            if position.symbol != request.symbol or position.state in {"CLOSED", "QUARANTINED"}:
+                continue
+            exchange_position = next(
+                (
+                    item
+                    for item in snapshot.positions
+                    if item.symbol == position.symbol and item.direction == position.direction
+                ),
+                None,
+            )
+            if exchange_position is None or position.original_stop_price is None or position.current_stop_price is None:
+                continue
+            p1 = p1_profit_protection(
+                direction=position.direction,
+                entry_price=position.entry_price,
+                original_stop_price=position.original_stop_price,
+                mark_price=exchange_position.mark_price,
+            )
+            p2 = shadow_profit_protection(
+                policy="P2",
+                direction=position.direction,
+                entry_price=position.entry_price,
+                original_stop_price=position.original_stop_price,
+                mark_price=exchange_position.mark_price,
+            )
+            p3 = shadow_profit_protection(
+                policy="P3",
+                direction=position.direction,
+                entry_price=position.entry_price,
+                original_stop_price=position.original_stop_price,
+                mark_price=exchange_position.mark_price,
+            )
+            result.funnel_payload.setdefault("profit_protection_shadow", []).append(
+                {
+                    "position_id": position.position_id,
+                    "mark_price": str(exchange_position.mark_price),
+                    "P2": {
+                        "trigger_R": str(p2.trigger_r) if p2.trigger_r is not None else None,
+                        "stop_price": str(p2.stop_price) if p2.stop_price is not None else None,
+                    },
+                    "P3": {
+                        "trigger_R": str(p3.trigger_r) if p3.trigger_r is not None else None,
+                        "stop_price": str(p3.stop_price) if p3.stop_price is not None else None,
+                    },
+                }
+            )
+            if p1.stop_price is None:
+                continue
+            if position.direction == "long":
+                tighter = p1.stop_price > position.current_stop_price
+            else:
+                tighter = p1.stop_price < position.current_stop_price
+            if not tighter:
+                continue
+            if position.direction == "long":
+                safe_stop = (p1.stop_price / tick_size).to_integral_value(rounding=ROUND_CEILING) * tick_size
+            else:
+                safe_stop = (p1.stop_price / tick_size).to_integral_value(rounding=ROUND_FLOOR) * tick_size
+            old_stop = next(
+                (ref for ref in position.protection_order_refs if ref[2] == ExitReason.HARD_STOP.value), None
+            )
+            if old_stop is None or not hasattr(adapter, "submit_stop_replacement"):
+                continue
+            revision = max(position.protection_version + 1, 1)
+            client_id = stop_client_order_id(position.position_id, revision=revision)
+            receipt = adapter.submit_stop_replacement(
+                symbol=position.symbol,
+                side="sell" if position.direction == "long" else "buy",
+                quantity=position.quantity,
+                stop_price=safe_stop,
+                client_order_id=client_id,
+            )
+            adapter.cancel_order(position.symbol, old_stop[0])
+            repo.update_protection_stop(
+                protection_id=position.protection_id or "",
+                stop_loss_price=safe_stop,
+                stop_client_order_id=client_id,
+                stop_exchange_order_id=receipt.exchange_order_id,
+                occurred_at=request.now,
+            )
+            result.funnel_payload.setdefault("profit_protection", []).append(
+                {
+                    "policy": "P1",
+                    "position_id": position.position_id,
+                    "trigger_R": str(p1.trigger_r),
+                    "stop_price": str(safe_stop),
+                    "exchange_order_id": receipt.exchange_order_id,
+                }
+            )
+        session.commit()
 
 
 def _recover_confirmed_v2_exit_gaps(
@@ -1437,6 +1571,17 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
 
     # Exits: only ALREADY_FLAT handling, forced_exit_reason, or emergency — never blind TIME_EXIT.
     step_size = _fetch_step_size(adapter, request.symbol)
+    try:
+        _apply_profit_protection(
+            request,
+            adapter=adapter,
+            snapshot=snapshot,
+            local_state=local_state,
+            tick_size=step_size,
+            result=result,
+        )
+    except Exception as exc:  # noqa: BLE001
+        result.record_error(f"profit protection update failed: {exc}")
     for pos in local_state.positions:
         if pos.symbol != request.symbol or pos.state in ("CLOSED", "QUARANTINED"):
             continue
@@ -1524,6 +1669,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             already_evaluated_bars=request.already_evaluated_bars,
         )
         sampling = evaluate_symbol(sampling_context)
+        result.decision_outcome = sampling
         terminal_reason = (
             request.production_decision_reason
             if request.production_authorized
@@ -1562,6 +1708,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             already_evaluated_bars=request.already_evaluated_bars,
         )
         sampling = evaluate_symbol(sampling_context)
+        result.decision_outcome = sampling
         candidate = sampling.candidate
         if candidate is None:
             result.funnel_payload = {
@@ -1647,6 +1794,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         "active_entry_strategy": candidate.strategy_id,
         "promotion_eligible": not candidate.non_promotable,
         "strategy_trace": dict(request.production_trace),
+        "candidate": serialize_trade_candidate(candidate),
     }
     if candidate.non_promotable and request.entry_authority is not EntryAuthority.TESTNET_CANARY:
         result.funnel_payload["execution_policy"] = "DECISION_TRACE_ONLY"
@@ -1791,6 +1939,28 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             reason_code="EXCHANGE_UNAVAILABLE",
         )
         return result
+
+    cost_gate = calculate_cost_gate(
+        entry_price=snapshot_market.current_price,
+        stop_distance=candidate.stop_distance,
+        take_profit_distance=candidate.take_profit_distance,
+    )
+    result.funnel_payload["r2_cost_gate"] = {
+        "cost_R": str(cost_gate.cost_r),
+        "theoretical_net_payoff": str(cost_gate.theoretical_net_payoff),
+        "planned_target_R": str(cost_gate.planned_target_r),
+        "commission_R": str(cost_gate.commission_r),
+        "funding_R": str(cost_gate.funding_r),
+        "slippage_R": str(cost_gate.slippage_r),
+        "minimum_theoretical_net_payoff": "1.15",
+        "status": "PASS" if cost_gate.passed else "REJECT",
+    }
+    if request.r2_cost_gate_enabled:
+        entry_runtime = replace(
+            entry_runtime,
+            theoretical_net_payoff=cost_gate.theoretical_net_payoff,
+            cost_r=cost_gate.cost_r,
+        )
 
     gate = evaluate_entry(candidate, entry_runtime, snapshot_market)
     if not gate.approved:

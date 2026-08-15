@@ -22,6 +22,9 @@ from services.execution.bootstrap import AUTO_PAPER_EXECUTION_SYMBOLS, AUTO_PAPE
 from services.execution.decision_pipeline import DecisionPipeline, DecisionPipelineResult
 from services.execution.signal_edge_stats import strategy_rules_hash
 from services.strategy_library.candidates.registry import get_candidate
+from services.strategy_library.context import MarketContextBuilder
+from services.strategy_library.proposal_pipeline import run_proposal_pipeline
+from services.strategy_library.v2_projection import project_single_target
 from shared.models import StrategyContract, StrategyRules
 
 NO_AUTHORIZED_PRODUCTION_STRATEGY = "NO_AUTHORIZED_PRODUCTION_STRATEGY"
@@ -120,6 +123,10 @@ def resolve_production_authorization(
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
         candidate_id = str(authorization["candidate_id"])
         candidate = get_candidate(candidate_id)
+        if candidate_id == "aggressive_multi_regime_v1" and (
+            candidate.lifecycle_state != "APPROVED" or not candidate.execution_eligible
+        ):
+            return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
         if str(authorization.get("candidate_version")) != candidate.version:
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
         approved_symbols = {str(value) for value in authorization.get("eligible_symbols", [])}
@@ -190,6 +197,58 @@ def evaluate_authorized_production_strategy(
     assert authorization.rules is not None
     assert authorization.candidate_id is not None
     assert authorization.candidate_version is not None
+    if authorization.candidate_id == "aggressive_multi_regime_v1":
+        bars_by_timeframe = {
+            timeframe: data_repo.list_ohlcv_bars(symbol=symbol, timeframe=timeframe, limit=80)
+            for timeframe in ("1m", "5m", "15m", "1h", "4h")
+        }
+        context = MarketContextBuilder().build(symbol=symbol, decision_time=now, bars_by_timeframe=bars_by_timeframe)
+        result = run_proposal_pipeline(context)
+        proposal = result.selection.selected
+        trace: dict[str, Any] = {
+            "production_authorization": "APPROVED",
+            "validation_evidence_ref": authorization.validation_evidence_ref or "",
+            "approval_identity": authorization.approval_identity or "",
+            "approval_time": authorization.approval_time or "",
+            "candidate_id": authorization.candidate_id,
+            "candidate_version": authorization.candidate_version,
+            "rules_hash": strategy_rules_hash(authorization.rules),
+            "proposal_pipeline": result.model_dump(mode="json"),
+        }
+        if proposal is None:
+            return ProductionDecision(authorization, None, result.selection.status, trace)
+        geometry = project_single_target(proposal)
+        candidate = TradeCandidate(
+            candidate_id=str(uuid.uuid4()),
+            cycle_id=cycle_id,
+            strategy_id=authorization.candidate_id,
+            strategy_version=authorization.candidate_version,
+            lane=CandidateLane.PRODUCTION,
+            candidate_type=V2CandidateType.PRIMARY,
+            symbol=symbol,
+            side="LONG" if proposal.side == "long" else "SHORT",
+            signal_candle_close_time=proposal.signal_bar_time,
+            signal_reference_price=geometry.entry_reference_price,
+            confidence=Decimal(str(result.selection.selected_score or 0)),
+            stop_distance=geometry.stop_distance,
+            take_profit_distance=geometry.take_profit_distance,
+            max_entry_drift_bps=proposal.entry_trigger.max_price_drift_bps,
+            expires_at=min(proposal.expires_at, now + timedelta(seconds=candidate_ttl_seconds)),
+            non_promotable=False,
+            signal_context=tuple(
+                sorted(
+                    {
+                        "target_label": geometry.target_label,
+                        "validation_evidence_ref": authorization.validation_evidence_ref or "",
+                        "approval_identity": authorization.approval_identity or "",
+                        "approval_time": authorization.approval_time or "",
+                        "rules_hash": strategy_rules_hash(authorization.rules),
+                    }.items()
+                )
+            ),
+        )
+        return ProductionDecision(authorization, candidate, "CANDIDATE_READY", trace)
+
     decision: DecisionPipelineResult = DecisionPipeline(data_repo=data_repo).evaluate(
         strategy=_strategy_contract(authorization),
         symbol=symbol,
@@ -201,9 +260,9 @@ def evaluate_authorized_production_strategy(
     trace.update(
         {
             "production_authorization": "APPROVED",
-            "validation_evidence_ref": authorization.validation_evidence_ref,
-            "approval_identity": authorization.approval_identity,
-            "approval_time": authorization.approval_time,
+            "validation_evidence_ref": authorization.validation_evidence_ref or "",
+            "approval_identity": authorization.approval_identity or "",
+            "approval_time": authorization.approval_time or "",
         }
     )
     if not decision.should_trade or decision.direction is None or decision.bar_time is None or decision.atr is None:

@@ -490,6 +490,174 @@ RANGE_SWEEP_REVERSION_V1 = StrategyCandidate(
 )
 
 
+def _aggressive_multi_regime_v1_config() -> dict[str, Any]:
+    config = _operator_heuristic_v1_config()
+    config["entry_rules"] = {
+        **config["entry_rules"],
+        "candidate_id": "aggressive_multi_regime_v1",
+        "proposal_generator": "aggressive_multi_regime_v1",
+        "entry_timeframe": "15m",
+        "regime_weights": {"4h": 0.45, "1h": 0.35, "15m": 0.20},
+    }
+    return config
+
+
+AGGRESSIVE_MULTI_REGIME_V1 = StrategyCandidate(
+    candidate_id="aggressive_multi_regime_v1",
+    source="multi_regime_proposal_pipeline",
+    hypothesis="Higher timeframe direction with position-aware trend, breakout, range and failed-breakout competition.",
+    version="1.0.0",
+    created_at=datetime(2026, 8, 13),
+    market="BTC/USDT,ETH/USDT",
+    timeframe="15m",
+    config_factory=_aggressive_multi_regime_v1_config,
+    lifecycle_state="RESEARCH_ONLY",
+    execution_eligible=False,
+)
+
+
+def _htf_trend_continuation_v1_config() -> dict[str, Any]:
+    config = _operator_heuristic_v1_config()
+    config["entry_rules"] = {
+        **config["entry_rules"],
+        "candidate_id": "htf_trend_continuation_v1",
+        "proposal_generator": "htf_trend_continuation_v1",
+        "entry_timeframe": "15m",
+        "higher_timeframes": ("4h", "1h"),
+        "research_only": True,
+    }
+    return config
+
+
+HTF_TREND_CONTINUATION_V1 = StrategyCandidate(
+    candidate_id="htf_trend_continuation_v1",
+    source="generation_1_live_payoff_rebuild",
+    hypothesis="4H structure and 1H trend alignment with a 15M impulse-pullback-continuation trigger.",
+    version="1.0.0-generation-1",
+    created_at=datetime(2026, 8, 14),
+    market="BTC/USDT,ETH/USDT",
+    timeframe="15m",
+    config_factory=_htf_trend_continuation_v1_config,
+    lifecycle_state="RESEARCH_ONLY",
+    execution_eligible=False,
+)
+
+
+def _breakout_retest_v1_config() -> dict[str, Any]:
+    config = _operator_heuristic_v1_config()
+    config["entry_rules"] = {
+        **config["entry_rules"],
+        "candidate_id": "breakout_retest_v1",
+        "proposal_generator": "breakout_retest_v1",
+        "entry_timeframe": "15m",
+        "higher_timeframes": ("4h", "1h"),
+        "research_only": True,
+    }
+    return config
+
+
+BREAKOUT_RETEST_V1 = StrategyCandidate(
+    candidate_id="breakout_retest_v1",
+    source="generation_1_live_payoff_rebuild",
+    hypothesis="Closed structure breakout, held retest, and continuation confirmation without breakout chasing.",
+    version="1.0.0-generation-1",
+    created_at=datetime(2026, 8, 14),
+    market="BTC/USDT,ETH/USDT",
+    timeframe="15m",
+    config_factory=_breakout_retest_v1_config,
+    lifecycle_state="RESEARCH_ONLY",
+    execution_eligible=False,
+)
+
+
+def _donchian_breakout_retest_v1_config() -> dict[str, Any]:
+    config = _operator_heuristic_v1_config()
+    config["entry_rules"] = {
+        **config["entry_rules"],
+        "candidate_id": "donchian_breakout_retest_v1",
+        "proposal_generator": "donchian_breakout_retest_v1",
+        "entry_timeframe": "15m",
+        "higher_timeframes": ("4h", "1h"),
+        "research_only": True,
+        "channel_bars": 32,
+        "retest_tolerance_atr": 0.25,
+    }
+    return config
+
+
+DONCHIAN_BREAKOUT_RETEST_V1 = StrategyCandidate(
+    candidate_id="donchian_breakout_retest_v1",
+    source="generation_4_live_payoff_rebuild",
+    hypothesis="A 32-bar Donchian breakout must hold a retest before continuation entry.",
+    version="1.0.0-generation-4",
+    created_at=datetime(2026, 8, 14),
+    market="BTC/USDT,ETH/USDT",
+    timeframe="15m",
+    config_factory=_donchian_breakout_retest_v1_config,
+    lifecycle_state="RESEARCH_ONLY",
+    execution_eligible=False,
+)
+
+
+def _momentum_continuation_v1_config() -> dict[str, Any]:
+    config = _operator_heuristic_v1_config()
+    config["entry_rules"] = {
+        **config["entry_rules"],
+        "candidate_id": "momentum_continuation_v1",
+        "proposal_generator": "momentum_continuation_v1",
+        "entry_timeframe": "15m",
+        "higher_timeframes": ("4h", "1h"),
+        "research_only": True,
+        "momentum_bars": 3,
+        "minimum_move_atr": 0.90,
+    }
+    return config
+
+
+MOMENTUM_CONTINUATION_V1 = StrategyCandidate(
+    candidate_id="momentum_continuation_v1",
+    source="generation_5_live_payoff_rebuild",
+    hypothesis="Three-bar 15M momentum continuation aligned with 1H trend and post-cost 2R geometry.",
+    version="1.0.0-generation-5",
+    created_at=datetime(2026, 8, 14),
+    market="BTC/USDT,ETH/USDT",
+    timeframe="15m",
+    config_factory=_momentum_continuation_v1_config,
+    lifecycle_state="RESEARCH_ONLY",
+    execution_eligible=False,
+)
+
+
+def _volatility_expansion_v1_config() -> dict[str, Any]:
+    config = _operator_heuristic_v1_config()
+    config["entry_rules"] = {
+        **config["entry_rules"],
+        "candidate_id": "volatility_expansion_v1",
+        "proposal_generator": "volatility_expansion_v1",
+        "entry_timeframe": "15m",
+        "higher_timeframes": ("4h", "1h"),
+        "research_only": True,
+        "compression_ratio": 0.80,
+        "breakout_body_atr": 0.80,
+        "minimum_volume_ratio": 1.20,
+    }
+    return config
+
+
+VOLATILITY_EXPANSION_V1 = StrategyCandidate(
+    candidate_id="volatility_expansion_v1",
+    source="generation_3_live_payoff_rebuild",
+    hypothesis="Compressed 15M structure followed by high-body, high-volume expansion and continuation confirmation.",
+    version="1.0.0-generation-3",
+    created_at=datetime(2026, 8, 14),
+    market="BTC/USDT,ETH/USDT",
+    timeframe="15m",
+    config_factory=_volatility_expansion_v1_config,
+    lifecycle_state="RESEARCH_ONLY",
+    execution_eligible=False,
+)
+
+
 # ============================================================================
 # Registry
 # ============================================================================
@@ -505,6 +673,7 @@ CANDIDATE_REGISTRY: dict[str, StrategyCandidate] = {
     "failed_breakout_reversal_v1": FAILED_BREAKOUT_REVERSAL_V1,
     "trend_pullback_v2": TREND_PULLBACK_V2,
     "range_sweep_reversion_v1": RANGE_SWEEP_REVERSION_V1,
+    "aggressive_multi_regime_v1": AGGRESSIVE_MULTI_REGIME_V1,
 }
 
 

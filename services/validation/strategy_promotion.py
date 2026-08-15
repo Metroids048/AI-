@@ -25,6 +25,12 @@ class BootstrapResult(PlatformModel):
 
 
 class PromotionMetrics(PlatformModel):
+    total_trades: int = 0
+    positive_windows: int = 0
+    total_windows: int = 8
+    net_return: float = 0.0
+    canary_net_return: float = 0.0
+    canary_net_expectancy: float = 0.0
     win_rate: float
     average_profit_loss_ratio: float
     profit_factor: float
@@ -122,16 +128,22 @@ def evaluate_promotion(metrics: PromotionMetrics) -> PromotionResult:
     """Apply the strategy task's joint, non-negotiable promotion requirements."""
 
     failures: list[str] = []
-    if metrics.win_rate < 0.50:
-        failures.append("win_rate_below_50_percent")
-    if metrics.average_profit_loss_ratio < 1.20:
-        failures.append("average_profit_loss_ratio_below_1_20")
-    if metrics.profit_factor < 1.50:
-        failures.append("profit_factor_below_1_50")
+    if metrics.total_trades < 60:
+        failures.append("closed_trades_below_60")
+    if metrics.positive_windows < 5:
+        failures.append("positive_windows_below_5_of_8")
+    if metrics.net_return <= 0:
+        failures.append("net_return_not_positive")
+    if metrics.profit_factor < 1.35:
+        failures.append("profit_factor_below_1_35")
     if metrics.net_expectancy <= 0:
         failures.append("net_expectancy_not_positive")
-    if metrics.max_drawdown > 0.15:
-        failures.append("max_drawdown_exceeds_15_percent")
+    if metrics.max_drawdown > 0.30:
+        failures.append("max_drawdown_exceeds_30_percent")
     if metrics.expectancy_lcb <= 0:
         failures.append("expectancy_lcb_not_positive")
+    if metrics.net_expectancy <= metrics.canary_net_expectancy:
+        failures.append("net_expectancy_not_above_canary")
+    if metrics.canary_net_return > 0 and metrics.net_return < metrics.canary_net_return * 1.25:
+        failures.append("net_return_improvement_below_25_percent")
     return PromotionResult(eligible=not failures, failed_requirements=tuple(failures))

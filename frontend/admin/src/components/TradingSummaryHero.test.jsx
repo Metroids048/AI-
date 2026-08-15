@@ -7,6 +7,30 @@ afterEach(() => {
 });
 
 describe("TradingSummaryHero", () => {
+  it("shows the deterministic no-trade monitoring summary on the home hero", () => {
+    render(
+      <TradingSummaryHero
+        account={{ connected: true, wallet_balance: 10000 }}
+        positions={[]}
+        orders={[]}
+        decisions={[]}
+        noTradeSummary={{
+          summary_code: "HEALTHY_WAITING_FOR_SIGNAL",
+          hours_since_last_entry: 3.25,
+          decisions: { effective: 5, duplicate: 7, reason_counts: { NO_ENTRY_SIGNAL: 5 } },
+        }}
+        tradingStatus={{ is_active: true }}
+        globalRiskStatus={{ entry_allowed: true }}
+        streamStatus="live"
+        selectedSymbol="BTC/USDT"
+        lastSuccessAt={null}
+      />,
+    );
+    expect(screen.getByText("不开单监控")).toBeTruthy();
+    expect(screen.getByText("已 3.3 小时未产生新开仓")).toBeTruthy();
+    expect(screen.getByText("策略正在等待交易机会")).toBeTruthy();
+  });
+
   it("renders main heading in Chinese", () => {
     render(
       <TradingSummaryHero
@@ -229,6 +253,8 @@ describe("TradingSummaryHero", () => {
     const headingElements = screen.getAllByText(/最新决策/);
     expect(headingElements.length).toBeGreaterThan(0);
     expect(screen.getByText(/BTC\/USDT/)).toBeTruthy();
+    expect(screen.getByText("技术信号不足")).toBeTruthy();
+    expect(screen.queryByText("technical_signals_insufficient")).toBeNull();
   });
 
   it("always shows Binance testnet link using web_ui_url", () => {

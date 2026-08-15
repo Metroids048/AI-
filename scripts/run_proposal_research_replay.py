@@ -16,6 +16,7 @@ from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from functools import partial
 from itertools import tee
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from typing import Any
 from scripts.generate_strategy_golden_baseline import source_tree_manifest
 from services.strategy_library.canonical import canonical_hash
 from services.strategy_library.context import MarketContext, MarketContextBuilder
+from services.strategy_library.proposal_pipeline import run_proposal_pipeline
 from services.validation.proposal_replay import (
     ProposalReplayMetrics,
     ProposalReplayRunner,
@@ -38,11 +40,15 @@ DEVELOPMENT_START = datetime(2023, 1, 29, tzinfo=UTC)
 WARMUP_START = DEVELOPMENT_START - timedelta(days=15)
 TIMEFRAME_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400}
 WINDOW_LENGTHS = {"1m": 2, "5m": 2, "15m": 80, "1h": 80, "4h": 80}
-CANDIDATE_IDS = (
+REFERENCE_CANDIDATE_IDS = (
+    "loss_aware_trend_pullback_v1",
+    "breakout_continuation_v1",
     "failed_breakout_reversal_v1",
     "trend_pullback_v2",
     "range_sweep_reversion_v1",
 )
+GENERATION_NEXT_CANDIDATE_IDS = ("htf_trend_continuation_v1", "breakout_retest_v1")
+ALL_CANDIDATE_IDS = REFERENCE_CANDIDATE_IDS + GENERATION_NEXT_CANDIDATE_IDS
 from services.validation.proposal_walk_forward import (
     ProposalWalkForwardWindow,
     build_proposal_walk_forward_windows,
@@ -286,7 +292,7 @@ def _walk_forward_windows() -> tuple[ProposalWalkForwardWindow, ...]:
 
 
 def _build_window_runs(
-    *, database_path: Path, windows: tuple[ProposalWalkForwardWindow, ...]
+    *, database_path: Path, windows: tuple[ProposalWalkForwardWindow, ...], candidate_ids: tuple[str, ...]
 ) -> tuple[dict[str, Any], ...]:
     runs: list[dict[str, Any]] = []
     with sqlite3.connect(f"file:{database_path.resolve().as_posix()}?mode=ro", uri=True) as connection:
@@ -321,12 +327,20 @@ def _build_window_runs(
             pending: list[tuple[MarketContext, OHLCVBar]] = []
             cursor = 0
 
-            def _flush(index: int, pairs: list[tuple[MarketContext, OHLCVBar]]) -> None:
+            def _flush(
+                index: int,
+                pairs: list[tuple[MarketContext, OHLCVBar]],
+                *,
+                metrics_by_window=metrics_by_window,
+                cost_model=cost_model,
+            ) -> None:
                 contexts, bars = zip(*pairs, strict=True) if pairs else ((), ())
                 metrics_by_window[index] = ProposalReplayRunner(cost_model=cost_model).replay(
                     strategy_id="proposal_pipeline",
                     contexts=contexts,
                     next_entry_bars=bars,
+                    pipeline=partial(run_proposal_pipeline, candidate_ids=frozenset(candidate_ids)),
+                    mode="v2_single_target",
                 )
 
             for context, bar in pair_stream:
@@ -444,6 +458,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--database", type=Path, default=Path(".strategy_refactor_history.db"))
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--candidate-ids", nargs="*", default=list(GENERATION_NEXT_CANDIDATE_IDS))
     args = parser.parse_args()
     if args.output.exists():
         raise FileExistsError(f"refusing to overwrite research output: {args.output}")
@@ -454,10 +469,14 @@ def main() -> int:
     guard = FinalHoldoutGuard(FINAL_HOLDOUT_START)
     guard.assert_development_end(FINAL_HOLDOUT_START)
     windows = _walk_forward_windows()
-    window_runs = _build_window_runs(database_path=args.database, windows=windows)
+    candidate_ids = tuple(args.candidate_ids)
+    unknown = set(candidate_ids) - set(ALL_CANDIDATE_IDS)
+    if unknown:
+        raise ValueError(f"unknown candidate ids: {sorted(unknown)}")
+    window_runs = _build_window_runs(database_path=args.database, windows=windows, candidate_ids=candidate_ids)
     results = {
         candidate_id: _result_for_candidate(candidate_id=candidate_id, window_runs=window_runs, ledger=ledger)
-        for candidate_id in CANDIDATE_IDS
+        for candidate_id in candidate_ids
     }
     with sqlite3.connect(f"file:{args.database.resolve().as_posix()}?mode=ro", uri=True) as connection:
         funding_rows = connection.execute(
@@ -483,7 +502,7 @@ def main() -> int:
     tree = source_tree_manifest(Path.cwd())
     config_payload = {
         "pipeline_version": "proposal-pipeline-v1",
-        "candidate_ids": list(CANDIDATE_IDS),
+        "candidate_ids": list(candidate_ids),
         "cost_model": {
             "taker_fee_bps_per_side": str(_configured_taker_fee_bps()),
             "spread_bps_per_side": "1",

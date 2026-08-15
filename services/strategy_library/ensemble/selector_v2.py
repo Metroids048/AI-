@@ -22,8 +22,9 @@ class SelectionResult(FrozenContract):
 class CandidateSelectorV2:
     """Select one unchanged proposal, rejecting unresolved directional conflict."""
 
-    def __init__(self, *, conflict_margin: float = 0.10) -> None:
+    def __init__(self, *, conflict_margin: float = 0.08, minimum_selected_score: float = 0.58) -> None:
         self.conflict_margin = conflict_margin
+        self.minimum_selected_score = minimum_selected_score
 
     @staticmethod
     def _score(proposal: StrategyProposal) -> float:
@@ -63,6 +64,15 @@ class CandidateSelectorV2:
                     status="CONFLICT", selected=None, supporting_proposal_ids=(), rejected_reasons=rejected
                 )
         winner_score, winner = ranked[0]
+        if winner_score < self.minimum_selected_score:
+            rejected.update({proposal.proposal_id: "selected_score_below_threshold" for proposal in active})
+            return SelectionResult(
+                status="NO_TRADE",
+                selected=None,
+                supporting_proposal_ids=(),
+                rejected_reasons=rejected,
+                selected_score=winner_score,
+            )
         supporting = tuple(proposal.proposal_id for _, proposal in by_side[winner.side])
         for _, proposal in ranked:
             if proposal.side != winner.side:

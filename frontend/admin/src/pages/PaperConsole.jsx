@@ -379,13 +379,13 @@ export function PaperConsole() {
         positions={deskPositions}
         orders={deskOrders}
         decisions={activeRuntimeDecisions}
+        noTradeSummary={runtime.noTradeSummary}
         tradingStatus={tradingStatusFromRuntimeSnapshot(runtime.snapshot)}
         globalRiskStatus={riskStatusFromRuntime(runtime.reconciliation)}
         streamStatus={data.streamStatus}
         selectedSymbol={symbol}
         lastSuccessAt={runtime.lastSuccessAt}
       />
-      <RuntimeTruthPanel runtime={runtime} symbol={symbol} />
       <MarketList
         universe={data.universe}
         universeStatus={data.universeStatus}
@@ -418,7 +418,7 @@ export function PaperConsole() {
           />
         </div>
         <div className="insight-rail">
-          <WhyNoTrade decisions={activeRuntimeDecisions} />
+          <WhyNoTrade decisions={activeRuntimeDecisions} noTradeSummary={runtime.noTradeSummary} />
         </div>
       </section>
       <TradingRecordsWorkspace tabs={[

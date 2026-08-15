@@ -111,6 +111,7 @@ class DecisionContext:
     meta_label_predictor: Callable[[TradeCandidate], Decimal] | None = None
     manifest_eligible: bool = True
     manifest_reason: DecisionReasonCode | None = None
+    candidate_id_factory: Callable[[], str | uuid.UUID] = uuid.uuid4
 
 
 @dataclass(frozen=True)
@@ -474,7 +475,7 @@ def evaluate_symbol(context: DecisionContext) -> DecisionOutcome:
     expires_at = context.now + timedelta(seconds=context.candidate_ttl_seconds)
 
     candidate = TradeCandidate(
-        candidate_id=str(uuid.uuid4()),
+        candidate_id=str(context.candidate_id_factory()),
         cycle_id=context.cycle_id,
         strategy_id=context.strategy_id,
         strategy_version=context.strategy_version,

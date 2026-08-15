@@ -8,11 +8,11 @@ from pydantic import Field
 
 from services.strategy_library.context import BarWindow, FrozenContract, MarketContext
 
-SCORER_VERSION = "regime_scorer_v2.0.0"
+SCORER_VERSION = "regime_scorer_v2.1.0-aggressive-multi-regime"
 DIRECTION_WEIGHTS = {
-    "15m": Decimal("0.50"),
-    "1h": Decimal("0.30"),
-    "4h": Decimal("0.20"),
+    "15m": Decimal("0.20"),
+    "1h": Decimal("0.35"),
+    "4h": Decimal("0.45"),
 }
 
 

@@ -439,7 +439,7 @@ def test_regime_09_ambiguous_scores_are_unknown() -> None:
     not be forced into whichever label happens to be numerically largest.
     """
     context = _context(
-        total_return_15m=Decimal("0.015"),
+        total_return_15m=Decimal("0.018"),
         total_return_1h=Decimal("0.012"),
         total_return_4h=Decimal("0.010"),
     )

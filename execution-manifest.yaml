@@ -1,181 +1,55 @@
 contract:
-  name: crypto-quant-v2-production-finalization
+  name: market-alpha-meta-label-research
   schema: FROZEN_EXECUTION_CONTRACT
   prompt_version: Prompt_2_v3
-  status: BLOCKED_EVIDENCE
+  status: CURRENT_MARKET_ALPHA_SOURCE_EXHAUSTED
   document: project-solution-and-agent-plan.md
-  document_sha256: 4bb4fac6c9139bdf817d85fc9477e3ae922f5d06e29d5b30887247c09d6c2803
   committed_base:
     branch: backup/2026-08-10-wip
-    head: 46cf24d2b36c66906ffda96097e021bc920862ed
-    origin_delta_command: git log origin/backup/2026-08-10-wip..HEAD --oneline
-    origin_delta: empty
-  effective_working_baseline:
-    definition: committed_base plus the current user-owned uncommitted worktree overlay
-    overlay_identity: git status --short plus git diff --stat/name-only and cached diff stat/name-only
-    overlay_contains: [V2_authority_restore, Runtime_Truth, strategy_adapter, tests]
-    head_contains_overlay: false
-    preflight_change_policy: any_non_mechanical_change_is_BLOCKED_BASELINE
+    head: 7b98e75311d51551aae212038e29045d3a0e65c4
 
 permissions:
-  prompt_2_contract_correction_only: true
-  code_implementation: false
-  test_edits: false
+  code_implementation: true
+  test_edits: true
   database_writes: false
   exchange_orders: false
-  testnet_runtime: false
   commit: false
   push: false
   branch_or_worktree: false
-  prompt_3_implementation_authorized: false
 
 scope:
   symbols: [BTC/USDT, ETH/USDT]
-  incumbent: trend_momentum_v2_enriched
-  permanently_excluded_from_production_competition: [testnet_sampling_v2]
-  frozen_values:
-    risk_per_trade: 0.10
-    max_leverage: 50
-    max_margin_fraction: 0.05
-    max_position_fraction: 2.50
-  must_not_change: [business_code, tests, production_authorization_approval, Binance_Testnet_state]
+  strategy_id: market_alpha_meta_label_research
+  must_change:
+    - services/strategy_library/market_alpha.py
+    - scripts/run_market_alpha_meta_research.py
+  must_not_change:
+    - services/strategy_library/candidates/
+    - services/strategy_library/proposal_pipeline.py
+    - services/automated_trading/application/cycle_service.py
+    - services/automated_trading/application/entry_gate.py
+    - services/automated_trading/application/entry_service.py
+    - services/automated_trading/application/exit_service.py
+    - services/automated_trading/application/protection_service.py
+    - services/automated_trading/application/reconciliation.py
+    - services/automated_trading/application/recovery_service.py
+    - services/automated_trading/infrastructure/binance_adapter.py
+    - services/execution/scheduler.py
+    - database schema and migrations
+    - exchange credentials and environment switches
 
-problems:
-  - id: P-001
-    title: V2 risk authority and portfolio-stop evidence
-    status: BLOCKED
-    implementation_authorized: false
-    conclusion_preserved: V2_sizing_and_entry_gates_are_mapped_but_portfolio_initial_risk_daily_loss_and_drawdown_lack_proven_V2_native_authority
-    classification_summary:
-      sizing_constraints: [risk_per_trade, max_symbol_exposure_or_max_position_fraction, max_leverage]
-      entry_hard_gates: [existing_position, cooldown, reconciliation, kill_switch, min_notional]
-      exit_exemptions: [reduce_only_exit_for_existing_positions]
-      dead_or_unused_in_active_V2: [max_portfolio_initial_risk_fraction, daily_loss_or_drawdown]
-    blocked_evidence:
-      - V2_ConfigSnapshot_owner_and_fields_for_portfolio_initial_risk_daily_loss_drawdown
-      - V2_fact_queries_for_portfolio_risk_realized_daily_pnl_equity_peak_and_current_equity
-      - V2_trading_day_reset_timezone
-      - exact_V2_native_entry_only_gate_symbol
-    allowed_next_step: Evidence-A_read_only_only
-    forbidden_resolution: [legacy_Gatekeeper_reattachment, invented_risk_thresholds, code_implementation]
+gates:
+  walk_forward_windows: 8
+  final_holdout_tuning: forbidden
+  equal_risk_only: true
+  dynamic_sizing: forbidden
+  holdout_end_exclusive: '2026-01-29T00:00:00Z'
+  historical_acceptance: locked_in_project_solution_plan
+  execution_regression_required: true
+  testnet_forward_required_for_result_accepted: true
 
-  - id: P-002
-    title: Runtime Truth exchange-probe failure recovery
-    status: ALREADY_SATISFIED
-    implementation_authorized: false
-    conclusion_preserved: cache_reuse_stale_unavailable_single_flight_timeout_continuation_and_background_recovery_are_already_covered
-    regression_contract: [retry_opportunity_within_30_seconds, one_inflight_exchange_probe, polling_safe, stale_not_zero, unavailable_not_zero, post_timeout_background_recovery]
-    forbidden_resolution: [mechanical_cache_constant_rewrite, code_task_without_new_measured_regression]
-
-  - id: P-003
-    title: B-mode Production entry and exit competition
-    status: BLOCKED
-    implementation_authorized: false
-    conclusion_preserved: no_BTC_ETH_hash_bound_OOS_evidence_or_promotable_exit_result_exists_and_no_champion_may_be_selected
-    blocked_evidence:
-      - perpetual_market_data_source_and_BTCUSDT_ETHUSDT_15m_1h_4h_bar_checksums
-      - exact_coverage_start_end_and_walk_forward_boundaries
-      - point_in_time_funding_and_funding_checksum
-      - gap_duplicate_and_ordering_checks
-      - candidate_rules_hashes
-      - fee_slippage_fill_and_sizing_contract
-      - candidate_by_symbol_by_window_trades_expectancy_PF_Sharpe_MaxDD_signal_density_trade_density
-      - distribution_derived_significant_deterioration_tolerances
-      - distribution_derived_minimum_density_ratio
-      - fixed_entry_exit_comparison_results
-    allowed_next_step: Evidence-B_read_only_public_market_data_only
-    forbidden_resolution: [strategy_threshold_change, testnet_sampling_v2_authority, entry_and_exit_change_together, code_implementation]
-
-tasks:
-  - id: PRE-000
-    type: VERIFY_ONLY
-    status: REQUIRED_BEFORE_ANY_FUTURE_PROMPT_3
-    problem_ids: [P-001, P-002, P-003]
-    code_implementation: false
-    file_allowlist: []
-    commands:
-      - git status --short
-      - git branch --show-current
-      - git rev-parse HEAD
-      - git diff --stat
-      - git diff --name-only
-      - git diff --cached --stat
-      - git diff --cached --name-only
-      - git log origin/backup/2026-08-10-wip..HEAD --oneline
-    required_identity: [branch, HEAD, worktree_overlay_identity_and_scope, origin_delta]
-    stop_state_on_non_mechanical_change: BLOCKED_BASELINE
-    must_not_change: [all_repository_files]
-
-global_regression:
-  required_before_any_future_implementation: true
-  baseline_known_failures:
-    - tests/test_candidate_registry.py::test_registry_has_nine_candidates
-    - tests/test_candidate_registry.py::test_list_candidates
-  baseline_known_lint_findings:
-    - scripts/run_proposal_research_replay.py:326:B023
-    - scripts/verify_gate17_e2e.py:77:C416
-  focused_evidence:
-    - "pytest -q tests/api/test_runtime_truth_api.py tests/services/test_automated_trading_entry.py tests/services/test_automated_trading_cycle.py => 69 passed, 2 warnings"
-  full_suite_evidence: "pytest -q => 1541 passed, 7 skipped, 2 failed"
-  typecheck_evidence: "mypy => Success: no issues found in 236 source files"
-  diff_check: "git diff --check => PASS"
-  preexisting_out_of_scope: [candidate_registry_count_assertions, unrelated_ruff_script_findings]
-
-independent_review:
-  required: true
-  status: REQUIRED_AFTER_A_FUTURE_IMPLEMENTATION_ONLY
-  separate_read_only_reviewer: true
-  implementation_commit_required: true
-  current_review_result: contract_correction_not_an_implementation_review
-  checks: [authority_chain, evidence_hashes, frozen_values, diff_scope, no_legacy_Gatekeeper_reattachment, no_second_execution_truth]
-
-external_validation:
-  required: true
-  separate_run: true
-  reviewed_implementation_commit_required: true
-  code_changes_forbidden: true
-  test_changes_forbidden: true
-  validation_script_changes_forbidden: true
-  stages:
-    - id: EV-001
-      name: Browser_Acceptance
-      status: NOT_RUN_SEPARATE_GATE
-      prerequisites: [future_implementation_complete, independent_review_passed]
-      acceptance: [seven_navigation_pages, 900p, 1080p, first_fold, loading_empty_stale_unavailable_current, console_errors, network_polling, exchange_probe_recovery, BTC_ETH_reconciliation_side_qty_status_consistency]
-      failure_handling: new_independent_Prompt_1_or_Prompt_2_issue_no_patch_during_acceptance
-    - id: EV-002
-      name: Natural_Binance_Testnet_Trading_Acceptance
-      status: NOT_RUN_NOT_AUTHORIZED
-      prerequisites: [production_candidate_evidence_complete, independent_review_passed, explicit_user_operator_approval]
-      acceptance: [natural_production_signal, production_primary_TradeCandidate, V2_entry_gate, real_Binance_Testnet_order, real_fill, fill_based_protection, correct_reduce_only_side, natural_or_SL_or_TP_exit, V2_CLOSED, protection_retired, realized_PnL_exactly_once, reconciliation_HEALTHY, no_duplicate_order_exit_ghost_position_or_PnL]
-      forbidden: [sampling_signal, forced_entry, acceptance_order, lowered_strategy_threshold, disabled_risk_control, scheduler_change_for_acceptance]
-
-delivery:
-  final_status: BLOCKED_EVIDENCE
-  production_authorization:
-    state: PENDING
-    operator_approval_owner: user
-    agent_may_set_approved: false
-    required_bindings: [candidate_id, candidate_version, lifecycle_state, rules_hash, ConfigSnapshot_hash, BTC_ETH_scope, entry_validation_evidence, exit_validation_evidence, walk_forward_evidence, risk_contract_hash, operator_approval_state]
-  next_step: Evidence-Completion
-  evidence_completion_order: [Evidence-A_P-001_risk_contract, Evidence-B_P-003_production_competition_dataset, narrow_Prompt_2_Final_Freeze]
-  no_prompt_3_before: [P-001_and_P-003_blocked_evidence_resolved, final_freeze_status_READY_WITH_SEPARATE_EXTERNAL_VALIDATION]
-  allowed_artifacts_for_this_correction: [project-solution-and-agent-plan.md, execution-manifest.yaml]
-
-contract_lint:
-  required: true
-  parser: PyYAML
-  checks:
-    - yaml_parses
-    - markdown_and_manifest_problem_statuses_agree
-    - BLOCKED_problems_have_no_code_implementation_task
-    - ALREADY_SATISFIED_problems_have_no_code_implementation_task
-    - external_validation_stages_are_not_tasks
-    - PREEXISTING_OUT_OF_SCOPE_is_not_a_task
-    - no_empty_CODE_IMPLEMENTATION_task
-    - every_task_has_defined_file_allowlist
-    - prompt_3_has_no_implementation_permission_while_BLOCKED_EVIDENCE
-    - production_authorization_is_PENDING
-    - worktree_overlay_is_not_described_as_HEAD_content
-    - document_sha256_matches
-  final_status: BLOCKED_EVIDENCE
+completion:
+  intermediate_status: CURRENT_MARKET_ALPHA_SOURCE_EXHAUSTED
+  final_status: CURRENT_MARKET_ALPHA_SOURCE_EXHAUSTED
+  production_authorization: PENDING
+  independent_review: REQUIRED

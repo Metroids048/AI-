@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from threading import Lock
 from typing import Literal
 
@@ -418,6 +418,160 @@ def _strategy_evidence_datum(*, paper_runs: list[PaperRun], observed_at: datetim
     )
 
 
+_ENTRY_BLOCKING_REASONS = frozenset(
+    {
+        "POSITION_ALREADY_OPEN",
+        "ENTRY_KILL_SWITCH_ACTIVE",
+        "DAILY_TRADE_LIMIT_REACHED",
+        "SYMBOL_COOLDOWN_ACTIVE",
+        "RISK_LIMIT_EXCEEDED",
+        "PRICE_DRIFT_EXCEEDED",
+        "NET_EDGE_AFTER_COST_NEGATIVE",
+        "PRETRADE_DECISION_STALE",
+        "RECONCILIATION_BLOCKED",
+    }
+)
+_DECISION_PIPELINE_MAX_AGE = timedelta(minutes=30)
+
+
+def _iso_datetime(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def _decision_at(item: dict) -> datetime | None:
+    value = item.get("at")
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return None
+
+
+def _entry_blocking_reason(reason: str) -> bool:
+    return reason in _ENTRY_BLOCKING_REASONS or reason.startswith(("RISK_", "POSITION_", "PRICE_DRIFT_"))
+
+
+def build_no_trade_summary(
+    *,
+    observed_at: datetime,
+    window_hours: int,
+    scheduler: dict,
+    exchange: dict,
+    data: dict,
+    reconciliation: dict,
+    entry_runtime: dict,
+    decisions: list[dict],
+    entry_fills: list[dict],
+) -> dict:
+    """Project existing Runtime Truth facts into one deterministic no-trade status."""
+    window_start = observed_at - timedelta(hours=window_hours)
+    normalized_decisions = sorted(
+        (
+            {**item, "at": at}
+            for item in decisions
+            if (at := _decision_at(item)) is not None and at >= window_start
+        ),
+        key=lambda item: item["at"],
+        reverse=True,
+    )
+    duplicate_decisions = [item for item in normalized_decisions if item.get("reason") == "DUPLICATE_DECISION"]
+    effective_decisions = [item for item in normalized_decisions if item.get("reason") != "DUPLICATE_DECISION"]
+    reason_counts: dict[str, int] = {}
+    for item in effective_decisions:
+        reason = str(item.get("reason") or "UNKNOWN")
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    dominant_reason = next(iter(reason_counts), None)
+    if reason_counts:
+        dominant_reason = max(reason_counts, key=lambda reason: (reason_counts[reason], reason))
+
+    entry_fill_times = [
+        at
+        for item in entry_fills
+        if not bool(item.get("reduce_only"))
+        and (at := _decision_at(item)) is not None
+        and at >= window_start
+    ]
+    last_entry = max(entry_fill_times, default=None)
+    hours_since_last_entry = (
+        round((observed_at - last_entry).total_seconds() / 3600, 3) if last_entry is not None else None
+    )
+
+    heartbeat_at = scheduler.get("heartbeat_at")
+    last_auto_cycle_at = scheduler.get("last_auto_cycle_at")
+    exchange_status = str(exchange.get("status") or "unavailable")
+    reconciliation_status = str(reconciliation.get("status") or "unavailable")
+    trading_state = str(entry_runtime.get("trading_state") or "ENTRY_PAUSED")
+    entry_authorized = bool(entry_runtime.get("entry_authorized"))
+    latest_decision_at = normalized_decisions[0]["at"] if normalized_decisions else None
+
+    if not bool(scheduler.get("running")):
+        summary_code = "SCHEDULER_OFFLINE"
+    elif exchange_status == "unavailable" or exchange.get("value") is None:
+        summary_code = "EXCHANGE_UNAVAILABLE"
+    elif not bool(data.get("fresh")) or not bool(data.get("exchange_info_ready")):
+        summary_code = "MARKET_DATA_STALE"
+    elif reconciliation_status != "healthy" or reconciliation.get("blocked_symbols"):
+        summary_code = "RECONCILIATION_BLOCKED"
+    elif trading_state == "ENTRY_PAUSED" or not entry_authorized:
+        summary_code = "ENTRY_PAUSED"
+    elif latest_decision_at is None or observed_at - latest_decision_at > _DECISION_PIPELINE_MAX_AGE:
+        summary_code = "DECISION_PIPELINE_STALLED"
+    elif dominant_reason is not None and _entry_blocking_reason(dominant_reason):
+        summary_code = "ENTRY_BLOCKED"
+    else:
+        summary_code = "HEALTHY_WAITING_FOR_SIGNAL"
+
+    return {
+        "window_hours": window_hours,
+        "window_start": window_start.isoformat(),
+        "observed_at": observed_at.isoformat(),
+        "last_entry_at": _iso_datetime(last_entry),
+        "hours_since_last_entry": hours_since_last_entry,
+        "runtime_status": "异常" if summary_code in {
+            "SCHEDULER_OFFLINE",
+            "EXCHANGE_UNAVAILABLE",
+            "MARKET_DATA_STALE",
+            "RECONCILIATION_BLOCKED",
+            "DECISION_PIPELINE_STALLED",
+        } else "正常",
+        "scheduler": {
+            "running": bool(scheduler.get("running")),
+            "heartbeat_at": _iso_datetime(heartbeat_at) if isinstance(heartbeat_at, datetime) else heartbeat_at,
+            "last_auto_cycle_at": (
+                _iso_datetime(last_auto_cycle_at) if isinstance(last_auto_cycle_at, datetime) else last_auto_cycle_at
+            ),
+        },
+        "exchange": {"status": exchange_status},
+        "data": {
+            "fresh": bool(data.get("fresh")),
+            "exchange_info_ready": bool(data.get("exchange_info_ready")),
+        },
+        "reconciliation": {
+            "status": reconciliation_status,
+            "blocked_symbols": list(reconciliation.get("blocked_symbols") or []),
+        },
+        "entry_runtime": {
+            "trading_state": trading_state,
+            "entry_authority": entry_runtime.get("entry_authority"),
+            "entry_authorized": entry_authorized,
+            "reason": entry_runtime.get("reason") or entry_runtime.get("entry_authority_reason"),
+        },
+        "decisions": {
+            "total": len(normalized_decisions),
+            "effective": len(effective_decisions),
+            "duplicate": len(duplicate_decisions),
+            "latest_at": _iso_datetime(latest_decision_at),
+            "reason_counts": reason_counts,
+            "dominant_reason": dominant_reason,
+        },
+        "summary_code": summary_code,
+    }
+
+
 @router.get("/snapshot")
 def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
     observed_at = datetime.now(UTC)
@@ -495,6 +649,56 @@ def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
             observed_at=observed_at,
         ),
     }
+
+
+@router.get("/no-trade-summary")
+def runtime_no_trade_summary(
+    window_hours: int = Query(default=3, ge=1, le=24),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    observed_at = datetime.now(UTC)
+    window_start = observed_at - timedelta(hours=window_hours)
+    v2_repo = _v2_repo(db)
+    scheduler = load_external_scheduler_state(now=observed_at)
+    exchange = _exchange_truth()
+    reconciliation = runtime_reconciliation(db)
+    decisions = [
+        {
+            "at": decision.created_at,
+            "reason": decision.terminal_reason or (decision.payload or {}).get("reason_code") or "UNKNOWN",
+        }
+        for decision, _cycle in v2_repo.list_recent_decisions(since=window_start, limit=500)
+    ]
+    fills = [
+        {"at": fill.received_at, "reduce_only": fill.reduce_only}
+        for fill, _intent in v2_repo.list_exchange_fills(
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            limit=500,
+        )
+    ]
+    return build_no_trade_summary(
+        observed_at=observed_at,
+        window_hours=window_hours,
+        scheduler={
+            "running": scheduler.running,
+            "heartbeat_at": scheduler.heartbeat_at,
+            "last_auto_cycle_at": scheduler.last_auto_cycle_at,
+        },
+        exchange=exchange,
+        data={"fresh": scheduler.data_fresh, "exchange_info_ready": scheduler.exchange_info_ready},
+        reconciliation={
+            "status": reconciliation["status"],
+            "blocked_symbols": reconciliation["entry_blocked_symbols"],
+        },
+        entry_runtime={
+            "trading_state": scheduler.trading_state or "ENTRY_PAUSED",
+            "entry_authority": scheduler.entry_authority or "NONE",
+            "entry_authorized": bool(scheduler.entry_authorized),
+            "reason": scheduler.entry_authority_reason or scheduler.reason,
+        },
+        decisions=decisions,
+        entry_fills=fills,
+    )
 
 
 @router.get("/decisions")

@@ -31,6 +31,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     func,
     text,
 )
@@ -80,6 +81,72 @@ class V2ExecutionDecision(Base):
     terminal_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+
+class V2DecisionSnapshot(Base):
+    """Hash-sealed, append-only input/evidence for one forward decision."""
+
+    __tablename__ = "v2_decision_snapshots"
+    __table_args__ = (UniqueConstraint("decision_id", name="uq_v2_decision_snapshot_decision"),)
+
+    snapshot_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    cycle_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("v2_execution_cycles.cycle_id"), nullable=False, index=True
+    )
+    decision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("v2_execution_decisions.decision_id"), nullable=False, index=True
+    )
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    decision_time: Mapped[datetime] = mapped_column(nullable=False, index=True)
+    snapshot_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+
+class V2ShadowRecord(Base):
+    """One non-executable ACTUAL/R1/R2/R3 observation for a snapshot."""
+
+    __tablename__ = "v2_shadow_records"
+    __table_args__ = (UniqueConstraint("snapshot_id", "variant", name="uq_v2_shadow_snapshot_variant"),)
+
+    shadow_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    snapshot_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("v2_decision_snapshots.snapshot_id"), nullable=False, index=True
+    )
+    variant: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    payload_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+
+class V2ShadowOutcome(Base):
+    """Append-only outcome backfill for a Shadow record after the real exit."""
+
+    __tablename__ = "v2_shadow_outcomes"
+    __table_args__ = (UniqueConstraint("shadow_id", name="uq_v2_shadow_outcome_shadow"),)
+
+    outcome_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    shadow_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("v2_shadow_records.shadow_id"), nullable=False, index=True
+    )
+    outcome_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+
+@event.listens_for(V2DecisionSnapshot, "before_update")
+def _reject_forward_snapshot_update(*_args: object) -> None:
+    raise ValueError("V2 decision snapshots are append-only")
+
+
+@event.listens_for(V2ShadowRecord, "before_update")
+def _reject_shadow_record_update(*_args: object) -> None:
+    raise ValueError("V2 shadow records are append-only")
+
+
+@event.listens_for(V2ShadowOutcome, "before_update")
+def _reject_shadow_outcome_update(*_args: object) -> None:
+    raise ValueError("V2 shadow outcomes are append-only")
 
 
 class V2ExecutionIntent(Base):
@@ -248,6 +315,7 @@ class V2ProtectionRecord(Base):
         String(36), ForeignKey("v2_managed_positions.position_id"), nullable=False, index=True
     )
     stop_loss_price: Mapped[Decimal] = mapped_column(Numeric(20, 4), nullable=False)
+    original_stop_loss_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
     take_profit_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
     stop_client_order_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     tp_client_order_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
@@ -255,6 +323,7 @@ class V2ProtectionRecord(Base):
     tp_exchange_order_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     state: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    policy: Mapped[str] = mapped_column(String(20), nullable=False, default="P1")
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     activated_at: Mapped[datetime | None] = mapped_column(nullable=True)
 

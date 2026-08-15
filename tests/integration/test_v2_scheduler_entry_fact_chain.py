@@ -631,11 +631,13 @@ def test_v2_active_persists_same_cycle_research_shadow_when_position_already_ope
         assert shadow["cycle_id"] == cycle_id
         assert shadow["symbol"] == "BTC/USDT"
         assert shadow["bar_close_time"] == bar_close.timestamp.isoformat()
-        assert len(shadow["observations"]) == 3
+        assert len(shadow["observations"]) == 5
         assert {item["strategy_id"] for item in shadow["observations"]} == {
+            "loss_aware_trend_pullback_v1",
             "trend_pullback_v2",
             "range_sweep_reversion_v1",
             "failed_breakout_reversal_v1",
+            "breakout_continuation_v1",
         }
         for observation in shadow["observations"]:
             assert observation["scheduler_session_id"] == "p1-active-session"

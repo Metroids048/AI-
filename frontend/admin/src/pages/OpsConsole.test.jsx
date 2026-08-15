@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { OpsConsole } from "./OpsConsole";
 
@@ -35,6 +35,8 @@ request.mockImplementation(async (path) => {
 
 vi.mock("../api/client", () => ({ request, streamUrl: (path) => `ws://localhost${path}` }));
 
+afterEach(cleanup);
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -66,5 +68,12 @@ describe("OpsConsole", () => {
     );
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
+  });
+
+  it("keeps the complete Runtime Truth diagnostics on the operations page", async () => {
+    renderPage();
+    expect(await screen.findByText("运维控制台")).toBeInTheDocument();
+    expect(await screen.findByText("Runtime Truth")).toBeInTheDocument();
+    expect(screen.getByText("Exchange Orders")).toBeInTheDocument();
   });
 });

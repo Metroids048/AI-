@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { request } from "../api/client";
 import { StatusPill } from "../components/Common";
 import { FeedPanel } from "../components/OpsPanels";
+import { RuntimeTruthPanel } from "../components/RuntimeTruthPanel";
 import { AutoEngineStatusBadge } from "../components/TradingConsolePanels";
 import { useRuntimeTruth } from "../hooks/useRuntimeTruth";
 import { asArray, formatBoolean, formatEnum, formatFieldLabel, formatTime } from "../utils/format";
@@ -76,6 +77,7 @@ export function OpsConsole() {
       </header>
 
       <AutoEngineStatusBadge status={tradingStatus} />
+      <RuntimeTruthPanel runtime={runtime} symbol="BTC/USDT" />
       {health.isError || scheduler?.status === "unavailable" ? (
         <section className="action-message error" role="alert">
           运维状态接口不可用，当前页面数据不能作为系统正常运行的证据。

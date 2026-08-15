@@ -82,6 +82,32 @@ def test_replay_enters_on_next_bar_open_and_applies_costs() -> None:
     assert metrics.trades[0].net_return < metrics.trades[0].gross_return
 
 
+def test_v2_single_target_replay_uses_projection_without_time_exit() -> None:
+    decision_time = datetime(2025, 1, 1, 1, 0, tzinfo=UTC)
+    context = _context(decision_time)
+    bars = [
+        _bar(decision_time, open_="100", high="101", low="99", close="100"),
+        _bar(decision_time + timedelta(minutes=15), open_="100", high="100.5", low="99.5", close="100"),
+        _bar(decision_time + timedelta(minutes=30), open_="100", high="105.5", low="99.5", close="105"),
+    ]
+    contexts = [
+        context,
+        _context(decision_time + timedelta(minutes=15)),
+        _context(decision_time + timedelta(minutes=30)),
+    ]
+
+    metrics = ProposalReplayRunner(cost_model=ReplayCostModel(partial_fill_fraction=Decimal("1"))).replay(
+        strategy_id="research",
+        contexts=contexts,
+        next_entry_bars=bars,
+        generator=lambda item: _proposal(item) if item.decision_time == decision_time else None,
+        mode="v2_single_target",
+    )
+
+    assert metrics.total_trades == 1
+    assert metrics.trades[0].exit_reason == "all_targets"
+
+
 def test_replay_rejects_next_bar_when_price_drift_exceeds_proposal_limit() -> None:
     decision_time = datetime(2025, 1, 1, 1, 0, tzinfo=UTC)
     context = _context(decision_time)

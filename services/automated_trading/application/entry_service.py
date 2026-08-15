@@ -86,6 +86,8 @@ class EntryRuntimeContext:
     daily_trade_limit_reached: bool = False
     manifest_eligible: bool = True
     net_edge_after_cost_bps: Decimal | None = None
+    theoretical_net_payoff: Decimal | None = None
+    cost_r: Decimal | None = None
     risk_budget_available: bool = True
     ai_advisory_veto: bool = False
     now: datetime | None = None
@@ -169,6 +171,13 @@ def evaluate_entry(
             (
                 DecisionReasonCode.NET_EDGE_AFTER_COST_NEGATIVE,
                 f"net edge after cost is {runtime.net_edge_after_cost_bps} bps",
+            )
+        )
+    if runtime.theoretical_net_payoff is not None and runtime.theoretical_net_payoff < Decimal("1.15"):
+        blocks.append(
+            (
+                DecisionReasonCode.NO_TRADE_COST_INEFFICIENT,
+                f"theoretical net payoff {runtime.theoretical_net_payoff} below 1.15 (cost_R={runtime.cost_r})",
             )
         )
     if not runtime.risk_budget_available:

@@ -198,6 +198,26 @@ export function formatDecisionReason(value) {
   return DECISION_REASON_LABELS[key] ?? DECISION_REASON_LABELS[key.toUpperCase()] ?? key;
 }
 
+/**
+ * Translate the deterministic Runtime Truth no-trade projection for the
+ * homepage. Raw codes remain available in the operations view and tooltips.
+ */
+export function formatNoTradeSummary(summaryCode, dominantReason, count = 0) {
+  const reason = dominantReason ? formatDecisionReason(dominantReason) : "当前条件";
+  const suffix = Number(count) > 0 ? `（${Number(count)} 次）` : "";
+  const labels = {
+    SCHEDULER_OFFLINE: "自动交易程序异常：调度器心跳中断",
+    EXCHANGE_UNAVAILABLE: "自动交易程序异常：交易所暂不可用",
+    MARKET_DATA_STALE: "自动交易程序异常：行情数据未及时更新",
+    RECONCILIATION_BLOCKED: "自动交易程序异常：账户对账异常",
+    ENTRY_PAUSED: `新开仓已暂停：${reason}`,
+    DECISION_PIPELINE_STALLED: "自动交易程序异常：策略判断流水已停止更新",
+    ENTRY_BLOCKED: `新开仓被拦截：${reason}${suffix}`,
+    HEALTHY_WAITING_FOR_SIGNAL: "策略正在等待交易机会",
+  };
+  return labels[summaryCode] ?? "运行状态待确认";
+}
+
 /** Strip the CCXT perpetual suffix so the UI shows BTC/USDT, not BTC/USDT:USDT. */
 export function formatSymbol(value) {
   if (value === null || value === undefined || value === "") return "--";

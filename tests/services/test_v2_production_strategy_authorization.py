@@ -104,6 +104,27 @@ def test_default_manifest_is_pending_and_cannot_authorize() -> None:
     assert authorization.reason == NO_AUTHORIZED_PRODUCTION_STRATEGY
 
 
+def test_research_only_candidate_cannot_authorize_even_with_valid_hashes(approved_manifest) -> None:
+    _manifest, snapshot, snapshot_hash = approved_manifest
+    from services.automated_trading.application import production_strategy
+
+    manifest = json.loads(production_strategy._manifest_path().read_text(encoding="utf-8"))
+    manifest["production_authorization"]["candidate_id"] = "aggressive_multi_regime_v1"
+    manifest["production_authorization"]["candidate_version"] = "1.0.0"
+    rules = get_candidate("aggressive_multi_regime_v1").get_config()
+    strategy_rules = StrategyRules(**rules)
+    snapshot["strategy_rules"] = rules
+    manifest["rules_hash"] = strategy_rules_hash(strategy_rules)
+    manifest["production_authorization"]["rules_hash"] = strategy_rules_hash(strategy_rules)
+    production_strategy._manifest_path().write_text(json.dumps(manifest), encoding="utf-8")
+    authorization = resolve_production_authorization(
+        snapshot_config=snapshot,
+        snapshot_hash=snapshot_hash,
+        symbol="BTC/USDT",
+    )
+    assert authorization.authorized is False
+
+
 @pytest.mark.parametrize(
     ("mutation", "symbol"),
     [

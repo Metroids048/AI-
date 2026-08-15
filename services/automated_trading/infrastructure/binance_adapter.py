@@ -601,6 +601,40 @@ class BinanceTestnetAdapter:
             )
             raise BinanceAdapterUnavailable(f"Cannot submit protection: {e}") from e
 
+    def submit_stop_replacement(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        stop_price: Decimal,
+        client_order_id: str,
+    ) -> ExchangeOrderReceipt:
+        """Submit one replacement stop without duplicating the take-profit leg."""
+        client = self._ensure_gateway()
+        try:
+            response = client.create_order(
+                symbol=symbol,
+                type="stop_market",
+                side=side,
+                amount=float(quantity),
+                params={"stopPrice": float(stop_price), "newClientOrderId": client_order_id, "reduceOnly": True},
+            )
+            return ExchangeOrderReceipt(
+                exchange_order_id=str(response["id"]),
+                client_order_id=client_order_id,
+                symbol=symbol,
+                side=side,
+                order_type="stop_market",
+                quantity=quantity,
+                price=stop_price,
+                status=response["status"],
+                acknowledged_at=datetime.now(UTC),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Failed to submit replacement protection for %s: %s", symbol, exc, exc_info=True)
+            raise BinanceAdapterUnavailable(f"Cannot submit replacement protection: {exc}") from exc
+
     def submit_reduce_only_exit(
         self,
         command: SubmitReduceOnlyExit,
