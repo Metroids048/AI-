@@ -79,3 +79,11 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-push]
+
+      - id: refuse-push-large-files
+        name: refuse push when outgoing blobs exceed 50 MiB
+        entry: python scripts/prepush_block_large_files.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
