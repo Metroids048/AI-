@@ -52,6 +52,10 @@ Thumbs.db
 *.sqlite3
 *.egg-info/
 
+# Generated Testnet audit payloads stay local; commit the derived reports instead.
+docs/audits/*-testnet-history/raw/
+docs/audits/*-testnet-history/canonical/strategy_decisions.csv
+
 # Freqtrade runtime (keep .gitkeep + the example config only)
 infra/freqtrade/user_data/*
 !infra/freqtrade/user_data/.gitkeep

@@ -1462,3 +1462,132 @@
   `exchange_info_refresh` TLS handshake timeout set `exchange_info_ready=false`;
   API listener `8016` remains unavailable. State files were atomically
   replaced; `success` remains `false` and the next action is unchanged.
+
+# 2026-08-16 — P2-A exit-policy shadow evaluation and operations unblock
+
+- Ran the existing read-only `services.research.exit_policy_shadow.cli` against
+  `.local_paper_console.db`; loaded 30 real `testnet_sampling_v2` closed entries
+  (BTC 14, ETH 16) and replayed all five frozen exit policies at 1m fidelity.
+- Overall control A remained the best observed policy but was not promotable:
+  net `-7.85` USDT, PF `1.11`, median capture `68.89%`, fee drag `304.15` USDT.
+  Q1 `NOT_SUPPORTED`, Q2 `NOT_SUPPORTED`, and Q3
+  `INSUFFICIENT_SLICE_SAMPLE`; only RANGE/UNKNOWN slices reached 10 entries.
+  Expansion (7) and Trend (2) remain thin. Artifact:
+  `docs/audits/2026-08-11-p2a-exit-policy-shadow-results.json`.
+- Actual V2 ledger decomposition on the same 30 positions (15 TAKE_PROFIT / 15
+  HARD_STOP) found gross `+0.07374R`, recorded entry+exit cost `0.22834R`, and
+  net `-0.15460R`. With nominal 1.5R/-1R geometry and the observed 15/15 split,
+  cost-adjusted ideal was `+0.02166R`; actual gross lagged nominal geometry by
+  `0.17626R`. This makes cost the largest measured drag, with a separate
+  geometry/fill shortfall. Artifact:
+  `docs/audits/2026-08-16-p2a-actual-decomposition.json`.
+- Eleven of the 30 P2-A positions crossed at least one 8h funding settlement
+  boundary (12 boundary events total), and the completed read-only Binance
+  income audit confirms funding is material: 32 closed V2 episodes, net
+  `-565.22143738` USDT, commission `271.53670323` USDT, funding
+  `-134.96894383` USDT, PF `0.39659635`. `calculate_cost_gate()` still defaults
+  `funding_bps=0` and its live call site passes no funding value. No production
+  cost-model change was made because the funding input is not yet wired point-in-time
+  to each entry/holding interval. Reports:
+  `docs/audits/2026-08-16-testnet-history/reports/live_strategy_evaluation.json`
+  and `data_completeness.json`.
+- P2-B same-cycle shadow scan found 454 generic `v2_shadow_records`, but zero
+  records matching `trend_pullback_v2`, `range_sweep_reversion_v1`, or
+  `failed_breakout_reversal_v1`; no P2-B result can substitute for P2-A evidence.
+- Operations: `/health` on `127.0.0.1:8016` returned HTTP 200 and the port was
+  actively owned by the API process. The historical `unavailable` loop state was
+  stale/auth-related (protected runtime endpoint returned 401), not a current
+  listener outage. The repeated natural-exit wait was not required for this
+  offline replay and was stopped for this research turn.
+- Independent runtime snapshot `scripts/i1_runtime_state_snapshot.py` confirmed
+  `127.0.0.1:8016 LISTENING` under PID `18964`, scheduler cycles `24978`, and
+  one still-open protected BTC position. No order, cancellation, close, or
+  database mutation was performed to force the position.
+- Consolidated the three-component evidence in
+  `docs/audits/2026-08-16-p2a-component-summary.json`.
+
+# 2026-08-16 — PF cohort alignment, funding attribution boundary, and P2-B storage check
+
+- Reconciled the apparent `1.1123` vs `0.3966` PF gap before running any
+  funding-only experiment. Policy A replay PF `1.11229903` is modeled replay
+  over 30 local CLOSED positions; the exchange audit PF `0.39659635` is 32
+  account-level TradeEpisode rows with funding included. The 3 extra episodes
+  are the three QUARANTINED positions, and one P2-A ETH position is absorbed
+  into an earlier account-level ETH episode. The same 30 positions mapped to
+  exchange fills have pre-funding actual PF `0.50914947` (gross `-172.6881`
+  USDT, commission `243.4460` USDT, net `-416.1341` USDT).
+- The previously cited `0.48688` cannot be found in the current repository or
+  artifacts and is not reproducible from the current 30-row decomposition;
+  current normalized-R PF is `0.75334826`. It is marked unsupported pending a
+  source/formula, not silently reused.
+- Point-in-time funding window matching found 3 account income events across
+  3/30 positions, totaling `+1.33323099` USDT in the naive window sum. All
+  matched contexts have stale (>30m) position snapshots and account-level
+  income is not uniquely attributable with the observed external/contradictory
+  exposure. Result is `FUNDING_WINDOW_MATCHED_ACCOUNT_LEVEL_AMBIGUOUS` and
+  `INSUFFICIENT_DATA` for a funding-only variable experiment; no production
+  cost gate or execution code was changed.
+- Corrected P2-B storage diagnosis: the three candidates are persisted in
+  `v2_execution_decisions.payload.research_shadow`, not the legacy
+  `v2_shadow_records` table. After cutover there are 25,995 raw embedded
+  observations / 5,607 unique observations: each candidate has 1,869 unique
+  observations; trend pullback and range sweep are all `SHADOW_NO_SIGNAL`,
+  while failed breakout has 16 `SHADOW_SIGNAL_READY` and 5
+  `SHADOW_STRATEGY_REJECTED` observations. This is low signal incidence, not
+  a disconnected writer. Artifact:
+  `docs/audits/2026-08-16-p2b-embedded-shadow.json`.
+
+# 2026-08-16 — Runtime parity and P1 dynamic-protection audit
+
+- Added and ran the read-only `scripts/audit_runtime_p1_parity.py` over the same
+  30-position P2-A cohort. R0 exactly reproduces the existing Policy A replay
+  (`PF gross=1.11229903`, mean net `-7.848168` USDT / `0.047839R`).
+- Runtime-parity stages use the persisted exchange-rounded protection geometry:
+  R1 static path `0.291423R` gross, R2 with conservative next-bar P1 updates
+  `0.249455R` gross, and R3 actual exchange fills `0.073741R` gross / `-0.154600R`
+  commission-net. R1->R2 is `-0.041968R`; R2->R3 remains `-0.404055R`.
+- Simulated P1 triggered in 21/30 rows (12 did not reach target), but the
+  historical protection ledger has zero explicit `ProfitProtectionStopTightened`
+  events. A `policy=P1` label alone is not replacement evidence.
+- Decision: `P1_NOT_PRIMARY_EXPLANATION / CONTINUE_RUNTIME_ATTRIBUTION`.
+  Do not start a funding-only or signal experiment yet; next inspect actual exit
+  order identity, protection prices, exchange fill price/slippage and replay
+  timing semantics. Evidence: `docs/audits/2026-08-16-runtime-p1-parity.*`.
+
+# 2026-08-16 — Exit order/fill lineage and natural-exit continuation
+
+- Added a read-only V2 episode lineage report at
+  `scripts/build_exit_order_fill_lineage.py`, with focused coverage in
+  `tests/scripts/test_build_exit_order_fill_lineage.py`. It maps every 30-row
+  R0-R3 episode through entry intent/order/fills, protection receipts/events,
+  reduce-only exit fills, and related incidents.
+- The completed historical cohort is 15 `STOP` / 15 `TARGET`, with zero abnormal
+  exits and zero quantity-mismatched partial exits. The relevant measured loss
+  contributors are trigger-to-fill timing `-5.23940860R` and commission
+  `-6.85480521R`; 21 counterfactual P1 triggers with no historical replacement
+  receipt are retained as `unknown_residual=-1.29198910R`, not attributed to a
+  made-up execution defect.
+- All 30 reduce-only fill order IDs are now asserted against the corresponding
+  `ProtectionTriggered.event_payload.exchange_order_id`; missing intent or linkage
+  is reported per episode instead of aborting or silently accepting the audit.
+- Current runtime supplies the missing live P1 receipt: managed BTC/USDT stop
+  moved from `62744.5` to `62976.0229`, order `1000000168673444`, with the original
+  TP `1000000167954361` still live and reconciliation HEALTHY. Scheduler remains
+  ACTIVE and API health at port 8016 is restored. The remaining machine action is
+  natural reduce-only exit verification; no manual order or close was issued.
+## [TASK-2026-08-16-COST-LOOP] Execution cost optimization loop
+
+- Corrected the stop condition: the open BTC/USDT position is runtime-health observation only, never a blocker for current-data optimization.
+- Read-only root cause report: 30 closed episodes, 15 STOP / 15 TARGET, 30/30 exit-lineage matches, commission `0.22834078R/trade`, trigger-to-fill `-0.17464695R/trade`, fee `4bps/side`, and risk-percent/commission-R correlation `-0.96346`.
+- ATR-native-only selection challenger completed 70/30 BTC/ETH, 1m fidelity, observed commission calibration, and 1.5x stress; rejected with BTC OOS expectancy `-0.30199679R` / PF `0.61451`, ETH `-0.27896443R` / PF `0.63789`, stress combined `-0.44789986R` / PF `0.48497`.
+- Maker/limit model was not fabricated: `.strategy_refactor_history.db` has no historical order-book-like tables, so timeout, missed fills, adverse selection and drift are unavailable.
+- Existing Policy A-E report was reused as the next bounded branch; Policy C leads only on 9 proxy trades and is not active-lane OOS promotion evidence.
+- Holdout was not accessed; no runtime config, risk parameter, exchange order, or live trading path changed.
+
+## [TASK-2026-08-16-MICROSTRUCTURE] Pipeline closed and collecting
+
+- Added independent Testnet BTC/ETH order-book collector, persistent snapshots, health/quality checks, retention, and restart checkpoint.
+- Added maker/limit replay primitives (touch, liquidity, conservative queue proxy, timeout, fallback market, missed/partial fill, adverse selection and R accounting) plus readiness and replay CLIs.
+- Launcher now owns a separate collector process with PID/log recovery; it cannot block Scheduler or execution.
+- Real Testnet verification produced valid rows for BTC/USDT and ETH/USDT while scheduler stayed ACTIVE/HEALTHY. Readiness remains false until natural candidate-window coverage reaches the requested gate.
+- No strategy, risk, geometry, execution path, or current position changed. Final state: `MICROSTRUCTURE_PIPELINE_READY_AND_COLLECTING`.

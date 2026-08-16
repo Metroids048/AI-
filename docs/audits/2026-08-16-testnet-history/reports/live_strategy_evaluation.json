@@ -1,0 +1,83 @@
+{
+  "account_actual": {
+    "trades": 96,
+    "net_pnl": "1671.58549876",
+    "commission": "521.04440327",
+    "funding": "-307.18706757",
+    "profit_factor": "1.893295754199518036257793531",
+    "expectancy": "17.41234894541666666666666667",
+    "win_rate": "0.34375",
+    "avg_win": "107.3588488642424242424242424",
+    "avg_loss": "-29.70248434539682539682539683",
+    "max_drawdown": "716.23103215"
+  },
+  "v2_actual": {
+    "trades": 32,
+    "net_pnl": "-565.22143738",
+    "commission": "271.53670323",
+    "funding": "-134.96894383",
+    "profit_factor": "0.3965963545259739475978455318",
+    "expectancy": "-17.663169918125",
+    "win_rate": "0.5",
+    "avg_win": "23.218781826875",
+    "avg_loss": "-58.545121663125",
+    "max_drawdown": "572.10291348"
+  },
+  "v2_episode_count": 33,
+  "best": {
+    "symbol": {
+      "value": "ETH/USDT",
+      "net_pnl": "-241.76054251"
+    },
+    "direction": {
+      "value": "short",
+      "net_pnl": "-196.17129184"
+    },
+    "strategy": {
+      "value": "testnet_sampling_v2",
+      "net_pnl": "-565.22143738"
+    },
+    "regime": {
+      "value": "UNKNOWN",
+      "net_pnl": "-565.22143738"
+    },
+    "score_bucket": {
+      "value": "UNKNOWN",
+      "net_pnl": "-565.22143738"
+    }
+  },
+  "worst": {
+    "symbol": {
+      "value": "BTC/USDT",
+      "net_pnl": "-323.46089487"
+    },
+    "direction": {
+      "value": "long",
+      "net_pnl": "-369.05014554"
+    },
+    "strategy": {
+      "value": "testnet_sampling_v2",
+      "net_pnl": "-565.22143738"
+    },
+    "regime": {
+      "value": "UNKNOWN",
+      "net_pnl": "-565.22143738"
+    },
+    "score_bucket": {
+      "value": "UNKNOWN",
+      "net_pnl": "-565.22143738"
+    }
+  },
+  "sl_tp": {
+    "stop_hit": 15,
+    "tp_hit": 14,
+    "mfe_measured": 33,
+    "mae_measured": 33
+  },
+  "execution": {
+    "reconciliation_defects": 1776,
+    "open_incidents": 13,
+    "slippage": "NOT_MEASURED: no immutable submission reference price in all matched facts",
+    "latency": "NOT_MEASURED: audit does not infer local wall-clock latency"
+  }
+}

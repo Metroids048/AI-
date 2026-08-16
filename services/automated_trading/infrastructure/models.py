@@ -68,6 +68,64 @@ class V2ExecutionCycle(Base):
     )
 
 
+class MicrostructureSnapshot(Base):
+    """Append-only top-of-book/depth observations collected out of band."""
+
+    __tablename__ = "microstructure_snapshots"
+    __table_args__ = (
+        UniqueConstraint("symbol", "exchange_timestamp_ms", name="uq_microstructure_symbol_exchange_ts"),
+        Index("ix_microstructure_symbol_received", "symbol", "received_at"),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    exchange_timestamp_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now(), index=True)
+    last_price: Mapped[Decimal] = mapped_column(Numeric(24, 10), nullable=False)
+    mark_price: Mapped[Decimal | None] = mapped_column(Numeric(24, 10), nullable=True)
+    best_bid: Mapped[Decimal] = mapped_column(Numeric(24, 10), nullable=False)
+    best_ask: Mapped[Decimal] = mapped_column(Numeric(24, 10), nullable=False)
+    spread_bps: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    bids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    asks: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="binance_testnet_public")
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    clock_skew_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    invalid_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
+class MicrostructureHealth(Base):
+    """Rolling collector health; advisory and independent from execution health."""
+
+    __tablename__ = "microstructure_health"
+    symbol: Mapped[str] = mapped_column(String(20), primary_key=True)
+    rows_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duplicate_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    gap_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    crossed_book_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    invalid_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_exchange_timestamp_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_received_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    freshness_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    coverage_ratio: Mapped[Decimal] = mapped_column(Numeric(8, 5), nullable=False, default=0)
+    overall_coverage_ratio: Mapped[Decimal] = mapped_column(Numeric(8, 5), nullable=False, default=0)
+    clock_skew_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class MicrostructureCheckpoint(Base):
+    """Crash-recovery cursor for the independent collector."""
+
+    __tablename__ = "microstructure_checkpoints"
+    collector_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    last_exchange_timestamp_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now(), onupdate=func.now())
+
+
 class V2ExecutionDecision(Base):
     """Persisted strategy/decision node for a cycle."""
 

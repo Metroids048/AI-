@@ -1,0 +1,69 @@
+{
+  "status": "PASS",
+  "scope": [
+    "BTC/USDT",
+    "ETH/USDT"
+  ],
+  "first_exchange_trade": "2026-07-07T16:52:55.936000+00:00",
+  "last_exchange_trade": "2026-08-15T12:15:38.583000+00:00",
+  "exchange_trades": 560,
+  "exchange_orders": 295,
+  "income_records": 688,
+  "algo_orders": 217,
+  "v2_local_fills": 250,
+  "v2_matched_fills": 250,
+  "v2_match_rate": 1.0,
+  "unmatched_records": 310,
+  "mfe_mae_measured_episodes": 65,
+  "required_exchange_fill_fields_valid": true,
+  "history_limits": {
+    "orders": "allOrders is fetched in 7-day windows; Binance retention can omit old unfilled/cancelled orders.",
+    "algo_orders": "allAlgoOrders is best-effort; unavailable or retained history is recorded in source metadata.",
+    "truth": "userTrades plus income are the exchange facts for fills, fees, realised PnL, and funding."
+  },
+  "source_fetches": {
+    "user_trades": [
+      {
+        "symbol": "BTC/USDT",
+        "method": "fromId",
+        "records": 238
+      },
+      {
+        "symbol": "ETH/USDT",
+        "method": "fromId",
+        "records": 322
+      }
+    ],
+    "orders": {
+      "method": "fapiPrivateGetAllOrders",
+      "calls": 12,
+      "errors": [],
+      "records": 295
+    },
+    "income": {
+      "method": "fapiPrivateGetIncome",
+      "calls": 6,
+      "errors": [],
+      "records": 972
+    },
+    "algo_orders": {
+      "method": "fapiPrivateGetAllAlgoOrders",
+      "calls": 12,
+      "errors": [],
+      "records": 217
+    }
+  },
+  "local": {
+    "cycles": 24968,
+    "decisions": 24922,
+    "intents": 64,
+    "orders": 64,
+    "fills": 250,
+    "positions": 34,
+    "protections": 34,
+    "reconciliations": 12387,
+    "incidents": 21435,
+    "unhealthy_reconciliations": 1776,
+    "open_incidents": 13
+  }
+}

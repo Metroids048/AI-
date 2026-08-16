@@ -10,20 +10,27 @@ repos:
     hooks:
       - id: ruff
         args: [--fix]
+        stages: [pre-commit]
       - id: ruff-format
+        stages: [pre-commit]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
       - id: check-yaml
+        stages: [pre-commit]
       - id: check-json
+        stages: [pre-commit]
       - id: end-of-file-fixer
         exclude: ^(docs/archive/|scripts/archive/)
+        stages: [pre-commit]
       - id: trailing-whitespace
         exclude: ^(docs/archive/|scripts/archive/)
+        stages: [pre-commit]
       - id: check-added-large-files
         args: [--maxkb=2048]   # guard against committing alpha CSVs / docx blobs
         exclude: ^docs/evidence/runtime-ledger/
+        stages: [pre-commit]
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.19.1
@@ -32,6 +39,7 @@ repos:
         additional_dependencies: [pydantic>=2.8]
         pass_filenames: false
         args: [--config-file=pyproject.toml]
+        stages: [pre-commit]
 
   # Local hooks. These close the gap that let a red suite reach main: until now
   # pre-commit ran lint/format/type only, so "looks fine locally" was possible
@@ -49,6 +57,7 @@ repos:
         language: system
         pass_filenames: true
         files: ^(services/(execution|validation|strategy_library)/|apps/api/routers/).*\.py$
+        stages: [pre-commit]
 
       # The three per-tool verify-work skill copies must stay byte-identical to
       # the canonical .agents/ source. Editing one and forgetting the others is
@@ -59,6 +68,7 @@ repos:
         language: system
         pass_filenames: false
         files: ^\.(agents|claude|cursor)/skills/verify-work/SKILL\.md$
+        stages: [pre-commit]
 
       # Blocks the "commit failed but push succeeded" empty-push pattern:
       # if the worktree is still dirty, there is nothing new to publish yet.

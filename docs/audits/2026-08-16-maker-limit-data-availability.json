@@ -1,0 +1,20 @@
+{
+  "database": ".strategy_refactor_history.db",
+  "maker_limit_model_status": "BLOCKED_NO_HISTORICAL_ORDER_BOOK",
+  "order_book_like_tables": [],
+  "read_only": true,
+  "required_unobserved_fields": [
+    "bid_ask_at_signal",
+    "queue_or_fill_probability",
+    "timeout",
+    "adverse_selection",
+    "drift"
+  ],
+  "tables": [
+    "macro_events",
+    "market_extras",
+    "news_items",
+    "ohlcv_bars",
+    "risk_events"
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "top_loss_causes": [
+    {
+      "cause": "STOP",
+      "trades": 15,
+      "net_pnl": "-927.02003924"
+    },
+    {
+      "cause": "UNKNOWN",
+      "trades": 1,
+      "net_pnl": "-9.70190737"
+    }
+  ],
+  "by_strategy": [
+    {
+      "cause": "testnet_sampling_v2",
+      "trades": 16,
+      "net_pnl": "-936.72194661"
+    }
+  ],
+  "by_symbol": [
+    {
+      "cause": "BTC/USDT",
+      "trades": 8,
+      "net_pnl": "-471.59018733"
+    },
+    {
+      "cause": "ETH/USDT",
+      "trades": 8,
+      "net_pnl": "-465.13175928"
+    }
+  ],
+  "by_direction": [
+    {
+      "cause": "short",
+      "trades": 8,
+      "net_pnl": "-471.40089066"
+    },
+    {
+      "cause": "long",
+      "trades": 8,
+      "net_pnl": "-465.32105595"
+    }
+  ],
+  "by_regime": [
+    {
+      "cause": "UNKNOWN",
+      "trades": 16,
+      "net_pnl": "-936.72194661"
+    }
+  ],
+  "by_score_bucket": [
+    {
+      "cause": "UNKNOWN",
+      "trades": 16,
+      "net_pnl": "-936.72194661"
+    }
+  ],
+  "account_all_episodes_top_loss_causes": [
+    {
+      "cause": "STOP",
+      "trades": 23,
+      "net_pnl": "-943.65638295"
+    },
+    {
+      "cause": "UNKNOWN",
+      "trades": 38,
+      "net_pnl": "-916.73515173"
+    },
+    {
+      "cause": "REVERSAL",
+      "trades": 2,
+      "net_pnl": "-10.86497908"
+    }
+  ]
+}

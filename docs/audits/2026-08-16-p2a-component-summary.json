@@ -1,0 +1,49 @@
+{
+  "status": "RESEARCH_COMPLETE_DATA_ACCUMULATING",
+  "facts": {
+    "p2a_replay_cohort": {
+      "entries": 30,
+      "btc_entries": 14,
+      "eth_entries": 16,
+      "control_policy": {
+        "net_expectancy_usdt": -7.8481680881923825,
+        "profit_factor": 1.1122990302449454,
+        "median_profit_capture_ratio": 0.6889047901139908,
+        "estimated_cost_r_mean": 0.2854942852096057,
+        "gross_r_mean": 0.3333333333333333,
+        "net_r_mean": 0.047839048123727676,
+        "post_exit_remaining_mfe_r_mean": 1.3350735132381304,
+        "q1_verdict": "NOT_SUPPORTED",
+        "q2_verdict": "NOT_SUPPORTED",
+        "q3_verdict": "INSUFFICIENT_SLICE_SAMPLE"
+      }
+    },
+    "actual_v2_ledger_cohort": {
+      "closed_episodes": 32,
+      "gross_r_mean_30_entry_match": 0.07374063001166312,
+      "recorded_entry_exit_cost_r_mean_30_entry_match": 0.22834078273180605,
+      "net_r_mean_30_entry_match": -0.15460064401281876,
+      "nominal_geometry_after_recorded_cost_r_mean": 0.021659217268193955,
+      "geometry_or_fill_shortfall_r_mean": -0.17625936998833688,
+      "take_profit_episodes": 15,
+      "stop_episodes": 15
+    },
+    "binance_income_authority": {
+      "closed_v2_episodes": 32,
+      "net_pnl_usdt": -565.22143738,
+      "commission_usdt": 271.53670323,
+      "funding_usdt": -134.96894383,
+      "funding_share_of_commission_plus_funding": 0.332022309668133,
+      "funding_per_episode_usdt": -4.2177794946875,
+      "commission_per_episode_usdt": 8.4855219759375,
+      "profit_factor": 0.39659635452597395,
+      "source": "docs/audits/2026-08-16-testnet-history/reports/live_strategy_evaluation.json"
+    }
+  },
+  "interpretation": {
+    "cost_component": "FACT: explicit commission plus funding is material; funding is not zero.",
+    "geometry_component": "FACT: actual gross R trails nominal 1.5R/-1R expectation by 0.17626R in the matched ledger cohort; replay also shows 1.335R mean post-exit remaining MFE.",
+    "signal_component": "INFERENCE ONLY: the separate strict challenger reports 0.6593-0.6876 direction-hit rate, but it is not the same 30/32-entry cohort, so no residual signal edge is claimed here.",
+    "next_step": "Do not change entry signal or production geometry in this turn. Wire point-in-time funding into offline cost attribution first, then run one cost-focused variable experiment only after sample expansion."
+  }
+}

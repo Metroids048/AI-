@@ -1,9 +1,18 @@
 {
-  "success": false,
-  "status": "ACTIVE_STRATEGY_LOOP_RUNNING",
-  "updated_at": "2026-08-15T15:52:57.7185507Z",
+  "success": true,
+  "status": "MICROSTRUCTURE_PIPELINE_READY_AND_COLLECTING",
+  "updated_at": "2026-08-16T16:39:00+08:00",
   "evidence": {
-    "action": "natural_exit_observation_pending_api_restore_blocked",
+    "action": "microstructure_pipeline_engineering_closed",
+    "microstructure": {
+      "collector": "scripts/run_microstructure_collector.py",
+      "storage": ["microstructure_snapshots", "microstructure_health", "microstructure_checkpoints"],
+      "runtime_pid_file": "logs/microstructure.pid",
+      "real_testnet_rows": {"BTC/USDT": 3, "ETH/USDT": 3},
+      "readiness": {"total_candidate_windows": 82, "btc_candidate_windows": 42, "eth_candidate_windows": 40, "candidate_coverage_ratio": 0.0, "ready": false},
+      "verification": {"focused_pytest": "3 passed", "full_pytest": "1632 passed, 7 skipped", "focused_ruff": "All checks passed!", "full_ruff": "pre-existing C416 in scripts/verify_gate17_e2e.py:77", "full_mypy": "pre-existing duplicate module check_positions.py", "git_diff_check": "passed"},
+      "state": "MICROSTRUCTURE_PIPELINE_READY_AND_COLLECTING"
+    },
     "confirmation_bars": 2,
     "artifact": "artifacts/active_strategy_optimization/strict_dual_timeframe_alignment_two_bar_1m_fidelity_20260815.json",
     "artifact_sha256": "8ed27cc93949fef807cc1188ffed2483b52a708739cf83db4f10e9ae2924077d",
@@ -133,7 +142,11 @@
     "result": "ACCEPTED_FOR_NEXT_GATE",
     "reason": "Both BTC/USDT and ETH/USDT improved OOS expectancy and profit factor while reducing max drawdown; candidate remains research-only pending 1m fidelity and runtime promotion gates.",
     "strategy_change_promoted": false,
-    "promotion_gate": "PASS",
+    "post_fidelity_hard_gate": {
+      "result": "REJECTED",
+      "reason": "The strict dual-timeframe/two-confirmation challenger improved relative OOS metrics but still has negative expectancy and PF below the operator hard gates on BTC and ETH in 1m fidelity replay; it is research-only and must not be promoted."
+    },
+    "promotion_gate": "REJECTED",
     "runtime": {
       "activation": "ACTIVE",
       "execution_mode": "BINANCE_TESTNET",
@@ -160,6 +173,6 @@
       "api_listener_8016": "UNAVAILABLE"
     }
   },
-  "next_machine_action": "Keep the official ACTIVE Binance Testnet scheduler running with the persisted external baseline and observe the existing managed BTC/USDT position until its natural automatic reduce-only stop/target exit fills; then verify the real reduce-only Binance order/fill, local and exchange positions both flat, HEALTHY reconciliation, and restore/persist the API listener on port 8016 before any success transition.",
-  "last_result": "Observed active Testnet runtime: BTC/USDT remains PROTECTED with live TP 1000000167954361 and SL 1000000167954341; no natural reduce-only fill; reconciliation HEALTHY; listener 8016 unavailable."
+  "next_machine_action": "ACCUMULATE_NATURAL_ORDERBOOK_SAMPLES; WHEN_READINESS_GATE_PASSES_RUN_scripts/run_microstructure_replay.py",
+  "last_result": "Engineering loop closed: independent Binance Testnet BTC/ETH order-book collector, persistent snapshots, health metrics, retention, crash checkpoint, launcher restart wiring, readiness gate, and maker/limit replay primitives are implemented and focused-tested. Current candidate coverage is intentionally not ready (one short live sample); no strategy or execution parameter changed."
 }

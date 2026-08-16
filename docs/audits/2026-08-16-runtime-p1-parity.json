@@ -1,0 +1,2197 @@
+{
+  "status": "COMPLETE",
+  "scope": {
+    "cohort_source": "docs\\audits\\2026-08-16-p2a-actual-decomposition.json",
+    "cohort_size": 30,
+    "rows": 30,
+    "valid_rows_with_actual_exit": 30,
+    "read_only": true,
+    "final_holdout_read": false
+  },
+  "semantics": {
+    "R0": "Existing P2-A Policy A replay; actual entry VWAP, modeled exit fee and 1bp exit slippage.",
+    "R1": "Actual entry VWAP and frozen Policy A stop/1.5R target; exact 1m path, gross only.",
+    "R2": "R1 plus P1 0.60R->+0.05R and 1.00R->+0.40R stop locks, exchange tick rounding, conservative stop-first intrabar and next-bar effectiveness.",
+    "R3": "Actual V2 exchange reduce-only fills; gross and commission-net, excluding funding.",
+    "p1_observed": "Only ProfitProtectionStopTightened events count as historical runtime replacement evidence; a P1 policy label alone is not a replacement."
+  },
+  "means_r": {
+    "r0_net_r": "0.04783904812372767877789541903",
+    "r1_gross_r": "0.291423416537642011813223306",
+    "r2_gross_r": "0.2494551634267252452139522492",
+    "r3_actual_gross_r": "0.07374063001166311956699883327",
+    "r3_actual_net_r": "-0.1546001527201429206725663128"
+  },
+  "means_usdt": {
+    "r0_net_usdt": "-7.848168088192382903819123333",
+    "r1_gross_usdt": "0.01111400000007938333333333333",
+    "r2_gross_usdt": "4.12370566666674605",
+    "r3_actual_gross_usdt": "-6.385544333333207163333333333",
+    "r3_actual_net_usdt": "-14.50041088466654048933333333"
+  },
+  "profit_factor": {
+    "R0_gross_usdt": "1.112299030244945435308432997",
+    "R0_net_usdt": "0.7006809911550145205956756106",
+    "R1_gross_usdt": "1.000552546900326372559781992",
+    "R2_gross_usdt": "1.431104725467372972488247009",
+    "R3_gross_usdt": "0.7237736617690017591932355455",
+    "R3_net_usdt": "0.4868816838630034039781938433"
+  },
+  "waterfall_mean_r": {
+    "r0_to_r1_entry_and_model_cost_effect": "0.2435843684139143330353278870",
+    "r1_to_r2_p1_dynamic_effect": "-0.0419682531109167665992710568",
+    "r2_to_r3_execution_and_fill_effect": "-0.4040553161468681658865185620",
+    "r0_to_r3_total_net_effect": "-0.2024392008438705994504617318"
+  },
+  "counts": {
+    "p1_simulated_triggered": 21,
+    "p1_simulated_triggered_but_r2_not_target": 12,
+    "p1_observed_replacement_rows": 0,
+    "p1_observed_replacement_events": 0,
+    "r0_reason": {
+      "TARGET": 16,
+      "STOP": 14
+    },
+    "r1_reason": {
+      "TARGET": 14,
+      "STOP": 13,
+      "DATA_EXHAUSTED": 3
+    },
+    "r2_reason": {
+      "STOP": 20,
+      "TARGET": 9,
+      "DATA_EXHAUSTED": 1
+    }
+  },
+  "rows": [
+    {
+      "position_id": "a3e0bf61-7631-4173-966b-029cd8ea332d",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-07T10:00:39.946000+00:00",
+      "closed_at": "2026-08-07T12:08:10.198000+00:00",
+      "entry_price": "1912.52",
+      "quantity": "0.185",
+      "initial_stop": "1905.826180",
+      "initial_target": "1922.5607300",
+      "runtime_initial_stop": "1905.82",
+      "runtime_initial_target": "1922.57",
+      "risk_usdt": "1.238356700",
+      "bars": 128,
+      "replay_bars_7d": 6748,
+      "r0_static_replay": {
+        "net_pnl_usdt": "1.502604328970",
+        "net_r": "1.213385714285714285714285714",
+        "gross_pnl_usdt": "1.8575350500",
+        "reason": "TARGET",
+        "exit_time": "2026-08-07T12:08:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "1.85925",
+        "gross_r": "1.5",
+        "reason": "TARGET",
+        "exit_price": "1922.57",
+        "exit_time": "2026-08-07T12:08:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "0.49580",
+        "gross_r": "0.4",
+        "reason": "STOP",
+        "exit_price": "1915.20",
+        "exit_time": "2026-08-07T11:33:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 1,
+        "p1_triggers": [
+          {
+            "trigger_r": "1.00",
+            "lock_r": "0.40",
+            "raw_stop_price": "1915.2000",
+            "rounded_stop_price": "1915.20",
+            "observed_bar": "2026-08-07T11:22:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-07T12:08:10.198000+00:00",
+        "gross_pnl_usdt": "1.24135",
+        "gross_r": "1.001492537313432835820895522",
+        "commission_usdt": "0.14202302",
+        "net_pnl_usdt": "0.95780050",
+        "net_r": "0.7727313432835820895522388060",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1905.82",
+        "original_stop": "1905.82",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "10920a3c-6260-479c-8af6-6c410b303cfd",
+      "symbol": "BTC/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-08T10:30:32.793000+00:00",
+      "closed_at": "2026-08-09T02:47:08.700000+00:00",
+      "entry_price": "64996.2",
+      "quantity": "0.0388",
+      "initial_stop": "64768.71330",
+      "initial_target": "65337.430050",
+      "runtime_initial_stop": "64768.9",
+      "runtime_initial_target": "65337.2",
+      "risk_usdt": "8.826483960",
+      "bars": 920,
+      "replay_bars_7d": 7390,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-11.343040625624",
+        "net_r": "-1.285114285261104128262642875",
+        "gross_pnl_usdt": "-8.826483960",
+        "reason": "STOP",
+        "exit_time": "2026-08-09T02:47:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-8.81924",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "64768.9",
+        "exit_time": "2026-08-09T02:47:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "0.44232",
+        "gross_r": "0.05015398152221733391992960845",
+        "reason": "STOP",
+        "exit_price": "65007.6",
+        "exit_time": "2026-08-08T21:30:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 1,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "65007.565",
+            "rounded_stop_price": "65007.6",
+            "observed_bar": "2026-08-08T14:33:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-09T02:47:08.700000+00:00",
+        "gross_pnl_usdt": "-8.83088",
+        "gross_r": "-1.001319841619005719313682358",
+        "commission_usdt": "1.00520867",
+        "net_pnl_usdt": "-10.84482969",
+        "net_r": "-1.229678485901279475328939909",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "64768.9",
+        "original_stop": "64768.9",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "49fe58a7-52cc-4b78-995e-1239f34aaacf",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-10T10:15:32.152000+00:00",
+      "closed_at": "2026-08-10T13:42:20.017000+00:00",
+      "entry_price": "65007.7",
+      "quantity": "0.039",
+      "initial_stop": "65235.22695",
+      "initial_target": "64666.409575",
+      "runtime_initial_stop": "65235",
+      "runtime_initial_target": "64666.8",
+      "risk_usdt": "8.87355105",
+      "bars": 207,
+      "replay_bars_7d": 5698,
+      "r0_static_replay": {
+        "net_pnl_usdt": "10.7830124709450",
+        "net_r": "1.215185714285714285714285714",
+        "gross_pnl_usdt": "13.310326575",
+        "reason": "TARGET",
+        "exit_time": "2026-08-10T13:42:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "13.2951",
+        "gross_r": "1.499780026396832380114386274",
+        "reason": "TARGET",
+        "exit_price": "64666.8",
+        "exit_time": "2026-08-10T13:42:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "13.2951",
+        "gross_r": "1.499780026396832380114386274",
+        "reason": "TARGET",
+        "exit_price": "64666.8",
+        "exit_time": "2026-08-10T13:42:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 2,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "64996.335",
+            "rounded_stop_price": "64996.3",
+            "observed_bar": "2026-08-10T13:04:00+00:00",
+            "effective_next_bar": true
+          },
+          {
+            "trigger_r": "1.00",
+            "lock_r": "0.40",
+            "raw_stop_price": "64916.780",
+            "rounded_stop_price": "64916.7",
+            "observed_bar": "2026-08-10T13:38:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-10T13:42:20.017000+00:00",
+        "gross_pnl_usdt": "6.6105",
+        "gross_r": "0.7457105147382314122305323361",
+        "commission_usdt": "1.01147592",
+        "net_pnl_usdt": "4.58490396",
+        "net_r": "0.5172091509018917729872415310",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "65235",
+        "original_stop": "65235",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "cc66890c-e2c1-4d42-8c11-52b804ab2508",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-10T10:15:44.664000+00:00",
+      "closed_at": "2026-08-10T12:56:04.868000+00:00",
+      "entry_price": "1918",
+      "quantity": "1.322",
+      "initial_stop": "1924.7130",
+      "initial_target": "1907.93050",
+      "runtime_initial_stop": "1924.7",
+      "runtime_initial_target": "1907.95",
+      "risk_usdt": "8.8745860",
+      "bars": 161,
+      "replay_bars_7d": 5699,
+      "r0_static_replay": {
+        "net_pnl_usdt": "10.7842701274",
+        "net_r": "1.215185714285714285714285714",
+        "gross_pnl_usdt": "13.31187900",
+        "reason": "TARGET",
+        "exit_time": "2026-08-10T12:56:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "13.28610",
+        "gross_r": "1.5",
+        "reason": "TARGET",
+        "exit_price": "1907.95",
+        "exit_time": "2026-08-10T12:56:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "13.28610",
+        "gross_r": "1.5",
+        "reason": "TARGET",
+        "exit_price": "1907.95",
+        "exit_time": "2026-08-10T12:56:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 2,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "1917.665",
+            "rounded_stop_price": "1917.66",
+            "observed_bar": "2026-08-10T12:34:00+00:00",
+            "effective_next_bar": true
+          },
+          {
+            "trigger_r": "1.00",
+            "lock_r": "0.40",
+            "raw_stop_price": "1915.320",
+            "rounded_stop_price": "1915.32",
+            "observed_bar": "2026-08-10T12:51:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-10T12:56:04.868000+00:00",
+        "gross_pnl_usdt": "11.7658",
+        "gross_r": "1.328358208955223880597014925",
+        "commission_usdt": "1.00953208",
+        "net_pnl_usdt": "9.74202952",
+        "net_r": "1.099874626865671641791044776",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1924.7",
+        "original_stop": "1924.7",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "a350a77a-c2a4-4464-833e-4f7b999b87e7",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-10T13:30:41.095000+00:00",
+      "closed_at": "2026-08-10T13:55:18.317000+00:00",
+      "entry_price": "1905.9953687315635",
+      "quantity": "1.356",
+      "initial_stop": "1912.66635252212397225",
+      "initial_target": "1895.988893045722791625",
+      "runtime_initial_stop": "1912.67",
+      "runtime_initial_target": "1895.98",
+      "risk_usdt": "9.04585402000000037100",
+      "bars": 25,
+      "replay_bars_7d": 5504,
+      "r0_static_replay": {
+        "net_pnl_usdt": "10.99239258661800049323390",
+        "net_r": "1.215185715170097343932154199",
+        "gross_pnl_usdt": "13.568781030000000556500",
+        "reason": "TARGET",
+        "exit_time": "2026-08-10T13:55:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "13.5808400000001060",
+        "gross_r": "1.500512661864173891185547974",
+        "reason": "TARGET",
+        "exit_price": "1895.98",
+        "exit_time": "2026-08-10T13:55:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "3.6278000000001060",
+        "gross_r": "0.4008264462810081415569127355",
+        "reason": "STOP",
+        "exit_price": "1903.32",
+        "exit_time": "2026-08-10T13:36:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 1,
+        "p1_triggers": [
+          {
+            "trigger_r": "1.00",
+            "lock_r": "0.40",
+            "raw_stop_price": "1903.325516224188900",
+            "rounded_stop_price": "1903.32",
+            "observed_bar": "2026-08-10T13:35:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 2,
+        "exit_time": "2026-08-10T13:55:18.317000+00:00",
+        "gross_pnl_usdt": "9.1284100000002516",
+        "gross_r": "1.008574932602682471045968962",
+        "commission_usdt": "1.030160510",
+        "net_pnl_usdt": "7.0644376100002516",
+        "net_r": "0.7805318435939733875873316128",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1912.67",
+        "original_stop": "1912.67",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "744ec799-6a14-48dd-895c-833db7a710c8",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-10T14:30:36.170000+00:00",
+      "closed_at": "2026-08-10T15:25:40.849000+00:00",
+      "entry_price": "64767.493984962406",
+      "quantity": "0.0399",
+      "initial_stop": "64994.1802139097744210",
+      "initial_target": "64427.46464154135336850",
+      "runtime_initial_stop": "64994",
+      "runtime_initial_target": "64427.8",
+      "risk_usdt": "9.04478053499999999790",
+      "bars": 55,
+      "replay_bars_7d": 5443,
+      "r0_static_replay": {
+        "net_pnl_usdt": "10.991088138981499997208110",
+        "net_r": "1.215185719150398379429556829",
+        "gross_pnl_usdt": "13.567170802499999996850",
+        "reason": "TARGET",
+        "exit_time": "2026-08-10T15:25:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "13.5537899999999994",
+        "gross_r": "1.499712865929965676709419264",
+        "reason": "TARGET",
+        "exit_price": "64427.8",
+        "exit_time": "2026-08-10T15:25:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "13.5537899999999994",
+        "gross_r": "1.499712865929965676709419264",
+        "reason": "TARGET",
+        "exit_price": "64427.8",
+        "exit_time": "2026-08-10T15:25:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 2,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "64756.16868421052630",
+            "rounded_stop_price": "64756.1",
+            "observed_bar": "2026-08-10T14:58:00+00:00",
+            "effective_next_bar": true
+          },
+          {
+            "trigger_r": "1.00",
+            "lock_r": "0.40",
+            "raw_stop_price": "64676.89157894736840",
+            "rounded_stop_price": "64676.8",
+            "observed_bar": "2026-08-10T15:15:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-10T15:25:40.849000+00:00",
+        "gross_pnl_usdt": "6.2840099999999994",
+        "gross_r": "0.6953192167380904624804256397",
+        "commission_usdt": "1.0311756",
+        "net_pnl_usdt": "4.2191452399999994",
+        "net_r": "0.4668440635169330673214387785",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "64994",
+        "original_stop": "64994",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "2e5481d7-695c-4d40-b0e4-dd6892f96137",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-10T15:30:32.210000+00:00",
+      "closed_at": "2026-08-10T16:22:55.038000+00:00",
+      "entry_price": "64390.83690773067",
+      "quantity": "0.0401",
+      "initial_stop": "64616.204836907727345",
+      "initial_target": "64052.7850139650839825",
+      "runtime_initial_stop": "64616.7",
+      "runtime_initial_target": "64052.1",
+      "risk_usdt": "9.0372539599999995345",
+      "bars": 52,
+      "replay_bars_7d": 5383,
+      "r0_static_replay": {
+        "net_pnl_usdt": "10.981941912563999381131050",
+        "net_r": "1.215185714728326606282512858",
+        "gross_pnl_usdt": "13.55588093999999930175",
+        "reason": "TARGET",
+        "exit_time": "2026-08-10T16:22:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "13.583349999999867",
+        "gross_r": "1.499744399703621523200539622",
+        "reason": "TARGET",
+        "exit_price": "64052.1",
+        "exit_time": "2026-08-10T16:22:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "13.583349999999867",
+        "gross_r": "1.499744399703621523200539622",
+        "reason": "TARGET",
+        "exit_price": "64052.1",
+        "exit_time": "2026-08-10T16:22:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 2,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "64379.5437531172035",
+            "rounded_stop_price": "64379.5",
+            "observed_bar": "2026-08-10T15:53:00+00:00",
+            "effective_next_bar": true
+          },
+          {
+            "trigger_r": "1.00",
+            "lock_r": "0.40",
+            "raw_stop_price": "64300.4916708229380",
+            "rounded_stop_price": "64300.4",
+            "observed_bar": "2026-08-10T16:21:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 2,
+        "exit_time": "2026-08-10T16:22:55.038000+00:00",
+        "gross_pnl_usdt": "8.4584299999998850",
+        "gross_r": "0.9338994447455933284871055818",
+        "commission_usdt": "1.02944564",
+        "net_pnl_usdt": "6.3961553399998850",
+        "net_r": "0.7062026783377690096558152740",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "64616.7",
+        "original_stop": "64616.7",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "2b3413ad-15eb-4857-a3c7-fd7e9c07aec6",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-11T05:30:41.319000+00:00",
+      "closed_at": "2026-08-11T07:39:58.867000+00:00",
+      "entry_price": "1871.62",
+      "quantity": "1.384",
+      "initial_stop": "1878.170670",
+      "initial_target": "1861.7939950",
+      "runtime_initial_stop": "1878.18",
+      "runtime_initial_target": "1861.78",
+      "risk_usdt": "9.066127280",
+      "bars": 129,
+      "replay_bars_7d": 5127,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-11.661889034368",
+        "net_r": "-1.286314285493684355157211073",
+        "gross_pnl_usdt": "-9.066127280",
+        "reason": "STOP",
+        "exit_time": "2026-08-11T07:39:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-9.07904",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "1878.18",
+        "exit_time": "2026-08-11T07:39:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "-9.07904",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "1878.18",
+        "exit_time": "2026-08-11T07:39:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": false,
+        "p1_trigger_count": 0,
+        "p1_triggers": []
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-11T07:39:58.867000+00:00",
+        "gross_pnl_usdt": "-9.07904",
+        "gross_r": "-1",
+        "commission_usdt": "1.03976044",
+        "net_pnl_usdt": "-11.15492927",
+        "net_r": "-1.228646340361976596644579163",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1878.18",
+        "original_stop": "1878.18",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "28c27311-db3f-4314-b722-bed79d4c6685",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-11T05:45:32.203000+00:00",
+      "closed_at": "2026-08-11T09:48:59.151000+00:00",
+      "entry_price": "64009.3",
+      "quantity": "0.0404",
+      "initial_stop": "64233.33255",
+      "initial_target": "63673.251175",
+      "runtime_initial_stop": "64233.1",
+      "runtime_initial_target": "63673.6",
+      "risk_usdt": "9.050915020",
+      "bars": 243,
+      "replay_bars_7d": 5111,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-11.642321281012",
+        "net_r": "-1.286314284830397181212292500",
+        "gross_pnl_usdt": "-9.050915020",
+        "reason": "STOP",
+        "exit_time": "2026-08-11T09:49:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-9.04152",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "64233.1",
+        "exit_time": "2026-08-11T09:48:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "-9.04152",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "64233.1",
+        "exit_time": "2026-08-11T09:48:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": false,
+        "p1_trigger_count": 0,
+        "p1_triggers": []
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-11T09:48:59.151000+00:00",
+        "gross_pnl_usdt": "-9.04556",
+        "gross_r": "-1.000446827524575513851653262",
+        "commission_usdt": "1.03800851",
+        "net_pnl_usdt": "-11.11795879",
+        "net_r": "-1.229655941700068130137410524",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "64233.1",
+        "original_stop": "64233.1",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "9baa36a2-2eb4-4aca-a9b7-531fe623c9c6",
+      "symbol": "BTC/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-11T12:30:28.959000+00:00",
+      "closed_at": "2026-08-11T14:26:49.307000+00:00",
+      "entry_price": "64280.3",
+      "quantity": "0.0401",
+      "initial_stop": "64055.31895",
+      "initial_target": "64617.771575",
+      "runtime_initial_stop": "64055.4",
+      "runtime_initial_target": "64617.7",
+      "risk_usdt": "9.021740105",
+      "bars": 116,
+      "replay_bars_7d": 4706,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-11.5939670889370",
+        "net_r": "-1.285114285492598991245270416",
+        "gross_pnl_usdt": "-9.021740105",
+        "reason": "STOP",
+        "exit_time": "2026-08-11T14:26:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-9.01849",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "64055.4",
+        "exit_time": "2026-08-11T14:26:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "-9.01849",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "64055.4",
+        "exit_time": "2026-08-11T14:26:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": false,
+        "p1_trigger_count": 0,
+        "p1_triggers": []
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-11T14:26:49.307000+00:00",
+        "gross_pnl_usdt": "-9.11874",
+        "gross_r": "-1.011116051578479324144064028",
+        "commission_usdt": "1.02740851",
+        "net_pnl_usdt": "-11.17720452",
+        "net_r": "-1.239365405960421312215237806",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "64055.4",
+        "original_stop": "64055.4",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "b301a4f5-9f76-4db9-b2ea-32c24f17a1ac",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-11T12:30:56.087000+00:00",
+      "closed_at": "2026-08-11T14:24:54.319000+00:00",
+      "entry_price": "1888.7380673499267",
+      "quantity": "1.366",
+      "initial_stop": "1882.12748411420195655",
+      "initial_target": "1898.653942203513815175",
+      "runtime_initial_stop": "1882.13",
+      "runtime_initial_target": "1898.65",
+      "risk_usdt": "9.03005669999999955270",
+      "bars": 114,
+      "replay_bars_7d": 4707,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-11.60465485597999947628838",
+        "net_r": "-1.285114284606872961397905675",
+        "gross_pnl_usdt": "-9.03005669999999955270",
+        "reason": "STOP",
+        "exit_time": "2026-08-11T14:24:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-9.0266199999998722",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "1882.13",
+        "exit_time": "2026-08-11T14:24:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "-9.0266199999998722",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "1882.13",
+        "exit_time": "2026-08-11T14:24:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": false,
+        "p1_trigger_count": 0,
+        "p1_triggers": []
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-11T14:24:54.319000+00:00",
+        "gross_pnl_usdt": "-9.7096199999998722",
+        "gross_r": "-1.075665088371949818425755591",
+        "commission_usdt": "1.02812263",
+        "net_pnl_usdt": "-11.7697490999998722",
+        "net_r": "-1.303893273451196443138223063",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1882.13",
+        "original_stop": "1882.13",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "e521413f-3477-4009-a5a3-770527f7e75c",
+      "symbol": "BTC/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-12T01:30:35.399000+00:00",
+      "closed_at": "2026-08-12T10:01:33.887000+00:00",
+      "entry_price": "63757.9",
+      "quantity": "0.0403",
+      "initial_stop": "63534.74735",
+      "initial_target": "64092.628975",
+      "runtime_initial_stop": "63534.9",
+      "runtime_initial_target": "64092.5",
+      "risk_usdt": "8.993051795",
+      "bars": 511,
+      "replay_bars_7d": 4479,
+      "r0_static_replay": {
+        "net_pnl_usdt": "10.91204058388450",
+        "net_r": "1.213385715175289947276457335",
+        "gross_pnl_usdt": "13.4895776925",
+        "reason": "TARGET",
+        "exit_time": "2026-08-12T10:01:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "13.48438",
+        "gross_r": "1.500448430493273542600896861",
+        "reason": "TARGET",
+        "exit_price": "64092.5",
+        "exit_time": "2026-08-12T10:01:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "13.48438",
+        "gross_r": "1.500448430493273542600896861",
+        "reason": "TARGET",
+        "exit_price": "64092.5",
+        "exit_time": "2026-08-12T10:01:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 2,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "63769.050",
+            "rounded_stop_price": "63769.1",
+            "observed_bar": "2026-08-12T09:30:00+00:00",
+            "effective_next_bar": true
+          },
+          {
+            "trigger_r": "1.00",
+            "lock_r": "0.40",
+            "raw_stop_price": "63847.100",
+            "rounded_stop_price": "63847.1",
+            "observed_bar": "2026-08-12T09:31:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-12T10:01:33.887000+00:00",
+        "gross_pnl_usdt": "12.68644",
+        "gross_r": "1.411659192825112107623318386",
+        "commission_usdt": "1.03285192",
+        "net_pnl_usdt": "10.62581074",
+        "net_r": "1.182366638106577351478262805",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "63534.9",
+        "original_stop": "63534.9",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "1aa5140c-af52-4813-a5c1-0e87098d7a18",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-12T02:00:49.900000+00:00",
+      "closed_at": "2026-08-12T09:19:59.091000+00:00",
+      "entry_price": "1885.1",
+      "quantity": "1.364",
+      "initial_stop": "1878.50215",
+      "initial_target": "1894.996775",
+      "runtime_initial_stop": "1878.51",
+      "runtime_initial_target": "1894.99",
+      "risk_usdt": "8.99946740",
+      "bars": 439,
+      "replay_bars_7d": 4450,
+      "r0_static_replay": {
+        "net_pnl_usdt": "10.91982517934",
+        "net_r": "1.213385714285714285714285714",
+        "gross_pnl_usdt": "13.499201100",
+        "reason": "TARGET",
+        "exit_time": "2026-08-12T09:19:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "13.48996",
+        "gross_r": "1.500758725341426403641881639",
+        "reason": "TARGET",
+        "exit_price": "1894.99",
+        "exit_time": "2026-08-12T09:19:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "0.45012",
+        "gross_r": "0.05007587253414264036418816388",
+        "reason": "STOP",
+        "exit_price": "1885.43",
+        "exit_time": "2026-08-12T06:30:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 1,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "1885.4295",
+            "rounded_stop_price": "1885.43",
+            "observed_bar": "2026-08-12T04:21:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-12T09:19:59.091000+00:00",
+        "gross_pnl_usdt": "11.10296",
+        "gross_r": "1.235204855842185128983308042",
+        "commission_usdt": "1.03295174",
+        "net_pnl_usdt": "9.04149770",
+        "net_r": "1.005867071765182294332032449",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1878.51",
+        "original_stop": "1878.51",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "d8645b35-47f9-4a52-9e8e-da5b1ed75f5d",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-12T09:30:52.415000+00:00",
+      "closed_at": "2026-08-12T10:15:50.625000+00:00",
+      "entry_price": "1902.67",
+      "quantity": "1.356",
+      "initial_stop": "1896.010655",
+      "initial_target": "1912.6590175",
+      "runtime_initial_stop": "1896.02",
+      "runtime_initial_target": "1912.65",
+      "risk_usdt": "9.030071820",
+      "bars": 45,
+      "replay_bars_7d": 4000,
+      "r0_static_replay": {
+        "net_pnl_usdt": "10.956960153362",
+        "net_r": "1.213385715171643009147185277",
+        "gross_pnl_usdt": "13.5451077300",
+        "reason": "TARGET",
+        "exit_time": "2026-08-12T10:15:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "13.53288",
+        "gross_r": "1.500751879699248120300751880",
+        "reason": "TARGET",
+        "exit_price": "1912.65",
+        "exit_time": "2026-08-12T10:15:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "13.53288",
+        "gross_r": "1.500751879699248120300751880",
+        "reason": "TARGET",
+        "exit_price": "1912.65",
+        "exit_time": "2026-08-12T10:15:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 2,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "1903.0025",
+            "rounded_stop_price": "1903.01",
+            "observed_bar": "2026-08-12T10:01:00+00:00",
+            "effective_next_bar": true
+          },
+          {
+            "trigger_r": "1.00",
+            "lock_r": "0.40",
+            "raw_stop_price": "1905.3300",
+            "rounded_stop_price": "1905.33",
+            "observed_bar": "2026-08-12T10:03:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-12T10:15:50.625000+00:00",
+        "gross_pnl_usdt": "12.84132",
+        "gross_r": "1.424060150375939849624060150",
+        "commission_usdt": "1.03714473",
+        "net_pnl_usdt": "10.77216707",
+        "net_r": "1.194597896289396056512963825",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1896.02",
+        "original_stop": "1896.02",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "9ead2ee8-b88e-4dae-a654-c67082f53773",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-12T14:47:04.163000+00:00",
+      "closed_at": "2026-08-12T19:15:14.347000+00:00",
+      "entry_price": "1893.49",
+      "quantity": "1.364",
+      "initial_stop": "1900.117215",
+      "initial_target": "1883.5491775",
+      "runtime_initial_stop": "1900.36",
+      "runtime_initial_target": "1883.18",
+      "risk_usdt": "9.039521260",
+      "bars": 242,
+      "replay_bars_7d": 3683,
+      "r0_static_replay": {
+        "net_pnl_usdt": "10.984697103134",
+        "net_r": "1.215185714728215595789195588",
+        "gross_pnl_usdt": "13.5592818900",
+        "reason": "TARGET",
+        "exit_time": "2026-08-13T00:11:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "11.83952",
+        "gross_r": "1.263464337700145560407569141",
+        "reason": "DATA_EXHAUSTED",
+        "exit_price": "1884.81",
+        "exit_time": "2026-08-12T19:13:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "3.75100",
+        "gross_r": "0.4002911208151382823871906841",
+        "reason": "STOP",
+        "exit_price": "1890.74",
+        "exit_time": "2026-08-12T15:11:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 2,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "1893.1465",
+            "rounded_stop_price": "1893.14",
+            "observed_bar": "2026-08-12T14:55:00+00:00",
+            "effective_next_bar": true
+          },
+          {
+            "trigger_r": "1.00",
+            "lock_r": "0.40",
+            "raw_stop_price": "1890.7420",
+            "rounded_stop_price": "1890.74",
+            "observed_bar": "2026-08-12T14:57:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-12T19:15:14.347000+00:00",
+        "gross_pnl_usdt": "10.54372",
+        "gross_r": "1.125181950509461426491994178",
+        "commission_usdt": "1.02887065",
+        "net_pnl_usdt": "8.48176121",
+        "net_r": "0.9051382834543490973974140617",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1900.36",
+        "original_stop": "1900.36",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "84cbe222-2444-4e5c-913f-ea4733b59487",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-12T16:45:37.163000+00:00",
+      "closed_at": "2026-08-13T04:47:33.131000+00:00",
+      "entry_price": "63500",
+      "quantity": "0.2906",
+      "initial_stop": "63722.2500",
+      "initial_target": "63166.62500",
+      "runtime_initial_stop": "63722.3",
+      "runtime_initial_target": "63166.6",
+      "risk_usdt": "64.58585000",
+      "bars": 372,
+      "replay_bars_7d": 3564,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-83.077701510",
+        "net_r": "-1.286314285714285714285714286",
+        "gross_pnl_usdt": "-64.58585000",
+        "reason": "STOP",
+        "exit_time": "2026-08-13T04:47:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-64.60038",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "63722.3",
+        "exit_time": "2026-08-13T04:47:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "3.25472",
+        "gross_r": "0.05038236617183985605038236617",
+        "reason": "STOP",
+        "exit_price": "63488.8",
+        "exit_time": "2026-08-13T00:11:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 1,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "63488.885",
+            "rounded_stop_price": "63488.8",
+            "observed_bar": "2026-08-12T18:54:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 7,
+        "exit_time": "2026-08-13T04:47:33.131000+00:00",
+        "gross_pnl_usdt": "-65.7694399999994880000",
+        "gross_r": "-1.018096797573009446693657220",
+        "commission_usdt": "7.407547749999999",
+        "net_pnl_usdt": "-80.5582277499994870000",
+        "net_r": "-1.247024053883266429702116303",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "63722.3",
+        "original_stop": "63722.3",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "604306a3-a382-4d8d-a117-6c99bb67afdb",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-13T04:00:51.475000+00:00",
+      "closed_at": "2026-08-13T05:25:27.127000+00:00",
+      "entry_price": "1887.94",
+      "quantity": "9.731",
+      "initial_stop": "1881.332210",
+      "initial_target": "1897.8516850",
+      "runtime_initial_stop": "1881.35",
+      "runtime_initial_target": "1897.82",
+      "risk_usdt": "64.300404490",
+      "bars": 85,
+      "replay_bars_7d": 3240,
+      "r0_static_replay": {
+        "net_pnl_usdt": "78.0211922369590",
+        "net_r": "1.213385714379026295919962105",
+        "gross_pnl_usdt": "96.4506067350",
+        "reason": "TARGET",
+        "exit_time": "2026-08-13T05:25:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "96.14228",
+        "gross_r": "1.499241274658573596358118361",
+        "reason": "TARGET",
+        "exit_price": "1897.82",
+        "exit_time": "2026-08-13T05:25:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "96.14228",
+        "gross_r": "1.499241274658573596358118361",
+        "reason": "TARGET",
+        "exit_price": "1897.82",
+        "exit_time": "2026-08-13T05:25:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 2,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "1888.2695",
+            "rounded_stop_price": "1888.27",
+            "observed_bar": "2026-08-13T04:55:00+00:00",
+            "effective_next_bar": true
+          },
+          {
+            "trigger_r": "1.00",
+            "lock_r": "0.40",
+            "raw_stop_price": "1890.5760",
+            "rounded_stop_price": "1890.58",
+            "observed_bar": "2026-08-13T05:15:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-13T05:25:27.127000+00:00",
+        "gross_pnl_usdt": "81.35116",
+        "gross_r": "1.268588770864946889226100152",
+        "commission_usdt": "7.38115812",
+        "net_pnl_usdt": "66.62138423",
+        "net_r": "1.038892868075354501960085948",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1881.35",
+        "original_stop": "1881.35",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "32ab03ec-b435-4587-bd9e-46ad79940846",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-13T06:45:40.844000+00:00",
+      "closed_at": "2026-08-13T10:45:14.853000+00:00",
+      "entry_price": "1891.954695803837",
+      "quantity": "9.747",
+      "initial_stop": "1885.3328543685235705",
+      "initial_target": "1901.88745795680714425",
+      "runtime_initial_stop": "1885.34",
+      "runtime_initial_target": "1901.88",
+      "risk_usdt": "64.5430884699999973365",
+      "bars": 240,
+      "replay_bars_7d": 3075,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-82.94524502891799688149810",
+        "net_r": "-1.285114285590337513397892713",
+        "gross_pnl_usdt": "-64.5430884699999973365",
+        "reason": "STOP",
+        "exit_time": "2026-08-13T10:45:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-64.473439999999239",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "1885.34",
+        "exit_time": "2026-08-13T10:45:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "3.268210000000761",
+        "gross_r": "0.05069079608596655577390971260",
+        "reason": "STOP",
+        "exit_price": "1892.29",
+        "exit_time": "2026-08-13T10:44:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 1,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "1892.28543059402885",
+            "rounded_stop_price": "1892.29",
+            "observed_bar": "2026-08-13T06:59:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-13T10:45:14.853000+00:00",
+        "gross_pnl_usdt": "-66.325369999999239",
+        "gross_r": "-1.028723921044076783539142855",
+        "commission_usdt": "7.34982282",
+        "net_pnl_usdt": "-81.051545779999239",
+        "net_r": "-1.257130777883112731017950478",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1885.34",
+        "original_stop": "1885.34",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "96fbb96f-7e73-402e-af5a-c56447ec4a5d",
+      "symbol": "BTC/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-13T07:15:40.715000+00:00",
+      "closed_at": "2026-08-13T10:44:49.587000+00:00",
+      "entry_price": "63853.02752325181",
+      "quantity": "0.2903",
+      "initial_stop": "63629.541926920428665",
+      "initial_target": "64188.2559177488820025",
+      "runtime_initial_stop": "63629.4",
+      "runtime_initial_target": "64188.5",
+      "risk_usdt": "64.8778686150000015505",
+      "bars": 209,
+      "replay_bars_7d": 3044,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-83.37547575783100181536970",
+        "net_r": "-1.285114285313532718969393052",
+        "gross_pnl_usdt": "-64.8778686150000015505",
+        "reason": "STOP",
+        "exit_time": "2026-08-13T10:44:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-64.919070000000443",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "63629.4",
+        "exit_time": "2026-08-13T10:44:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "-64.919070000000443",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "63629.4",
+        "exit_time": "2026-08-13T10:44:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": false,
+        "p1_trigger_count": 0,
+        "p1_triggers": []
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-13T10:44:49.587000+00:00",
+        "gross_pnl_usdt": "-65.238400000000443",
+        "gross_r": "-1.004918893631717118266329465",
+        "commission_usdt": "7.38851819",
+        "net_pnl_usdt": "-80.041531720000443",
+        "net_r": "-1.232943289544965705856888147",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "63629.4",
+        "original_stop": "63629.4",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "e74589b4-5ba6-416a-8f18-273bab5c1659",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-13T11:00:37.543000+00:00",
+      "closed_at": "2026-08-13T14:35:24.615000+00:00",
+      "entry_price": "63624.7",
+      "quantity": "0.2833",
+      "initial_stop": "63847.38645",
+      "initial_target": "63290.670325",
+      "runtime_initial_stop": "63847.3",
+      "runtime_initial_target": "63290.8",
+      "risk_usdt": "63.087071285",
+      "bars": 214,
+      "replay_bars_7d": 2819,
+      "r0_static_replay": {
+        "net_pnl_usdt": "76.66250778565650",
+        "net_r": "1.215185714349118718960675240",
+        "gross_pnl_usdt": "94.6306069275",
+        "reason": "TARGET",
+        "exit_time": "2026-08-14T04:00:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-53.57203",
+        "gross_r": "-0.8495058400718778077268643306",
+        "reason": "DATA_EXHAUSTED",
+        "exit_price": "63813.8",
+        "exit_time": "2026-08-13T14:34:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "3.17296",
+        "gross_r": "0.05031446540880503144654088050",
+        "reason": "STOP",
+        "exit_price": "63613.5",
+        "exit_time": "2026-08-13T11:26:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 1,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "63613.570",
+            "rounded_stop_price": "63613.5",
+            "observed_bar": "2026-08-13T11:25:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-13T14:35:24.615000+00:00",
+        "gross_pnl_usdt": "-71.87321",
+        "gross_r": "-1.139712488769092542677448338",
+        "commission_usdt": "7.23870028",
+        "net_pnl_usdt": "-86.32186128",
+        "net_r": "-1.368828571238284256685977643",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "63847.3",
+        "original_stop": "63847.3",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "0de86400-9277-4016-b7f7-19878c0f39b7",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-13T12:46:03.939000+00:00",
+      "closed_at": "2026-08-13T13:07:00.907000+00:00",
+      "entry_price": "1886.34",
+      "quantity": "9.581",
+      "initial_stop": "1892.942190",
+      "initial_target": "1876.4367150",
+      "runtime_initial_stop": "1892.94",
+      "runtime_initial_target": "1876.44",
+      "risk_usdt": "63.255582390",
+      "bars": 21,
+      "replay_bars_7d": 2714,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-81.366559273434",
+        "net_r": "-1.286314285619432425875416875",
+        "gross_pnl_usdt": "-63.255582390",
+        "reason": "STOP",
+        "exit_time": "2026-08-13T13:07:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-63.23460",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "1892.94",
+        "exit_time": "2026-08-13T13:07:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "-63.23460",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "1892.94",
+        "exit_time": "2026-08-13T13:07:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": false,
+        "p1_trigger_count": 0,
+        "p1_triggers": []
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 7,
+        "exit_time": "2026-08-13T13:07:00.907000+00:00",
+        "gross_pnl_usdt": "-67.15810999999901800000",
+        "gross_r": "-1.062046885723939393939393939",
+        "commission_usdt": "7.2560726500000004",
+        "net_pnl_usdt": "-81.64339205999901840000",
+        "net_r": "-1.291118976952475676291144405",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1892.94",
+        "original_stop": "1892.94",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "9fb9de39-baa6-4fab-b974-d46b9aa481d7",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-13T14:16:18.087000+00:00",
+      "closed_at": "2026-08-13T15:30:19.655000+00:00",
+      "entry_price": "1892.0398554139445",
+      "quantity": "9.337",
+      "initial_stop": "1885.41771591999569425",
+      "initial_target": "1901.973064654867708625",
+      "runtime_initial_stop": "1885.43",
+      "runtime_initial_target": "1901.95",
+      "risk_usdt": "61.83091645499999928775",
+      "bars": 18,
+      "replay_bars_7d": 2624,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-79.459794023126999166077350",
+        "net_r": "-1.285114285520208048829574798",
+        "gross_pnl_usdt": "-61.83091645499999928775",
+        "reason": "STOP",
+        "exit_time": "2026-08-14T00:36:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "20.3560100000002035",
+        "gross_r": "0.3298324168265695893380512320",
+        "reason": "DATA_EXHAUSTED",
+        "exit_price": "1894.22",
+        "exit_time": "2026-08-13T14:34:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "20.3560100000002035",
+        "gross_r": "0.3298324168265695893380512320",
+        "reason": "DATA_EXHAUSTED",
+        "exit_price": "1894.22",
+        "exit_time": "2026-08-13T14:34:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": false,
+        "p1_trigger_count": 0,
+        "p1_triggers": []
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-13T15:30:19.655000+00:00",
+        "gross_pnl_usdt": "-62.4631799999997965",
+        "gross_r": "-1.012103139174758312530949272",
+        "commission_usdt": "7.04140518",
+        "net_pnl_usdt": "-76.5709756199997965",
+        "net_r": "-1.240694514667295712234704828",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1885.43",
+        "original_stop": "1885.43",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "f5e6c777-1529-4957-8185-e5625822e71c",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-14T01:45:49.303000+00:00",
+      "closed_at": "2026-08-14T06:21:35.795000+00:00",
+      "entry_price": "1887.8614350747887",
+      "quantity": "9.226",
+      "initial_stop": "1894.46895009755046045",
+      "initial_target": "1877.950162540646059325",
+      "runtime_initial_stop": "1894.46",
+      "runtime_initial_target": "1877.97",
+      "risk_usdt": "60.96093360000000191170",
+      "bars": 276,
+      "replay_bars_7d": 2536,
+      "r0_static_replay": {
+        "net_pnl_usdt": "74.078855690240003541550530",
+        "net_r": "1.215185715105911718164368769",
+        "gross_pnl_usdt": "91.441400400000002867550",
+        "reason": "TARGET",
+        "exit_time": "2026-08-14T06:21:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "91.2583800000005462",
+        "gross_r": "1.499028226121751061776583793",
+        "reason": "TARGET",
+        "exit_price": "1877.97",
+        "exit_time": "2026-08-14T06:21:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "3.0578200000005462",
+        "gross_r": "0.05022835700568434554952854355",
+        "reason": "STOP",
+        "exit_price": "1887.53",
+        "exit_time": "2026-08-14T03:20:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 1,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "1887.531506828528135",
+            "rounded_stop_price": "1887.53",
+            "observed_bar": "2026-08-14T03:05:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 2,
+        "exit_time": "2026-08-14T06:21:35.795000+00:00",
+        "gross_pnl_usdt": "89.6920799999994602",
+        "gross_r": "1.473299872072773723148753123",
+        "commission_usdt": "6.9310870",
+        "net_pnl_usdt": "75.7940292099994612",
+        "net_r": "1.245007736903558854463653369",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1894.46",
+        "original_stop": "1894.46",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "f5a3633e-c0e8-47cd-8fed-013d7817d1f4",
+      "symbol": "BTC/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-14T02:30:33.551000+00:00",
+      "closed_at": "2026-08-14T04:01:23.131000+00:00",
+      "entry_price": "63497.192688250274",
+      "quantity": "0.2749",
+      "initial_stop": "63274.9525138413980410",
+      "initial_target": "63830.55294986358793850",
+      "runtime_initial_stop": "63274.8",
+      "runtime_initial_target": "63830.8",
+      "risk_usdt": "61.09382394500000112910",
+      "bars": 91,
+      "replay_bars_7d": 2490,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-78.51254591263300232198254",
+        "net_r": "-1.285114285583339595472754789",
+        "gross_pnl_usdt": "-61.09382394500000112910",
+        "reason": "STOP",
+        "exit_time": "2026-08-14T04:01:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-61.1357500000003226",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "63274.8",
+        "exit_time": "2026-08-14T04:01:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "-61.1357500000003226",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "63274.8",
+        "exit_time": "2026-08-14T04:01:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": false,
+        "p1_trigger_count": 0,
+        "p1_triggers": []
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-14T04:01:23.131000+00:00",
+        "gross_pnl_usdt": "-61.1632400000003226",
+        "gross_r": "-1.000449655070887326236142914",
+        "commission_usdt": "6.95768601",
+        "net_pnl_usdt": "-75.1030773100003236",
+        "net_r": "-1.228464152480339691546507728",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "63274.8",
+        "original_stop": "63274.8",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "e0c995ec-e052-4fb2-911b-cb9029c77366",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-14T04:15:36.251000+00:00",
+      "closed_at": "2026-08-14T06:59:17.419000+00:00",
+      "entry_price": "63383.6",
+      "quantity": "0.2728",
+      "initial_stop": "63605.44260",
+      "initial_target": "63050.836100",
+      "runtime_initial_stop": "63605.1",
+      "runtime_initial_target": "63051.4",
+      "risk_usdt": "60.518661280",
+      "bars": 164,
+      "replay_bars_7d": 2385,
+      "r0_static_replay": {
+        "net_pnl_usdt": "73.541412647152",
+        "net_r": "1.215185714484000231672011632",
+        "gross_pnl_usdt": "90.7779919200",
+        "reason": "TARGET",
+        "exit_time": "2026-08-14T06:59:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "90.62416",
+        "gross_r": "1.499774266365688487584650113",
+        "reason": "TARGET",
+        "exit_price": "63051.4",
+        "exit_time": "2026-08-14T06:59:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "90.62416",
+        "gross_r": "1.499774266365688487584650113",
+        "reason": "TARGET",
+        "exit_price": "63051.4",
+        "exit_time": "2026-08-14T06:59:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 2,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "63372.525",
+            "rounded_stop_price": "63372.5",
+            "observed_bar": "2026-08-14T06:18:00+00:00",
+            "effective_next_bar": true
+          },
+          {
+            "trigger_r": "1.00",
+            "lock_r": "0.40",
+            "raw_stop_price": "63295.000",
+            "rounded_stop_price": "63295.0",
+            "observed_bar": "2026-08-14T06:49:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-14T06:59:17.419000+00:00",
+        "gross_pnl_usdt": "69.64584",
+        "gross_r": "1.152595936794582392776523702",
+        "commission_usdt": "6.88856009",
+        "net_pnl_usdt": "55.84086149",
+        "net_r": "0.9241320093272343326956302999",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "63605.1",
+        "original_stop": "63605.1",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "992260b4-765c-4b78-89ed-dda82a6f6bae",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-14T06:45:49.227000+00:00",
+      "closed_at": "2026-08-14T14:19:01.495000+00:00",
+      "entry_price": "1876.0237906678083",
+      "quantity": "9.344",
+      "initial_stop": "1882.58987393514562905",
+      "initial_target": "1866.174665766802306425",
+      "runtime_initial_stop": "1882.59",
+      "runtime_initial_target": "1866.18",
+      "risk_usdt": "61.35348205000000264320",
+      "bars": 454,
+      "replay_bars_7d": 2236,
+      "r0_static_replay": {
+        "net_pnl_usdt": "74.55587494884500351405888",
+        "net_r": "1.215185714937674027289865910",
+        "gross_pnl_usdt": "92.030223075000003964800",
+        "reason": "TARGET",
+        "exit_time": "2026-08-14T14:19:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "91.9803800000007552",
+        "gross_r": "1.499158825099868328905167357",
+        "reason": "TARGET",
+        "exit_price": "1866.18",
+        "exit_time": "2026-08-14T14:19:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "3.1189400000007552",
+        "gross_r": "0.05083460653193732294001552480",
+        "reason": "STOP",
+        "exit_price": "1875.69",
+        "exit_time": "2026-08-14T07:16:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 1,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "1875.695480201198715",
+            "rounded_stop_price": "1875.69",
+            "observed_bar": "2026-08-14T07:00:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 43,
+        "exit_time": "2026-08-14T14:19:01.495000+00:00",
+        "gross_pnl_usdt": "82.118610000001587200000",
+        "gross_r": "1.338424986789961805322530086",
+        "commission_usdt": "6.97897888000000038",
+        "net_pnl_usdt": "68.127804640001586820000",
+        "net_r": "1.110393320409605812973873107",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1882.59",
+        "original_stop": "1882.59",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "102b7034-b422-4167-b1d4-2054e0330a31",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-14T07:30:35.847000+00:00",
+      "closed_at": "2026-08-14T09:39:48.127000+00:00",
+      "entry_price": "63067.2",
+      "quantity": "0.2777",
+      "initial_stop": "63287.93520",
+      "initial_target": "62736.097200",
+      "runtime_initial_stop": "63287.8",
+      "runtime_initial_target": "62736.3",
+      "risk_usdt": "61.298165040",
+      "bars": 129,
+      "replay_bars_7d": 2190,
+      "r0_static_replay": {
+        "net_pnl_usdt": "74.488654474536",
+        "net_r": "1.215185714383596497948285076",
+        "gross_pnl_usdt": "91.9472475600",
+        "reason": "TARGET",
+        "exit_time": "2026-08-14T09:39:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "91.89093",
+        "gross_r": "1.5",
+        "reason": "TARGET",
+        "exit_price": "62736.3",
+        "exit_time": "2026-08-14T09:39:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "91.89093",
+        "gross_r": "1.5",
+        "reason": "TARGET",
+        "exit_price": "62736.3",
+        "exit_time": "2026-08-14T09:39:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 2,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "63056.170",
+            "rounded_stop_price": "63056.1",
+            "observed_bar": "2026-08-14T07:52:00+00:00",
+            "effective_next_bar": true
+          },
+          {
+            "trigger_r": "1.00",
+            "lock_r": "0.40",
+            "raw_stop_price": "62978.960",
+            "rounded_stop_price": "62978.9",
+            "observed_bar": "2026-08-14T08:25:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-14T09:39:48.127000+00:00",
+        "gross_pnl_usdt": "88.47522",
+        "gross_r": "1.444242973708068902991840435",
+        "commission_usdt": "6.97011448",
+        "net_pnl_usdt": "74.49960095",
+        "net_r": "1.216109157073500072313992251",
+        "exit_reasons": [
+          "TAKE_PROFIT"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "63287.8",
+        "original_stop": "63287.8",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "76917efb-f9f2-46d7-832b-bdc5523121c0",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-14T10:15:37.003000+00:00",
+      "closed_at": "2026-08-14T15:55:57.059000+00:00",
+      "entry_price": "62762.493109540635",
+      "quantity": "0.283",
+      "initial_stop": "62982.1618354240272225",
+      "initial_target": "62432.99002071554666625",
+      "runtime_initial_stop": "62982.2",
+      "runtime_initial_target": "62432.9",
+      "risk_usdt": "62.1662494249999989675",
+      "bars": 340,
+      "replay_bars_7d": 2025,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-79.96533472465499878988050",
+        "net_r": "-1.286314285714285716183850350",
+        "gross_pnl_usdt": "-62.1662494249999989675",
+        "reason": "STOP",
+        "exit_time": "2026-08-14T15:55:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-62.177050000000295",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "62982.2",
+        "exit_time": "2026-08-14T15:55:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "3.111049999999705",
+        "gross_r": "0.05003534262239347539926590911",
+        "reason": "STOP",
+        "exit_price": "62751.5",
+        "exit_time": "2026-08-14T14:40:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 1,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "62751.50776501766675",
+            "rounded_stop_price": "62751.5",
+            "observed_bar": "2026-08-14T13:11:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-14T15:55:57.059000+00:00",
+        "gross_pnl_usdt": "-62.743050000000295",
+        "gross_r": "-1.009103037213891577593404993",
+        "commission_usdt": "7.12981144",
+        "net_pnl_usdt": "-76.977575660000295",
+        "net_r": "-1.238038402593881983443589472",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "62982.2",
+        "original_stop": "62982.2",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "be4d3871-274e-47a5-ab96-1a41f24e7f5d",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-14T14:30:57.427000+00:00",
+      "closed_at": "2026-08-14T15:31:48.371000+00:00",
+      "entry_price": "1868.27",
+      "quantity": "9.62",
+      "initial_stop": "1874.808945",
+      "initial_target": "1858.4615825",
+      "runtime_initial_stop": "1874.8",
+      "runtime_initial_target": "1858.47",
+      "risk_usdt": "62.90465090",
+      "bars": 61,
+      "replay_bars_7d": 1771,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-80.91515109054",
+        "net_r": "-1.286314285714285714285714286",
+        "gross_pnl_usdt": "-62.90465090",
+        "reason": "STOP",
+        "exit_time": "2026-08-14T15:31:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-62.8186",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "1874.8",
+        "exit_time": "2026-08-14T15:31:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "3.1746",
+        "gross_r": "0.05053598774885145482388973966",
+        "reason": "STOP",
+        "exit_price": "1867.94",
+        "exit_time": "2026-08-14T15:11:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": true,
+        "p1_trigger_count": 1,
+        "p1_triggers": [
+          {
+            "trigger_r": "0.60",
+            "lock_r": "0.05",
+            "raw_stop_price": "1867.9435",
+            "rounded_stop_price": "1867.94",
+            "observed_bar": "2026-08-14T14:57:00+00:00",
+            "effective_next_bar": true
+          }
+        ]
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-14T15:31:48.371000+00:00",
+        "gross_pnl_usdt": "-63.2996",
+        "gross_r": "-1.007656967840735068912710567",
+        "commission_usdt": "7.2144228",
+        "net_pnl_usdt": "-77.70312576",
+        "net_r": "-1.236944563552833078101071975",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1874.8",
+        "original_stop": "1874.8",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    },
+    {
+      "position_id": "85943265-c4f2-4280-95ea-c2c503dacac2",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-14T17:17:20.591000+00:00",
+      "closed_at": "2026-08-14T17:55:32.131000+00:00",
+      "entry_price": "1884.999678594386",
+      "quantity": "9.334",
+      "initial_stop": "1878.4021797193056490",
+      "initial_target": "1894.89592690700652650",
+      "runtime_initial_stop": "1878.41",
+      "runtime_initial_target": "1894.88",
+      "risk_usdt": "61.5810544999999962340",
+      "bars": 38,
+      "replay_bars_7d": 1604,
+      "r0_static_replay": {
+        "net_pnl_usdt": "-79.1386928072999955906596",
+        "net_r": "-1.285114284739960086756877415",
+        "gross_pnl_usdt": "-61.5810544999999962340",
+        "reason": "STOP",
+        "exit_time": "2026-08-14T17:55:00+00:00"
+      },
+      "r1_static_actual_entry": {
+        "gross_pnl_usdt": "-61.508059999998924",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "1878.41",
+        "exit_time": "2026-08-14T17:55:00+00:00",
+        "ambiguous_intrabar": false
+      },
+      "r2_dynamic_p1": {
+        "gross_pnl_usdt": "-61.508059999998924",
+        "gross_r": "-1",
+        "reason": "STOP",
+        "exit_price": "1878.41",
+        "exit_time": "2026-08-14T17:55:00+00:00",
+        "ambiguous_intrabar": false,
+        "p1_triggered": false,
+        "p1_trigger_count": 0,
+        "p1_triggers": []
+      },
+      "r3_actual_exchange": {
+        "exit_fill_count": 1,
+        "exit_time": "2026-08-14T17:55:32.131000+00:00",
+        "gross_pnl_usdt": "-61.694739999998924",
+        "gross_r": "-1.003035049390275083716071421",
+        "commission_usdt": "7.0131569",
+        "net_pnl_usdt": "-75.745731639998924",
+        "net_r": "-1.231476519337469740855666836",
+        "exit_reasons": [
+          "HARD_STOP"
+        ]
+      },
+      "observed_runtime_p1": {
+        "policy": "P1",
+        "final_stop": "1878.41",
+        "original_stop": "1878.41",
+        "replacement_count": 0,
+        "replacement_events": []
+      },
+      "status": "OK"
+    }
+  ]
+}

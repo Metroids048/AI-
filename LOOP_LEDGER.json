@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-15T15:52:57.7185507Z",
+  "updated_at": "2026-08-16T05:54:01.401821Z",
   "supervisor": {
     "thread_id": "01a004f1-ae99-7eb0-b769-f9d98d54d267",
     "turn_count": 89,
-    "last_turn_at": "2026-08-15T15:52:57.7185507Z",
-    "last_response": "Observed active Testnet runtime: BTC/USDT remains PROTECTED with live TP 1000000167954361 and SL 1000000167954341; no natural reduce-only fill; reconciliation HEALTHY; listener 8016 unavailable."
+    "last_turn_at": "2026-08-16T05:54:01.401821Z",
+    "last_response": "Natural-exit observation is runtime health only. Continue the bounded cost/R root-cause loop from the 30 closed episodes without changing or waiting on the protected BTC/USDT position."
   },
-  "current_phase": "NATURAL_EXIT_OBSERVATION",
+  "current_phase": "MICROSTRUCTURE_PIPELINE_READY_AND_COLLECTING",
   "accepted_hypotheses": [
     {
       "id": "D16_STRICT_DUAL_TIMEFRAME_ALIGNMENT_TWO_BAR",
@@ -141,7 +141,11 @@
         "promotion_rule": "challenger must improve OOS expectancy, not lower PF, and keep acceptable drawdown for both BTC/USDT and ETH/USDT",
         "result": "ACCEPTED_FOR_NEXT_GATE",
         "reason": "Both BTC/USDT and ETH/USDT improved OOS expectancy and profit factor while reducing max drawdown; candidate remains research-only pending 1m fidelity and runtime promotion gates.",
-        "strategy_change_promoted": false
+        "strategy_change_promoted": false,
+        "post_fidelity_hard_gate": {
+          "result": "REJECTED",
+          "reason": "The strict dual-timeframe/two-confirmation challenger improved relative OOS metrics but still has negative expectancy and PF below the operator hard gates on BTC and ETH in 1m fidelity replay; it is research-only and must not be promoted."
+        }
       }
     }
   ],
@@ -2136,6 +2140,6 @@
     "natural_reduce_only_exit_fill_observed": false,
     "api_listener_8016": "UNAVAILABLE"
   },
-  "last_result": "Observed active Testnet runtime: BTC/USDT remains PROTECTED with live TP 1000000167954361 and SL 1000000167954341; no natural reduce-only fill; reconciliation HEALTHY; listener 8016 unavailable.",
-  "next_machine_action": "Keep the official ACTIVE Binance Testnet scheduler running with the persisted external baseline and observe the existing managed BTC/USDT position until its natural automatic reduce-only stop/target exit fills; then verify the real reduce-only Binance order/fill, local and exchange positions both flat, HEALTHY reconciliation, and restore/persist the API listener on port 8016 before any success transition."
+  "last_result": "Engineering loop closed: independent Binance Testnet BTC/ETH order-book collector, persistent snapshots, health metrics, retention, crash checkpoint, launcher restart wiring, readiness gate, and maker/limit replay primitives are implemented and focused-tested. Current candidate coverage is intentionally not ready (one short live sample); no strategy or execution parameter changed.",
+  "next_machine_action": "ACCUMULATE_NATURAL_ORDERBOOK_SAMPLES; WHEN_READINESS_GATE_PASSES RUN_scripts/run_microstructure_replay.py"
 }

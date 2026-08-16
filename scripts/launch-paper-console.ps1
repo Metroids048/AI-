@@ -26,6 +26,9 @@ $SchedulerPidFile = Join-Path $LogsDir "scheduler.pid"
 $SchedulerStateFile = Join-Path $LogsDir "scheduler-state.json"
 $SchedulerLog = Join-Path $LogsDir "scheduler.log"
 $SchedulerErrorLog = Join-Path $LogsDir "scheduler-error.log"
+$MicrostructurePidFile = Join-Path $LogsDir "microstructure.pid"
+$MicrostructureLog = Join-Path $LogsDir "microstructure.log"
+$MicrostructureErrorLog = Join-Path $LogsDir "microstructure-error.log"
 $FrontendPidFile = Join-Path $LogsDir "frontend.pid"
 $DbPath = Join-Path $Root $DatabasePath
 $SqliteUrl = "sqlite:///$($DbPath.Replace('\', '/'))"
@@ -164,6 +167,37 @@ function Stop-RecordedScheduler {
     catch {
         Write-Step "warning: could not reclaim stale scheduler locks ($($_.Exception.Message))"
     }
+}
+
+function Stop-RecordedMicrostructure {
+    if (Test-Path -LiteralPath $MicrostructurePidFile) {
+        $recordedPid = (Get-Content -LiteralPath $MicrostructurePidFile -Raw).Trim()
+        if ($recordedPid -match '^\d+$') {
+            $ownerInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $recordedPid" -ErrorAction SilentlyContinue
+            if ([string]$ownerInfo.CommandLine -match "run_microstructure_collector\.py") {
+                Write-Step "stopping prior microstructure collector (pid $recordedPid)"
+                Stop-ProcessTree -RootPid ([int]$recordedPid)
+            }
+        }
+        Remove-Item -LiteralPath $MicrostructurePidFile -Force -ErrorAction SilentlyContinue
+    }
+    $orphans = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.ProcessId -ne $PID -and [string]$_.CommandLine -match "run_microstructure_collector\.py" -and [string]$_.CommandLine -match [regex]::Escape($Root) }
+    foreach ($orphan in $orphans) { Stop-ProcessTree -RootPid ([int]$orphan.ProcessId) }
+}
+
+function Start-MicrostructureCollector {
+    Stop-RecordedMicrostructure
+    Reset-LogFile $MicrostructureLog
+    Reset-LogFile $MicrostructureErrorLog
+    $collectorScript = Join-Path $PSScriptRoot "run_microstructure_collector.py"
+    $pythonExecutable = $env:AGENT_PYTHON
+    $collectorProcess = Start-Process -FilePath $pythonExecutable `
+        -ArgumentList @($collectorScript, "--database-url", $SqliteUrl, "--interval-seconds", "1") `
+        -WorkingDirectory $Root -WindowStyle Hidden `
+        -RedirectStandardOutput $MicrostructureLog -RedirectStandardError $MicrostructureErrorLog -PassThru
+    Set-Content -LiteralPath $MicrostructurePidFile -Value $collectorProcess.Id -Encoding ascii
+    Write-Step "microstructure collector started (pid $($collectorProcess.Id))"
 }
 
 function Test-SchedulerHealthy {
@@ -393,6 +427,7 @@ if ($apiReady -and $frontendReady -and (Test-ProjectListener $ApiPort) -and (Tes
             throw "Paper scheduler failed its startup health check. See $SchedulerLog"
         }
     }
+    Start-MicrostructureCollector
     Assert-ActiveTradingModeContract
     if (-not (Test-Path -LiteralPath $LogsDir)) { New-Item -ItemType Directory -Path $LogsDir | Out-Null }
     if (-not (Test-Path -LiteralPath $StartupLog)) { New-Item -ItemType File -Path $StartupLog | Out-Null }
@@ -438,6 +473,7 @@ $schedulerProcess = Start-Process -FilePath $env:AGENT_PYTHON `
     -RedirectStandardError $SchedulerErrorLog `
     -PassThru
 Set-Content -LiteralPath $SchedulerPidFile -Value $schedulerProcess.Id -Encoding ascii
+Start-MicrostructureCollector
 
 if (-not $frontendReady) {
     Write-Step "starting frontend http://127.0.0.1:$FrontendPort"

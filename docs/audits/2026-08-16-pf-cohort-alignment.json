@@ -1,0 +1,1279 @@
+{
+  "status": "COHORT_MISMATCH_CONFIRMED",
+  "legacy_value_check": {
+    "reported_value": "0.48688",
+    "reproducible_in_current_repo": false,
+    "current_30_row_normalized_r_pf": "0.7533482588333641490861885229",
+    "note": "The reported 0.48688 does not occur in the current repository/artifacts and cannot be reconstructed from the current 30-row decomposition without an external formula or prior artifact."
+  },
+  "definitions": {
+    "p2a_replay_pf": "Policy A replay PF over 30 local CLOSED testnet_sampling_v2 positions; modeled policy outcomes and modeled fee drag.",
+    "p2a_aligned_actual_pf": "Exchange realizedPnl minus exchange commissions for those same 30 local CLOSED positions, before funding attribution.",
+    "audit_pf": "Exchange TradeEpisode PF over 32 episodes whose episode local_context carries strategy=testnet_sampling_v2; net_pnl includes funding."
+  },
+  "counts": {
+    "p2a_decomposition_rows": 30,
+    "db_candidate_positions": 34,
+    "db_candidate_state_counts": {
+      "CLOSED": 30,
+      "QUARANTINED": 3,
+      "PROTECTED": 1
+    },
+    "audit_strategy_closed_episodes": 32,
+    "p2a_positions_present_in_audit_by_intent": 29,
+    "p2a_positions_missing_as_standalone_audit_episode": 1,
+    "audit_extra_vs_p2a": 3
+  },
+  "pf": {
+    "p2a_replay_policy_a": "1.1122990302449454",
+    "p2a_aligned_actual_pre_funding": "0.5091494675506176734448906898",
+    "p2a_aligned_actual_pre_funding_trade_count": 30,
+    "p2a_actual_decomposition_normalized_r": "0.7533482588333641490861885229",
+    "p2a_actual_decomposition_normalized_r_trade_count": 30,
+    "p2a_aligned_actual_pre_funding_net_pnl_usdt": "-416.13410667",
+    "p2a_aligned_actual_pre_funding_gross_pnl_usdt": "-172.68811013",
+    "p2a_aligned_actual_pre_funding_commission_usdt": "243.44599654",
+    "audit_report_v2": "0.3965963545259739475978455318",
+    "audit_recomputed_from_csv": "0.3965963545259739475978455318"
+  },
+  "p2a_missing_standalone_audit_episode": [
+    {
+      "position_id": "cc66890c-e2c1-4d42-8c11-52b804ab2508",
+      "intent_id": "e80dc888-ebc8-4102-9fd3-a5971f604680",
+      "entry_time": "2026-08-10 10:15:44.664000",
+      "entry_order_id": "16757146611"
+    }
+  ],
+  "audit_extra_episodes": [
+    {
+      "episode_id": "ETH-USDT-0073",
+      "intent_id": "b7adc491-2f2b-4492-8f10-bee46d7bb72c",
+      "entry_time": "2026-08-11T07:45:41.507000+00:00",
+      "net_pnl": "-9.70190737",
+      "local_order_id": "16758036497"
+    },
+    {
+      "episode_id": "BTC-USDT-0094",
+      "intent_id": "379781fd-3dab-42cd-b3be-ed3836156bfe",
+      "entry_time": "2026-08-14T16:00:16.015000+00:00",
+      "net_pnl": "8.17875561",
+      "local_order_id": "28541153897"
+    },
+    {
+      "episode_id": "ETH-USDT-0095",
+      "intent_id": "0893b75b-befd-4c5c-8d86-9e4234ef74a9",
+      "entry_time": "2026-08-14T16:00:25.371000+00:00",
+      "net_pnl": "1.21451072",
+      "local_order_id": "16760924615"
+    }
+  ],
+  "episode_merge_evidence": {
+    "episode_id": "ETH-USDT-0065",
+    "entry_time": "2026-08-07T12:53:45.366000+00:00",
+    "exit_time": "2026-08-10T12:56:45.649000+00:00",
+    "local_order_id": "",
+    "v2_intent_id": "",
+    "net_pnl": "304.35235461",
+    "reason": "The 2026-08-10 10:15:44 ETH short entry is not a standalone audit episode; build_trade_episodes groups same-symbol account fills into one lifecycle, so it is absorbed into an earlier ETH episode with no V2 strategy context."
+  },
+  "aligned_rows": [
+    {
+      "position_id": "a3e0bf61-7631-4173-966b-029cd8ea332d",
+      "intent_id": "5108470a-18d1-454e-ac36-e28589c88873",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-07 10:00:39.946000",
+      "entry_order_id": "16754353826",
+      "entry_trade_ids": [
+        "311479118"
+      ],
+      "exit_algo_order_ids": [
+        "1000000159109655",
+        "1000000159109668"
+      ],
+      "exit_actual_order_ids": [
+        "1000000159109655",
+        "16754436749"
+      ],
+      "exit_trade_ids": [
+        "311512374"
+      ],
+      "entry_commission": "0.14152648",
+      "exit_commission": "0.14202302",
+      "realized_gross_pnl": "1.24135000",
+      "net_pnl_excluding_funding": "0.95780050",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "10920a3c-6260-479c-8af6-6c410b303cfd",
+      "intent_id": "e92be4f9-40fd-4c27-9226-a2e128ea3ecf",
+      "symbol": "BTC/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-08 10:30:32.793000",
+      "entry_order_id": "28531748285",
+      "entry_trade_ids": [
+        "525715723"
+      ],
+      "exit_algo_order_ids": [
+        "1000000160188648",
+        "1000000160188659"
+      ],
+      "exit_actual_order_ids": [
+        "28533281387",
+        "1000000160188659"
+      ],
+      "exit_trade_ids": [
+        "525914324"
+      ],
+      "entry_commission": "1.00874102",
+      "exit_commission": "1.00520867",
+      "realized_gross_pnl": "-8.83088000",
+      "net_pnl_excluding_funding": "-10.84482969",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "49fe58a7-52cc-4b78-995e-1239f34aaacf",
+      "intent_id": "0e5419b7-33d4-403e-9d3a-a7d4c919ecdc",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-10 10:15:32.152000",
+      "entry_order_id": "28536181000",
+      "entry_trade_ids": [
+        "526334342"
+      ],
+      "exit_algo_order_ids": [
+        "1000000162482332",
+        "1000000162482338"
+      ],
+      "exit_actual_order_ids": [
+        "1000000162482332",
+        "28536386325"
+      ],
+      "exit_trade_ids": [
+        "526383574"
+      ],
+      "entry_commission": "1.01412012",
+      "exit_commission": "1.01147592",
+      "realized_gross_pnl": "6.61050000",
+      "net_pnl_excluding_funding": "4.58490396",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "cc66890c-e2c1-4d42-8c11-52b804ab2508",
+      "intent_id": "e80dc888-ebc8-4102-9fd3-a5971f604680",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-10 10:15:44.664000",
+      "entry_order_id": "16757146611",
+      "entry_trade_ids": [
+        "312557005"
+      ],
+      "exit_algo_order_ids": [
+        "1000000162482552",
+        "1000000162482576"
+      ],
+      "exit_actual_order_ids": [
+        "1000000162482552",
+        "16757256640"
+      ],
+      "exit_trade_ids": [
+        "312601352"
+      ],
+      "entry_commission": "1.01423840",
+      "exit_commission": "1.00953208",
+      "realized_gross_pnl": "30.64402019",
+      "net_pnl_excluding_funding": "28.62024971",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "a350a77a-c2a4-4464-833e-4f7b999b87e7",
+      "intent_id": "c30c0a1e-9097-4ac4-98d1-56ecb2598aff",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-10 13:30:41.095000",
+      "entry_order_id": "16757282094",
+      "entry_trade_ids": [
+        "312611950",
+        "312611951"
+      ],
+      "exit_algo_order_ids": [
+        "1000000162645340",
+        "1000000162645354"
+      ],
+      "exit_actual_order_ids": [
+        "1000000162645340",
+        "16757301511"
+      ],
+      "exit_trade_ids": [
+        "312619448",
+        "312619449"
+      ],
+      "entry_commission": "1.03381188",
+      "exit_commission": "1.03016051",
+      "realized_gross_pnl": "9.12840999",
+      "net_pnl_excluding_funding": "7.06443760",
+      "entry_trade_count": 2,
+      "exit_trade_count": 2,
+      "exit_complete": true
+    },
+    {
+      "position_id": "744ec799-6a14-48dd-895c-833db7a710c8",
+      "intent_id": "5e65510a-ac8b-4162-ab73-855e51dffc81",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-10 14:30:36.170000",
+      "entry_order_id": "28536438490",
+      "entry_trade_ids": [
+        "526397558",
+        "526397559",
+        "526397560",
+        "526397561",
+        "526397562",
+        "526397563",
+        "526397564",
+        "526397565",
+        "526397566",
+        "526397567",
+        "526397568",
+        "526397569",
+        "526397570",
+        "526397571",
+        "526397572",
+        "526397573",
+        "526397574",
+        "526397575",
+        "526397576",
+        "526397577",
+        "526397578",
+        "526397579",
+        "526397580",
+        "526397581",
+        "526397582",
+        "526397583",
+        "526397584",
+        "526397585",
+        "526397586",
+        "526397587",
+        "526397588",
+        "526397589",
+        "526397590",
+        "526397591",
+        "526397592"
+      ],
+      "exit_algo_order_ids": [
+        "1000000162696455",
+        "1000000162696467"
+      ],
+      "exit_actual_order_ids": [
+        "1000000162696455",
+        "28536517379"
+      ],
+      "exit_trade_ids": [
+        "526417455"
+      ],
+      "entry_commission": "1.03368916",
+      "exit_commission": "1.03117560",
+      "realized_gross_pnl": "6.28401000",
+      "net_pnl_excluding_funding": "4.21914524",
+      "entry_trade_count": 35,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "2e5481d7-695c-4d40-b0e4-dd6892f96137",
+      "intent_id": "0b0004aa-72bb-4c31-b1e0-906b7400557c",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-10 15:30:32.210000",
+      "entry_order_id": "28536529494",
+      "entry_trade_ids": [
+        "526420384",
+        "526420385"
+      ],
+      "exit_algo_order_ids": [
+        "1000000162749296",
+        "1000000162749330"
+      ],
+      "exit_actual_order_ids": [
+        "1000000162749296",
+        "28536604852"
+      ],
+      "exit_trade_ids": [
+        "526436066",
+        "526436067"
+      ],
+      "entry_commission": "1.03282902",
+      "exit_commission": "1.02944564",
+      "realized_gross_pnl": "8.45842999",
+      "net_pnl_excluding_funding": "6.39615533",
+      "entry_trade_count": 2,
+      "exit_trade_count": 2,
+      "exit_complete": true
+    },
+    {
+      "position_id": "2b3413ad-15eb-4857-a3c7-fd7e9c07aec6",
+      "intent_id": "ab633e9d-c2ba-4a51-a3ef-e19021e20c91",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-11 05:30:41.319000",
+      "entry_order_id": "16757971492",
+      "entry_trade_ids": [
+        "312863047"
+      ],
+      "exit_algo_order_ids": [
+        "1000000163483687",
+        "1000000163483698"
+      ],
+      "exit_actual_order_ids": [
+        "16758034035",
+        "1000000163483698"
+      ],
+      "exit_trade_ids": [
+        "312886985"
+      ],
+      "entry_commission": "1.03612883",
+      "exit_commission": "1.03976044",
+      "realized_gross_pnl": "-9.07904000",
+      "net_pnl_excluding_funding": "-11.15492927",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "28c27311-db3f-4314-b722-bed79d4c6685",
+      "intent_id": "30b3e8f9-c464-48e5-b8ab-27db5b38ecb5",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-11 05:45:32.203000",
+      "entry_order_id": "28537390512",
+      "entry_trade_ids": [
+        "526615895"
+      ],
+      "exit_algo_order_ids": [
+        "1000000163495573",
+        "1000000163495595"
+      ],
+      "exit_actual_order_ids": [
+        "28537587217",
+        "1000000163495595"
+      ],
+      "exit_trade_ids": [
+        "526660800"
+      ],
+      "entry_commission": "1.03439028",
+      "exit_commission": "1.03800851",
+      "realized_gross_pnl": "-9.04556000",
+      "net_pnl_excluding_funding": "-11.11795879",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "9baa36a2-2eb4-4aca-a9b7-531fe623c9c6",
+      "intent_id": "3b179f43-d5bb-4922-9d1f-b3c016fb32f9",
+      "symbol": "BTC/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-11 12:30:28.959000",
+      "entry_order_id": "28537724495",
+      "entry_trade_ids": [
+        "526697171"
+      ],
+      "exit_algo_order_ids": [
+        "1000000163847518",
+        "1000000163847546"
+      ],
+      "exit_actual_order_ids": [
+        "28537801196",
+        "1000000163847546"
+      ],
+      "exit_trade_ids": [
+        "526720500"
+      ],
+      "entry_commission": "1.03105601",
+      "exit_commission": "1.02740851",
+      "realized_gross_pnl": "-9.11874000",
+      "net_pnl_excluding_funding": "-11.17720452",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "b301a4f5-9f76-4db9-b2ea-32c24f17a1ac",
+      "intent_id": "7ff506cf-5aab-49b6-aba0-75e71d55dd2c",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-11 12:30:56.087000",
+      "entry_order_id": "16758182052",
+      "entry_trade_ids": [
+        "312946500",
+        "312946501"
+      ],
+      "exit_algo_order_ids": [
+        "1000000163847960",
+        "1000000163847969"
+      ],
+      "exit_actual_order_ids": [
+        "16758249908",
+        "1000000163847969"
+      ],
+      "exit_trade_ids": [
+        "312977817"
+      ],
+      "entry_commission": "1.03200647",
+      "exit_commission": "1.02812263",
+      "realized_gross_pnl": "-9.70962000",
+      "net_pnl_excluding_funding": "-11.76974910",
+      "entry_trade_count": 2,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "e521413f-3477-4009-a5a3-770527f7e75c",
+      "intent_id": "9dffc405-a87c-4f13-bac7-2f293c1f23f0",
+      "symbol": "BTC/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-12 01:30:35.399000",
+      "entry_order_id": "28538400666",
+      "entry_trade_ids": [
+        "526838883"
+      ],
+      "exit_algo_order_ids": [
+        "1000000164438982",
+        "1000000164438988"
+      ],
+      "exit_actual_order_ids": [
+        "1000000164438982",
+        "28538724722"
+      ],
+      "exit_trade_ids": [
+        "526926801"
+      ],
+      "entry_commission": "1.02777734",
+      "exit_commission": "1.03285192",
+      "realized_gross_pnl": "12.68644000",
+      "net_pnl_excluding_funding": "10.62581074",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "1aa5140c-af52-4813-a5c1-0e87098d7a18",
+      "intent_id": "3ce22d5c-faee-4e54-8c4a-deb127312e75",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-12 02:00:49.900000",
+      "entry_order_id": "16758624023",
+      "entry_trade_ids": [
+        "313138238"
+      ],
+      "exit_algo_order_ids": [
+        "1000000164460048",
+        "1000000164460059"
+      ],
+      "exit_actual_order_ids": [
+        "1000000164460048",
+        "16758847570"
+      ],
+      "exit_trade_ids": [
+        "313225940"
+      ],
+      "entry_commission": "1.02851056",
+      "exit_commission": "1.03295174",
+      "realized_gross_pnl": "11.10296000",
+      "net_pnl_excluding_funding": "9.04149770",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "d8645b35-47f9-4a52-9e8e-da5b1ed75f5d",
+      "intent_id": "aa0f36ab-f8d6-4321-93da-1b49813479d8",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-12 09:30:52.415000",
+      "entry_order_id": "16758854621",
+      "entry_trade_ids": [
+        "313229250"
+      ],
+      "exit_algo_order_ids": [
+        "1000000164776526",
+        "1000000164776541"
+      ],
+      "exit_actual_order_ids": [
+        "1000000164776526",
+        "16758881876"
+      ],
+      "exit_trade_ids": [
+        "313240444"
+      ],
+      "entry_commission": "1.03200820",
+      "exit_commission": "1.03714473",
+      "realized_gross_pnl": "12.84132000",
+      "net_pnl_excluding_funding": "10.77216707",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "9ead2ee8-b88e-4dae-a654-c67082f53773",
+      "intent_id": "ea23a85f-abb6-47b8-b17c-4d37178a9f54",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-12 14:47:04.163000",
+      "entry_order_id": "16759060252",
+      "entry_trade_ids": [
+        "313315568"
+      ],
+      "exit_algo_order_ids": [
+        "1000000164978727",
+        "1000000164978739"
+      ],
+      "exit_actual_order_ids": [
+        "1000000164978727",
+        "16759217938"
+      ],
+      "exit_trade_ids": [
+        "313373887"
+      ],
+      "entry_commission": "1.03308814",
+      "exit_commission": "1.02887065",
+      "realized_gross_pnl": "10.54372000",
+      "net_pnl_excluding_funding": "8.48176121",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "84cbe222-2444-4e5c-913f-ea4733b59487",
+      "intent_id": "3e3b1143-bb9c-43f5-a68b-c3545004419c",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-12 16:45:37.163000",
+      "entry_order_id": "28539084650",
+      "entry_trade_ids": [
+        "527012268"
+      ],
+      "exit_algo_order_ids": [
+        "1000000165048724",
+        "1000000165048729"
+      ],
+      "exit_actual_order_ids": [
+        "28539555532",
+        "1000000165048729"
+      ],
+      "exit_trade_ids": [
+        "527129464",
+        "527129465",
+        "527129466",
+        "527129467",
+        "527129468",
+        "527129469",
+        "527129470"
+      ],
+      "entry_commission": "7.38124000",
+      "exit_commission": "7.40754775",
+      "realized_gross_pnl": "-65.76944000",
+      "net_pnl_excluding_funding": "-80.55822775",
+      "entry_trade_count": 1,
+      "exit_trade_count": 7,
+      "exit_complete": true
+    },
+    {
+      "position_id": "604306a3-a382-4d8d-a117-6c99bb67afdb",
+      "intent_id": "b71e1039-e546-4e40-b7c0-a3695bef73fd",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-13 04:00:51.475000",
+      "entry_order_id": "16759514064",
+      "entry_trade_ids": [
+        "313489509"
+      ],
+      "exit_algo_order_ids": [
+        "1000000165397895",
+        "1000000165397907"
+      ],
+      "exit_actual_order_ids": [
+        "1000000165397895",
+        "16759558378"
+      ],
+      "exit_trade_ids": [
+        "313505962"
+      ],
+      "entry_commission": "7.34861765",
+      "exit_commission": "7.38115812",
+      "realized_gross_pnl": "81.35116000",
+      "net_pnl_excluding_funding": "66.62138423",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "32ab03ec-b435-4587-bd9e-46ad79940846",
+      "intent_id": "126379bd-f32c-4c7a-8b9a-cc5ac0c69cbf",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-13 06:45:40.844000",
+      "entry_order_id": "16759600476",
+      "entry_trade_ids": [
+        "313521933",
+        "313521934"
+      ],
+      "exit_algo_order_ids": [
+        "1000000165524536",
+        "1000000165524538"
+      ],
+      "exit_actual_order_ids": [
+        "16759678640",
+        "1000000165524538"
+      ],
+      "exit_trade_ids": [
+        "313541549"
+      ],
+      "entry_commission": "7.37635296",
+      "exit_commission": "7.34982282",
+      "realized_gross_pnl": "-66.32537000",
+      "net_pnl_excluding_funding": "-81.05154578",
+      "entry_trade_count": 2,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "96fbb96f-7e73-402e-af5a-c56447ec4a5d",
+      "intent_id": "50b1a9b9-964a-4364-bfd9-6ff24bd319f4",
+      "symbol": "BTC/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-13 07:15:40.715000",
+      "entry_order_id": "28539654203",
+      "entry_trade_ids": [
+        "527152261",
+        "527152262",
+        "527152263",
+        "527152264",
+        "527152265",
+        "527152266",
+        "527152267",
+        "527152268"
+      ],
+      "exit_algo_order_ids": [
+        "1000000165542986",
+        "1000000165542999"
+      ],
+      "exit_actual_order_ids": [
+        "28539758912",
+        "1000000165542999"
+      ],
+      "exit_trade_ids": [
+        "527168898"
+      ],
+      "entry_commission": "7.41461353",
+      "exit_commission": "7.38851819",
+      "realized_gross_pnl": "-65.23840000",
+      "net_pnl_excluding_funding": "-80.04153172",
+      "entry_trade_count": 8,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "e74589b4-5ba6-416a-8f18-273bab5c1659",
+      "intent_id": "620bf9b9-f53e-41ce-950d-3c30eb340afe",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-13 11:00:37.543000",
+      "entry_order_id": "28539770716",
+      "entry_trade_ids": [
+        "527171197"
+      ],
+      "exit_algo_order_ids": [
+        "1000000165711165",
+        "1000000165711177"
+      ],
+      "exit_actual_order_ids": [
+        "28539947990",
+        "1000000165711177"
+      ],
+      "exit_trade_ids": [
+        "527217557"
+      ],
+      "entry_commission": "7.20995100",
+      "exit_commission": "7.23870028",
+      "realized_gross_pnl": "-71.87321000",
+      "net_pnl_excluding_funding": "-86.32186128",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "0de86400-9277-4016-b7f7-19878c0f39b7",
+      "intent_id": "5a5c0fe7-73be-4713-ae29-600ee1ddec2a",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-13 12:46:03.939000",
+      "entry_order_id": "16759748461",
+      "entry_trade_ids": [
+        "313570755"
+      ],
+      "exit_algo_order_ids": [
+        "1000000165793662",
+        "1000000165793690"
+      ],
+      "exit_actual_order_ids": [
+        "16759760401",
+        "1000000165793690"
+      ],
+      "exit_trade_ids": [
+        "313575167",
+        "313575168",
+        "313575169",
+        "313575170",
+        "313575171",
+        "313575172",
+        "313575173"
+      ],
+      "entry_commission": "7.22920941",
+      "exit_commission": "7.25607265",
+      "realized_gross_pnl": "-67.15810999",
+      "net_pnl_excluding_funding": "-81.64339205",
+      "entry_trade_count": 1,
+      "exit_trade_count": 7,
+      "exit_complete": true
+    },
+    {
+      "position_id": "9fb9de39-baa6-4fab-b974-d46b9aa481d7",
+      "intent_id": "58737e7b-7253-4b2f-b212-d70b46141db1",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-13 14:16:18.087000",
+      "entry_order_id": "16759803060",
+      "entry_trade_ids": [
+        "313593897",
+        "313593898",
+        "313593899"
+      ],
+      "exit_algo_order_ids": [
+        "1000000165866026",
+        "1000000165866057"
+      ],
+      "exit_actual_order_ids": [
+        "16759876208",
+        "1000000165866057"
+      ],
+      "exit_trade_ids": [
+        "313640930"
+      ],
+      "entry_commission": "7.06639044",
+      "exit_commission": "7.04140518",
+      "realized_gross_pnl": "-62.46318000",
+      "net_pnl_excluding_funding": "-76.57097562",
+      "entry_trade_count": 3,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "f5e6c777-1529-4957-8185-e5625822e71c",
+      "intent_id": "233a7237-519c-4655-b4a9-5de1be4f0558",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-14 01:45:49.303000",
+      "entry_order_id": "16760306855",
+      "entry_trade_ids": [
+        "313839943",
+        "313839944",
+        "313839945",
+        "313839946",
+        "313839947",
+        "313839948",
+        "313839949",
+        "313839950",
+        "313839951",
+        "313839952",
+        "313839953"
+      ],
+      "exit_algo_order_ids": [
+        "1000000166366598",
+        "1000000166366611"
+      ],
+      "exit_actual_order_ids": [
+        "1000000166366598",
+        "16760477263"
+      ],
+      "exit_trade_ids": [
+        "313903710",
+        "313903711"
+      ],
+      "entry_commission": "6.96696379",
+      "exit_commission": "6.93108700",
+      "realized_gross_pnl": "89.69207999",
+      "net_pnl_excluding_funding": "75.79402920",
+      "entry_trade_count": 11,
+      "exit_trade_count": 2,
+      "exit_complete": true
+    },
+    {
+      "position_id": "f5a3633e-c0e8-47cd-8fed-013d7817d1f4",
+      "intent_id": "370ecde0-c3a6-41f4-b7d9-827e4e4418dd",
+      "symbol": "BTC/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-14 02:30:33.551000",
+      "entry_order_id": "28540443628",
+      "entry_trade_ids": [
+        "527346568",
+        "527346569",
+        "527346570"
+      ],
+      "exit_algo_order_ids": [
+        "1000000166396155",
+        "1000000166396161"
+      ],
+      "exit_actual_order_ids": [
+        "28540513878",
+        "1000000166396161"
+      ],
+      "exit_trade_ids": [
+        "527365527"
+      ],
+      "entry_commission": "6.98215130",
+      "exit_commission": "6.95768601",
+      "realized_gross_pnl": "-61.16324000",
+      "net_pnl_excluding_funding": "-75.10307731",
+      "entry_trade_count": 3,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "e0c995ec-e052-4fb2-911b-cb9029c77366",
+      "intent_id": "ae18973e-779d-4574-a3e0-00fd201b56bd",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-14 04:15:36.251000",
+      "entry_order_id": "28540523169",
+      "entry_trade_ids": [
+        "527367749",
+        "527367750"
+      ],
+      "exit_algo_order_ids": [
+        "1000000166462220",
+        "1000000166462234"
+      ],
+      "exit_actual_order_ids": [
+        "1000000166462220",
+        "28540689993"
+      ],
+      "exit_trade_ids": [
+        "527397357"
+      ],
+      "entry_commission": "6.91641842",
+      "exit_commission": "6.88856009",
+      "realized_gross_pnl": "69.64584000",
+      "net_pnl_excluding_funding": "55.84086149",
+      "entry_trade_count": 2,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "992260b4-765c-4b78-89ed-dda82a6f6bae",
+      "intent_id": "03eb2dcb-922b-4706-9b83-7dbeb5595440",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-14 06:45:49.227000",
+      "entry_order_id": "16760490396",
+      "entry_trade_ids": [
+        "313908712",
+        "313908713",
+        "313908714",
+        "313908715",
+        "313908716",
+        "313908717",
+        "313908718",
+        "313908719"
+      ],
+      "exit_algo_order_ids": [
+        "1000000166598393",
+        "1000000166598400"
+      ],
+      "exit_actual_order_ids": [
+        "1000000166598393",
+        "16760845948"
+      ],
+      "exit_trade_ids": [
+        "314049354",
+        "314049355",
+        "314049356",
+        "314049357",
+        "314049358",
+        "314049359",
+        "314049360",
+        "314049361",
+        "314049362",
+        "314049363",
+        "314049364",
+        "314049365",
+        "314049366",
+        "314049367",
+        "314049368",
+        "314049369",
+        "314049370",
+        "314049371",
+        "314049372",
+        "314049373",
+        "314049374",
+        "314049375",
+        "314049376",
+        "314049377",
+        "314049378",
+        "314049379",
+        "314049380",
+        "314049381",
+        "314049382",
+        "314049383",
+        "314049384",
+        "314049385",
+        "314049386",
+        "314049387",
+        "314049388",
+        "314049389",
+        "314049390",
+        "314049391",
+        "314049392",
+        "314049393",
+        "314049394",
+        "314049395",
+        "314049396"
+      ],
+      "entry_commission": "7.01182648",
+      "exit_commission": "6.97897888",
+      "realized_gross_pnl": "82.11860970",
+      "net_pnl_excluding_funding": "68.12780434",
+      "entry_trade_count": 8,
+      "exit_trade_count": 43,
+      "exit_complete": true
+    },
+    {
+      "position_id": "102b7034-b422-4167-b1d4-2054e0330a31",
+      "intent_id": "f46d1cd4-eba7-442d-b70a-76232128e3a3",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-14 07:30:35.847000",
+      "entry_order_id": "28540717372",
+      "entry_trade_ids": [
+        "527404761"
+      ],
+      "exit_algo_order_ids": [
+        "1000000166629956",
+        "1000000166629970"
+      ],
+      "exit_actual_order_ids": [
+        "1000000166629956",
+        "28540836638"
+      ],
+      "exit_trade_ids": [
+        "527432454"
+      ],
+      "entry_commission": "7.00550457",
+      "exit_commission": "6.97011448",
+      "realized_gross_pnl": "88.47522000",
+      "net_pnl_excluding_funding": "74.49960095",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "76917efb-f9f2-46d7-832b-bdc5523121c0",
+      "intent_id": "26f20726-2cac-4b63-8f60-0aafacccfb1a",
+      "symbol": "BTC/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-14 10:15:37.003000",
+      "entry_order_id": "28540865636",
+      "entry_trade_ids": [
+        "527438686",
+        "527438687",
+        "527438688",
+        "527438689",
+        "527438690",
+        "527438691",
+        "527438692"
+      ],
+      "exit_algo_order_ids": [
+        "1000000166753795",
+        "1000000166753802"
+      ],
+      "exit_actual_order_ids": [
+        "28541150070",
+        "1000000166753802"
+      ],
+      "exit_trade_ids": [
+        "527512466"
+      ],
+      "entry_commission": "7.10471422",
+      "exit_commission": "7.12981144",
+      "realized_gross_pnl": "-62.74305000",
+      "net_pnl_excluding_funding": "-76.97757566",
+      "entry_trade_count": 7,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "be4d3871-274e-47a5-ab96-1a41f24e7f5d",
+      "intent_id": "7d4f6c91-5a63-4fa8-b600-2d88df77eb5f",
+      "symbol": "ETH/USDT",
+      "direction": "short",
+      "entry_time": "2026-08-14 14:30:57.427000",
+      "entry_order_id": "16760856740",
+      "entry_trade_ids": [
+        "314054960"
+      ],
+      "exit_algo_order_ids": [
+        "1000000166953576",
+        "1000000166953600"
+      ],
+      "exit_actual_order_ids": [
+        "16760904552",
+        "1000000166953600"
+      ],
+      "exit_trade_ids": [
+        "314081153"
+      ],
+      "entry_commission": "7.18910296",
+      "exit_commission": "7.21442280",
+      "realized_gross_pnl": "-63.29960000",
+      "net_pnl_excluding_funding": "-77.70312576",
+      "entry_trade_count": 1,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    },
+    {
+      "position_id": "85943265-c4f2-4280-95ea-c2c503dacac2",
+      "intent_id": "b1bf5005-7103-4fd2-bd11-cad42cbf7f32",
+      "symbol": "ETH/USDT",
+      "direction": "long",
+      "entry_time": "2026-08-14 17:17:20.591000",
+      "entry_order_id": "16760975570",
+      "entry_trade_ids": [
+        "314116188",
+        "314116189",
+        "314116190",
+        "314116191",
+        "314116192",
+        "314116193",
+        "314116194",
+        "314116195",
+        "314116196",
+        "314116197",
+        "314116198",
+        "314116199",
+        "314116200",
+        "314116201",
+        "314116202",
+        "314116203",
+        "314116204"
+      ],
+      "exit_algo_order_ids": [
+        "1000000167091152",
+        "1000000167091160"
+      ],
+      "exit_actual_order_ids": [
+        "16760999503",
+        "1000000167091160"
+      ],
+      "exit_trade_ids": [
+        "314127166"
+      ],
+      "entry_commission": "7.03783474",
+      "exit_commission": "7.01315690",
+      "realized_gross_pnl": "-61.69474000",
+      "net_pnl_excluding_funding": "-75.74573164",
+      "entry_trade_count": 17,
+      "exit_trade_count": 1,
+      "exit_complete": true
+    }
+  ],
+  "audit_extra_rows": [
+    {
+      "active_decision": "PROTECTION_CONFIRMED",
+      "active_entry_strategy": "",
+      "active_strategy_id": "testnet_sampling_v2",
+      "active_terminal_reason": "OK",
+      "bar_timestamp": "2026-08-11T07:45:00+00:00",
+      "candidate": "",
+      "candidate_id": "e28cdbbe-ed73-4976-874c-c2321816fc26",
+      "candidate_key": "",
+      "candidate_type": "SAMPLING",
+      "commission": "2.07008410",
+      "created_at": "2026-08-11T07:45:36.345932+00:00",
+      "created_candidate": "True",
+      "cycle_id": "0c9717f1-6ff1-472b-b193-8ba781499b22",
+      "decision_terminal": "PROTECTION_CONFIRMED",
+      "direction": "short",
+      "entry_authority": "",
+      "entry_authority_reason": "",
+      "entry_authorized": "",
+      "entry_price": "1876.672650689905591866376180",
+      "entry_quantity": "1.377",
+      "entry_time": "2026-08-11T07:45:41.507000+00:00",
+      "episode_id": "ETH-USDT-0073",
+      "execution_policy": "TESTNET_SAMPLING_EXECUTION",
+      "exit_price": "1881.65",
+      "exit_quantity": "1.377",
+      "exit_reason": "UNKNOWN",
+      "exit_time": "2026-08-11T09:56:00.330000+00:00",
+      "funding": "-0.77801327",
+      "funnel_id": "538deba7-5681-4e4e-a767-289f383c51e6",
+      "giveback_pct": "0.3564819894157146064351969777",
+      "holding_seconds": "7818",
+      "is_stop_order": "False",
+      "is_tp_order": "False",
+      "lane": "TESTNET_SAMPLING",
+      "local_order_id": "16758036497",
+      "mae_pct": "-0.2668206044487086153933406753",
+      "market_snapshot_reference": "d55a6b9a0f1717e4e146d3271ec18039d417187112049df4c7a0796bc9ac8807",
+      "mfe_pct": "0.09125995891057421797654328442",
+      "net_pnl": "-9.70190737",
+      "promotion_eligible": "",
+      "r2_cost_gate": "",
+      "realized_pnl": "-6.85381000",
+      "reason_code": "OK",
+      "regime": "",
+      "research_shadow": "{'schema_version': 'p1-same-cycle-research-shadow-v1', 'status': 'COMPLETED', 'lane': 'RESEARCH_SHADOW', 'scheduler_session_id': 'ssss:1432:b04252ea78f0', 'scheduler_cycle_id': 'd2f01c2d-1c6a-4015-b790-254b3e9bd9f1', 'cycle_id': '0c9717f1-6ff1-472b-b193-8ba781499b22', 'symbol': 'ETH/USDT', 'bar_close_time': '2026-08-11T07:45:00+00:00', 'market_snapshot_reference': 'd55a6b9a0f1717e4e146d3271ec18039d417187112049df4c7a0796bc9ac8807', 'active_strategy_id': 'testnet_sampling_v2', 'active_decision': 'PROTECTION_CONFIRMED', 'active_terminal_reason': 'OK', 'pipeline_version': 'proposal-pipeline-v1', 'context_hash': '8750df2205481fa96a343c6256af6c26b1af35273779c9eaa48e3e513bd54d3a', 'observations': [{'scheduler_session_id': 'ssss:1432:b04252ea78f0', 'scheduler_cycle_id': 'd2f01c2d-1c6a-4015-b790-254b3e9bd9f1', 'cycle_id': '0c9717f1-6ff1-472b-b193-8ba781499b22', 'symbol': 'ETH/USDT', 'bar_close_time': '2026-08-11T07:45:00+00:00', 'market_snapshot_reference': 'd55a6b9a0f1717e4e146d3271ec18039d417187112049df4c7a0796bc9ac8807', 'strategy_id': 'trend_pullback_v2', 'strategy_version': '2.0.0-research', 'lane': 'RESEARCH_SHADOW', 'signal_direction': None, 'signal_present': False, 'decision_status': 'SHADOW_NO_SIGNAL', 'terminal_reason': 'candidate_conditions_not_met', 'entry_reference_price': None, 'stop_reference_price': None, 'target_reference_prices': [], 'created_at': '2026-08-11T07:45:44.563130+00:00'}, {'scheduler_session_id': 'ssss:1432:b04252ea78f0', 'scheduler_cycle_id': 'd2f01c2d-1c6a-4015-b790-254b3e9bd9f1', 'cycle_id': '0c9717f1-6ff1-472b-b193-8ba781499b22', 'symbol': 'ETH/USDT', 'bar_close_time': '2026-08-11T07:45:00+00:00', 'market_snapshot_reference': 'd55a6b9a0f1717e4e146d3271ec18039d417187112049df4c7a0796bc9ac8807', 'strategy_id': 'range_sweep_reversion_v1', 'strategy_version': '1.0.0-research', 'lane': 'RESEARCH_SHADOW', 'signal_direction': None, 'signal_present': False, 'decision_status': 'SHADOW_NO_SIGNAL', 'terminal_reason': 'candidate_conditions_not_met', 'entry_reference_price': None, 'stop_reference_price': None, 'target_reference_prices': [], 'created_at': '2026-08-11T07:45:44.563130+00:00'}, {'scheduler_session_id': 'ssss:1432:b04252ea78f0', 'scheduler_cycle_id': 'd2f01c2d-1c6a-4015-b790-254b3e9bd9f1', 'cycle_id': '0c9717f1-6ff1-472b-b193-8ba781499b22', 'symbol': 'ETH/USDT', 'bar_close_time': '2026-08-11T07:45:00+00:00', 'market_snapshot_reference': 'd55a6b9a0f1717e4e146d3271ec18039d417187112049df4c7a0796bc9ac8807', 'strategy_id': 'failed_breakout_reversal_v1', 'strategy_version': '1.0.0-research', 'lane': 'RESEARCH_SHADOW', 'signal_direction': None, 'signal_present': False, 'decision_status': 'SHADOW_NO_SIGNAL', 'terminal_reason': 'candidate_conditions_not_met', 'entry_reference_price': None, 'stop_reference_price': None, 'target_reference_prices': [], 'created_at': '2026-08-11T07:45:44.563130+00:00'}], 'created_at': '2026-08-11T07:45:44.563130+00:00'}",
+      "score_bucket": "",
+      "stages": "[{'stage': 'CYCLE_STARTED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {}, 'recorded_at': '2026-08-11T07:45:36.345932+00:00'}, {'stage': 'DATA_AVAILABLE', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'entry_bar_count': '199'}, 'recorded_at': '2026-08-11T07:45:36.345932+00:00'}, {'stage': 'CANDLE_CLOSED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'bar_timestamp': '2026-08-11T07:45:00+00:00'}, 'recorded_at': '2026-08-11T07:45:36.345932+00:00'}, {'stage': 'DATA_FRESH', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'bar_age_seconds': '5.015901'}, 'recorded_at': '2026-08-11T07:45:36.345932+00:00'}, {'stage': 'TIMEFRAMES_ALIGNED', 'outcome': 'SKIPPED', 'reason_code': 'SINGLE_TIMEFRAME_LANE', 'detail': '', 'metrics': {}, 'recorded_at': '2026-08-11T07:45:36.345932+00:00'}, {'stage': 'REGIME_EVALUATED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'atr14': '2.665714285714285714285714286'}, 'recorded_at': '2026-08-11T07:45:36.345932+00:00'}, {'stage': 'ENTRY_SIGNAL_EVALUATED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'atr14': '2.665714285714285714285714286', 'close': '1877', 'ema50': '1877.932791621784425165590337', 'macd_histogram': '-0.1002974629293227213443342234', 'rsi14': '46.02929838087895142636854280', 'side': 'SHORT'}, 'recorded_at': '2026-08-11T07:45:36.350932+00:00'}, {'stage': 'CANDIDATE_CREATED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'candidate_id': 'e28cdbbe-ed73-4976-874c-c2321816fc26', 'non_promotable': 'True', 'side': 'SHORT', 'stop_distance': '6.5695', 'take_profit_distance': '9.85425'}, 'recorded_at': '2026-08-11T07:45:36.350932+00:00'}, {'stage': 'META_LABEL_EVALUATED', 'outcome': 'SKIPPED', 'reason_code': 'META_LABEL_NOT_CONFIGURED', 'detail': '', 'metrics': {}, 'recorded_at': '2026-08-11T07:45:36.350932+00:00'}, {'stage': 'MANIFEST_EVALUATED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {}, 'recorded_at': '2026-08-11T07:45:36.350932+00:00'}, {'stage': 'RECONCILIATION_HEALTHY', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {}, 'recorded_at': '2026-08-11T07:45:36.351932+00:00'}, {'stage': 'RISK_APPROVED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {}, 'recorded_at': '2026-08-11T07:45:36.351932+00:00'}, {'stage': 'AI_REVIEWED', 'outcome': 'SKIPPED', 'reason_code': 'AI_PROVIDER_UNAVAILABLE', 'detail': '', 'metrics': {'status': 'skipped', 'provider': 'None', 'model': 'None', 'error': 'ai_review_budget_exceeded_after_1.50s'}, 'recorded_at': '2026-08-11T07:45:37.860007+00:00'}, {'stage': 'PRICE_DRIFT_APPROVED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'drift_bps': '1.971230687266915290356952584', 'drift_ceiling_bps': '20'}, 'recorded_at': '2026-08-11T07:45:39.510564+00:00'}, {'stage': 'INTENT_CREATED', 'outcome': 'PASSED', 'reason_code': 'ENTRY_INTENT_CREATED', 'detail': '', 'metrics': {'intent_id': 'b7adc491-2f2b-4492-8f10-bee46d7bb72c'}, 'recorded_at': '2026-08-11T07:45:39.510564+00:00'}, {'stage': 'EXCHANGE_SUBMITTED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'client_order_id': 'A2E-3d4e3064eb7f26d2e005-1', 'exchange_order_id': '16758036497', 'status': 'FILLED'}, 'recorded_at': '2026-08-11T07:45:42.863970+00:00'}, {'stage': 'EXCHANGE_FILLED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'exchange_order_id': '16758036497', 'trade_ids': '312887689,312887690,312887691,312887692,312887693,312887694,312887695', 'filled_quantity': '1.377'}, 'recorded_at': '2026-08-11T07:45:42.863970+00:00'}, {'stage': 'POSITION_PROJECTED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {}, 'recorded_at': '2026-08-11T07:45:42.863970+00:00'}, {'stage': 'PROTECTION_CONFIRMED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'stop_exchange_order_id': '1000000163599274', 'tp_exchange_order_id': '1000000163599291'}, 'recorded_at': '2026-08-11T07:45:44.434938+00:00'}]",
+      "status": "CLOSED",
+      "strategy": "testnet_sampling_v2",
+      "strategy_id": "testnet_sampling_v2",
+      "strategy_trace": "",
+      "strategy_version": "1.0.0",
+      "symbol": "ETH/USDT",
+      "terminal_outcome": "PASSED",
+      "terminal_stage": "PROTECTION_CONFIRMED",
+      "trading_state": "",
+      "v2_cycle_id": "0c9717f1-6ff1-472b-b193-8ba781499b22",
+      "v2_intent_id": "b7adc491-2f2b-4492-8f10-bee46d7bb72c"
+    },
+    {
+      "active_decision": "PROTECTION_CONFIRMED",
+      "active_entry_strategy": "testnet_sampling_v2",
+      "active_strategy_id": "testnet_sampling_v2",
+      "active_terminal_reason": "OK",
+      "bar_timestamp": "",
+      "candidate": "{'candidate_id': 'f267ad96-38ed-47d0-8a07-c51f07cebe82', 'cycle_id': '4892c08b-f621-4dcb-adc3-aa203f41e955', 'strategy_id': 'testnet_sampling_v2', 'strategy_version': '2.0.0', 'lane': 'TESTNET_SAMPLING', 'candidate_type': 'SAMPLING', 'symbol': 'BTC/USDT', 'side': 'LONG', 'signal_candle_close_time': '2026-08-14T16:00:00+00:00', 'signal_reference_price': '62950', 'confidence': '0.55', 'stop_distance': '220.3250', 'take_profit_distance': '330.48750', 'stop_reference_price': '62729.6750', 'take_profit_reference_price': '63280.48750', 'max_entry_drift_bps': '20', 'expires_at': '2026-08-14T16:01:19.987823+00:00', 'non_promotable': True, 'signal_context': []}",
+      "candidate_id": "",
+      "candidate_key": "testnet_sampling_v2",
+      "candidate_type": "SAMPLING",
+      "commission": "14.03582448",
+      "created_at": "",
+      "created_candidate": "",
+      "cycle_id": "4892c08b-f621-4dcb-adc3-aa203f41e955",
+      "decision_terminal": "PROTECTION_CONFIRMED",
+      "direction": "long",
+      "entry_authority": "TESTNET_CANARY",
+      "entry_authority_reason": "testnet_canary_enabled",
+      "entry_authorized": "True",
+      "entry_price": "63012.80172537742631200575126",
+      "entry_quantity": "0.2782",
+      "entry_time": "2026-08-14T16:00:16.015000+00:00",
+      "episode_id": "BTC-USDT-0094",
+      "execution_policy": "AUTHORIZED_TESTNET_CANARY",
+      "exit_price": "63117.90",
+      "exit_quantity": "0.2782",
+      "exit_reason": "UNKNOWN",
+      "exit_time": "2026-08-14T17:06:53.887000+00:00",
+      "funding": "-7.02375991",
+      "funnel_id": "",
+      "giveback_pct": "0.0895056218033323485468140675",
+      "holding_seconds": "3997",
+      "is_stop_order": "False",
+      "is_tp_order": "False",
+      "lane": "PRODUCTION",
+      "local_order_id": "28541153897",
+      "mae_pct": "-0.1077586197061286162348086198",
+      "market_snapshot_reference": "5462ce3dc12b53b2013e907f382e679ee169033d9cbbad3fe6da1672e59ba7a2",
+      "mfe_pct": "0.2562943881251557943438996616",
+      "net_pnl": "8.17875561",
+      "promotion_eligible": "False",
+      "r2_cost_gate": "",
+      "realized_pnl": "29.23834000",
+      "reason_code": "OK",
+      "regime": "",
+      "research_shadow": "{'schema_version': 'p1-same-cycle-research-shadow-v1', 'status': 'COMPLETED_WITH_ERRORS', 'lane': 'RESEARCH_SHADOW', 'scheduler_session_id': 'ssss:21632:441922814bb3', 'scheduler_cycle_id': '5fca6874-4bdf-4db2-84f8-ca268255798c', 'cycle_id': '4892c08b-f621-4dcb-adc3-aa203f41e955', 'symbol': 'BTC/USDT', 'bar_close_time': '2026-08-14T16:00:00+00:00', 'market_snapshot_reference': '5462ce3dc12b53b2013e907f382e679ee169033d9cbbad3fe6da1672e59ba7a2', 'active_strategy_id': 'testnet_sampling_v2', 'active_decision': 'PROTECTION_CONFIRMED', 'active_terminal_reason': 'OK', 'pipeline_version': 'proposal-pipeline-v1', 'context_hash': '1154cefde4dff1fc43f8e35191868e93fbb746e9a3d54ca87f3d0e7d2f1c0e1f', 'observations': [{'scheduler_session_id': 'ssss:21632:441922814bb3', 'scheduler_cycle_id': '5fca6874-4bdf-4db2-84f8-ca268255798c', 'cycle_id': '4892c08b-f621-4dcb-adc3-aa203f41e955', 'symbol': 'BTC/USDT', 'bar_close_time': '2026-08-14T16:00:00+00:00', 'market_snapshot_reference': '5462ce3dc12b53b2013e907f382e679ee169033d9cbbad3fe6da1672e59ba7a2', 'strategy_id': 'loss_aware_trend_pullback_v1', 'strategy_version': '1.0.0-live-loss-hypothesis', 'lane': 'RESEARCH_SHADOW', 'signal_direction': None, 'signal_present': False, 'decision_status': 'SHADOW_NO_SIGNAL', 'terminal_reason': 'candidate_conditions_not_met', 'entry_reference_price': None, 'stop_reference_price': None, 'target_reference_prices': [], 'created_at': '2026-08-14T16:00:26.225740+00:00'}, {'scheduler_session_id': 'ssss:21632:441922814bb3', 'scheduler_cycle_id': '5fca6874-4bdf-4db2-84f8-ca268255798c', 'cycle_id': '4892c08b-f621-4dcb-adc3-aa203f41e955', 'symbol': 'BTC/USDT', 'bar_close_time': '2026-08-14T16:00:00+00:00', 'market_snapshot_reference': '5462ce3dc12b53b2013e907f382e679ee169033d9cbbad3fe6da1672e59ba7a2', 'strategy_id': 'trend_pullback_v2', 'strategy_version': '2.0.0-research', 'lane': 'RESEARCH_SHADOW', 'signal_direction': None, 'signal_present': False, 'decision_status': 'SHADOW_NO_SIGNAL', 'terminal_reason': 'candidate_conditions_not_met', 'entry_reference_price': None, 'stop_reference_price': None, 'target_reference_prices': [], 'created_at': '2026-08-14T16:00:26.225740+00:00'}, {'scheduler_session_id': 'ssss:21632:441922814bb3', 'scheduler_cycle_id': '5fca6874-4bdf-4db2-84f8-ca268255798c', 'cycle_id': '4892c08b-f621-4dcb-adc3-aa203f41e955', 'symbol': 'BTC/USDT', 'bar_close_time': '2026-08-14T16:00:00+00:00', 'market_snapshot_reference': '5462ce3dc12b53b2013e907f382e679ee169033d9cbbad3fe6da1672e59ba7a2', 'strategy_id': 'range_sweep_reversion_v1', 'strategy_version': '1.0.0-research', 'lane': 'RESEARCH_SHADOW', 'signal_direction': None, 'signal_present': False, 'decision_status': 'SHADOW_NO_SIGNAL', 'terminal_reason': 'candidate_conditions_not_met', 'entry_reference_price': None, 'stop_reference_price': None, 'target_reference_prices': [], 'created_at': '2026-08-14T16:00:26.225740+00:00'}, {'scheduler_session_id': 'ssss:21632:441922814bb3', 'scheduler_cycle_id': '5fca6874-4bdf-4db2-84f8-ca268255798c', 'cycle_id': '4892c08b-f621-4dcb-adc3-aa203f41e955', 'symbol': 'BTC/USDT', 'bar_close_time': '2026-08-14T16:00:00+00:00', 'market_snapshot_reference': '5462ce3dc12b53b2013e907f382e679ee169033d9cbbad3fe6da1672e59ba7a2', 'strategy_id': 'failed_breakout_reversal_v1', 'strategy_version': '1.0.0-research', 'lane': 'RESEARCH_SHADOW', 'signal_direction': None, 'signal_present': False, 'decision_status': 'SHADOW_NO_SIGNAL', 'terminal_reason': 'candidate_conditions_not_met', 'entry_reference_price': None, 'stop_reference_price': None, 'target_reference_prices': [], 'created_at': '2026-08-14T16:00:26.225740+00:00'}, {'scheduler_session_id': 'ssss:21632:441922814bb3', 'scheduler_cycle_id': '5fca6874-4bdf-4db2-84f8-ca268255798c', 'cycle_id': '4892c08b-f621-4dcb-adc3-aa203f41e955', 'symbol': 'BTC/USDT', 'bar_close_time': '2026-08-14T16:00:00+00:00', 'market_snapshot_reference': '5462ce3dc12b53b2013e907f382e679ee169033d9cbbad3fe6da1672e59ba7a2', 'strategy_id': 'breakout_continuation_v1', 'strategy_version': '1.0.0-research', 'lane': 'RESEARCH_SHADOW', 'signal_direction': None, 'signal_present': False, 'decision_status': 'SHADOW_NO_SIGNAL', 'terminal_reason': 'candidate_conditions_not_met', 'entry_reference_price': None, 'stop_reference_price': None, 'target_reference_prices': [], 'created_at': '2026-08-14T16:00:26.225740+00:00'}], 'created_at': '2026-08-14T16:00:26.225740+00:00'}",
+      "score_bucket": "",
+      "stages": "[{'stage': 'RECONCILIATION_HEALTHY', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {}, 'recorded_at': '2026-08-14T16:00:13.899022+00:00'}, {'stage': 'RISK_APPROVED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {}, 'recorded_at': '2026-08-14T16:00:13.899022+00:00'}, {'stage': 'AI_REVIEWED', 'outcome': 'SKIPPED', 'reason_code': 'AI_PROVIDER_UNAVAILABLE', 'detail': '', 'metrics': {'status': 'skipped', 'provider': 'None', 'model': 'None', 'error': 'ai_review_budget_exceeded_after_1.50s'}, 'recorded_at': '2026-08-14T16:00:15.400682+00:00'}, {'stage': 'PRICE_DRIFT_APPROVED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'drift_bps': '10.02382843526608419380460683', 'drift_ceiling_bps': '20'}, 'recorded_at': '2026-08-14T16:00:15.482455+00:00'}, {'stage': 'INTENT_CREATED', 'outcome': 'PASSED', 'reason_code': 'ENTRY_INTENT_CREATED', 'detail': '', 'metrics': {'intent_id': '379781fd-3dab-42cd-b3be-ed3836156bfe'}, 'recorded_at': '2026-08-14T16:00:15.482455+00:00'}, {'stage': 'EXCHANGE_SUBMITTED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'client_order_id': 'A2E-ea9a386c944f07d6c431-1', 'exchange_order_id': '28541153897', 'status': 'FILLED'}, 'recorded_at': '2026-08-14T16:00:16.027131+00:00'}, {'stage': 'EXCHANGE_FILLED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'exchange_order_id': '28541153897', 'trade_ids': '527513614,527513615,527513616,527513617', 'filled_quantity': '0.2782'}, 'recorded_at': '2026-08-14T16:00:16.028128+00:00'}, {'stage': 'POSITION_PROJECTED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {}, 'recorded_at': '2026-08-14T16:00:16.028128+00:00'}, {'stage': 'PROTECTION_CONFIRMED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'stop_exchange_order_id': '1000000167028260', 'tp_exchange_order_id': '1000000167028262'}, 'recorded_at': '2026-08-14T16:00:16.266331+00:00'}]",
+      "status": "CLOSED",
+      "strategy": "testnet_sampling_v2",
+      "strategy_id": "testnet_sampling_v2",
+      "strategy_trace": "{}",
+      "strategy_version": "2.0.0",
+      "symbol": "BTC/USDT",
+      "terminal_outcome": "PASSED",
+      "terminal_stage": "PROTECTION_CONFIRMED",
+      "trading_state": "TRADING",
+      "v2_cycle_id": "4892c08b-f621-4dcb-adc3-aa203f41e955",
+      "v2_intent_id": "379781fd-3dab-42cd-b3be-ed3836156bfe"
+    },
+    {
+      "active_decision": "PROTECTION_CONFIRMED",
+      "active_entry_strategy": "testnet_sampling_v2",
+      "active_strategy_id": "testnet_sampling_v2",
+      "active_terminal_reason": "OK",
+      "bar_timestamp": "",
+      "candidate": "{'candidate_id': '8d02e348-42fa-4c1a-8c0a-b7862623918c', 'cycle_id': '67d73b89-8db8-470a-8531-c50a63baa682', 'strategy_id': 'testnet_sampling_v2', 'strategy_version': '2.0.0', 'lane': 'TESTNET_SAMPLING', 'candidate_type': 'SAMPLING', 'symbol': 'ETH/USDT', 'side': 'LONG', 'signal_candle_close_time': '2026-08-14T16:00:00+00:00', 'signal_reference_price': '1881.22', 'confidence': '0.55', 'stop_distance': '6.584270', 'take_profit_distance': '9.8764050', 'stop_reference_price': '1874.635730', 'take_profit_reference_price': '1891.0964050', 'max_entry_drift_bps': '20', 'expires_at': '2026-08-14T16:01:19.987823+00:00', 'non_promotable': True, 'signal_context': []}",
+      "candidate_id": "",
+      "candidate_key": "testnet_sampling_v2",
+      "candidate_type": "SAMPLING",
+      "commission": "14.00856859",
+      "created_at": "",
+      "created_candidate": "",
+      "cycle_id": "67d73b89-8db8-470a-8531-c50a63baa682",
+      "decision_terminal": "PROTECTION_CONFIRMED",
+      "direction": "long",
+      "entry_authority": "TESTNET_CANARY",
+      "entry_authority_reason": "testnet_canary_enabled",
+      "entry_authorized": "True",
+      "entry_price": "1881.879225723196042585224218",
+      "entry_quantity": "9.299",
+      "entry_time": "2026-08-14T16:00:25.371000+00:00",
+      "episode_id": "ETH-USDT-0095",
+      "execution_policy": "AUTHORIZED_TESTNET_CANARY",
+      "exit_price": "1884.27",
+      "exit_quantity": "9.299",
+      "exit_reason": "UNKNOWN",
+      "exit_time": "2026-08-14T17:06:54.847000+00:00",
+      "funding": "-7.00873069",
+      "funnel_id": "",
+      "giveback_pct": "0.1386911532007050595203148851",
+      "holding_seconds": "3989",
+      "is_stop_order": "False",
+      "is_tp_order": "False",
+      "lane": "PRODUCTION",
+      "local_order_id": "16760924615",
+      "mae_pct": "-0.1535287537958621501622736029",
+      "market_snapshot_reference": "5c4798d93eb2ad1f7ab55b9229afb8ffbbfb6e9887f88adb7c24beab3f7fde02",
+      "mfe_pct": "0.2657330081786830297669541531",
+      "net_pnl": "1.21451072",
+      "promotion_eligible": "False",
+      "r2_cost_gate": "",
+      "realized_pnl": "22.23181000",
+      "reason_code": "OK",
+      "regime": "",
+      "research_shadow": "{'schema_version': 'p1-same-cycle-research-shadow-v1', 'status': 'COMPLETED_WITH_ERRORS', 'lane': 'RESEARCH_SHADOW', 'scheduler_session_id': 'ssss:21632:441922814bb3', 'scheduler_cycle_id': '5fca6874-4bdf-4db2-84f8-ca268255798c', 'cycle_id': '67d73b89-8db8-470a-8531-c50a63baa682', 'symbol': 'ETH/USDT', 'bar_close_time': '2026-08-14T16:00:00+00:00', 'market_snapshot_reference': '5c4798d93eb2ad1f7ab55b9229afb8ffbbfb6e9887f88adb7c24beab3f7fde02', 'active_strategy_id': 'testnet_sampling_v2', 'active_decision': 'PROTECTION_CONFIRMED', 'active_terminal_reason': 'OK', 'pipeline_version': 'proposal-pipeline-v1', 'context_hash': 'd0d4c3dc5282099cfadc3055efed3c161ba80cf96b81a76e56e66a17e7504f41', 'observations': [{'scheduler_session_id': 'ssss:21632:441922814bb3', 'scheduler_cycle_id': '5fca6874-4bdf-4db2-84f8-ca268255798c', 'cycle_id': '67d73b89-8db8-470a-8531-c50a63baa682', 'symbol': 'ETH/USDT', 'bar_close_time': '2026-08-14T16:00:00+00:00', 'market_snapshot_reference': '5c4798d93eb2ad1f7ab55b9229afb8ffbbfb6e9887f88adb7c24beab3f7fde02', 'strategy_id': 'loss_aware_trend_pullback_v1', 'strategy_version': '1.0.0-live-loss-hypothesis', 'lane': 'RESEARCH_SHADOW', 'signal_direction': None, 'signal_present': False, 'decision_status': 'SHADOW_NO_SIGNAL', 'terminal_reason': 'candidate_conditions_not_met', 'entry_reference_price': None, 'stop_reference_price': None, 'target_reference_prices': [], 'created_at': '2026-08-14T16:00:26.291347+00:00'}, {'scheduler_session_id': 'ssss:21632:441922814bb3', 'scheduler_cycle_id': '5fca6874-4bdf-4db2-84f8-ca268255798c', 'cycle_id': '67d73b89-8db8-470a-8531-c50a63baa682', 'symbol': 'ETH/USDT', 'bar_close_time': '2026-08-14T16:00:00+00:00', 'market_snapshot_reference': '5c4798d93eb2ad1f7ab55b9229afb8ffbbfb6e9887f88adb7c24beab3f7fde02', 'strategy_id': 'trend_pullback_v2', 'strategy_version': '2.0.0-research', 'lane': 'RESEARCH_SHADOW', 'signal_direction': None, 'signal_present': False, 'decision_status': 'SHADOW_NO_SIGNAL', 'terminal_reason': 'candidate_conditions_not_met', 'entry_reference_price': None, 'stop_reference_price': None, 'target_reference_prices': [], 'created_at': '2026-08-14T16:00:26.291347+00:00'}, {'scheduler_session_id': 'ssss:21632:441922814bb3', 'scheduler_cycle_id': '5fca6874-4bdf-4db2-84f8-ca268255798c', 'cycle_id': '67d73b89-8db8-470a-8531-c50a63baa682', 'symbol': 'ETH/USDT', 'bar_close_time': '2026-08-14T16:00:00+00:00', 'market_snapshot_reference': '5c4798d93eb2ad1f7ab55b9229afb8ffbbfb6e9887f88adb7c24beab3f7fde02', 'strategy_id': 'range_sweep_reversion_v1', 'strategy_version': '1.0.0-research', 'lane': 'RESEARCH_SHADOW', 'signal_direction': None, 'signal_present': False, 'decision_status': 'SHADOW_NO_SIGNAL', 'terminal_reason': 'candidate_conditions_not_met', 'entry_reference_price': None, 'stop_reference_price': None, 'target_reference_prices': [], 'created_at': '2026-08-14T16:00:26.291347+00:00'}, {'scheduler_session_id': 'ssss:21632:441922814bb3', 'scheduler_cycle_id': '5fca6874-4bdf-4db2-84f8-ca268255798c', 'cycle_id': '67d73b89-8db8-470a-8531-c50a63baa682', 'symbol': 'ETH/USDT', 'bar_close_time': '2026-08-14T16:00:00+00:00', 'market_snapshot_reference': '5c4798d93eb2ad1f7ab55b9229afb8ffbbfb6e9887f88adb7c24beab3f7fde02', 'strategy_id': 'failed_breakout_reversal_v1', 'strategy_version': '1.0.0-research', 'lane': 'RESEARCH_SHADOW', 'signal_direction': None, 'signal_present': False, 'decision_status': 'SHADOW_NO_SIGNAL', 'terminal_reason': 'candidate_conditions_not_met', 'entry_reference_price': None, 'stop_reference_price': None, 'target_reference_prices': [], 'created_at': '2026-08-14T16:00:26.291347+00:00'}, {'scheduler_session_id': 'ssss:21632:441922814bb3', 'scheduler_cycle_id': '5fca6874-4bdf-4db2-84f8-ca268255798c', 'cycle_id': '67d73b89-8db8-470a-8531-c50a63baa682', 'symbol': 'ETH/USDT', 'bar_close_time': '2026-08-14T16:00:00+00:00', 'market_snapshot_reference': '5c4798d93eb2ad1f7ab55b9229afb8ffbbfb6e9887f88adb7c24beab3f7fde02', 'strategy_id': 'breakout_continuation_v1', 'strategy_version': '1.0.0-research', 'lane': 'RESEARCH_SHADOW', 'signal_direction': None, 'signal_present': False, 'decision_status': 'SHADOW_NO_SIGNAL', 'terminal_reason': 'candidate_conditions_not_met', 'entry_reference_price': None, 'stop_reference_price': None, 'target_reference_prices': [], 'created_at': '2026-08-14T16:00:26.291347+00:00'}], 'created_at': '2026-08-14T16:00:26.291347+00:00'}",
+      "score_bucket": "",
+      "stages": "[{'stage': 'RECONCILIATION_HEALTHY', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {}, 'recorded_at': '2026-08-14T16:00:23.290612+00:00'}, {'stage': 'RISK_APPROVED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {}, 'recorded_at': '2026-08-14T16:00:23.290612+00:00'}, {'stage': 'AI_REVIEWED', 'outcome': 'SKIPPED', 'reason_code': 'AI_PROVIDER_UNAVAILABLE', 'detail': '', 'metrics': {'status': 'skipped', 'provider': 'None', 'model': 'None', 'error': 'ai_review_budget_exceeded_after_1.52s'}, 'recorded_at': '2026-08-14T16:00:24.798470+00:00'}, {'stage': 'PRICE_DRIFT_APPROVED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'drift_bps': '3.508361595135071921412700269', 'drift_ceiling_bps': '20'}, 'recorded_at': '2026-08-14T16:00:24.877009+00:00'}, {'stage': 'INTENT_CREATED', 'outcome': 'PASSED', 'reason_code': 'ENTRY_INTENT_CREATED', 'detail': '', 'metrics': {'intent_id': '0893b75b-befd-4c5c-8d86-9e4234ef74a9'}, 'recorded_at': '2026-08-14T16:00:24.877009+00:00'}, {'stage': 'EXCHANGE_SUBMITTED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'client_order_id': 'A2E-0e54db7884a7402ff476-1', 'exchange_order_id': '16760924615', 'status': 'FILLED'}, 'recorded_at': '2026-08-14T16:00:25.846676+00:00'}, {'stage': 'EXCHANGE_FILLED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'exchange_order_id': '16760924615', 'trade_ids': '314091097,314091098,314091099,314091100,314091101,314091102,314091103,314091104,314091105,314091106,314091107,314091108,314091109,314091110,314091111,314091112,314091113,314091114,314091115,314091116,314091117,314091118,314091119,314091120,314091121,314091122,314091123,314091124,314091125,314091126,314091127', 'filled_quantity': '9.299'}, 'recorded_at': '2026-08-14T16:00:25.846676+00:00'}, {'stage': 'POSITION_PROJECTED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {}, 'recorded_at': '2026-08-14T16:00:25.846676+00:00'}, {'stage': 'PROTECTION_CONFIRMED', 'outcome': 'PASSED', 'reason_code': 'OK', 'detail': '', 'metrics': {'stop_exchange_order_id': '1000000167028401', 'tp_exchange_order_id': '1000000167028405'}, 'recorded_at': '2026-08-14T16:00:26.128711+00:00'}]",
+      "status": "CLOSED",
+      "strategy": "testnet_sampling_v2",
+      "strategy_id": "testnet_sampling_v2",
+      "strategy_trace": "{}",
+      "strategy_version": "2.0.0",
+      "symbol": "ETH/USDT",
+      "terminal_outcome": "PASSED",
+      "terminal_stage": "PROTECTION_CONFIRMED",
+      "trading_state": "TRADING",
+      "v2_cycle_id": "67d73b89-8db8-470a-8531-c50a63baa682",
+      "v2_intent_id": "0893b75b-befd-4c5c-8d86-9e4234ef74a9"
+    }
+  ]
+}

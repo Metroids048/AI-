@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "scope": "current-data execution-cost optimization loop",
+  "runtime_position_policy": "OBSERVATION_ONLY_NOT_BLOCKER",
+  "root_cause_report": "docs/audits/2026-08-16-execution-cost-root-cause.json",
+  "root_cause": {
+    "closed_episodes": 30,
+    "stop_target_split": "15/15",
+    "lineage_exact_matches": "30/30",
+    "commission_mean_r": "0.228340782731806042",
+    "trigger_to_fill_mean_r": "-0.174646953215032985787687271",
+    "commission_per_side_rate": "0.0004",
+    "risk_pct_to_commission_r_correlation": "-0.9634615830676366784031357899",
+    "floor_bound_share": "0.7666666666666666666666666667",
+    "unknown_residual_r": "-1.291989096038500326295248051"
+  },
+  "experiments": [
+    {
+      "id": "ATR_NATIVE_ONLY_FILTER",
+      "artifact": "artifacts/active_strategy_optimization/atr_native_only_cost_calibrated_20260816.json",
+      "changed_variable": "selection only: existing 1.2*ATR14 branch must exceed existing 0.35% floor",
+      "frozen": ["signal", "side", "P1", "TP=1.5R", "R2=1.15", "position risk", "execution"],
+      "btc_oos": {"trades": 371, "expectancy_r": "-0.3019967867203196584744421340", "profit_factor": "0.6145085797272344136347382917", "lcb95_expectancy_r": "-0.4054298120713876194012076690"},
+      "eth_oos": {"trades": 548, "expectancy_r": "-0.2789644252168784269128155588", "profit_factor": "0.6378856098563824607246782236", "lcb95_expectancy_r": "-0.3630317262717702809793344363"},
+      "stress_1_5x_combined": {"trades": 919, "expectancy_r": "-0.4478998578216887452267262633", "profit_factor": "0.4849700879445962792387191302", "lcb95_expectancy_r": "-0.5152289087613626726357866137"},
+      "verdict": "REJECTED_RESEARCH_ONLY",
+      "reason": "Neither symbol passed PF >= 1.40, expectancy >= +0.10R, and LCB95 > 0."
+    },
+    {
+      "id": "MAKER_LIMIT_COST_MODEL",
+      "artifact": "docs/audits/2026-08-16-maker-limit-data-availability.json",
+      "verdict": "BLOCKED_NO_HISTORICAL_ORDER_BOOK",
+      "reason": "Current history has no bid/ask, queue/fill probability, timeout, adverse-selection, or drift observations; a maker replay would be fabricated."
+    },
+    {
+      "id": "P2_POLICY_A_E_EXIT_GEOMETRY",
+      "artifact": "docs/audits/2026-08-11-p2a-exit-policy-shadow-evaluation.md",
+      "verdict": "REJECTED_INSUFFICIENT_ACTIVE_LANE_EVIDENCE",
+      "reason": "Policy C led only on 9 proxy trades and is explicitly a 2x ATR/3x ATR stand-in, not structure recognition or active-lane OOS promotion evidence."
+    }
+  ],
+  "current_scope_status": "NO_PROMOTION_ELIGIBLE_CANDIDATE",
+  "next_machine_action": "PERSIST_CHECKPOINT -> ACQUIRE_OR_PERSIST_ORDERBOOK_SNAPSHOTS_FOR_LIMIT_MODEL -> REPLAY_LIMIT_MODEL; IF_UNAVAILABLE_CONTINUE_SIGNAL_RESEARCH_WITH_NEW_DATA_ONLY",
+  "holdout_accessed": false,
+  "live_trading_performed": false
+}

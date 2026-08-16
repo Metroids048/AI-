@@ -1,0 +1,413 @@
+{
+  "status": "P2B_EMBEDDED_SHADOW_CONFIRMED",
+  "cutover_utc": "2026-08-10T13:15:03.869648+00:00",
+  "source": "v2_execution_decisions.payload.research_shadow.observations",
+  "legacy_v2_shadow_records_total": 454,
+  "decision_rows_after_cutover": 8678,
+  "malformed_decision_payloads": 0,
+  "all_candidates": {
+    "raw": {
+      "total": 26001,
+      "by_strategy": {
+        "trend_pullback_v2": 8667,
+        "range_sweep_reversion_v1": 8667,
+        "failed_breakout_reversal_v1": 8667
+      },
+      "by_symbol": {
+        "BTC/USDT": 13002,
+        "ETH/USDT": 12999
+      },
+      "by_decision_status": {
+        "SHADOW_NO_SIGNAL": 25859,
+        "SHADOW_SIGNAL_READY": 119,
+        "SHADOW_STRATEGY_REJECTED": 23
+      },
+      "by_shadow_status": {
+        "COMPLETED": 17781,
+        "COMPLETED_WITH_ERRORS": 8220
+      },
+      "by_signal_present": {
+        "False": 25859,
+        "True": 142
+      },
+      "by_terminal_reason": {
+        "candidate_conditions_not_met": 25859,
+        "SHADOW_SIGNAL_READY": 119,
+        "selected_score_below_threshold": 23
+      }
+    },
+    "unique": {
+      "total": 5607,
+      "by_strategy": {
+        "trend_pullback_v2": 1869,
+        "range_sweep_reversion_v1": 1869,
+        "failed_breakout_reversal_v1": 1869
+      },
+      "by_symbol": {
+        "BTC/USDT": 2958,
+        "ETH/USDT": 2649
+      },
+      "by_decision_status": {
+        "SHADOW_NO_SIGNAL": 5586,
+        "SHADOW_SIGNAL_READY": 16,
+        "SHADOW_STRATEGY_REJECTED": 5
+      },
+      "by_shadow_status": {
+        "COMPLETED": 3834,
+        "COMPLETED_WITH_ERRORS": 1773
+      },
+      "by_signal_present": {
+        "False": 5586,
+        "True": 21
+      },
+      "by_terminal_reason": {
+        "candidate_conditions_not_met": 5586,
+        "SHADOW_SIGNAL_READY": 16,
+        "selected_score_below_threshold": 5
+      }
+    }
+  },
+  "by_candidate": {
+    "trend_pullback_v2": {
+      "raw": {
+        "total": 8667,
+        "by_strategy": {
+          "trend_pullback_v2": 8667
+        },
+        "by_symbol": {
+          "BTC/USDT": 4334,
+          "ETH/USDT": 4333
+        },
+        "by_decision_status": {
+          "SHADOW_NO_SIGNAL": 8667
+        },
+        "by_shadow_status": {
+          "COMPLETED": 5927,
+          "COMPLETED_WITH_ERRORS": 2740
+        },
+        "by_signal_present": {
+          "False": 8667
+        },
+        "by_terminal_reason": {
+          "candidate_conditions_not_met": 8667
+        }
+      },
+      "unique": {
+        "total": 1869,
+        "by_strategy": {
+          "trend_pullback_v2": 1869
+        },
+        "by_symbol": {
+          "BTC/USDT": 986,
+          "ETH/USDT": 883
+        },
+        "by_decision_status": {
+          "SHADOW_NO_SIGNAL": 1869
+        },
+        "by_shadow_status": {
+          "COMPLETED": 1278,
+          "COMPLETED_WITH_ERRORS": 591
+        },
+        "by_signal_present": {
+          "False": 1869
+        },
+        "by_terminal_reason": {
+          "candidate_conditions_not_met": 1869
+        }
+      }
+    },
+    "range_sweep_reversion_v1": {
+      "raw": {
+        "total": 8667,
+        "by_strategy": {
+          "range_sweep_reversion_v1": 8667
+        },
+        "by_symbol": {
+          "BTC/USDT": 4334,
+          "ETH/USDT": 4333
+        },
+        "by_decision_status": {
+          "SHADOW_NO_SIGNAL": 8667
+        },
+        "by_shadow_status": {
+          "COMPLETED": 5927,
+          "COMPLETED_WITH_ERRORS": 2740
+        },
+        "by_signal_present": {
+          "False": 8667
+        },
+        "by_terminal_reason": {
+          "candidate_conditions_not_met": 8667
+        }
+      },
+      "unique": {
+        "total": 1869,
+        "by_strategy": {
+          "range_sweep_reversion_v1": 1869
+        },
+        "by_symbol": {
+          "BTC/USDT": 986,
+          "ETH/USDT": 883
+        },
+        "by_decision_status": {
+          "SHADOW_NO_SIGNAL": 1869
+        },
+        "by_shadow_status": {
+          "COMPLETED": 1278,
+          "COMPLETED_WITH_ERRORS": 591
+        },
+        "by_signal_present": {
+          "False": 1869
+        },
+        "by_terminal_reason": {
+          "candidate_conditions_not_met": 1869
+        }
+      }
+    },
+    "failed_breakout_reversal_v1": {
+      "raw": {
+        "total": 8667,
+        "by_strategy": {
+          "failed_breakout_reversal_v1": 8667
+        },
+        "by_symbol": {
+          "BTC/USDT": 4334,
+          "ETH/USDT": 4333
+        },
+        "by_decision_status": {
+          "SHADOW_NO_SIGNAL": 8525,
+          "SHADOW_SIGNAL_READY": 119,
+          "SHADOW_STRATEGY_REJECTED": 23
+        },
+        "by_shadow_status": {
+          "COMPLETED": 5927,
+          "COMPLETED_WITH_ERRORS": 2740
+        },
+        "by_signal_present": {
+          "False": 8525,
+          "True": 142
+        },
+        "by_terminal_reason": {
+          "candidate_conditions_not_met": 8525,
+          "SHADOW_SIGNAL_READY": 119,
+          "selected_score_below_threshold": 23
+        }
+      },
+      "unique": {
+        "total": 1869,
+        "by_strategy": {
+          "failed_breakout_reversal_v1": 1869
+        },
+        "by_symbol": {
+          "BTC/USDT": 986,
+          "ETH/USDT": 883
+        },
+        "by_decision_status": {
+          "SHADOW_NO_SIGNAL": 1848,
+          "SHADOW_SIGNAL_READY": 16,
+          "SHADOW_STRATEGY_REJECTED": 5
+        },
+        "by_shadow_status": {
+          "COMPLETED": 1278,
+          "COMPLETED_WITH_ERRORS": 591
+        },
+        "by_signal_present": {
+          "False": 1848,
+          "True": 21
+        },
+        "by_terminal_reason": {
+          "candidate_conditions_not_met": 1848,
+          "SHADOW_SIGNAL_READY": 16,
+          "selected_score_below_threshold": 5
+        }
+      }
+    }
+  },
+  "interpretation": {
+    "answer": "The three P2-B candidates are being evaluated and persisted in embedded same-cycle research_shadow observations; zero rows in legacy v2_shadow_records is a storage-path mismatch, not zero evaluations.",
+    "signal_answer": "Counts are predominantly SHADOW_NO_SIGNAL/candidate_conditions_not_met; this is evidence about signal rarity, not a persistence outage, subject to the raw-vs-unique duplicate counts above.",
+    "mutation_ledger": "Not recomputed here; the prior verifier reported zero mutation-ledger writes."
+  },
+  "sample_rows": [
+    {
+      "decision_id": "ea325101-cc58-4d9a-a807-5ced46a65e67",
+      "cycle_id": "18141e93-290a-414b-bc00-73784830d9f1",
+      "created_at": "2026-08-16 04:17:46",
+      "shadow_status": "COMPLETED_WITH_ERRORS",
+      "shadow_schema_version": "p1-same-cycle-research-shadow-v1",
+      "strategy_id": "trend_pullback_v2",
+      "strategy_version": "2.0.0-research",
+      "symbol": "BTC/USDT",
+      "bar_close_time": "2026-08-16T04:15:00+00:00",
+      "decision_status": "SHADOW_NO_SIGNAL",
+      "signal_present": false,
+      "terminal_reason": "candidate_conditions_not_met",
+      "context_hash": "81222a02d854bceec57e6816a868fd710e2185fcc3673af8f15e4a41fd09b94a"
+    },
+    {
+      "decision_id": "ea325101-cc58-4d9a-a807-5ced46a65e67",
+      "cycle_id": "18141e93-290a-414b-bc00-73784830d9f1",
+      "created_at": "2026-08-16 04:17:46",
+      "shadow_status": "COMPLETED_WITH_ERRORS",
+      "shadow_schema_version": "p1-same-cycle-research-shadow-v1",
+      "strategy_id": "range_sweep_reversion_v1",
+      "strategy_version": "1.0.0-research",
+      "symbol": "BTC/USDT",
+      "bar_close_time": "2026-08-16T04:15:00+00:00",
+      "decision_status": "SHADOW_NO_SIGNAL",
+      "signal_present": false,
+      "terminal_reason": "candidate_conditions_not_met",
+      "context_hash": "81222a02d854bceec57e6816a868fd710e2185fcc3673af8f15e4a41fd09b94a"
+    },
+    {
+      "decision_id": "ea325101-cc58-4d9a-a807-5ced46a65e67",
+      "cycle_id": "18141e93-290a-414b-bc00-73784830d9f1",
+      "created_at": "2026-08-16 04:17:46",
+      "shadow_status": "COMPLETED_WITH_ERRORS",
+      "shadow_schema_version": "p1-same-cycle-research-shadow-v1",
+      "strategy_id": "failed_breakout_reversal_v1",
+      "strategy_version": "1.0.0-research",
+      "symbol": "BTC/USDT",
+      "bar_close_time": "2026-08-16T04:15:00+00:00",
+      "decision_status": "SHADOW_NO_SIGNAL",
+      "signal_present": false,
+      "terminal_reason": "candidate_conditions_not_met",
+      "context_hash": "81222a02d854bceec57e6816a868fd710e2185fcc3673af8f15e4a41fd09b94a"
+    },
+    {
+      "decision_id": "88e12b73-d4bd-4d02-bbff-19e48130cd41",
+      "cycle_id": "fbd6c793-6877-45b8-98d6-fe85573116c8",
+      "created_at": "2026-08-16 04:18:26",
+      "shadow_status": "COMPLETED_WITH_ERRORS",
+      "shadow_schema_version": "p1-same-cycle-research-shadow-v1",
+      "strategy_id": "trend_pullback_v2",
+      "strategy_version": "2.0.0-research",
+      "symbol": "ETH/USDT",
+      "bar_close_time": "2026-08-16T04:15:00+00:00",
+      "decision_status": "SHADOW_NO_SIGNAL",
+      "signal_present": false,
+      "terminal_reason": "candidate_conditions_not_met",
+      "context_hash": "3d560134eddc15aecd5359b67ce1336acf5746167d2f67403290075da080db58"
+    },
+    {
+      "decision_id": "88e12b73-d4bd-4d02-bbff-19e48130cd41",
+      "cycle_id": "fbd6c793-6877-45b8-98d6-fe85573116c8",
+      "created_at": "2026-08-16 04:18:26",
+      "shadow_status": "COMPLETED_WITH_ERRORS",
+      "shadow_schema_version": "p1-same-cycle-research-shadow-v1",
+      "strategy_id": "range_sweep_reversion_v1",
+      "strategy_version": "1.0.0-research",
+      "symbol": "ETH/USDT",
+      "bar_close_time": "2026-08-16T04:15:00+00:00",
+      "decision_status": "SHADOW_NO_SIGNAL",
+      "signal_present": false,
+      "terminal_reason": "candidate_conditions_not_met",
+      "context_hash": "3d560134eddc15aecd5359b67ce1336acf5746167d2f67403290075da080db58"
+    },
+    {
+      "decision_id": "88e12b73-d4bd-4d02-bbff-19e48130cd41",
+      "cycle_id": "fbd6c793-6877-45b8-98d6-fe85573116c8",
+      "created_at": "2026-08-16 04:18:26",
+      "shadow_status": "COMPLETED_WITH_ERRORS",
+      "shadow_schema_version": "p1-same-cycle-research-shadow-v1",
+      "strategy_id": "failed_breakout_reversal_v1",
+      "strategy_version": "1.0.0-research",
+      "symbol": "ETH/USDT",
+      "bar_close_time": "2026-08-16T04:15:00+00:00",
+      "decision_status": "SHADOW_NO_SIGNAL",
+      "signal_present": false,
+      "terminal_reason": "candidate_conditions_not_met",
+      "context_hash": "3d560134eddc15aecd5359b67ce1336acf5746167d2f67403290075da080db58"
+    },
+    {
+      "decision_id": "831ff9a6-2331-48f3-a69c-ef6441441caa",
+      "cycle_id": "87077c2a-c13f-417d-b52e-7d82c90e6673",
+      "created_at": "2026-08-16 04:19:42",
+      "shadow_status": "COMPLETED_WITH_ERRORS",
+      "shadow_schema_version": "p1-same-cycle-research-shadow-v1",
+      "strategy_id": "trend_pullback_v2",
+      "strategy_version": "2.0.0-research",
+      "symbol": "BTC/USDT",
+      "bar_close_time": "2026-08-16T04:15:00+00:00",
+      "decision_status": "SHADOW_NO_SIGNAL",
+      "signal_present": false,
+      "terminal_reason": "candidate_conditions_not_met",
+      "context_hash": "81222a02d854bceec57e6816a868fd710e2185fcc3673af8f15e4a41fd09b94a"
+    },
+    {
+      "decision_id": "831ff9a6-2331-48f3-a69c-ef6441441caa",
+      "cycle_id": "87077c2a-c13f-417d-b52e-7d82c90e6673",
+      "created_at": "2026-08-16 04:19:42",
+      "shadow_status": "COMPLETED_WITH_ERRORS",
+      "shadow_schema_version": "p1-same-cycle-research-shadow-v1",
+      "strategy_id": "range_sweep_reversion_v1",
+      "strategy_version": "1.0.0-research",
+      "symbol": "BTC/USDT",
+      "bar_close_time": "2026-08-16T04:15:00+00:00",
+      "decision_status": "SHADOW_NO_SIGNAL",
+      "signal_present": false,
+      "terminal_reason": "candidate_conditions_not_met",
+      "context_hash": "81222a02d854bceec57e6816a868fd710e2185fcc3673af8f15e4a41fd09b94a"
+    },
+    {
+      "decision_id": "831ff9a6-2331-48f3-a69c-ef6441441caa",
+      "cycle_id": "87077c2a-c13f-417d-b52e-7d82c90e6673",
+      "created_at": "2026-08-16 04:19:42",
+      "shadow_status": "COMPLETED_WITH_ERRORS",
+      "shadow_schema_version": "p1-same-cycle-research-shadow-v1",
+      "strategy_id": "failed_breakout_reversal_v1",
+      "strategy_version": "1.0.0-research",
+      "symbol": "BTC/USDT",
+      "bar_close_time": "2026-08-16T04:15:00+00:00",
+      "decision_status": "SHADOW_NO_SIGNAL",
+      "signal_present": false,
+      "terminal_reason": "candidate_conditions_not_met",
+      "context_hash": "81222a02d854bceec57e6816a868fd710e2185fcc3673af8f15e4a41fd09b94a"
+    },
+    {
+      "decision_id": "ba1d1518-f10c-419d-adf7-aaffdda78339",
+      "cycle_id": "d89deaaa-39bf-4d8c-b21f-21c5b491efde",
+      "created_at": "2026-08-16 04:20:19",
+      "shadow_status": "COMPLETED_WITH_ERRORS",
+      "shadow_schema_version": "p1-same-cycle-research-shadow-v1",
+      "strategy_id": "trend_pullback_v2",
+      "strategy_version": "2.0.0-research",
+      "symbol": "ETH/USDT",
+      "bar_close_time": "2026-08-16T04:15:00+00:00",
+      "decision_status": "SHADOW_NO_SIGNAL",
+      "signal_present": false,
+      "terminal_reason": "candidate_conditions_not_met",
+      "context_hash": "3d560134eddc15aecd5359b67ce1336acf5746167d2f67403290075da080db58"
+    },
+    {
+      "decision_id": "ba1d1518-f10c-419d-adf7-aaffdda78339",
+      "cycle_id": "d89deaaa-39bf-4d8c-b21f-21c5b491efde",
+      "created_at": "2026-08-16 04:20:19",
+      "shadow_status": "COMPLETED_WITH_ERRORS",
+      "shadow_schema_version": "p1-same-cycle-research-shadow-v1",
+      "strategy_id": "range_sweep_reversion_v1",
+      "strategy_version": "1.0.0-research",
+      "symbol": "ETH/USDT",
+      "bar_close_time": "2026-08-16T04:15:00+00:00",
+      "decision_status": "SHADOW_NO_SIGNAL",
+      "signal_present": false,
+      "terminal_reason": "candidate_conditions_not_met",
+      "context_hash": "3d560134eddc15aecd5359b67ce1336acf5746167d2f67403290075da080db58"
+    },
+    {
+      "decision_id": "ba1d1518-f10c-419d-adf7-aaffdda78339",
+      "cycle_id": "d89deaaa-39bf-4d8c-b21f-21c5b491efde",
+      "created_at": "2026-08-16 04:20:19",
+      "shadow_status": "COMPLETED_WITH_ERRORS",
+      "shadow_schema_version": "p1-same-cycle-research-shadow-v1",
+      "strategy_id": "failed_breakout_reversal_v1",
+      "strategy_version": "1.0.0-research",
+      "symbol": "ETH/USDT",
+      "bar_close_time": "2026-08-16T04:15:00+00:00",
+      "decision_status": "SHADOW_NO_SIGNAL",
+      "signal_present": false,
+      "terminal_reason": "candidate_conditions_not_met",
+      "context_hash": "3d560134eddc15aecd5359b67ce1336acf5746167d2f67403290075da080db58"
+    }
+  ]
+}

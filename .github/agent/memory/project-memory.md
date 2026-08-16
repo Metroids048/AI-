@@ -967,3 +967,100 @@
 - Confirmed reduce-only close persistence now appends ACTUAL/R1/R2/R3 outcome
   payloads (`gross_R`, `net_R`, `commission_R`, `funding_R`, `MFE_R`, `MAE_R`)
   from the confirmed exchange fill; no local synthetic fill is used.
+
+## P2-A 退出策略影子评测（2026-08-16）
+
+- [事实] 现成 `services.research.exit_policy_shadow.cli` 已对 30 笔真实
+  `testnet_sampling_v2` CLOSED 入场完成 1m replay；A 当前控制策略仍为观察期
+  最佳，但整体 PF `1.11`、净期望 `-7.85 USDT`，Q1/Q2 均未达到支持性结论，Q3
+  因 regime slice 样本不足而 `INSUFFICIENT_SLICE_SAMPLE`。
+- [事实] 同一 30 笔 V2 真实账本的 R 分量为：毛 `+0.07374R`、已记录进出场成本
+  `0.22834R`、净 `-0.15460R`；名义 1.5R/-1R 几何按 15/15 胜负的成本后理想
+  `+0.02166R`，实际毛结果另有 `-0.17626R` 几何/成交短缺。成本是最大单项拖累，
+  但不能据此直接改几何，仍需更大样本和真实 funding。
+- [事实] 30 笔中 11 笔跨过至少一个 funding settlement boundary；完成的只读
+  Binance income 审计显示 32 个 V2 闭合 episode 的 commission 为
+  `271.53670323 USDT`、funding 为 `-134.96894383 USDT`、净 PnL 为
+  `-565.22143738 USDT`、PF `0.39659635`。本地 V2 成本字段仍没有逐笔 funding
+  字段，`calculate_cost_gate` 默认 `funding_bps=0` 且调用点未传值；因此 funding
+  已确认是实质成本，但暂不直接改 gate。点时窗口匹配已尝试，因 account-level
+  income 无法唯一归因到策略 position，当前结论为 `INSUFFICIENT_DATA`。报告：
+  `docs/audits/2026-08-16-testnet-history/reports/live_strategy_evaluation.json`。
+- [事实] P2-B 三个候选在旧 `v2_shadow_records` 表中均为 0 条，但同周期 shadow
+  实际嵌在 `v2_execution_decisions.payload.research_shadow`，不能把旧表查询结果
+  当成“未接线”。
+- [事实] `127.0.0.1:8016/health` 当前 HTTP 200；历史 unavailable 记录为陈旧或
+  认证路径状态，不再阻塞离线研究。证据产物：
+  `docs/audits/2026-08-11-p2a-exit-policy-shadow-results.json`、
+  `docs/audits/2026-08-16-p2a-actual-decomposition.json`、
+  `docs/audits/2026-08-16-p2a-component-summary.json`。
+
+## 2026-08-16 — PF cohort lock and funding attribution boundary
+
+- [事实] P2-A Policy A replay PF `1.11229903`、同 30 笔 exchange-fill 对齐的
+  pre-funding PF `0.50914947`、32 episode account audit PF `0.39659635` 是
+  三个不同口径；不得把 `0.3966` 直接拿来解释 30 笔 replay。
+- [事实] 当前 30 笔 decomposition 的 normalized-R PF 是 `0.75334826`。
+  旧 handoff 中的 `0.48688` 在当前仓库/产物中不存在，来源未恢复前标记
+  `UNSUPPORTED_LEGACY_VALUE`。
+- [事实] funding 只完成了按 entry/close 时间窗的 account-income 匹配：3 个
+  event、合计 `+1.33323099 USDT` 的朴素窗口和；快照上下文均陈旧或存在
+  外部/矛盾持仓，无法形成策略 position 唯一归因。状态为
+  `FUNDING_WINDOW_MATCHED_ACCOUNT_LEVEL_AMBIGUOUS`，不得据此跑 funding-only
+  实验。证据：`docs/audits/2026-08-16-p2a-funding-attribution.json`。
+- [事实] P2-B 三个候选实际写入
+  `v2_execution_decisions.payload.research_shadow.observations`；cutover 后
+  5,607 个 unique observation，不是 0 条。trend/range 各 1,869 条且全为
+  `SHADOW_NO_SIGNAL`；failed-breakout 有 16 条 `SHADOW_SIGNAL_READY`、5 条
+  `SHADOW_STRATEGY_REJECTED`。证据：
+  `docs/audits/2026-08-16-p2b-embedded-shadow.md`。
+
+## Runtime-Parity + P1 动态保护审计（2026-08-16）
+
+- [事实] 同一 30 笔 cohort 的 R0 现有 Policy A replay 精确复现
+  `PF(gross)=1.11229903`；用真实 protection record 的 exchange-rounded stop/target
+  截至真实 close 做 R1，均值 `0.291423R` gross；加入保守 next-bar P1 动态保护做
+  R2，均值 `0.249455R` gross；真实 exchange R3 为 `0.073741R` gross、
+  `-0.154600R` commission-net。
+- [事实] P1 的 R1->R2 影响为 `-0.041968R`，而 R2->R3 仍为 `-0.404055R`。
+  因此 P1 不是当前 replay->真实成交大缺口的主解释；下一步先做 exit
+  order/fill 几何与时序 attribution，不先改 funding 或 direction signal。
+- [事实] 模拟 P1 在 21/30 笔触发（12 笔未达到静态 target），但历史 protection
+  event 中 `ProfitProtectionStopTightened=0`；`policy=P1` 标签不能替代 replacement
+  事件证据。报告：`docs/audits/2026-08-16-runtime-p1-parity.json`。
+
+## Exit order/fill lineage and current P1 receipt (2026-08-16)
+
+- `scripts/build_exit_order_fill_lineage.py` joins the 30-row R0-R3 parity cohort
+  to durable V2 intent/order/fill/protection/event/incident records using a read-only
+  SQLite connection. The resulting canonical evidence is
+  `docs/audits/2026-08-16-exit-order-fill-lineage.{json,md}`.
+- The closed cohort contains 15 `STOP` and 15 `TARGET` exits, with no abnormal exits
+  and no quantity-mismatched partial exits. Measured totals are exchange
+  trigger-to-fill timing `-5.23940860R`, commission `-6.85480521R`, and an explicitly
+  unallocated P1 counterfactual `-1.29198910R` because 21 simulated triggers had no
+  historical `ProfitProtectionStopTightened` receipt. Do not call those multiple fills
+  “partial fills.”
+- Every one of the 30 historical reduce-only Binance fill order IDs exactly matches a
+  `ProtectionTriggered.event_payload.exchange_order_id`; the report now emits this as
+  `exit.order_link.status=MATCHED` and treats missing/mismatched order identity as an
+  explicit episode failure rather than continuing the aggregate audit.
+- The historical absence is not current behavior: active BTC/USDT position
+  `0e3814c7-d23a-48a8-bef6-d240fc809b66` has a real P1 receipt at
+  `2026-08-16T02:41:05Z`, moving the stop from `62744.5` to `62976.0229` under Binance
+  order `1000000168673444`; TP `1000000167954361` remains live. Runtime is ACTIVE,
+  API `8016` health returns 200, and reconciliation is HEALTHY. Natural reduce-only
+  exit evidence is still pending.
+## Execution cost optimization loop (2026-08-16)
+
+- Natural exit waiting is not a task blocker. Current BTC/USDT remains observation-only.
+- 30 closed Testnet episodes show exact exit lineage, observed commission `4bps/side`, mean commission drag `0.22834078R/trade`, mean trigger-to-fill `-0.17464695R/trade`, and floor-bound share `23/30`.
+- The research-only `ATR_NATIVE_ONLY_FILTER` challenger failed BTC/ETH hard gates after 1m fidelity and 1.5x stress; no active manifest or runtime rule changed.
+- Maker/limit replay is currently blocked because the historical database has no order-book/depth/quote observations. Existing P2 Policy A-E evidence remains a 9-trade proxy and cannot promote.
+
+## Microstructure pipeline (2026-08-16)
+
+- Added independent `services/microstructure` collector for Binance USDT-M Testnet BTC/USDT and ETH/USDT. It persists top-20 order-book snapshots, best bid/ask, spread, timestamps, last/mark price, latency and clock skew into `microstructure_snapshots`.
+- Added advisory health and crash-recovery tables (`microstructure_health`, `microstructure_checkpoints`), 30-day retention, readiness gate, and one-command future replay entry point. The collector runs as a separate process and cannot block Scheduler, entries, exits, protection, or reconciliation.
+- Launcher wiring starts/restarts `scripts/run_microstructure_collector.py` with `logs/microstructure.pid`; runtime scheduler remained ACTIVE/HEALTHY while real Testnet rows accumulated (BTC 3, ETH 3 at checkpoint).
+- Readiness is intentionally not met yet: total candidate windows 3007, BTC 1505, ETH 1502, but candidate microstructure coverage only 0.133% after the first live sample. State is `MICROSTRUCTURE_PIPELINE_READY_AND_COLLECTING`; only natural accumulation remains.
