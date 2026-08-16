@@ -22,6 +22,7 @@ from services.automated_trading.application.decision_service import BarView, Tim
 from services.automated_trading.application.operator_profile import V2ExecutionSettings, resolve_v2_execution_settings
 from services.automated_trading.application.production_strategy import (
     NO_AUTHORIZED_PRODUCTION_STRATEGY,
+    EntryAuthority,
     evaluate_authorized_production_strategy,
     resolve_entry_authority,
     resolve_production_authorization,
@@ -704,6 +705,8 @@ def execute_v2_automated_trading_cycles(
                 continue
             try:
                 entry_timeframe = load_timeframe(symbol, timeframe)
+                direction_timeframe = load_timeframe(symbol, "1h")
+                state_timeframe = load_timeframe(symbol, "4h")
             except Exception as exc:  # noqa: BLE001
                 symbol_result.update({"status": "error", "error": f"market_data_unavailable: {exc}"})
                 symbol_results.append(symbol_result)
@@ -759,6 +762,8 @@ def execute_v2_automated_trading_cycles(
                 symbol=symbol,
                 timeframe=timeframe,
                 entry_timeframe=entry_timeframe,
+                direction_timeframe=direction_timeframe,
+                state_timeframe=state_timeframe,
                 execution_mode=config.execution_mode,
                 engine_activation=config.v2_activation,
                 fencing_token=cycle_fencing_token,
@@ -778,6 +783,11 @@ def execute_v2_automated_trading_cycles(
                 persist_facts=config.v2_activation is EngineActivation.ACTIVE,
                 decision_id=decision_id,
                 sampling_fallback_enabled=operator_settings.sampling_fallback_enabled,
+                sampling_strategy_version=(
+                    "2.1.0" if entry_authority.authority is EntryAuthority.TESTNET_CANARY else "2.0.0"
+                ),
+                strict_sampling_alignment=entry_authority.authority is EntryAuthority.TESTNET_CANARY,
+                sampling_confirmation_bars=2 if entry_authority.authority is EntryAuthority.TESTNET_CANARY else 0,
                 entry_authority=entry_authority.authority,
                 entry_authority_reason=entry_authority.reason,
                 production_candidate=production_candidate,

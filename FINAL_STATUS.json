@@ -1,17 +1,78 @@
 {
   "success": false,
   "status": "ACTIVE_STRATEGY_LOOP_RUNNING",
-  "updated_at": "2026-08-15T10:46:31Z",
+  "updated_at": "2026-08-15T15:52:57.7185507Z",
   "evidence": {
-    "action": "one_closed_bar_confirmation",
-    "artifact": "artifacts/active_strategy_optimization/one_closed_bar_confirmation_20260815.json",
-    "artifact_sha256": "b80de9705f5a28c39cd248ab4a9fc096da700cb4eae269f6e9a5208d1ce46e64",
-    "evaluator_parity": {
-      "sampled_windows": 400,
-      "side_mismatches": 0
+    "action": "natural_exit_observation_pending_api_restore_blocked",
+    "confirmation_bars": 2,
+    "artifact": "artifacts/active_strategy_optimization/strict_dual_timeframe_alignment_two_bar_1m_fidelity_20260815.json",
+    "artifact_sha256": "8ed27cc93949fef807cc1188ffed2483b52a708739cf83db4f10e9ae2924077d",
+    "evaluator": "same optimized production-equivalent sampling evaluator; strict 1h/4h EMA50 alignment plus two closed-bar confirmations",
+    "focused_verification": {
+      "execution_blockers": "execution_ready=True — no blockers",
+      "scheduler_cycle": "natural cycle completed at 2026-08-15T15:06:24.232996+00:00; exchange_info_ready=false after transient TLS handshake timeout",
+      "decision_outcome": "existing managed BTC/USDT position remains protected; no reduce-only exit fill observed",
+      "api_health": "UNAVAILABLE - listener 8016 is not persisted",
+      "natural_entry_evidence": "no new entry; existing BTC/USDT managed entry remains open"
     },
     "split": "70/30 chronological development/OOS over .strategy_refactor_history.db; Final Holdout not accessed",
     "r2_threshold": "1.15",
+    "baseline_development": {
+      "BTC/USDT": {
+        "candidates": 6250,
+        "trades": 6250,
+        "direction_hit_rate": "0.66928",
+        "win_rate": "0.40336",
+        "avg_win_r": "1.248065221626288154726482919",
+        "avg_loss_r": "-1.253842531784089583267274487",
+        "win_loss_ratio": "0.9953923160115003376588909357",
+        "net_expectancy_r": "-0.2446730203684796188701124544",
+        "profit_factor": "0.6729375244475710247353349556",
+        "net_r": "-1529.206377302997617938202840",
+        "max_drawdown_r": "1534.595516508595575227111602"
+      },
+      "ETH/USDT": {
+        "candidates": 6900,
+        "trades": 6900,
+        "direction_hit_rate": "0.6730434782608695652173913043",
+        "win_rate": "0.4131884057971014492753623188",
+        "avg_win_r": "1.274268678084532755257923626",
+        "avg_loss_r": "-1.226674612857339795151262218",
+        "win_loss_ratio": "1.038799258359419614280543778",
+        "net_expectancy_r": "-0.1933138414841110065691478575",
+        "profit_factor": "0.7314439826087195160073673280",
+        "net_r": "-1333.865506240365945327120217",
+        "max_drawdown_r": "1339.960517922245563734635208"
+      }
+    },
+    "challenger_development": {
+      "BTC/USDT": {
+        "candidates": 1573,
+        "trades": 1573,
+        "direction_hit_rate": "0.6668785759694850603941513032",
+        "win_rate": "0.3884297520661157024793388430",
+        "avg_win_r": "1.242718029799802868556002721",
+        "avg_loss_r": "-1.258773321028254841611921439",
+        "win_loss_ratio": "0.9872452879638910056884397613",
+        "net_expectancy_r": "-0.2871196558305795327037194771",
+        "profit_factor": "0.6270341693824713144237387674",
+        "net_r": "-451.6392186215016049429507375",
+        "max_drawdown_r": "459.1854536484678789237960523"
+      },
+      "ETH/USDT": {
+        "candidates": 1501,
+        "trades": 1501,
+        "direction_hit_rate": "0.6728847435043304463690872751",
+        "win_rate": "0.4110592938041305796135909394",
+        "avg_win_r": "1.277324438113169764452313785",
+        "avg_loss_r": "-1.228917825042785483519007880",
+        "win_loss_ratio": "1.039389625639695621433987108",
+        "net_expectancy_r": "-0.1987036502478325268246005077",
+        "profit_factor": "0.7254563337326834823809615900",
+        "net_r": "-298.2541790219966227637253620",
+        "max_drawdown_r": "298.4268446267919031766557577"
+      }
+    },
     "baseline_oos": {
       "BTC/USDT": {
         "candidates": 2545,
@@ -42,34 +103,63 @@
     },
     "challenger_oos": {
       "BTC/USDT": {
-        "candidates": 1938,
-        "trades": 1938,
-        "direction_hit_rate": "0.6723426212590299277605779154",
-        "win_rate": "0.4004127966976264189886480908",
-        "avg_win_r": "1.236111113415949189618851039",
-        "avg_loss_r": "-1.260959785633663484258930908",
-        "win_loss_ratio": "0.9802938424358813138702556357",
-        "net_expectancy_r": "-0.2611006433929517015297467763",
-        "profit_factor": "0.6546540634511565400717025586",
-        "net_r": "-506.0130468955403975646492525",
-        "max_drawdown_r": "507.1987611812546832789349668"
+        "candidates": 637,
+        "trades": 637,
+        "direction_hit_rate": "0.6875981161695447409733124019",
+        "win_rate": "0.4113029827315541601255886970",
+        "avg_win_r": "1.241709437157771951141614499",
+        "avg_loss_r": "-1.258592109975995679906991077",
+        "win_loss_ratio": "0.9865860649495524637000669324",
+        "net_expectancy_r": "-0.2302106259115575019874704185",
+        "profit_factor": "0.6892947973780873213051134302",
+        "net_r": "-146.6441687056621287660186566",
+        "max_drawdown_r": "149.0155972770907001945900852"
       },
       "ETH/USDT": {
-        "candidates": 2261,
-        "trades": 2261,
-        "direction_hit_rate": "0.6696152145068553737284387439",
-        "win_rate": "0.4024767801857585139318885449",
-        "avg_win_r": "1.283563869886473683029955532",
-        "avg_loss_r": "-1.214562031841609460810098403",
-        "win_loss_ratio": "1.056812115178866980896663385",
-        "net_expectancy_r": "-0.2091243624154459663853088733",
-        "profit_factor": "0.7118423573743663601894623838",
-        "net_r": "-472.8301834213233299971833626",
-        "max_drawdown_r": "473.3440675767195784991157525"
+        "candidates": 681,
+        "trades": 681,
+        "direction_hit_rate": "0.6593245227606461086637298091",
+        "win_rate": "0.4170337738619676945668135095",
+        "avg_win_r": "1.289448040837556977108071356",
+        "avg_loss_r": "-1.211787257311066010195991217",
+        "win_loss_ratio": "1.064087803414288115097559993",
+        "net_expectancy_r": "-0.1686876616073818275317419210",
+        "profit_factor": "0.7612114261200448984577003480",
+        "net_r": "-114.8762975546270245491162482",
+        "max_drawdown_r": "118.4929190916892259255244365"
       }
     },
     "promotion_rule": "challenger must improve OOS expectancy, not lower PF, and keep acceptable drawdown for both BTC/USDT and ETH/USDT",
-    "result": "REJECTED",
-    "reason": "BTC/USDT improved marginally, but ETH/USDT expectancy and profit factor both declined; no promotion."
-  }
+    "result": "ACCEPTED_FOR_NEXT_GATE",
+    "reason": "Both BTC/USDT and ETH/USDT improved OOS expectancy and profit factor while reducing max drawdown; candidate remains research-only pending 1m fidelity and runtime promotion gates.",
+    "strategy_change_promoted": false,
+    "promotion_gate": "PASS",
+    "runtime": {
+      "activation": "ACTIVE",
+      "execution_mode": "BINANCE_TESTNET",
+      "scheduler_running": true,
+      "scheduler_cycle_at": "2026-08-15T15:50:07.024107+00:00",
+      "data_fresh": true,
+      "exchange_info_ready": true,
+      "execution_coverage_count": 2,
+      "reconciliation": "HEALTHY",
+      "managed_position": {
+        "symbol": "BTC/USDT",
+        "direction": "long",
+        "quantity": "0.2764",
+        "state": "PROTECTED",
+        "entry_price": "62964.99801013024",
+        "mark_price": "63077.84931159",
+        "take_profit_order_id": "1000000167954361",
+        "take_profit_trigger": "63295.8",
+        "stop_loss_order_id": "1000000167954341",
+        "stop_loss_trigger": "62744.5",
+        "reduce_only_orders_live": true
+      },
+      "natural_reduce_only_exit_fill_observed": false,
+      "api_listener_8016": "UNAVAILABLE"
+    }
+  },
+  "next_machine_action": "Keep the official ACTIVE Binance Testnet scheduler running with the persisted external baseline and observe the existing managed BTC/USDT position until its natural automatic reduce-only stop/target exit fills; then verify the real reduce-only Binance order/fill, local and exchange positions both flat, HEALTHY reconciliation, and restore/persist the API listener on port 8016 before any success transition.",
+  "last_result": "Observed active Testnet runtime: BTC/USDT remains PROTECTED with live TP 1000000167954361 and SL 1000000167954341; no natural reduce-only fill; reconciliation HEALTHY; listener 8016 unavailable."
 }

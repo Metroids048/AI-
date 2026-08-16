@@ -113,6 +113,8 @@ class CycleRequest:
     engine_activation: EngineActivation
     fencing_token: str
     now: datetime
+    direction_timeframe: TimeframeView | None = None
+    state_timeframe: TimeframeView | None = None
     risk_per_trade: Decimal = Decimal("0.01")
     max_leverage: int = 10
     max_margin_fraction: Decimal = Decimal("0.05")
@@ -132,6 +134,9 @@ class CycleRequest:
     decision_id: str | None = None
     # Sampling requires an explicit operator opt-in.  The safe default is off.
     sampling_fallback_enabled: bool = False
+    sampling_strategy_version: str = "2.0.0"
+    strict_sampling_alignment: bool = False
+    sampling_confirmation_bars: int = 0
     # The scheduler resolves this once before constructing the request.  The
     # cycle never infers a second writer from a strategy candidate.
     entry_authority: EntryAuthority = EntryAuthority.NONE
@@ -1691,8 +1696,12 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             symbol=request.symbol,
             lane=CandidateLane.TESTNET_SAMPLING,
             strategy_id="testnet_sampling_v2",
-            strategy_version="1.0.0",
+            strategy_version=request.sampling_strategy_version,
             entry_timeframe=request.entry_timeframe,
+            direction_timeframe=request.direction_timeframe,
+            state_timeframe=request.state_timeframe,
+            strict_sampling_alignment=request.strict_sampling_alignment,
+            sampling_confirmation_bars=request.sampling_confirmation_bars,
             now=request.now,
             already_evaluated_bars=request.already_evaluated_bars,
         )
@@ -1730,8 +1739,12 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             symbol=request.symbol,
             lane=CandidateLane.TESTNET_SAMPLING,
             strategy_id="testnet_sampling_v2",
-            strategy_version="2.0.0",
+            strategy_version=request.sampling_strategy_version,
             entry_timeframe=request.entry_timeframe,
+            direction_timeframe=request.direction_timeframe,
+            state_timeframe=request.state_timeframe,
+            strict_sampling_alignment=request.strict_sampling_alignment,
+            sampling_confirmation_bars=request.sampling_confirmation_bars,
             now=request.now,
             already_evaluated_bars=request.already_evaluated_bars,
         )

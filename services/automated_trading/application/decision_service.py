@@ -102,6 +102,8 @@ class DecisionContext:
     entry_timeframe: TimeframeView
     direction_timeframe: TimeframeView | None = None
     state_timeframe: TimeframeView | None = None
+    strict_sampling_alignment: bool = False
+    sampling_confirmation_bars: int = 0
     now: datetime = field(default_factory=lambda: datetime.now(UTC))
     data_stale_after_seconds: int = 120
     already_evaluated_bars: frozenset[datetime] = frozenset()
@@ -297,6 +299,19 @@ def sampling_stop_distance(*, atr14: Decimal, reference_price: Decimal) -> Decim
     return max(Decimal("1.2") * atr14, reference_price * Decimal("0.0035"))
 
 
+def sampling_trend_aligned(side: CandidateSide, timeframe: TimeframeView) -> bool:
+    """Mirror the accepted strict dual-timeframe research filter."""
+    closes = _closes(timeframe.bars)
+    fast = ema(closes, 20)
+    slow = ema(closes, 50)
+    last = timeframe.last_closed
+    if fast is None or slow is None or last is None:
+        return False
+    if side is CandidateSide.LONG:
+        return last.close > slow and fast >= slow
+    return last.close < slow and fast <= slow
+
+
 # --------------------------------------------------------------------------
 # Decision service
 # --------------------------------------------------------------------------
@@ -405,6 +420,16 @@ def evaluate_symbol(context: DecisionContext) -> DecisionOutcome:
     )
 
     # --- TIMEFRAMES_ALIGNED ---
+    if context.strict_sampling_alignment and (
+        context.direction_timeframe is None or context.state_timeframe is None
+    ):
+        return _terminate(
+            context,
+            builder,
+            FunnelStage.TIMEFRAMES_ALIGNED,
+            DecisionReasonCode.NO_MARKET_DATA,
+            metrics={"required_timeframes": ["1h", "4h"]},
+        )
     if context.direction_timeframe is not None:
         direction_last = context.direction_timeframe.last_closed
         if direction_last is None:
@@ -462,10 +487,53 @@ def evaluate_symbol(context: DecisionContext) -> DecisionOutcome:
             reason,
             metrics=evaluation.metrics,
         )
+    if context.strict_sampling_alignment:
+        assert context.direction_timeframe is not None
+        assert context.state_timeframe is not None
+        aligned = sampling_trend_aligned(evaluation.side, context.direction_timeframe) and sampling_trend_aligned(
+            evaluation.side, context.state_timeframe
+        )
+        if not aligned:
+            return _terminate(
+                context,
+                builder,
+                FunnelStage.ENTRY_SIGNAL_EVALUATED,
+                DecisionReasonCode.MULTI_TIMEFRAME_DISAGREEMENT,
+                metrics={
+                    **dict(evaluation.metrics),
+                    "side": evaluation.side.value,
+                    "strict_alignment": False,
+                },
+            )
+        confirmations = max(context.sampling_confirmation_bars, 0)
+        for offset in range(1, confirmations + 1):
+            confirmation_bars = context.entry_timeframe.bars[:-offset]
+            confirmation = evaluate_sampling_signal(
+                TimeframeView(context.entry_timeframe.timeframe, confirmation_bars)
+            )
+            if confirmation.side is not evaluation.side:
+                return _terminate(
+                    context,
+                    builder,
+                    FunnelStage.ENTRY_SIGNAL_EVALUATED,
+                    DecisionReasonCode.MULTI_TIMEFRAME_DISAGREEMENT,
+                    metrics={
+                        **dict(evaluation.metrics),
+                        "side": evaluation.side.value,
+                        "strict_alignment": True,
+                        "confirmation_bars": confirmations,
+                        "failed_confirmation_offset": offset,
+                    },
+                )
     builder.record(
         FunnelStage.ENTRY_SIGNAL_EVALUATED,
         StageOutcome.PASSED,
-        metrics={**dict(evaluation.metrics), "side": evaluation.side.value},
+        metrics={
+            **dict(evaluation.metrics),
+            "side": evaluation.side.value,
+            "strict_alignment": context.strict_sampling_alignment,
+            "confirmation_bars": context.sampling_confirmation_bars,
+        },
     )
 
     # --- CANDIDATE_CREATED ---

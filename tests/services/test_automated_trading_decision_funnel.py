@@ -176,6 +176,40 @@ def test_successful_evaluation_produces_candidate_and_sealed_funnel() -> None:
     assert outcome.funnel.candidate_id == outcome.candidate.candidate_id
 
 
+def test_strict_sampling_requires_dual_alignment_and_two_confirmations() -> None:
+    confirmed_closes = LONG_CLOSES * 3
+    outcome = evaluate_symbol(
+        build_context(
+            confirmed_closes,
+            strategy_version="2.1.0",
+            direction_timeframe=build_timeframe(confirmed_closes, timeframe="1h"),
+            state_timeframe=build_timeframe(confirmed_closes, timeframe="4h"),
+            strict_sampling_alignment=True,
+            sampling_confirmation_bars=2,
+        )
+    )
+
+    assert outcome.has_candidate
+    assert outcome.candidate is not None
+    assert outcome.candidate.strategy_version == "2.1.0"
+
+
+def test_strict_sampling_rejects_higher_timeframe_disagreement() -> None:
+    outcome = evaluate_symbol(
+        build_context(
+            LONG_CLOSES,
+            strategy_version="2.1.0",
+            direction_timeframe=build_timeframe(SHORT_CLOSES, timeframe="1h"),
+            state_timeframe=build_timeframe(SHORT_CLOSES, timeframe="4h"),
+            strict_sampling_alignment=True,
+            sampling_confirmation_bars=2,
+        )
+    )
+
+    assert not outcome.has_candidate
+    assert outcome.reason_code is DecisionReasonCode.MULTI_TIMEFRAME_DISAGREEMENT
+
+
 def test_every_stage_is_recorded_in_order() -> None:
     outcome = evaluate_symbol(build_context(LONG_CLOSES))
     stages = [record.stage for record in outcome.funnel.stages]

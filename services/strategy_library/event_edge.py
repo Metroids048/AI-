@@ -7,6 +7,7 @@ or alter the V2 execution plane.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -343,6 +344,239 @@ def build_event_dataset(
     return tuple(events)
 
 
+def _direction_score(bars: Sequence[EventBar], *, lookback: int = 24) -> float:
+    if len(bars) < 2:
+        return 0.0
+    sample = bars[-lookback:]
+    first = sample[0].close
+    if first <= 0:
+        return 0.0
+    return max(-1.0, min(1.0, (sample[-1].close - first) / first / 0.03))
+
+
+def _range_regime_proxy(
+    *,
+    bars15: Sequence[EventBar],
+    bars1h: Sequence[EventBar],
+    bars4h: Sequence[EventBar],
+    event_time: datetime,
+    times15: Sequence[datetime] | None = None,
+    times1h_closed: Sequence[datetime] | None = None,
+    times4h_closed: Sequence[datetime] | None = None,
+    direction_weights: tuple[float, float, float] = (0.20, 0.35, 0.45),
+) -> tuple[float, float, float, str, float]:
+    """Point-in-time proxy for the existing RegimeScorerV2 contract.
+
+    The proposal generators consume RegimeScore, while EventEdge intentionally
+    stays independent of proposal-pipeline objects.  This mirrors the scorer's
+    direction weights (15m=.20, 1h=.35, 4h=.45) and volatility/range semantics
+    using only bars closed at ``event_time``.
+    """
+    times15 = times15 or tuple(bar.time for bar in bars15)
+    times1h_closed = times1h_closed or tuple(bar.time + timedelta(hours=1) for bar in bars1h)
+    times4h_closed = times4h_closed or tuple(bar.time + timedelta(hours=4) for bar in bars4h)
+    closed15 = bars15[: bisect_right(times15, event_time)]
+    closed1h = bars1h[: bisect_right(times1h_closed, event_time)]
+    closed4h = bars4h[: bisect_right(times4h_closed, event_time)]
+    directions = {
+        "15m": _direction_score(closed15),
+        "1h": _direction_score(closed1h),
+        "4h": _direction_score(closed4h),
+    }
+    weight15, weight1h, weight4h = direction_weights
+    trend_up = max(
+        0.0,
+        weight15 * max(0.0, directions["15m"])
+        + weight1h * max(0.0, directions["1h"])
+        + weight4h * max(0.0, directions["4h"]),
+    )
+    trend_down = max(
+        0.0,
+        weight15 * max(0.0, -directions["15m"])
+        + weight1h * max(0.0, -directions["1h"])
+        + weight4h * max(0.0, -directions["4h"]),
+    )
+    recent = closed15[-5:]
+    baseline = closed15[-20:-5] or closed15[:-5]
+    expansion = 0.0
+    if len(recent) >= 5 and baseline:
+        recent_range = sum(bar.high - bar.low for bar in recent) / len(recent)
+        baseline_range = sum(bar.high - bar.low for bar in baseline) / len(baseline)
+        if baseline_range > 0:
+            expansion = max(0.0, min(1.0, (recent_range / baseline_range - 1.0)))
+    dominant = max(trend_up, trend_down)
+    range_score = max(0.0, min(1.0, (1.0 - dominant) * (1.0 - expansion * 0.5)))
+    regime = "long" if directions["4h"] > 0.05 else "short" if directions["4h"] < -0.05 else "none"
+    return range_score, max(0.0, min(1.0, trend_up)), max(0.0, min(1.0, trend_down)), regime, expansion
+
+
+def build_candidate_event_dataset(
+    *,
+    candidate_id: str,
+    symbol: str,
+    bars15: Sequence[EventBar],
+    bars1h: Sequence[EventBar],
+    bars4h: Sequence[EventBar],
+    development_end: datetime,
+    max_holding_bars: int = 96,
+    direction_weights: tuple[float, float, float] = (0.20, 0.35, 0.45),
+) -> tuple[EdgeEvent, ...]:
+    """Adapt the existing reversal proposals to the sealed EventEdge format.
+
+    This is research-only.  It preserves the candidates' Donchian-24 sweep and
+    next-closed-bar confirmation rules.  Because EventEdge is single-target,
+    failed-breakout uses the candidate's 2R runner and range-sweep uses the
+    opposite range boundary; the report records this mapping explicitly.
+    """
+    if candidate_id not in {"failed_breakout_reversal_v1", "range_sweep_reversion_v1"}:
+        raise ValueError(f"unsupported reversal candidate: {candidate_id}")
+    bars15 = tuple(sorted((bar for bar in bars15 if bar.time < development_end), key=lambda bar: bar.time))
+    bars1h = tuple(sorted((bar for bar in bars1h if bar.time < development_end), key=lambda bar: bar.time))
+    bars4h = tuple(sorted((bar for bar in bars4h if bar.time < development_end), key=lambda bar: bar.time))
+    if len(bars15) < 40 or not bars1h or not bars4h:
+        return ()
+    times15 = [bar.time for bar in bars15]
+    times1h_closed = tuple(bar.time + timedelta(hours=1) for bar in bars1h)
+    times4h_closed = tuple(bar.time + timedelta(hours=4) for bar in bars4h)
+    events: list[EdgeEvent] = []
+    atr_history: list[float] = []
+    last_outcome_time: datetime | None = None
+    event_type = candidate_id
+    lookback = 24
+    for i in range(lookback + 1, len(bars15) - 1):
+        sweep = bars15[i - 1]
+        confirmation = bars15[i]
+        event_time = confirmation.time
+        if event_time >= development_end or (last_outcome_time is not None and event_time < last_outcome_time):
+            continue
+        prior = bars15[i - 1 - lookback : i - 1]
+        upper = max(bar.high for bar in prior)
+        lower = min(bar.low for bar in prior)
+        atr = _atr(bars15[max(0, i - 15) : i + 1])
+        if atr <= 0:
+            continue
+        atr_history.append(atr)
+        candle_range = sweep.high - sweep.low
+        if candle_range <= 0:
+            continue
+        upper_wick = sweep.high - max(sweep.open, sweep.close)
+        lower_wick = min(sweep.open, sweep.close) - sweep.low
+        short = (
+            sweep.high > upper
+            and sweep.close < upper
+            and upper_wick / candle_range >= 0.50
+            and sweep.high - upper <= 2.0 * atr
+            and confirmation.low < sweep.low
+            and confirmation.close < upper
+        )
+        long = (
+            sweep.low < lower
+            and sweep.close > lower
+            and lower_wick / candle_range >= 0.50
+            and lower - sweep.low <= 2.0 * atr
+            and confirmation.high > sweep.high
+            and confirmation.close > lower
+        )
+        if candidate_id == "range_sweep_reversion_v1":
+            upper_touches = sum(abs(bar.high - upper) <= 1e-12 for bar in prior)
+            lower_touches = sum(abs(bar.low - lower) <= 1e-12 for bar in prior)
+            range_score, trend_up, trend_down, regime, expansion = _range_regime_proxy(
+                bars15=bars15,
+                bars1h=bars1h,
+                bars4h=bars4h,
+                event_time=event_time,
+                times15=times15,
+                times1h_closed=times1h_closed,
+                times4h_closed=times4h_closed,
+                direction_weights=direction_weights,
+            )
+            allowed_range = range_score >= 0.55 and max(trend_up, trend_down) <= 0.50 and expansion <= 0.65
+            long = long and upper_touches >= 2 and lower_touches >= 2 and allowed_range
+            short = short and upper_touches >= 2 and lower_touches >= 2 and allowed_range
+        if long == short:
+            continue
+        side = "long" if long else "short"
+        entry_index = i + 1
+        if entry_index >= len(bars15):
+            continue
+        entry_bar = bars15[entry_index]
+        entry = entry_bar.open
+        stop = sweep.low - 0.25 * atr if side == "long" else sweep.high + 0.25 * atr
+        risk = abs(entry - stop)
+        if risk <= 0:
+            continue
+        if candidate_id == "failed_breakout_reversal_v1":
+            target = entry + 2.0 * risk if side == "long" else entry - 2.0 * risk
+        else:
+            target = upper if side == "long" else lower
+            if (target - entry) * (1 if side == "long" else -1) <= 0:
+                continue
+        result = _outcome(
+            side=side,
+            entry_index=entry_index,
+            entry=entry,
+            stop=stop,
+            target=target,
+            bars15=bars15,
+            max_holding_bars=max_holding_bars,
+        )
+        if result is None:
+            continue
+        outcome, outcome_time, outcome_r = result
+        last_outcome_time = outcome_time
+        mfe_r, mae_r = _mfe_mae(
+            side=side,
+            entry=entry,
+            stop=stop,
+            bars15=bars15,
+            entry_index=entry_index,
+            max_holding_bars=max_holding_bars,
+        )
+        volume_baseline = median(bar.volume for bar in prior)
+        volume_ratio = sweep.volume / max(volume_baseline, 1e-12)
+        range_score, trend_up, trend_down, regime, expansion = _range_regime_proxy(
+            bars15=bars15,
+            bars1h=bars1h,
+            bars4h=bars4h,
+            event_time=event_time,
+            times15=times15,
+            times1h_closed=times1h_closed,
+            times4h_closed=times4h_closed,
+            direction_weights=direction_weights,
+        )
+        direction = trend_up if side == "long" else trend_down
+        cost_r = (entry * 12.0 / 10000.0) / risk
+        events.append(
+            EdgeEvent(
+                event_id=f"{symbol}:{event_type}:{event_time.isoformat()}:{side}",
+                event_type=event_type,
+                symbol=symbol,
+                side=side,
+                event_time=event_time,
+                entry_time=entry_bar.time,
+                entry=entry,
+                stop=stop,
+                target=target,
+                atr=atr,
+                volume_ratio=volume_ratio,
+                breakout_distance_atr=max((sweep.high - upper) / atr, (lower - sweep.low) / atr, 0.0),
+                atr_percentile=_percentile(atr, atr_history[-200:]),
+                trend_age=_trend_age(bars15[max(0, i - 32) : i + 1], side),
+                chop_score=_chop_score(bars15[max(0, i - 8) : i + 1]),
+                retest_depth_atr=0.0,
+                regime_4h=regime,
+                trend_strength_1h=direction,
+                outcome=outcome,
+                outcome_time=outcome_time,
+                outcome_r=outcome_r,
+                cost_r=cost_r,
+                mfe_r=mfe_r,
+                mae_r=mae_r,
+            )
+        )
+    return tuple(events)
+
+
 def gate_metrics(
     events: Iterable[EdgeEvent], gate: QualityGate | None = None, *, cost_multiple: float = 1.0
 ) -> GateMetrics:
@@ -386,14 +620,19 @@ def gate_metrics(
 
 
 def discover_quality_gate(
-    events: Sequence[EdgeEvent], *, min_trades: int = 30
+    events: Sequence[EdgeEvent], *, min_trades: int = 30, event_types: Sequence[str] | None = None
 ) -> tuple[QualityGate | None, GateMetrics]:
     """Nested selection: fit the finite grid on early train, validate on late train."""
     ordered = tuple(sorted(events, key=lambda event: event.event_time))
     split = int(len(ordered) * 0.67)
     fit, validation = ordered[:split], ordered[split:]
     best: tuple[tuple[float, float, float], QualityGate, GateMetrics] | None = None
-    for event_type in ("ANY", "HTF_STRUCTURE_BREAK", "HTF_BREAK_RETEST"):
+    candidate_event_types = (
+        tuple(event_types)
+        if event_types is not None
+        else ("ANY", "HTF_STRUCTURE_BREAK", "HTF_BREAK_RETEST")
+    )
+    for event_type in candidate_event_types:
         for side in ("ANY", "long", "short"):
             for min_volume in (1.05, 1.20, 1.40):
                 for min_distance in (0.10, 0.25, 0.50):
@@ -428,6 +667,7 @@ __all__ = [
     "GateMetrics",
     "QualityGate",
     "build_event_dataset",
+    "build_candidate_event_dataset",
     "discover_quality_gate",
     "gate_metrics",
 ]

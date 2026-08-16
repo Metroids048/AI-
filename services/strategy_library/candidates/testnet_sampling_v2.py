@@ -36,7 +36,7 @@ from services.automated_trading.domain.candidates import (
 from services.automated_trading.domain.enums import V2CandidateType
 
 STRATEGY_ID = "testnet_sampling_v2"
-STRATEGY_VERSION = "2.0.0"
+STRATEGY_VERSION = "2.1.0"
 MAX_ENTRY_DRIFT_BPS = Decimal("20")
 CANDIDATE_TTL_SECONDS = 75
 

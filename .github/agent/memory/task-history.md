@@ -1,5 +1,12 @@
 # Task History
 
+### [TASK-STRATEGY-LOOP-D16] Strict dual-timeframe alignment with two confirmations
+- **Date**: 2026-08-15
+- **Type**: Strategy research / chronological OOS validation
+- **Summary**: Added the bounded strict 1h/4h EMA50 alignment plus two closed 15m confirmation replay mode, preserving the existing entry geometry, R2 threshold, and exchange-first runtime.
+- **Result**: On the 70/30 chronological replay over `.strategy_refactor_history.db`, BTC OOS expectancy/PF improved from `-0.26501108/0.65078316` to `-0.23021063/0.68929480`; ETH improved from `-0.20280307/0.71929364` to `-0.16868766/0.76121143`, with lower drawdown for both. Candidate accepted only for the next 1m fidelity/promotion gate; active strategy remains unchanged and Final Holdout was not accessed.
+- **Evidence**: `artifacts/active_strategy_optimization/strict_dual_timeframe_alignment_two_bar_20260815.json`, `LOOP_LEDGER.json`, `FINAL_STATUS.json`.
+
 ### [TASK-MARKET-ALPHA-META-LABEL] New information-source research exhausted
 - **Date**: 2026-08-14
 - **Type**: Strategy research / read-only validation
@@ -1151,3 +1158,307 @@
   and produced canonical artifacts; long-running bounded variant replay was
   interrupted before a terminal Champion decision and must not be reported as
   promotion evidence.
+
+## 2026-08-15 — D3 one-closed-bar confirmation challenger
+
+- Executed the ledger action against `.strategy_refactor_history.db` using the
+  frozen `testnet_sampling_v2` entry/exit/cost semantics and a 70/30 chronological
+  development/OOS split. The read-only report is
+  `artifacts/active_strategy_optimization/one_closed_bar_confirmation_20260815.json`.
+- Production-signal parity covered 400 sampled windows with zero side mismatches.
+  The challenger improved BTC OOS expectancy slightly (`-0.26110064` vs
+  `-0.26501108`) but worsened ETH (`-0.20912436` vs `-0.20280307`) and lowered
+  ETH PF (`0.71184236` vs `0.71929364`), so D3 was rejected and no strategy/R2
+  change was made.
+- `LOOP_LEDGER.json` and `FINAL_STATUS.json` were updated via fsync-backed
+  temporary replacements. `FINAL_STATUS.success` remains `false`; the next
+  machine action is the bounded two-closed-bar confirmation replay.
+
+## 2026-08-15 — D4 two-closed-bar confirmation challenger
+
+- Executed the next ledger action with two subsequent closed 15m confirmations
+  and next-bar-open entry, preserving the current stop, target, cost model, and
+  R2 threshold. Artifact:
+  `artifacts/active_strategy_optimization/two_closed_bar_confirmation_20260815.json`.
+- Signal parity covered 800 confirmation windows with zero mismatches. BTC OOS
+  expectancy improved slightly (`-0.25967530` vs `-0.26501108`), but ETH
+  worsened (`-0.21846434` vs `-0.20280307`) and PF fell to `0.70110781` from
+  `0.71929364`; D4 was rejected and no strategy/R2 change was made.
+- State files were atomically updated; `FINAL_STATUS.success` remains `false`.
+  The next bounded action is a long-side veto replay with short-side logic and
+  all geometry/R2 rules unchanged.
+
+## 2026-08-15 — D5 long-side veto challenger
+
+- Executed the ledger action by filtering only long candidates after the existing
+  sampling signal, with short-side evaluation, geometry, costs, and R2 unchanged.
+  Artifact: `artifacts/active_strategy_optimization/long_side_veto_20260815.json`.
+- BTC OOS expectancy/PF declined (`-0.26501108 → -0.26841182`,
+  `0.65078316 → 0.64732272`). ETH also remained slightly below baseline
+  (`-0.20280307 → -0.20288003`, PF `0.71929364 → 0.71902162`). D5 was rejected.
+- `LOOP_LEDGER.json` and `FINAL_STATUS.json` were atomically updated;
+  `FINAL_STATUS.success` remains `false`. Next action is the symmetric short-side
+  veto replay.
+
+## 2026-08-15 — D6 short-side veto challenger
+
+- Executed the ledger action with a read-only short-side veto, preserving the
+  existing long-side evaluator, next-bar fill, stop/target geometry, costs, and
+  R2 threshold. Artifact:
+  `artifacts/active_strategy_optimization/short_side_veto_20260815.json`.
+- The 70/30 chronological replay rejected D6 for both symbols: BTC OOS
+  expectancy/PF changed from `-0.26501108 / 0.65078316` to
+  `-0.29024344 / 0.62364511`; ETH changed from `-0.20280307 / 0.71929364` to
+  `-0.21700965 / 0.70285291`.
+- No strategy or R2 change was made. State files were updated with fsync-backed
+  atomic replacements; `FINAL_STATUS.success` remains `false`. Next action is a
+  bounded short-side 4h-conflict veto replay.
+
+## 2026-08-15 — D7 short-side 4h-conflict veto challenger
+
+- Executed the bounded replay that vetoes only short signals whose 4h EMA50
+  trend conflicts, preserving long signals, geometry, costs, and R2. Artifact:
+  `artifacts/active_strategy_optimization/short_side_4h_conflict_veto_20260815.json`.
+- BTC OOS expectancy/PF improved from `-0.26501108 / 0.65078316` to
+  `-0.25892916 / 0.65712299`, but ETH declined from
+  `-0.20280307 / 0.71929364` to `-0.20510787 / 0.71645048`; D7 was rejected
+  under the both-symbol promotion rule.
+- No strategy or R2 change was made. `LOOP_LEDGER.json` and
+  `FINAL_STATUS.json` were updated atomically; `FINAL_STATUS.success` remains
+  `false`. Next action is the symmetric long-side 4h-conflict veto replay.
+
+## 2026-08-15 — D8 long-side 4h-conflict veto challenger
+
+- Executed the symmetric replay that vetoes only long signals whose 4h EMA50
+  trend conflicts, preserving short signals, geometry, costs, and R2. Artifact:
+  `artifacts/active_strategy_optimization/long_side_4h_conflict_veto_20260815.json`.
+- BTC OOS expectancy/PF declined from `-0.26501108 / 0.65078316` to
+  `-0.28726546 / 0.62728765`; ETH declined from
+  `-0.20280307 / 0.71929364` to `-0.21308437 / 0.70713936`; D8 was rejected.
+- No strategy or R2 change was made. State files were atomically updated;
+  `FINAL_STATUS.success` remains `false`. Next action is a bounded long-side
+  1h-conflict veto replay.
+
+## 2026-08-15 — D9 long-side 1h-conflict veto challenger
+
+- Executed the bounded replay that vetoes only long signals whose 1h EMA50
+  trend conflicts, preserving short signals, geometry, costs, and R2. Artifact:
+  `artifacts/active_strategy_optimization/long_side_1h_conflict_veto_20260815.json`.
+- BTC OOS expectancy/PF declined from `-0.26501108 / 0.65078316` to
+  `-0.27067345 / 0.64480155`; ETH improved only marginally from
+  `-0.20280307 / 0.71929364` to `-0.20278290 / 0.71937272`; D9 was rejected.
+- No strategy or R2 change was made. State files were atomically updated;
+  `FINAL_STATUS.success` remains `false`. Next action is the symmetric
+  short-side 1h-conflict veto replay.
+
+## 2026-08-15 — D10 short-side 1h-conflict veto challenger
+
+- Executed the symmetric replay that vetoes only short signals whose 1h EMA50
+  trend conflicts, preserving long signals, geometry, costs, and R2. Artifact:
+  `artifacts/active_strategy_optimization/short_side_1h_conflict_veto_20260815.json`.
+- BTC OOS expectancy/PF improved from `-0.26501108 / 0.65078316` to
+  `-0.25442776 / 0.66223467`, but ETH declined from
+  `-0.20280307 / 0.71929364` to `-0.21730943 / 0.70207542`; D10 was rejected.
+- No strategy or R2 change was made. State files were atomically updated;
+  `FINAL_STATUS.success` remains `false`. Next action is a bounded dual-timeframe
+  conflict veto replay.
+
+## 2026-08-15 — D11 dual-timeframe conflict veto challenger
+
+- Executed the replay that vetoes signals conflicting with both 1h and 4h EMA50
+  trends, preserving geometry, costs, and R2. Artifact:
+  `artifacts/active_strategy_optimization/dual_timeframe_conflict_veto_20260815.json`.
+- BTC OOS expectancy/PF improved from `-0.26501108 / 0.65078316` to
+  `-0.25985397 / 0.65643428`, but ETH declined from
+  `-0.20280307 / 0.71929364` to `-0.21679022 / 0.70283113`; D11 was rejected.
+- No strategy or R2 change was made. State files were atomically updated;
+  `FINAL_STATUS.success` remains `false`. Next action is a bounded long-only
+  dual-timeframe conflict veto replay.
+
+## 2026-08-15 — D12 long-only dual-timeframe conflict veto challenger
+
+- Executed the long-only replay that vetoes signals conflicting with both 1h and
+  4h EMA50 trends, preserving short signals, geometry, costs, and R2. Artifact:
+  `artifacts/active_strategy_optimization/long_dual_timeframe_conflict_veto_20260815.json`.
+- BTC OOS expectancy/PF declined from `-0.26501108 / 0.65078316` to
+  `-0.27048914 / 0.64510596`; ETH declined from
+  `-0.20280307 / 0.71929364` to `-0.21381647 / 0.70641901`; D12 was rejected.
+- No strategy or R2 change was made. State files were atomically updated;
+  `FINAL_STATUS.success` remains `false`. Next action is the symmetric
+  short-only dual-timeframe conflict veto replay.
+
+## 2026-08-15 — D13 short-only dual-timeframe conflict veto challenger
+
+- Executed the short-only replay that vetoes signals conflicting with both 1h
+  and 4h EMA50 trends, preserving long signals, geometry, costs, and R2.
+  Artifact: `artifacts/active_strategy_optimization/short_dual_timeframe_conflict_veto_20260815.json`.
+- BTC OOS expectancy/PF improved from `-0.26501108 / 0.65078316` to
+  `-0.25528279 / 0.66120782`, but ETH declined from
+  `-0.20280307 / 0.71929364` to `-0.20447486 / 0.71719695`; D13 was rejected.
+- No strategy or R2 change was made. State files were atomically updated;
+  `FINAL_STATUS.success` remains `false`. Next action is a strict dual-timeframe
+  alignment replay.
+
+## 2026-08-15 — D14 strict dual-timeframe alignment challenger
+
+- Executed the replay retaining only signals aligned with both 1h and 4h EMA50
+  trends, preserving geometry, costs, and R2. Artifact:
+  `artifacts/active_strategy_optimization/strict_dual_timeframe_alignment_20260815.json`.
+- BTC OOS expectancy/PF improved from `-0.26501108 / 0.65078316` to
+  `-0.26086246 / 0.65528954`, but ETH declined from
+  `-0.20280307 / 0.71929364` to `-0.20901993 / 0.71168513`; D14 was rejected.
+- No strategy or R2 change was made. State files were atomically updated;
+  `FINAL_STATUS.success` remains `false`. Next action is strict alignment with
+  one closed-bar confirmation.
+
+## 2026-08-15 — D15 strict dual-timeframe alignment plus one confirmation
+
+- Executed strict 1h/4h alignment with one closed-bar confirmation, preserving
+  geometry, costs, and R2. Artifact:
+  `artifacts/active_strategy_optimization/strict_dual_timeframe_alignment_one_bar_20260815.json`.
+- BTC OOS expectancy/PF declined from `-0.26501108 / 0.65078316` to
+  `-0.26950267 / 0.64572408`; ETH declined from
+  `-0.20280307 / 0.71929364` to `-0.22192849 / 0.69704684`; D15 was rejected.
+- No strategy or R2 change was made. State files were atomically updated;
+  `FINAL_STATUS.success` remains `false`. Next action is strict alignment with
+  two closed-bar confirmations.
+# 2026-08-15 — Fade/Reversion strict EventEdge loop
+
+- Added research-only EventEdge adapters for `failed_breakout_reversal_v1` and `range_sweep_reversion_v1`; execution and risk planes stayed frozen.
+- Read-only live-loss structure attribution found 30 local closed entries / 14 STOP rows and zero strict opposite-sweep-plus-confirmation matches; do not promote that causal story to fact.
+- Final reports: failed-breakout `REJECTED_WITH_EVIDENCE` (3,592 events, no train gate across 8 windows); range-sweep `INSUFFICIENT_DATA` (0 events); both `holdout_accessed=false`.
+- Independent Regime-weight and Bollinger reports were kept separate. No active manifest or production authorization changed.
+
+# 2026-08-15 — Testnet sampling R2 regression recovery
+
+- Root cause confirmed: commit `39e6524` added an unconditional R2 entry blocker. In
+  the established `testnet_sampling_v2` geometry it produced about `0.716R` net
+  payoff against a `1.15R` minimum, so it rejected all observed sampling
+  candidates without changing their underlying signal generation.
+- The minimal repair makes R2 explicitly `DIAGNOSTIC` only for the exact
+  `TESTNET_CANARY` + `TESTNET_SAMPLING` + `testnet_sampling_v2` contract. It
+  still calculates and persists cost evidence; `PRODUCTION` and every other
+  R2-enabled path remain `BLOCKING`. Regression tests cover both policies.
+- Natural post-fix evidence, not a manual or acceptance order: Scheduler cycle
+  `03e04f46-2062-488f-9dfb-9279c12955ab` created BTC decision
+  `3722e97c-df9f-432f-9211-0a50e48698f5` at `2026-08-15T12:15:37Z`.
+  Its R2 payload was `REJECT`, `policy=DIAGNOSTIC`, `would_block=true`, and
+  `enforced=false`; it then submitted Binance Testnet order `28541964139`,
+  filled `0.2764 BTC` at `62964.998`, created active stop/target orders
+  `1000000167954341` / `1000000167954361`, and reconciled with no position
+  mismatch. This is `NON_PROMOTABLE_PIPELINE_SAMPLE`, not production evidence.
+- Verification: focused cycle/risk tests `29 passed`; full non-integration
+  suite `1620 passed, 5 skipped, 2 deselected`; mypy succeeded for 250 source
+  files. Full ruff retains the pre-existing unrelated `C416` in
+  `scripts/verify_gate17_e2e.py:77`.
+
+# 2026-08-15 — Natural exit observation turn 52
+
+- Executed the persisted natural-exit observation without orders, cancellations,
+  manual closes, or database writes.
+- Binance Testnet still reports one managed BTC/USDT long (`0.2764`, entry
+  `62964.99801013024`) with reduce-only TP `1000000167954361` and SL
+  `1000000167954341` both `NEW`; no natural exit fill occurred.
+- Scheduler completed a fresh cycle at `2026-08-15T14:32:06.915799Z` with
+  `ACTIVE`, `2/2` execution coverage, fresh data, and `HEALTHY` reconciliation.
+  API listener `8016` remains unavailable. `LOOP_LEDGER.json` and
+  `FINAL_STATUS.json` were atomically replaced; `success` remains `false` and
+  the next machine action is unchanged.
+
+# 2026-08-15 — Natural exit observation turn 54
+
+- Executed the persisted observation action without submitting or cancelling
+  any orders and without changing local database state.
+- Binance Testnet still shows the managed BTC/USDT long (`0.2764`, entry
+  `62964.99801013024`) with TP `1000000167954361` and SL `1000000167954341`
+  both `NEW`; no natural reduce-only exit filled.
+- Scheduler cycle `2026-08-15T14:37:57.207112Z` completed with fresh data,
+  `2/2` execution coverage, and `HEALTHY` reconciliation. API listener `8016`
+  remains unavailable. `LOOP_LEDGER.json` and `FINAL_STATUS.json` were
+  atomically replaced; `success` remains `false` and the next action is
+  unchanged.
+
+# 2026-08-15 — Natural exit observation turn 56
+
+- Continued the persisted natural-exit observation with read-only exchange
+  checks and no order, cancellation, manual-close, or database mutations.
+- Binance Testnet still reports the managed BTC/USDT long (`0.2764`, entry
+  `62964.99801013024`) with TP `1000000167954361` and SL `1000000167954341`
+  both `NEW`; no natural reduce-only exit filled.
+- Scheduler cycle `2026-08-15T14:43:19.359664Z` completed with fresh data,
+  `2/2` execution coverage, and `HEALTHY` reconciliation. API listener `8016`
+  remains unavailable. State files were atomically replaced; `success` remains
+  `false` and the next machine action is unchanged.
+
+# 2026-08-15 — Natural exit observation turn 57
+
+- Executed the persisted observation action with read-only Binance checks and
+  no order, cancellation, manual-close, or database mutations.
+- Binance Testnet still reports the managed BTC/USDT long (`0.2764`, entry
+  `62964.99801013024`) with TP `1000000167954361` and SL `1000000167954341`
+  both `NEW`; no natural reduce-only exit filled.
+- Scheduler cycle `2026-08-15T14:54:10.027186Z` completed with fresh data,
+  `2/2` execution coverage, and `HEALTHY` reconciliation. API listener `8016`
+  remains unavailable. State files were atomically replaced; `success` remains
+  `false` and the next machine action is unchanged.
+
+# 2026-08-15 — Natural exit observation turn 59
+
+- Continued the persisted natural-exit observation with read-only Binance
+  checks and no order, cancellation, manual-close, or database mutations.
+- Binance Testnet still reports the managed BTC/USDT long (`0.2764`, entry
+  `62964.99801013024`) with TP `1000000167954361` and SL `1000000167954341`
+  both `NEW`; no natural reduce-only exit filled.
+- Scheduler cycle `2026-08-15T14:58:11.652386Z` completed with fresh BTC/ETH
+  data, `2/2` execution coverage, and `HEALTHY` reconciliation. API listener
+  `8016` remains unavailable. State files were atomically replaced; `success`
+  remains `false` and the next machine action is unchanged.
+
+# 2026-08-15 — Natural exit observation turn 61
+
+- Executed the persisted natural-exit observation with read-only exchange
+  checks and no order, cancellation, manual-close, or database mutations.
+- Binance Testnet still reports the managed BTC/USDT long (`0.2764`, entry
+  `62964.99801013024`) with TP `1000000167954361` and SL `1000000167954341`
+  both `NEW`; no natural reduce-only exit filled.
+- Scheduler cycle `2026-08-15T14:58:11.652386Z` completed with fresh BTC/ETH
+  data, `2/2` execution coverage, and `HEALTHY` reconciliation. API listener
+  `8016` remains unavailable. State files were atomically replaced; `success`
+  remains `false` and the next machine action is unchanged.
+
+# 2026-08-15 — Natural exit observation turn 63
+
+- Executed the persisted natural-exit observation with read-only Binance
+  checks and no order, cancellation, manual-close, or database mutations.
+- Binance Testnet still reports the managed BTC/USDT long (`0.2764`, entry
+  `62964.99801013024`) with TP `1000000167954361` and SL `1000000167954341`
+  both `NEW`; no natural reduce-only exit filled.
+- Scheduler cycle `2026-08-15T15:02:13.614507Z` completed with fresh BTC/ETH
+  data, `2/2` execution coverage, and `HEALTHY` reconciliation. API listener
+  `8016` remains unavailable. State files were atomically replaced; `success`
+  remains `false` and the next machine action is unchanged.
+
+# 2026-08-15 — Natural exit observation turn 65
+
+- Executed the persisted natural-exit observation with read-only Binance
+  checks and no order, cancellation, manual-close, or database mutations.
+- Binance Testnet still reports the managed BTC/USDT long (`0.2764`, entry
+  `62964.99801013024`) with TP `1000000167954361` and SL `1000000167954341`
+  both `NEW`; no natural reduce-only exit filled.
+- Scheduler cycle `2026-08-15T15:04:11.784414Z` completed with fresh BTC/ETH
+  data, `2/2` execution coverage, and `HEALTHY` reconciliation. API listener
+  `8016` remains unavailable. State files were atomically replaced; `success`
+  remains `false` and the next machine action is unchanged.
+
+# 2026-08-15 — Natural exit observation turn 67
+
+- Executed the persisted natural-exit observation with read-only Binance
+  checks and no order, cancellation, manual-close, or database mutations.
+- Binance Testnet still reports the managed BTC/USDT long (`0.2764`, entry
+  `62964.99801013024`) with TP `1000000167954361` and SL `1000000167954341`
+  both `NEW`; no natural reduce-only exit filled.
+- Scheduler cycle `2026-08-15T15:06:24.232996Z` completed with fresh BTC/ETH
+  data, `2/2` execution coverage, and `HEALTHY` reconciliation. The subsequent
+  `exchange_info_refresh` TLS handshake timeout set `exchange_info_ready=false`;
+  API listener `8016` remains unavailable. State files were atomically
+  replaced; `success` remains `false` and the next action is unchanged.
