@@ -4,19 +4,20 @@ import { asArray, formatEnum, formatNumber, formatTime } from "../utils/format";
 
 const DEFAULT_AUTO_SETTINGS = {
   execution_mode: "binance_simulation_first",
-  max_leverage: 10,
+  max_leverage: 50,
   risk_per_trade: 0.01,
   order_notional_usdt: "",
   max_open_positions: 5,
   max_symbols: 20,
-  max_symbol_exposure: 0.15,
-  max_total_exposure: 0.5,
+  max_margin_fraction: 0.05,
+  max_symbol_exposure: 2.5,
+  max_total_exposure: 5,
   daily_loss_limit: 0.04,
   weekly_loss_limit: 0.08,
   hard_stop_drawdown_limit: 0.15,
   asset_risk_tiers: {
-    core: { tier: "core", symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT"], leverage: 20, max_position_fraction: 0.15 },
-    standard: { tier: "standard", symbols: [], leverage: 10, max_position_fraction: 0.06 },
+    core: { tier: "core", symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT"], leverage: 50, max_position_fraction: 2.5 },
+    standard: { tier: "standard", symbols: [], leverage: 50, max_position_fraction: 2.5 },
   },
   strategy_lanes: ["carry", "trend_breakout", "mean_reversion"],
   stoploss: { atr_multiple: 2, fixed_bps: 250 },
@@ -317,6 +318,7 @@ export function AutoSettingsPanel({ paperRunId, autoSettings, onSave }) {
       ...form,
       max_leverage: Number(form.max_leverage),
       risk_per_trade: Number(form.risk_per_trade),
+      max_margin_fraction: Number(form.max_margin_fraction),
       order_notional_usdt: Number(form.order_notional_usdt) > 0 ? Number(form.order_notional_usdt) : null,
       max_open_positions: Number(form.max_open_positions),
       max_symbols: Number(form.max_symbols),
@@ -349,6 +351,7 @@ export function AutoSettingsPanel({ paperRunId, autoSettings, onSave }) {
           <option value="paper_only">仅本地</option>
         </select></label>
         <label>杠杆<input type="number" value={form.max_leverage} onChange={(event) => update("max_leverage", event.target.value)} /></label>
+        <label>保证金比例<input type="number" step="0.01" min="0" max="0.05" value={form.max_margin_fraction} onChange={(event) => update("max_margin_fraction", event.target.value)} /></label>
         <label>单笔风险<input type="number" step="0.001" value={form.risk_per_trade} onChange={(event) => update("risk_per_trade", event.target.value)} /></label>
         <label>固定金额<input type="number" value={form.order_notional_usdt} onChange={(event) => update("order_notional_usdt", event.target.value)} /></label>
         <label>最多持仓<input type="number" value={form.max_open_positions} onChange={(event) => update("max_open_positions", event.target.value)} /></label>
@@ -519,10 +522,10 @@ function DecisionSummary({ trace }) {
 // what the backend will actually persist once "保存自动开单设置" is clicked.
 const TIER_SCALE_RATIOS = {
   core: { leverage: 1, fraction: 1 },
-  vol_low: { leverage: 0.75, fraction: 0.8 },
-  standard: { leverage: 0.5, fraction: 0.4 },
-  vol_mid: { leverage: 0.4, fraction: 0.4 },
-  vol_high: { leverage: 0.2, fraction: 0.2 },
+  vol_low: { leverage: 1, fraction: 1 },
+  standard: { leverage: 1, fraction: 1 },
+  vol_mid: { leverage: 1, fraction: 1 },
+  vol_high: { leverage: 1, fraction: 1 },
 };
 
 const TIER_LABELS = {
@@ -547,7 +550,7 @@ function renderTierPreviewRows(form) {
   return names.map((name) => {
     const ratio = TIER_SCALE_RATIOS[name] ?? { leverage: 1, fraction: 1 };
     const leverage = Math.max(1, Math.min(125, Math.round(maxLeverage * ratio.leverage * 100) / 100));
-    const fraction = Math.max(0.01, Math.min(1, Math.round(maxExposure * ratio.fraction * 10000) / 10000));
+    const fraction = Math.max(0.01, Math.min(2.5, Math.round(maxExposure * ratio.fraction * 10000) / 10000));
     return (
       <div key={name}>
         <span>{TIER_LABELS[name] ?? name}</span>
@@ -569,6 +572,7 @@ function normalizeSettings(value) {
     execution_mode: merged.execution_mode ?? DEFAULT_AUTO_SETTINGS.execution_mode,
     max_leverage: merged.max_leverage ?? DEFAULT_AUTO_SETTINGS.max_leverage,
     risk_per_trade: merged.risk_per_trade ?? DEFAULT_AUTO_SETTINGS.risk_per_trade,
+    max_margin_fraction: merged.max_margin_fraction ?? DEFAULT_AUTO_SETTINGS.max_margin_fraction,
     order_notional_usdt: merged.order_notional_usdt ?? "",
     max_open_positions: merged.max_open_positions ?? DEFAULT_AUTO_SETTINGS.max_open_positions,
     max_symbols: merged.max_symbols ?? DEFAULT_AUTO_SETTINGS.max_symbols,

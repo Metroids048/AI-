@@ -272,8 +272,8 @@ def test_trading_status_treats_btc_eth_execution_scope_as_complete(api_client, d
     assert body["execution_ready"] is True
     assert "top20_coverage_incomplete" not in body["execution_blockers"]
     assert body["active_execution_symbols"] == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
-    assert body["active_execution_count"] == 2
-    assert body["market_data_coverage_count"] == 2
+    assert body["active_execution_count"] == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    assert body["market_data_coverage_count"] == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     assert body["acceptance_symbols"] == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     assert body["acceptance_scope_hash"]
     assert "last_strategy_gateway_order_at" in body

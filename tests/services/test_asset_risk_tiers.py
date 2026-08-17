@@ -24,7 +24,7 @@ def _strategy() -> StrategyContract:
         rules=StrategyRules(
             stoploss_rules={"fixed_bps": 250},
             takeprofit_rules={"risk_reward": 2.5},
-            position_rules={"risk_per_trade": 0.01, "max_leverage": 5, "max_position_fraction": 0.05},
+            position_rules={"risk_per_trade": 0.01, "max_leverage": 50, "max_position_fraction": 2.50},
         ),
     )
 
@@ -49,8 +49,8 @@ def test_default_asset_risk_tiers_separate_core_and_standard_symbols() -> None:
     assert core.leverage == 50
     assert core.max_position_fraction == 2.50
     assert standard.tier == "standard"
-    assert standard.leverage == 15
-    assert standard.max_position_fraction == 0.09
+    assert standard.leverage == 50
+    assert standard.max_position_fraction == 2.50
 
 
 def test_dynamic_volatility_tiers_preferred_when_present() -> None:
@@ -72,10 +72,10 @@ def test_dynamic_volatility_tiers_preferred_when_present() -> None:
     pepe = resolve_asset_risk_tier("PEPE/USDT", tiers)
 
     assert btc.tier == "vol_low"
-    assert btc.leverage == 20
+    assert btc.leverage == 50
     assert pepe.tier == "vol_high"
-    assert pepe.leverage == 6
-    assert pepe.max_position_fraction == 0.05
+    assert pepe.leverage == 50
+    assert pepe.max_position_fraction == 2.50
 
 
 def test_resolve_falls_back_to_core_standard_without_dynamic_tiers() -> None:
@@ -121,7 +121,7 @@ def test_legacy_paper_signal_path_keeps_its_own_notional_cap(db_session) -> None
 
     assert core_leverage == 50
     assert core_notional == 4_000
-    assert standard_notional == 900
+    assert standard_notional == 4_000
 
 
 def test_scale_asset_risk_tiers_tracks_operator_sliders() -> None:
@@ -133,8 +133,8 @@ def test_scale_asset_risk_tiers_tracks_operator_sliders() -> None:
 
     assert scaled["core"]["leverage"] == 5
     assert scaled["core"]["max_position_fraction"] == 0.10
-    assert scaled["standard"]["leverage"] == 2.5
-    assert scaled["standard"]["max_position_fraction"] == 0.04
+    assert scaled["standard"]["leverage"] == 5
+    assert scaled["standard"]["max_position_fraction"] == 0.10
     # Symbol assignments from the source tiers must survive the rescale.
     assert scaled["core"]["symbols"] == list(default_asset_risk_tiers()["core"]["symbols"])
 
@@ -144,8 +144,10 @@ def test_scale_asset_risk_tiers_preserves_dynamic_volatility_buckets() -> None:
 
     scaled = scale_asset_risk_tiers(dynamic, max_leverage=10, max_symbol_exposure=0.20)
 
-    assert scaled["vol_low"]["leverage"] == 7.5
-    assert scaled["vol_high"]["leverage"] == 2.0
+    assert scaled["vol_low"]["leverage"] == 10
+    assert scaled["vol_high"]["leverage"] == 10
+    assert scaled["vol_low"]["max_position_fraction"] == 0.20
+    assert scaled["vol_high"]["max_position_fraction"] == 0.20
     assert scaled["vol_low"]["symbols"] == dynamic["vol_low"]["symbols"]
 
 
@@ -153,7 +155,7 @@ def test_scale_asset_risk_tiers_falls_back_to_defaults_when_missing() -> None:
     scaled = scale_asset_risk_tiers(None, max_leverage=8, max_symbol_exposure=0.12)
 
     assert scaled["core"]["leverage"] == 8
-    assert scaled["standard"]["leverage"] == 4
+    assert scaled["standard"]["leverage"] == 8
 
 
 def test_medium_risk_profile_allows_core_tier_but_keeps_hard_limits() -> None:
@@ -165,3 +167,25 @@ def test_medium_risk_profile_allows_core_tier_but_keeps_hard_limits() -> None:
     assert profile.max_open_positions == 2
     assert profile.daily_loss_limit == 0.20
     assert profile.hard_stop_drawdown_limit == 0.40
+
+
+def test_all_execution_symbols_resolve_within_directional_ceiling() -> None:
+    tiers = default_asset_risk_tiers()
+    for symbol in ("BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"):
+        resolved = resolve_asset_risk_tier(symbol, tiers)
+        assert resolved.leverage <= 50
+        assert resolved.max_position_fraction <= 2.50
+
+
+def test_oversized_slider_inputs_are_capped_for_every_tier() -> None:
+    dynamic = build_volatility_asset_risk_tiers(
+        {"BTC/USDT": 0.01, "ETH/USDT": 0.02, "SOL/USDT": 0.03, "XRP/USDT": 0.04, "BNB/USDT": 0.05}
+    )
+    scaled = scale_asset_risk_tiers(dynamic, max_leverage=50, max_symbol_exposure=2.5)
+    for tier in scaled.values():
+        assert tier["leverage"] <= 50
+        assert tier["max_position_fraction"] <= 2.50
+    for symbol in ("BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"):
+        resolved = resolve_asset_risk_tier(symbol, scaled)
+        assert resolved.leverage <= 50
+        assert resolved.max_position_fraction <= 2.50

@@ -1,0 +1,74 @@
+{
+  "task": "execution_universe_2_to_5",
+  "started_at": "2026-08-16T09:52:43Z",
+  "baseline": {
+    "symbols": ["BTC/USDT", "ETH/USDT"],
+    "execution_scope_hash": "158a05ba047070491b9442f3e724672d5f9a2d937824d70a901d430c1d4d28f5",
+    "max_portfolio_initial_risk_fraction": 0.05,
+    "correlated_peer_count_limit": 2,
+    "exchange_snapshot_artifact": "artifacts/universe-expansion-prechange.json",
+    "runtime_snapshot_artifact": "artifacts/t0-i1-symbol-canonical-20260809/STEP01_PRE_MIGRATION_RUNTIME_STATE.json"
+  },
+  "preflight": {
+    "symbols": ["SOL/USDT", "XRP/USDT", "BNB/USDT"],
+    "artifact": "artifacts/universe-expansion-preflight-final.json",
+    "result": "all three have 61 current 1h bars, no abnormal gaps, and Binance Testnet linear swap markets with parsed precision/min_notional",
+    "backfill": {
+      "command": "agent-python scripts/backfill_technical_research_universe.py --database-url sqlite:///.local_paper_console.db --days 7",
+      "result": "stored=8820 symbols=10"
+    }
+  },
+  "shadow": {
+    "command": "agent-python scripts/v2_shadow_run.py --cycles 2 --symbols BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,BNB/USDT --timeframe 15m",
+    "result": "PASS; 10/10 cycles HEALTHY, zero submission attempts, zero errors",
+    "script_repair": "v2_shadow_run.py now constructs BinanceTestnetAdapter with explicit BINANCE_TESTNET mode"
+  },
+  "runtime_drift_observed": {
+    "detail": "The BTC exchange position present in the 09:53 baseline snapshot was absent from subsequent read-only exchange snapshots while local V2 still reported it open; this occurred before the universe constant change and is retained as evidence, not overwritten. ETH short and its protections remained present.",
+    "latest_exchange_artifact": "artifacts/universe-expansion-baseline-final.json"
+  },
+  "code_change": {
+    "file": "services/data/universe.py",
+    "symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"],
+    "execution_scope_hash": "9d4e56ae53f9d0b1047efebc5ac48b28fa0cfa72d71b28178dc47dd9b11d124d",
+    "wiring": "services/execution/bootstrap.py now derives AUTO_PAPER_EXECUTION_SYMBOLS from AUTO_SIMULATION_EXECUTION_SYMBOLS; no signal or risk rule changed"
+  },
+  "restart": {
+    "command": "launch-paper-console.ps1 -AutomatedTradingEngine v2_active -EnableNaturalTestnet -PreserveExternalTestnetBaseline -OpenBrowser:false",
+    "result": "scheduler restarted; execution_coverage_count=5, execution_symbols=[BTC,ETH,SOL,XRP,BNB], exchange_info_ready=true"
+  },
+  "acceptance": {
+    "status": "completed",
+    "verified_agent_task_id": "399de803-e4b0-40f8-9b9b-de502347e669",
+    "requested_symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"],
+    "filled_order_count": 10,
+    "baseline_preserved": true,
+    "baseline_position_count": 1,
+    "baseline_order_count": 2,
+    "recovery": "The initial BTC close was rejected with Binance -2022; the residual 0.0019 BTC Testnet position was immediately closed using the corrected reduce-only side mapping before the successful retry."
+  },
+  "arming": {"status": "completed; one directional run armed from exact-scope verified acceptance"},
+  "verification": {
+    "status": "completed_with_preexisting_btc_drift_recorded",
+    "runtime_contract": "ACTIVE_STARTUP_CONTRACT_PASSED",
+    "blocker_check": "execution_ready=true; no blockers",
+    "natural_cycle": "five symbols completed with reconciliation HEALTHY and zero submissions",
+    "pytest": "1635 passed, 7 skipped",
+    "mypy": "Success: no issues found in 257 source files",
+    "ruff": "known baseline only: scripts/verify_gate17_e2e.py:77 C416",
+    "observability_artifact": "artifacts/universe-expansion-observability-final.json",
+    "position_invariant": "BTC/ETH position signatures and protection order IDs match the post-drift pre-acceptance baseline; original pre-change BTC position/protection IDs were already absent before acceptance. A later natural XRP short and two XRP protections are recorded separately as new-scope activity.",
+    "invariant_artifact": "artifacts/universe-expansion-invariant-comparison.json"
+  },
+  "btc_drift_diagnosis": {
+    "status": "natural_hard_stop_verified",
+    "artifact": "artifacts/universe-expansion-btc-drift-diagnosis.json",
+    "exit_order_id": "28542950261",
+    "trade_id": "527891302",
+    "triggering_protection_order_id": "1000000168673444",
+    "trigger_time": "2026-08-16T09:57:37.503000Z",
+    "acceptance_started_after_trigger": true,
+    "cleanup_called_by_acceptance": false,
+    "lineage_addendum": "docs/audits/2026-08-16-exit-order-fill-lineage-natural-addendum.json"
+  }
+}

@@ -1985,9 +1985,12 @@ class AgentTaskRepository:
         expected = list(expected_symbols)
         for row in rows:
             payload = row.output_payload if isinstance(row.output_payload, dict) else {}
-            if (
+            state_ok = bool(payload.get("baseline_preserved")) or (
                 payload.get("final_open_position_count") == 0
                 and payload.get("final_open_order_count") == 0
+            )
+            if (
+                state_ok
                 and list(payload.get("requested_symbols") or payload.get("completed_symbols") or []) == expected
                 and list(payload.get("completed_symbols") or []) == expected
                 and int(payload.get("filled_order_count") or 0) >= 2 * len(expected)

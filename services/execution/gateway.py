@@ -458,12 +458,19 @@ class BinanceUsdtPerpetualGateway:
         idempotency_key: str,
     ) -> dict[str, Any]:
         quantity = requested_notional / reference_price
+        actual_side = str(side).lower()
+        if reduce_only:
+            # _gateway_order_side derives the opposing reduce-only side from
+            # the held position direction, so invert the requested order side.
+            direction = TradeSide.SHORT if actual_side == "buy" else TradeSide.LONG
+        else:
+            direction = TradeSide.SHORT if actual_side == "sell" else TradeSide.LONG
         result = self.submit_order(
             live_run_id="testnet-acceptance",
             order_request=ExecutionOrderRequest(
                 strategy_id="testnet_acceptance_only",
                 symbol=symbol,
-                direction=TradeSide.LONG,
+                direction=direction,
                 entry_context={
                     "order_type": "market",
                     "quantity": quantity,

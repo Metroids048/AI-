@@ -49,3 +49,19 @@ def test_operator_asset_tier_has_precedence_over_profile_max_leverage() -> None:
     assert settings.max_leverage == 6
     assert settings.max_position_fraction == Decimal("0.10")
     assert settings.max_margin_fraction == Decimal("0.05")
+
+
+def test_operator_profile_caps_oversized_legacy_values_without_touching_exchange() -> None:
+    settings = resolve_v2_execution_settings(
+        "XRP/USDT",
+        {
+            "max_leverage": 50,
+            "max_symbol_exposure": 2.5,
+            "max_margin_fraction": 0.25,
+            "risk_per_trade": 0.01,
+        },
+    )
+
+    assert settings.max_leverage == 50
+    assert settings.max_position_fraction == Decimal("2.5")
+    assert settings.max_margin_fraction == Decimal("0.05")

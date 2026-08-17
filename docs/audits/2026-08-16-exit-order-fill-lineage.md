@@ -24,3 +24,12 @@
 
 - `STOP`: 15
 - `TARGET`: 15
+
+## Supplemental natural exit
+
+The fixed 30-episode replay cohort is unchanged. A read-only supplemental episode was
+added in `2026-08-16-exit-order-fill-lineage-natural-addendum.json` for BTC/USDT position
+`0e3814c7-d23a-48a8-bef6-d240fc809b66`: stop `1000000168673444` triggered a matched
+reduce-only exit `28542950261` / trade `527891302` at `62975.9` on 2026-08-16 09:57:37Z.
+The replay parity input has no R0-R3 row for this episode, so no synthetic waterfall
+metrics were added.

@@ -39,7 +39,11 @@ from services.execution.bootstrap import bootstrap_link_verification_strategy
 from services.execution.demo_audit import BinanceDemoAuditService
 from services.execution.gateway import BinanceUsdtPerpetualGateway, probe_testnet_account
 from services.execution.manual_context import ManualTradingContextService
-from services.execution.risk_tiers import scale_asset_risk_tiers
+from services.execution.risk_tiers import (
+    cap_directional_leverage,
+    cap_directional_position_fraction,
+    scale_asset_risk_tiers,
+)
 from services.execution.runtime_state import load_external_scheduler_state
 from services.execution.scheduler import runtime_scheduler_status
 from services.execution.spot_gateway import spot_demo_credentials_configured
@@ -902,9 +906,18 @@ def update_paper_run_execution_profile(
     run = _paper_repo(db).get_paper_run(paper_run_id)
     if run is None:
         raise not_found("paper_run", paper_run_id)
+    normalized_body = dict(body)
+    if "max_leverage" in normalized_body:
+        normalized_body["max_leverage"] = cap_directional_leverage(float(str(normalized_body["max_leverage"])))
+    if "max_symbol_exposure" in normalized_body:
+        normalized_body["max_symbol_exposure"] = cap_directional_position_fraction(
+            float(str(normalized_body["max_symbol_exposure"]))
+        )
+    if "max_margin_fraction" in normalized_body:
+        normalized_body["max_margin_fraction"] = min(float(str(normalized_body["max_margin_fraction"])), 0.05)
     updated = _paper_repo(db).update_paper_run(
         paper_run_id,
-        execution_profile={**run.execution_profile, **body},
+        execution_profile={**run.execution_profile, **normalized_body},
     )
     if updated is None:
         raise not_found("paper_run", paper_run_id)
@@ -937,16 +950,23 @@ def update_paper_run_auto_settings(
     if run is None:
         raise not_found("paper_run", paper_run_id)
 
+    # Directional risk ceilings are enforced at the API boundary as well as in
+    # tier resolution.  This prevents a stale UI slider from persisting values
+    # that a later cycle would otherwise have to correct.
+    effective_leverage = cap_directional_leverage(body.max_leverage)
+    effective_exposure = cap_directional_position_fraction(body.max_symbol_exposure)
+    effective_margin_fraction = min(float(body.max_margin_fraction), 0.05)
+
     risk_profile_id = str(run.execution_profile.get("risk_profile_id") or "")
     if risk_profile_id:
         RiskProfileRepository(db).update_profile(
             risk_profile_id,
             RiskProfileUpdate(
                 single_trade_risk_limit=body.risk_per_trade,
-                max_symbol_exposure=body.max_symbol_exposure,
+                max_symbol_exposure=effective_exposure,
                 max_total_exposure=body.max_total_exposure,
                 max_open_positions=body.max_open_positions,
-                max_leverage=body.max_leverage,
+                max_leverage=effective_leverage,
                 daily_loss_limit=body.daily_loss_limit,
                 weekly_loss_limit=body.weekly_loss_limit,
                 hard_stop_drawdown_limit=body.hard_stop_drawdown_limit,
@@ -961,9 +981,9 @@ def update_paper_run_auto_settings(
         position_rules = {
             **strategy.rules.position_rules,
             "risk_per_trade": body.risk_per_trade,
-            "max_leverage": body.max_leverage,
-            "max_margin_fraction": body.max_margin_fraction,
-            "max_position_fraction": body.max_symbol_exposure,
+            "max_leverage": effective_leverage,
+            "max_margin_fraction": effective_margin_fraction,
+            "max_position_fraction": effective_exposure,
         }
         if body.order_notional_usdt is not None:
             position_rules["order_notional_usdt"] = body.order_notional_usdt
@@ -984,6 +1004,9 @@ def update_paper_run_auto_settings(
         strategy_repo.update_strategy(run.strategy_id, StrategyUpdate(rules=updated_rules))
 
     settings_payload = body.model_dump(mode="json")
+    settings_payload["max_leverage"] = effective_leverage
+    settings_payload["max_symbol_exposure"] = effective_exposure
+    settings_payload["max_margin_fraction"] = effective_margin_fraction
     # The client always echoes back whatever asset_risk_tiers it last loaded (the
     # AutoTradingSettings default, or a stale copy of a previous save) because the
     # UI has no per-tier editor. Rescale the *existing* tier table (preserving any
@@ -992,8 +1015,8 @@ def update_paper_run_auto_settings(
     # sliders actually drive the values PaperSignalGenerator reads at order time.
     settings_payload["asset_risk_tiers"] = scale_asset_risk_tiers(
         run.execution_profile.get("asset_risk_tiers"),
-        max_leverage=body.max_leverage,
-        max_symbol_exposure=body.max_symbol_exposure,
+        max_leverage=effective_leverage,
+        max_symbol_exposure=effective_exposure,
     )
     history = list(run.paper_metrics_summary.get("auto_settings_history", []))[-49:]
     history.append({"updated_at": datetime.now(UTC).isoformat(), "settings": settings_payload})

@@ -1020,9 +1020,9 @@ def _slot_start(observed_at: datetime, interval_seconds: float) -> datetime:
 
 def _default_heartbeat_runner() -> dict:
     from services.data.tasks import market_data_heartbeat
-    from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
+    from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 
-    return market_data_heartbeat.run(list(AUTO_PAPER_RESEARCH_SYMBOLS), "1m")
+    return market_data_heartbeat.run(list(AUTO_SIMULATION_EXECUTION_SYMBOLS), "1m")
 
 
 def _default_exchange_info_refresh_runner() -> dict:

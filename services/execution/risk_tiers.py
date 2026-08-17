@@ -12,14 +12,19 @@ from shared.models import AssetRiskTierSettings
 CORE_SYMBOLS = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
 VOLATILITY_TIER_NAMES = ("vol_low", "vol_mid", "vol_high")
 
-# Proposed defaults (operator can override via execution_profile): higher vol → tighter caps.
-# Bumped moderately more aggressive per operator request (2026-07): simulation-first
-# sizing was collapsing to near-zero notional (see paper_signal/paper_runtime fix),
-# so caps were raised alongside that fix to keep paper runs genuinely testable.
+# Directional execution is intentionally capped independently of any operator
+# slider or legacy tier payload.  Persisted profiles can outlive code defaults,
+# so every tier construction and resolution path applies these same ceilings.
+MAX_DIRECTIONAL_LEVERAGE = 50.0
+MAX_DIRECTIONAL_POSITION_FRACTION = 2.50
+
+# Directional execution uses the same 50x / 5%-margin budget for every authorized
+# symbol.  ``max_position_fraction`` is the resulting notional fraction (0.05 x
+# 50 = 2.50), not the margin fraction itself.
 VOLATILITY_TIER_DEFAULTS: dict[str, dict[str, float]] = {
-    "vol_low": {"leverage": 20.0, "max_position_fraction": 0.16},
-    "vol_mid": {"leverage": 12.0, "max_position_fraction": 0.09},
-    "vol_high": {"leverage": 6.0, "max_position_fraction": 0.05},
+    "vol_low": {"leverage": 50.0, "max_position_fraction": 2.50},
+    "vol_mid": {"leverage": 50.0, "max_position_fraction": 2.50},
+    "vol_high": {"leverage": 50.0, "max_position_fraction": 2.50},
 }
 
 
@@ -28,14 +33,14 @@ def default_asset_risk_tiers() -> dict[str, dict[str, Any]]:
         "core": AssetRiskTierSettings(
             tier="core",
             symbols=list(CORE_SYMBOLS),
-            leverage=50,
-            max_position_fraction=2.50,
+            leverage=MAX_DIRECTIONAL_LEVERAGE,
+            max_position_fraction=MAX_DIRECTIONAL_POSITION_FRACTION,
         ).model_dump(mode="json"),
         "standard": AssetRiskTierSettings(
             tier="standard",
             symbols=[],
-            leverage=15,
-            max_position_fraction=0.09,
+            leverage=MAX_DIRECTIONAL_LEVERAGE,
+            max_position_fraction=MAX_DIRECTIONAL_POSITION_FRACTION,
         ).model_dump(mode="json"),
     }
 
@@ -47,11 +52,23 @@ def default_asset_risk_tiers() -> dict[str, dict[str, Any]]:
 # the highest-privilege tier to the operator's chosen ceiling.
 TIER_SCALE_RATIOS: dict[str, tuple[float, float]] = {
     "core": (1.0, 1.0),
-    "vol_low": (0.75, 0.8),
-    "standard": (0.5, 0.4),
-    "vol_mid": (0.4, 0.4),
-    "vol_high": (0.2, 0.2),
+    "vol_low": (1.0, 1.0),
+    "standard": (1.0, 1.0),
+    "vol_mid": (1.0, 1.0),
+    "vol_high": (1.0, 1.0),
 }
+
+
+def cap_directional_leverage(value: float) -> float:
+    """Return a valid leverage value bounded by the directional ceiling."""
+
+    return max(1.0, min(MAX_DIRECTIONAL_LEVERAGE, float(value)))
+
+
+def cap_directional_position_fraction(value: float) -> float:
+    """Return a valid exposure fraction bounded by the directional ceiling."""
+
+    return max(0.01, min(MAX_DIRECTIONAL_POSITION_FRACTION, float(value)))
 
 
 def scale_asset_risk_tiers(
@@ -75,8 +92,10 @@ def scale_asset_risk_tiers(
             continue
         payload = raw.model_dump(mode="json") if isinstance(raw, AssetRiskTierSettings) else dict(raw)
         leverage_ratio, fraction_ratio = TIER_SCALE_RATIOS.get(name, (1.0, 1.0))
-        payload["leverage"] = max(1.0, min(125.0, round(max_leverage * leverage_ratio, 2)))
-        payload["max_position_fraction"] = max(0.01, min(5.0, round(max_symbol_exposure * fraction_ratio, 4)))
+        payload["leverage"] = cap_directional_leverage(round(max_leverage * leverage_ratio, 2))
+        payload["max_position_fraction"] = cap_directional_position_fraction(
+            round(max_symbol_exposure * fraction_ratio, 4)
+        )
         payload.setdefault("tier", name)
         scaled[name] = AssetRiskTierSettings.model_validate(payload).model_dump(mode="json")
     return scaled
@@ -124,7 +143,13 @@ def resolve_asset_risk_tier(
         if "leverage" not in payload or "max_position_fraction" not in payload:
             continue
         payload.setdefault("tier", tier_name)
-        tier = AssetRiskTierSettings.model_validate(payload)
+        tier = AssetRiskTierSettings.model_validate(
+            {
+                **payload,
+                "leverage": cap_directional_leverage(payload["leverage"]),
+                "max_position_fraction": cap_directional_position_fraction(payload["max_position_fraction"]),
+            }
+        )
         if tier.tier in {"standard", "vol_mid"} or not tier.symbols:
             fallback = tier
         if normalized in {_normalize_symbol(item) for item in tier.symbols}:
@@ -139,11 +164,17 @@ def resolve_asset_risk_tier(
         payload.setdefault("tier", "vol_mid")
         payload.setdefault("leverage", VOLATILITY_TIER_DEFAULTS["vol_mid"]["leverage"])
         payload.setdefault("max_position_fraction", VOLATILITY_TIER_DEFAULTS["vol_mid"]["max_position_fraction"])
-        return AssetRiskTierSettings.model_validate(payload)
+        return AssetRiskTierSettings.model_validate(
+            {
+                **payload,
+                "leverage": cap_directional_leverage(payload["leverage"]),
+                "max_position_fraction": cap_directional_position_fraction(payload["max_position_fraction"]),
+            }
+        )
     return AssetRiskTierSettings(
         tier="standard",
-        leverage=10,
-        max_position_fraction=0.06,
+        leverage=MAX_DIRECTIONAL_LEVERAGE,
+        max_position_fraction=MAX_DIRECTIONAL_POSITION_FRACTION,
     )
 
 

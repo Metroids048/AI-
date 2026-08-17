@@ -155,14 +155,14 @@ class AutoTradingSettings(PlatformModel):
     """Typed operator-editable automatic trading controls for a PaperRun."""
 
     execution_mode: ExecutionMode = ExecutionMode.BINANCE_TESTNET
-    max_leverage: float = Field(default=10.0, ge=1, le=125)
+    max_leverage: float = Field(default=50.0, ge=1, le=125)
     risk_per_trade: float = Field(default=0.01, ge=0, le=0.10)
     order_notional_usdt: float | None = Field(default=None, gt=0)
     max_open_positions: int = Field(default=5, ge=1, le=20)
     max_symbols: int = Field(default=20, ge=1, le=20)
     max_margin_fraction: float = Field(default=0.05, gt=0, le=1)
-    max_symbol_exposure: float = Field(default=0.15, ge=0, le=5)
-    max_total_exposure: float = Field(default=0.50, ge=0, le=5)
+    max_symbol_exposure: float = Field(default=2.50, ge=0, le=5)
+    max_total_exposure: float = Field(default=5.00, ge=0, le=5)
     daily_loss_limit: float = Field(default=0.04, ge=0, le=1)
     weekly_loss_limit: float = Field(default=0.08, ge=0, le=1)
     hard_stop_drawdown_limit: float = Field(default=0.15, ge=0, le=1)
@@ -171,13 +171,13 @@ class AutoTradingSettings(PlatformModel):
             "core": AssetRiskTierSettings(
                 tier="core",
                 symbols=["BTC/USDT", "ETH/USDT", "SOL/USDT"],
-                leverage=20,
-                max_position_fraction=0.15,
+                leverage=50,
+                max_position_fraction=2.50,
             ),
             "standard": AssetRiskTierSettings(
                 tier="standard",
-                leverage=10,
-                max_position_fraction=0.06,
+                leverage=50,
+                max_position_fraction=2.50,
             ),
         }
     )
@@ -200,6 +200,7 @@ class TestnetAcceptanceRunRequest(PlatformModel):
     idempotency_key: str | None = None
     execute_external_orders: bool = False
     authorization_reason: str | None = None
+    preserve_existing_state: bool = False
 
 
 class TestnetAcceptanceOrderEvidence(PlatformModel):
@@ -242,6 +243,9 @@ class TestnetAcceptanceRunResult(PlatformModel):
     final_open_position_count: int = 0
     final_open_order_count: int = 0
     error_summary: str | None = None
+    baseline_preserved: bool = False
+    baseline_position_count: int = 0
+    baseline_order_count: int = 0
 
 
 class TestnetAcceptanceRunStatus(PlatformModel):

@@ -120,6 +120,14 @@ class TestSizingSentinelLogging:
             )
             == 40
         )
+        assert generator._requested_notional(
+            strategy=strategy,
+            paper_run=paper_run,
+            symbol="BTC/USDT",
+            requested_leverage=40,
+            reference_price=Decimal("100"),
+            stoploss_price=Decimal("80"),
+        ) == pytest.approx(1_000.0)
 
     def test_operator_fixed_notional_overrides_strategy_fixed_notional(self, db_session) -> None:
         strategy = _strategy(

@@ -146,9 +146,12 @@ def _check_db_blockers(db_path: Path) -> list[str]:
                 payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
                 requested = list(payload.get("requested_symbols") or payload.get("completed_symbols") or [])
                 completed = list(payload.get("completed_symbols") or [])
-                if (
+                state_ok = bool(payload.get("baseline_preserved")) or (
                     payload.get("final_open_position_count") == 0
                     and payload.get("final_open_order_count") == 0
+                )
+                if (
+                    state_ok
                     and requested == expected
                     and completed == expected
                     and int(payload.get("filled_order_count") or 0) >= 2 * len(expected)

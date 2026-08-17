@@ -116,10 +116,11 @@ class CycleRequest:
     direction_timeframe: TimeframeView | None = None
     state_timeframe: TimeframeView | None = None
     risk_per_trade: Decimal = Decimal("0.01")
-    max_leverage: int = 10
+    max_leverage: int = 50
     max_margin_fraction: Decimal = Decimal("0.05")
     order_notional_usdt: Decimal | None = None
-    max_position_fraction: Decimal = Decimal("0.05")
+    # 5% equity margin at 50x is 2.50x equity notional exposure.
+    max_position_fraction: Decimal = Decimal("2.50")
     account_equity: Decimal = Decimal("10000")
     open_position_symbols: frozenset[str] = frozenset()
     already_evaluated_bars: frozenset[datetime] = frozenset()

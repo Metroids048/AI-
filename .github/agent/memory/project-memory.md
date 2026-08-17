@@ -1063,4 +1063,15 @@
 - Added independent `services/microstructure` collector for Binance USDT-M Testnet BTC/USDT and ETH/USDT. It persists top-20 order-book snapshots, best bid/ask, spread, timestamps, last/mark price, latency and clock skew into `microstructure_snapshots`.
 - Added advisory health and crash-recovery tables (`microstructure_health`, `microstructure_checkpoints`), 30-day retention, readiness gate, and one-command future replay entry point. The collector runs as a separate process and cannot block Scheduler, entries, exits, protection, or reconciliation.
 - Launcher wiring starts/restarts `scripts/run_microstructure_collector.py` with `logs/microstructure.pid`; runtime scheduler remained ACTIVE/HEALTHY while real Testnet rows accumulated (BTC 3, ETH 3 at checkpoint).
-- Readiness is intentionally not met yet: total candidate windows 3007, BTC 1505, ETH 1502, but candidate microstructure coverage only 0.133% after the first live sample. State is `MICROSTRUCTURE_PIPELINE_READY_AND_COLLECTING`; only natural accumulation remains.
+- Readiness scope audit (2026-08-16): the former 0% was caused by counting pre-collector historical candidates in the denominator. Readiness now uses only candidate windows whose ±5m window overlaps the first persisted order-book snapshot. Current post-fix sample is 2 BTC / 0 ETH, coverage 100%; remaining gate is natural post-start candidate accumulation to 100 total with BTC/ETH each >=40.
+## Directional sizing target corrected (2026-08-16)
+
+- Operator target is `50x leverage + 5% equity margin`: `max_leverage=50`,
+  `max_margin_fraction=0.05`, and the resulting `max_position_fraction=2.50`, with
+  `risk_per_trade=0.01`.
+- Static tiers, volatility tiers, slider scaling, API persistence, V2 operator-profile
+  resolution, legacy PaperSignal sizing, bootstrap, and frontend auto-settings all
+  use the same target.
+- Active run snapshot `ff2ebdc1-ee1d-4ec3-a137-167112cb36a7` is live. Existing ETH/XRP
+  positions remain untouched and protected; no exchange `setLeverage` call was made
+  for them.

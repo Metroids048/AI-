@@ -1,0 +1,66 @@
+{
+  "task": "directional_risk_tier_cap_remediation",
+  "started_at": "2026-08-16T19:56:00+08:00",
+  "status": "completed",
+  "operator_cap": {
+    "max_leverage": 50.0,
+    "max_margin_fraction": 0.05,
+    "max_position_fraction": 2.5,
+    "risk_per_trade": 0.01
+  },
+  "baseline": {
+    "source": "services/execution/risk_tiers.py, shared/models/risk.py, active runtime snapshot",
+    "volatility_tier_defaults": {
+      "vol_low": {"leverage": 20.0, "max_position_fraction": 0.16},
+      "vol_mid": {"leverage": 12.0, "max_position_fraction": 0.09},
+      "vol_high": {"leverage": 6.0, "max_position_fraction": 0.05}
+    },
+    "legacy_tiers": {
+      "core": {"leverage": 50.0, "max_position_fraction": 2.5},
+      "standard": {"leverage": 15.0, "max_position_fraction": 0.09},
+      "resolve_ultimate_fallback": {"leverage": 10.0, "max_position_fraction": 0.06}
+    },
+    "scale_clamps": {"max_leverage": 125.0, "max_position_fraction": 5.0},
+    "active_directional_profile": {
+      "paper_run_id": "35298c65-cdbe-4bee-bee3-b7ded07c3204",
+      "active_snapshot_id": "eb3146e4-f54d-450e-8cad-e74f1e7404fb",
+      "risk_per_trade": 0.01,
+      "max_leverage": 50.0,
+      "max_symbol_exposure": 2.5,
+      "asset_risk_tiers": {
+        "core": {"leverage": 50.0, "max_position_fraction": 2.5, "symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT"]},
+        "standard": {"leverage": 50.0, "max_position_fraction": 2.5, "symbols": []}
+      }
+    },
+    "live_positions_untouched": {
+      "ETH/USDT": {"contracts": 9.266, "leverage": 50.0, "protection": "active"},
+      "XRP/USDT": {"contracts": 972.0, "leverage": 20.0, "protection": "active"}
+    }
+  },
+  "events": [
+    {
+      "at": "2026-08-16T20:01:00+08:00",
+      "kind": "code_remediation",
+      "details": "Corrected the prior 5x/0.05 notional interpretation. Synchronized default, volatility, legacy fallback, slider scaling, V2 operator profile, PaperSignal legacy path, API auto-settings, bootstrap directional profiles, frontend controls, and compatibility scripts to 50x leverage, 0.05 margin, and 2.50 notional exposure."
+    },
+    {
+      "at": "2026-08-16T20:04:00+08:00",
+      "kind": "runtime_apply",
+      "paper_run_id": "35298c65-cdbe-4bee-bee3-b7ded07c3204",
+      "staged_snapshot_id": "ff2ebdc1-ee1d-4ec3-a137-167112cb36a7",
+      "details": "NEXT_CYCLE snapshot activated; profile now risk_per_trade=0.01, max_leverage=50, max_margin_fraction=0.05, max_symbol_exposure=2.50. Existing exchange positions and protections were not touched."
+    },
+    {
+      "at": "2026-08-16T20:25:05+08:00",
+      "kind": "post_apply_invariant_check",
+      "details": "Exchange/local positions remain 2/2 with reconciliation ok and 4 active reduce-only protection orders. ETH remains 9.266 @ ~50x; XRP remains 972 @ 20x."
+    },
+    {
+      "at": "2026-08-16T20:48:00+08:00",
+      "kind": "corrected_target_runtime_apply",
+      "paper_run_id": "35298c65-cdbe-4bee-bee3-b7ded07c3204",
+      "active_snapshot_id": "ff2ebdc1-ee1d-4ec3-a137-167112cb36a7",
+      "details": "Verified active profile and all five symbol resolutions at 50x / 2.50 exposure / 0.05 margin / 0.01 risk_per_trade. No exchange leverage, close, or protection mutation was performed."
+    }
+  ]
+}

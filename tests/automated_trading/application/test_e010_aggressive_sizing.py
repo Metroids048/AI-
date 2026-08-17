@@ -145,7 +145,7 @@ class TestE010AggressiveSizing:
         assert PAPER_RUNTIME_LIMITS["max_leverage"] == 50.0
         assert PAPER_RUNTIME_LIMITS["max_margin_fraction"] == 0.05
         assert PAPER_RUNTIME_LIMITS["max_symbol_exposure"] == 2.50
-        assert PAPER_RUNTIME_LIMITS["risk_per_trade"] == 0.10
+        assert PAPER_RUNTIME_LIMITS["risk_per_trade"] == 0.01
 
     def test_s008_explicit_operator_notional_still_obeys_ceilings(self):
         """S-008: a pinned order_notional_usdt cannot escape the margin ceiling."""
@@ -238,7 +238,7 @@ class TestE010ExposureCapNeverTouchesExistingPositions:
 class TestE010ProfileResolution:
     """The E-010 values must survive operator-profile resolution for BTC/ETH."""
 
-    def test_core_tier_resolves_to_50x_and_five_percent(self):
+    def test_core_tier_resolves_to_50x_and_five_percent_margin(self):
         """Asset-tier override is what actually reaches the cycle for BTC/ETH."""
         from services.automated_trading.application.operator_profile import (
             resolve_v2_execution_settings,
@@ -278,4 +278,4 @@ class TestE010ProfileResolution:
         assert settings.max_leverage == 50
         assert settings.max_margin_fraction == Decimal("0.05")
         assert settings.max_position_fraction == Decimal("2.50")
-        assert settings.risk_per_trade == Decimal("0.10")
+        assert settings.risk_per_trade == Decimal("0.01")

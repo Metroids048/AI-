@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-08-16T09:30:00Z",
+  "status": "COVERAGE_SCOPE_FIXED_COLLECTING",
+  "coverage_diagnosis": {
+    "before": "0% because all 84 historical candidates were used as denominator although most predated collector startup",
+    "evidence": {
+      "first_orderbook_received_at": "2026-08-16 08:35:20.768214",
+      "candidate_windows_total": 84,
+      "candidate_windows_overlapping_collection": 2,
+      "overlap_symbols": {"BTC/USDT": 2, "ETH/USDT": 0},
+      "overlap_coverage": 1.0,
+      "overall_snapshot_coverage": 1.0
+    },
+    "classification": "IMPLEMENTATION_SCOPE_BUG_FIXED"
+  },
+  "dry_run": {
+    "candidate_windows": 2,
+    "covered_windows": 2,
+    "market_control_net_r": "2.618226388295207349205688642",
+    "maker_limit_challenger_net_r": "2.618226388295207349205688642",
+    "market_status": {"filled": 2},
+    "challenger_status": {"fallback_market": 2},
+    "synthetic_orderbook_used": false
+  },
+  "readiness": {
+    "total": 2,
+    "btc": 2,
+    "eth": 0,
+    "coverage": 1.0,
+    "gate": "NOT_READY"
+  },
+  "next_machine_action": "CONTINUE_COLLECTOR; WAIT_FOR_100_POST_START_CANDIDATE_WINDOWS_WITH_BTC>=40_ETH>=40_AND_COVERAGE>=0.95; THEN_RUN_INDEPENDENT_70_30_1M_MARKET_VS_MAKER_LIMIT_OOS_AND_1.5X_STRESS"
+}

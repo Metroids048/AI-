@@ -52,6 +52,9 @@ def _persist_result(
             "final_open_position_count": result.final_open_position_count,
             "final_open_order_count": result.final_open_order_count,
             "error_summary": result.error_summary,
+            "baseline_preserved": result.baseline_preserved,
+            "baseline_position_count": result.baseline_position_count,
+            "baseline_order_count": result.baseline_order_count,
         },
         ensure_ascii=False,
     )
@@ -90,8 +93,10 @@ def _persist_result(
 
     if (
         result.run_status == "completed"
-        and result.final_open_position_count == 0
-        and result.final_open_order_count == 0
+        and (
+            result.baseline_preserved
+            or (result.final_open_position_count == 0 and result.final_open_order_count == 0)
+        )
         and sorted(result.completed_symbols) == sorted(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     ):
         os.environ["POSTGRES_URL"] = f"sqlite:///{DB_PATH.as_posix()}"
@@ -119,6 +124,11 @@ def main(argv: list[str] | None = None) -> int:
         "--reason",
         help="Operator-visible reason recorded for this externally mutating acceptance run.",
     )
+    parser.add_argument(
+        "--preserve-existing-state",
+        action="store_true",
+        help="Round-trip additive acceptance orders while preserving existing positions and protections.",
+    )
     args = parser.parse_args(argv)
     if not args.execute_external_orders or not (args.reason or "").strip():
         print(
@@ -135,7 +145,9 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"status": "blocked_safety_boundary"}))
         return 2
     gateway = BinanceUsdtPerpetualGateway(use_testnet=True)
-    cleanup_result = testnet_account_cleanup(gateway)
+    cleanup_result = {"skipped": True, "cancelled_orders": [], "closed_positions": []}
+    if not args.preserve_existing_state:
+        cleanup_result = testnet_account_cleanup(gateway)
     if not cleanup_result["skipped"]:
         print(
             json.dumps(
@@ -155,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
             idempotency_key=f"btc-eth-{uuid.uuid4().hex[:12]}",
             symbols=list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
             max_notional_usdt=120,
+            preserve_existing_state=args.preserve_existing_state,
         )
     )
     output = {
@@ -180,6 +193,9 @@ def main(argv: list[str] | None = None) -> int:
             for item in result.symbol_results
         ],
         "error_summary": result.error_summary,
+        "baseline_preserved": result.baseline_preserved,
+        "baseline_position_count": result.baseline_position_count,
+        "baseline_order_count": result.baseline_order_count,
     }
     print(json.dumps(output, ensure_ascii=False, indent=2))
 

@@ -600,6 +600,7 @@ def test_binance_gateway_exposes_acceptance_adapter_without_bypassing_submit_ord
     assert client.created_orders[1]["order_type"] == "limit"
     assert client.created_orders[1]["price"] == 63_050
     assert closed["reduce_only"] is True
+    assert client.created_orders[2]["side"] == "sell"
     assert client.created_orders[2]["params"]["reduceOnly"] is True
     assert gateway.final_state() == {"open_orders": [], "open_positions": []}
 
@@ -912,11 +913,21 @@ def test_binance_gateway_reconcile_scopes_private_scans_to_execution_universe() 
     gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True)
     snapshot = gateway.reconcile(live_run_id="paper-testnet:scope")
 
-    assert client.open_order_symbols == ["BTC/USDT:USDT", "ETH/USDT:USDT"]
+    assert client.open_order_symbols == [
+        "BTC/USDT:USDT",
+        "ETH/USDT:USDT",
+        "SOL/USDT:USDT",
+        "XRP/USDT:USDT",
+        "BNB/USDT:USDT",
+    ]
     assert None not in client.open_order_symbols
-    assert {pos["symbol"] for pos in snapshot["open_positions"]} == {"BTC/USDT:USDT", "ETH/USDT:USDT"}
-    assert {str(order.get("symbol") or "") for order in snapshot["open_orders"]} == {"BTCUSDT"}
-    assert snapshot["open_order_count"] == 1
+    assert {pos["symbol"] for pos in snapshot["open_positions"]} == {
+        "BTC/USDT:USDT",
+        "ETH/USDT:USDT",
+        "SOL/USDT:USDT",
+    }
+    assert {str(order.get("symbol") or "") for order in snapshot["open_orders"]} == {"BTCUSDT", "SOLUSDT"}
+    assert snapshot["open_order_count"] == 2
 
 
 def test_binance_gateway_returns_authoritative_fill_details_for_filled_entry() -> None:

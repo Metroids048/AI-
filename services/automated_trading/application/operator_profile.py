@@ -12,7 +12,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
-from services.execution.risk_tiers import resolve_asset_risk_tier
+from services.execution.risk_tiers import (
+    cap_directional_leverage,
+    cap_directional_position_fraction,
+    resolve_asset_risk_tier,
+)
 from shared.models.risk import PAPER_RUNTIME_LIMITS
 
 
@@ -49,8 +53,10 @@ def resolve_v2_execution_settings(symbol: str, execution_profile: Mapping[str, A
     fallback_leverage = _decimal(PAPER_RUNTIME_LIMITS["max_leverage"])
     fallback_margin_fraction = _decimal(PAPER_RUNTIME_LIMITS["max_margin_fraction"])
     fallback_exposure = _decimal(PAPER_RUNTIME_LIMITS["max_symbol_exposure"])
-    profile_exposure = (
-        _decimal(profile["max_symbol_exposure"]) if "max_symbol_exposure" in profile else fallback_exposure
+    profile_exposure = _decimal(
+        cap_directional_position_fraction(
+            float(profile["max_symbol_exposure"]) if "max_symbol_exposure" in profile else float(fallback_exposure)
+        )
     )
 
     if has_tiers:
@@ -58,7 +64,11 @@ def resolve_v2_execution_settings(symbol: str, execution_profile: Mapping[str, A
         leverage = _decimal(tier.leverage)
         max_position_fraction = min(_decimal(tier.max_position_fraction), profile_exposure)
     else:
-        leverage = _decimal(profile["max_leverage"]) if "max_leverage" in profile else fallback_leverage
+        leverage = _decimal(
+            cap_directional_leverage(
+                float(profile["max_leverage"]) if "max_leverage" in profile else float(fallback_leverage)
+            )
+        )
         max_position_fraction = profile_exposure
 
     order_notional = _decimal(profile["order_notional_usdt"]) if "order_notional_usdt" in profile else None
@@ -67,8 +77,9 @@ def resolve_v2_execution_settings(symbol: str, execution_profile: Mapping[str, A
         if "risk_per_trade" in profile
         else _decimal(PAPER_RUNTIME_LIMITS["risk_per_trade"])
     )
-    max_margin_fraction = (
-        _decimal(profile["max_margin_fraction"]) if "max_margin_fraction" in profile else fallback_margin_fraction
+    max_margin_fraction = min(
+        _decimal(profile["max_margin_fraction"]) if "max_margin_fraction" in profile else fallback_margin_fraction,
+        _decimal("0.05"),
     )
 
     return V2ExecutionSettings(

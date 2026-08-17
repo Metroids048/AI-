@@ -15,6 +15,7 @@ from services.automated_trading.application.production_strategy import (
     resolve_entry_authority,
     resolve_production_authorization,
 )
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY
 from services.execution.signal_edge_stats import strategy_rules_hash
 from services.strategy_library.candidates.registry import get_candidate
@@ -82,7 +83,7 @@ def approved_manifest(tmp_path, monkeypatch, candidate_rules) -> tuple[dict, dic
             "candidate_version": "2.0.0",
             "rules_hash": strategy_rules_hash(rules),
             "config_snapshot_hash": snapshot_hash,
-            "eligible_symbols": ["BTC/USDT", "ETH/USDT"],
+            "eligible_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
             "validation_evidence_ref": "artifacts/validation/approved-evidence.json",
             "approval": {"approved_by": "operator@example", "approved_at": "2026-08-12T00:00:00+00:00"},
         },

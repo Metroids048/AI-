@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from services.data import DataRepository
-from services.data.universe import execution_scope_hash
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_scope_hash
 from services.execution.decision_pipeline import DecisionPipelineResult
 from services.execution.gatekeeper import ExecutionGatekeeperService
 from services.execution.paper_cycle_orchestrator import (
@@ -267,7 +267,7 @@ def test_sampling_opposite_signal_does_not_close_managed_position(db_session, mo
         "mirror_to_gateway": True,
         "cost_gate_verified": True,
         "simulation_sampling_fallback_enabled": True,
-        "acceptance_symbols": ["BTC/USDT", "ETH/USDT"],
+        "acceptance_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
         "acceptance_scope_hash": execution_scope_hash(),
     }
     PaperRunRepository(db_session).update_paper_run(
@@ -1581,7 +1581,7 @@ def test_runtime_does_not_open_over_unmanaged_exchange_position(db_session, monk
         "execution_mode": "binance_testnet",
         "mirror_to_gateway": True,
         "cost_gate_verified": True,
-        "acceptance_symbols": ["BTC/USDT", "ETH/USDT"],
+        "acceptance_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
         "acceptance_scope_hash": execution_scope_hash(),
     }
     paper_run = PaperRunRepository(db_session).update_paper_run(
@@ -2283,7 +2283,7 @@ def test_directional_sampling_fallback_is_decision_only_and_never_projects_posit
         "mirror_to_gateway": True,
         "cost_gate_verified": True,
         "simulation_sampling_fallback_enabled": True,
-        "acceptance_symbols": ["BTC/USDT", "ETH/USDT"],
+        "acceptance_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
         "acceptance_scope_hash": execution_scope_hash(),
     }
     paper_run = PaperRunRepository(db_session).update_paper_run(

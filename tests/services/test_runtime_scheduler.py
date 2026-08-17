@@ -123,8 +123,8 @@ def test_external_scheduler_state_exposes_actual_active_mode_contract(monkeypatc
             "engine_activation": "ACTIVE",
             "execution_mode": "BINANCE_TESTNET",
             "execution_strategy_id": "production_strategy_pending",
-            "execution_coverage_count": 2,
-            "execution_symbols": ["BTC/USDT", "ETH/USDT"],
+            "execution_coverage_count": len(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+            "execution_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
             "registered_jobs": ["automated_trading_v2_cycle"],
             "legacy_writer_enabled": False,
             "entry_enabled": False,
@@ -207,7 +207,7 @@ def test_scheduler_publishes_only_active_execution_scope(monkeypatch) -> None:
     monkeypatch.setattr(scheduler_module, "write_external_scheduler_state", captured.update)
     scheduler = RuntimeScheduler()
     scheduler.status.last_results["market_data_heartbeat"] = {
-        "checked_symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+        "checked_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
         "stale_symbols": [],
     }
     scheduler.status.engine_activation = "ACTIVE"
@@ -222,7 +222,7 @@ def test_scheduler_publishes_only_active_execution_scope(monkeypatch) -> None:
 
     scheduler._publish_external_state()
 
-    assert captured["top20_coverage_count"] == 3
+    assert captured["top20_coverage_count"] == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     assert captured["execution_symbols"] == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     assert captured["execution_coverage_count"] == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     assert captured["engine_activation"] == "ACTIVE"

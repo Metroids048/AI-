@@ -40,6 +40,31 @@ class ReplayResult:
     adverse_selection_r: Decimal
 
 
+def replay_market_control(window: ReplayWindow, *, fee_bps: Decimal = Decimal("5")) -> ReplayResult:
+    """Market-entry control using the observed opposite side of the book."""
+
+    is_long = window.side.lower() == "long"
+    fill = window.best_ask if is_long else window.best_bid
+    risk = abs(window.reference_price - window.stop_price)
+    exit_move = window.target_price - fill if is_long else fill - window.target_price
+    gross_r = exit_move / risk if risk else Decimal("0")
+    fees_r = (fill * window.quantity * fee_bps / Decimal("10000")) / (risk * window.quantity) if risk else Decimal("0")
+    slippage_move = fill - window.reference_price if is_long else window.reference_price - fill
+    slippage_r = slippage_move / risk if risk else Decimal("0")
+    adverse = window.adverse_move / risk if risk else Decimal("0")
+    return ReplayResult(
+        "market_control",
+        "filled",
+        fill,
+        window.quantity,
+        gross_r,
+        fees_r,
+        slippage_r,
+        gross_r - fees_r - slippage_r,
+        adverse,
+    )
+
+
 def replay_candidate_windows(session: Session, *, window_minutes: int = 5) -> dict[str, Any]:
     """Replay every persisted candidate with observed book data only.
 
@@ -51,14 +76,23 @@ def replay_candidate_windows(session: Session, *, window_minutes: int = 5) -> di
     decisions = list(
         session.scalars(select(V2DecisionSnapshot).where(V2DecisionSnapshot.symbol.in_(("BTC/USDT", "ETH/USDT"))))
     )
+    collection_start = session.scalar(
+        select(MicrostructureSnapshot.received_at).order_by(MicrostructureSnapshot.received_at).limit(1)
+    )
     counts: dict[str, int] = {"candidate_windows": 0, "covered_windows": 0, "unobserved_windows": 0}
     by_symbol: dict[str, dict[str, int]] = {}
-    results: list[ReplayResult] = []
+    market_results: list[ReplayResult] = []
+    challenger_results: list[ReplayResult] = []
     for decision in decisions:
         payload = decision.payload if isinstance(decision.payload, dict) else {}
         candidate = payload.get("candidate") or payload.get("trade_candidate_payload")
         funnel = payload.get("decision", {}).get("funnel", {}) if isinstance(payload.get("decision"), dict) else {}
         if not candidate and not funnel.get("created_candidate") and not funnel.get("candidate_id"):
+            continue
+        if (
+            collection_start is not None
+            and decision.decision_time + timedelta(minutes=window_minutes) < collection_start
+        ):
             continue
         candidate = candidate or {}
         counts["candidate_windows"] += 1
@@ -87,9 +121,7 @@ def replay_candidate_windows(session: Session, *, window_minutes: int = 5) -> di
         qty = Decimal("1")
         bid_liquidity = Decimal(str(snapshot.bids[0][1])) if snapshot.bids else Decimal("0")
         ask_liquidity = Decimal(str(snapshot.asks[0][1])) if snapshot.asks else Decimal("0")
-        results.append(
-            replay_window(
-                ReplayWindow(
+        window = ReplayWindow(
                     side=side,
                     quantity=qty,
                     reference_price=reference,
@@ -102,15 +134,23 @@ def replay_candidate_windows(session: Session, *, window_minutes: int = 5) -> di
                     future_touch=False,
                     timeout=True,
                 )
-            )
-        )
+        market_results.append(replay_market_control(window))
+        challenger_results.append(replay_window(window))
+    market_net = sum((result.net_r for result in market_results), Decimal("0"))
+    challenger_net = sum((result.net_r for result in challenger_results), Decimal("0"))
+
+    def status_counts(results: list[ReplayResult]) -> dict[str, int]:
+        statuses = {result.status for result in results}
+        return {status: sum(1 for result in results if result.status == status) for status in statuses}
+
     return {
         "counts": counts,
         "by_symbol": by_symbol,
-        "covered_net_r": str(sum((result.net_r for result in results), Decimal("0"))),
+        "market_control_net_r": str(market_net),
+        "maker_limit_challenger_net_r": str(challenger_net),
         "statuses": {
-            status: sum(1 for result in results if result.status == status)
-            for status in {result.status for result in results}
+            "market_control": status_counts(market_results),
+            "maker_limit_challenger": status_counts(challenger_results),
         },
     }
 

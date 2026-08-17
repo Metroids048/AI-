@@ -1,13 +1,12 @@
-"""E-010: apply the operator-authorized Testnet aggressive sizing profile.
+"""Apply the operator-authorized directional Testnet sizing profile.
 
-Scope (authorized 2026-08-12): set the automated Testnet entry margin budget to
-5% of equity and leverage to 50x.
+This compatibility script stages the directional 50x / 5%-margin profile.
 
     max_margin_fraction  0.05
     max_symbol_exposure  2.50 (0.05 margin x 50 leverage)
-    max_total_exposure   5.00 (two BTC/ETH entry slots)
+    max_total_exposure   5.00 (two entry slots)
     max_leverage         50
-    risk_per_trade       0.10 (unchanged stop-loss risk budget)
+    risk_per_trade       0.01
 
 5% of equity is margin (~365 USDT at ~7300 USDT equity), so the entry notional
 is ~18,250 USDT at 50x. The V2 sizing path keeps the stop-loss risk budget as
@@ -54,13 +53,10 @@ from typing import Any
 
 TARGET_MAX_LEVERAGE = 50.0
 TARGET_MAX_MARGIN_FRACTION = 0.05
-TARGET_MAX_SYMBOL_EXPOSURE = TARGET_MAX_MARGIN_FRACTION * TARGET_MAX_LEVERAGE
+TARGET_MAX_SYMBOL_EXPOSURE = 2.50
 TARGET_MAX_TOTAL_EXPOSURE = TARGET_MAX_SYMBOL_EXPOSURE * 2
 
-# risk_per_trade is deliberately NOT changed. The operator authorized exactly two
-# things this round: a 5% equity margin budget and 50x leverage. Under a 0.35%
-# stop the exposure ceiling binds first anyway, so touching risk_per_trade would change
-# nothing observable while widening the diff beyond the authorization.
+# risk_per_trade is part of the directional baseline and is staged at 0.01.
 EXECUTION_SYMBOLS = ("BTC/USDT", "ETH/USDT")
 
 
@@ -93,11 +89,12 @@ def _resolved_preview(profile: dict[str, Any]) -> list[str]:
 def _apply_targets(profile: dict[str, Any], *, leverage: float, margin: float) -> dict[str, Any]:
     """Return a copy with the requested leverage/margin applied, tiers included."""
     updated = copy.deepcopy(profile)
-    exposure = margin * leverage
+    exposure = min(margin * leverage, TARGET_MAX_SYMBOL_EXPOSURE)
     updated["max_leverage"] = leverage
     updated["max_margin_fraction"] = margin
     updated["max_symbol_exposure"] = exposure
     updated["max_total_exposure"] = exposure * 2
+    updated["risk_per_trade"] = 0.01
 
     # Asset tiers override profile-wide values for BTC/ETH, so they must move too
     # or the tier would silently keep the previous band.
@@ -196,6 +193,14 @@ def main() -> int:
         help=f"target margin fraction (default {TARGET_MAX_MARGIN_FRACTION:g})",
     )
     args = parser.parse_args()
+
+    if args.leverage > TARGET_MAX_LEVERAGE or args.margin > TARGET_MAX_MARGIN_FRACTION:
+        print(
+            f"refusing directional sizing above {TARGET_MAX_LEVERAGE:g}x / "
+            f"{TARGET_MAX_MARGIN_FRACTION:g} margin",
+            file=sys.stderr,
+        )
+        return 2
 
     from services.database import get_session_factory
     from services.strategy_library import ConfigSnapshotRepository, PaperRunRepository

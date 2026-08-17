@@ -9,8 +9,9 @@
       "storage": ["microstructure_snapshots", "microstructure_health", "microstructure_checkpoints"],
       "runtime_pid_file": "logs/microstructure.pid",
       "real_testnet_rows": {"BTC/USDT": 3, "ETH/USDT": 3},
-      "readiness": {"total_candidate_windows": 82, "btc_candidate_windows": 42, "eth_candidate_windows": 40, "candidate_coverage_ratio": 0.0, "ready": false},
-      "verification": {"focused_pytest": "3 passed", "full_pytest": "1632 passed, 7 skipped", "focused_ruff": "All checks passed!", "full_ruff": "pre-existing C416 in scripts/verify_gate17_e2e.py:77", "full_mypy": "pre-existing duplicate module check_positions.py", "git_diff_check": "passed"},
+      "readiness": {"total_candidate_windows": 2, "btc_candidate_windows": 2, "eth_candidate_windows": 0, "candidate_coverage_ratio": 1.0, "overall_coverage_ratio": 1.0, "ready": false},
+      "coverage_diagnosis": "The former 0% was a denominator-scope bug: historical candidates before the first order-book snapshot were included. Readiness now counts only candidate windows overlapping collector uptime; current overlap is BTC 2 / ETH 0 with 100% coverage.",
+      "verification": {"focused_pytest": "4 passed", "full_pytest": "1633 passed, 7 skipped", "focused_ruff": "All checks passed!", "full_ruff": "pre-existing C416 in scripts/verify_gate17_e2e.py:77", "full_mypy": "pre-existing duplicate module check_positions.py", "git_diff_check": "passed"},
       "state": "MICROSTRUCTURE_PIPELINE_READY_AND_COLLECTING"
     },
     "confirmation_bars": 2,
@@ -174,5 +175,5 @@
     }
   },
   "next_machine_action": "ACCUMULATE_NATURAL_ORDERBOOK_SAMPLES; WHEN_READINESS_GATE_PASSES_RUN_scripts/run_microstructure_replay.py",
-  "last_result": "Engineering loop closed: independent Binance Testnet BTC/ETH order-book collector, persistent snapshots, health metrics, retention, crash checkpoint, launcher restart wiring, readiness gate, and maker/limit replay primitives are implemented and focused-tested. Current candidate coverage is intentionally not ready (one short live sample); no strategy or execution parameter changed."
+  "last_result": "Coverage scope was diagnosed and fixed. The post-fix dry run completed on 2 real overlapping BTC windows: market control filled 2/2 and maker/limit challenger safely fell back to market 2/2; no synthetic order-book data used. Readiness is correctly NOT_READY until 100 post-start candidate windows are naturally observed."
 }

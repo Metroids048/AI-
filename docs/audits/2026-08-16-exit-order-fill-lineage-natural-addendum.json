@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "status": "READ_ONLY_SUPPLEMENT",
+  "holdout_accessed": false,
+  "base_lineage": "docs/audits/2026-08-16-exit-order-fill-lineage.json",
+  "supplemental_episode_count": 1,
+  "episodes": [
+    {
+      "position_id": "0e3814c7-d23a-48a8-bef6-d240fc809b66",
+      "symbol": "BTC/USDT",
+      "direction": "long",
+      "entry_price": "62964.99801013024",
+      "entry_quantity": "0.2764",
+      "protection": {
+        "stop_exchange_order_id": "1000000168673444",
+        "tp_exchange_order_id": "1000000167954361",
+        "triggered_order_id": "28542950261",
+        "state": "PROTECTION_FILLED",
+        "trigger_time": "2026-08-16T09:57:37.503000Z"
+      },
+      "exit": {
+        "exchange_order_id": "28542950261",
+        "trade_id": "527891302",
+        "side": "SELL",
+        "reduce_only": true,
+        "filled_quantity": "0.2764",
+        "fill_price": "62975.9",
+        "reason": "HARD_STOP",
+        "position_closed_at": "2026-08-16T09:57:37.503000Z"
+      },
+      "order_link": {
+        "status": "MATCHED",
+        "exit_order_ids": ["28542950261"],
+        "triggered_order_ids": ["28542950261"]
+      },
+      "stage_outcomes": "not available in the fixed 30-episode replay parity input; no synthetic R0-R3 values added",
+      "status": "NATURAL_STOP_VERIFIED"
+    }
+  ]
+}

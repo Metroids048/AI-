@@ -750,3 +750,15 @@
   (`realized profit / MFE`); nominal RR and win rate alone are not evidence.
 - Next phase scope (frozen, no implementation authorized by the scope doc alone):
   `docs/superpowers/plans/2026-08-11-p2-strategy-exit-policy-frozen-scope.md`
+
+## 2026-08-16 — Exact-scope execution-universe expansion
+
+- Decision: authorize the five-symbol execution scope (`BTC/USDT`, `ETH/USDT`,
+  `SOL/USDT`, `XRP/USDT`, `BNB/USDT`) without changing strategy, timeframe, signal,
+  geometry, per-trade risk, or portfolio thresholds.
+- Acceptance used additive round-trips that preserve pre-existing positions and
+  protections. The workflow now records `baseline_preserved` and compares position
+  signatures plus open-order IDs before accepting a non-flat account.
+- The original BTC position/protections disappeared between the initial 09:53 UTC
+  snapshot and the 10:05 UTC pre-acceptance snapshot. This is recorded as external
+  runtime drift; no attempt was made to recreate unknown historical order IDs.

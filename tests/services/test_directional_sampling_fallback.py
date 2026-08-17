@@ -331,14 +331,14 @@ def test_sampling_fallback_never_runs_outside_safe_testnet(
     assert result.should_trade is False
 
 
-def test_sampling_fallback_rejects_symbol_outside_exact_btc_eth_scope(monkeypatch) -> None:
+def test_sampling_fallback_rejects_symbol_outside_exact_execution_scope(monkeypatch) -> None:
     monkeypatch.setattr(settings, "binance_use_testnet", True)
     monkeypatch.setattr(settings, "live_trading_enabled", False)
     monkeypatch.setattr(settings, "binance_auto_execute", True)
     primary = _decision(should_trade=False, reason="technical_signals_insufficient")
     run = PaperRun(paper_run_id="run-directional", strategy_id="strategy-primary", execution_profile=_armed_profile())
 
-    assert PaperSignalGenerator._sampling_fallback_allowed(paper_run=run, primary=primary, symbol="SOL/USDT") is False
+    assert PaperSignalGenerator._sampling_fallback_allowed(paper_run=run, primary=primary, symbol="DOGE/USDT") is False
 
 
 def test_sampling_fallback_rejects_mismatched_acceptance_scope(monkeypatch) -> None:

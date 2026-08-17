@@ -27,12 +27,20 @@ def evaluate_readiness(session: Session, *, window_minutes: int = 5) -> Readines
     decisions = list(
         session.scalars(select(V2DecisionSnapshot).where(V2DecisionSnapshot.symbol.in_(("BTC/USDT", "ETH/USDT"))))
     )
+    collection_start = session.scalar(
+        select(MicrostructureSnapshot.received_at).order_by(MicrostructureSnapshot.received_at).limit(1)
+    )
     total = btc = eth = covered = 0
     for decision in decisions:
         payload = decision.payload if isinstance(decision.payload, dict) else {}
         candidate = payload.get("candidate") or payload.get("trade_candidate_payload")
         funnel = payload.get("decision", {}).get("funnel", {}) if isinstance(payload.get("decision"), dict) else {}
         if not candidate and not funnel.get("created_candidate") and not funnel.get("candidate_id"):
+            continue
+        if (
+            collection_start is not None
+            and decision.decision_time + timedelta(minutes=window_minutes) < collection_start
+        ):
             continue
         total += 1
         if decision.symbol == "BTC/USDT":

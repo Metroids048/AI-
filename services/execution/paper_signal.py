@@ -41,10 +41,9 @@ from shared.models import (
 )
 
 from .portfolio_risk import close_returns, correlation, signed_exposure
-from .risk_tiers import resolve_asset_risk_tier
+from .risk_tiers import cap_directional_leverage, cap_directional_position_fraction, resolve_asset_risk_tier
 
 logger = logging.getLogger(__name__)
-
 # Notional below this fraction of account equity is almost certainly a sizing
 # misconfiguration (e.g. risk_per_trade * leverage collapsing to near zero)
 # rather than an intentional micro-size order, so it's worth a loud warning.
@@ -904,11 +903,11 @@ class PaperSignalGenerator:
         if isinstance(tiers, dict) and tiers:
             return float(resolve_asset_risk_tier(symbol, tiers).leverage)
         if "max_leverage" in execution_profile and execution_profile["max_leverage"] is not None:
-            return float(execution_profile["max_leverage"])
+            return cap_directional_leverage(float(execution_profile["max_leverage"]))
         position_rules = strategy.rules.position_rules
         if "max_leverage" in position_rules and position_rules["max_leverage"] is not None:
-            return float(position_rules["max_leverage"])
-        return 1.0
+            return cap_directional_leverage(float(position_rules["max_leverage"]))
+        return cap_directional_leverage(1.0)
 
     def _requested_notional(
         self,
@@ -932,6 +931,7 @@ class PaperSignalGenerator:
             if paper_run.execution_profile.get("asset_risk_tiers")
             else float(position_rules.get("max_position_fraction", 0.05))
         )
+        max_fraction = cap_directional_position_fraction(max_fraction)
         # Keep sizing under the RiskProfile single-symbol exposure limit so
         # gatekeeper does not reject every open as max_symbol_exposure_exceeded.
         # Historical audit: leverage-sized path produced notional/equity=0.80 while
@@ -942,7 +942,7 @@ class PaperSignalGenerator:
         profile_cap = paper_run.execution_profile.get("max_symbol_exposure")
         hard_fraction_cap = max(0.01, max_fraction)
         if profile_cap is not None:
-            hard_fraction_cap = max(0.01, min(hard_fraction_cap, float(profile_cap)))
+            hard_fraction_cap = max(0.01, min(hard_fraction_cap, cap_directional_position_fraction(float(profile_cap))))
 
         execution_profile = paper_run.execution_profile
         sizing_basis = "fallback_equity_fraction"

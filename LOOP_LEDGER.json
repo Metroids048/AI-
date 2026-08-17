@@ -2140,6 +2140,6 @@
     "natural_reduce_only_exit_fill_observed": false,
     "api_listener_8016": "UNAVAILABLE"
   },
-  "last_result": "Engineering loop closed: independent Binance Testnet BTC/ETH order-book collector, persistent snapshots, health metrics, retention, crash checkpoint, launcher restart wiring, readiness gate, and maker/limit replay primitives are implemented and focused-tested. Current candidate coverage is intentionally not ready (one short live sample); no strategy or execution parameter changed.",
-  "next_machine_action": "ACCUMULATE_NATURAL_ORDERBOOK_SAMPLES; WHEN_READINESS_GATE_PASSES RUN_scripts/run_microstructure_replay.py"
+  "last_result": "Coverage scope bug fixed: historical candidates before collector startup no longer dilute the denominator. Current overlapping sample is 2 BTC / 0 ETH with 100% coverage. Dry-run market control and maker/limit fallback completed on real snapshots without synthetic data.",
+  "next_machine_action": "CONTINUE_COLLECTOR; WAIT_FOR_100_POST_START_CANDIDATE_WINDOWS_WITH_BTC>=40_ETH>=40_AND_COVERAGE>=0.95; THEN_RUN_INDEPENDENT_70_30_1M_MARKET_VS_MAKER_LIMIT_OOS_AND_1.5X_STRESS"
 }

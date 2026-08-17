@@ -173,7 +173,9 @@ def active_startup_contract_errors(
         errors.append("EXECUTION_MODE_MISMATCH")
     if state.execution_strategy_id in (None, "", "testnet_sampling_v2"):
         errors.append("EXECUTION_STRATEGY_UNAUTHORIZED")
-    expected_symbols = ("BTC/USDT", "ETH/USDT")
+    from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
+
+    expected_symbols = tuple(sorted(AUTO_SIMULATION_EXECUTION_SYMBOLS))
     if tuple(sorted(state.execution_symbols)) != expected_symbols:
         errors.append("EXECUTION_SCOPE_MISMATCH")
     if state.execution_coverage_count != len(expected_symbols):

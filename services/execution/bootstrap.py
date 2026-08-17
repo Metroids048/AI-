@@ -12,9 +12,14 @@ from services.automated_trading.infrastructure.runtime_lock import (
     resolve_engine_activation,
 )
 from services.data.service import DEFAULT_BINANCE_TOP20
-from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS, fixed_top20_assets
+from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS, AUTO_SIMULATION_EXECUTION_SYMBOLS, fixed_top20_assets
 from services.execution.execution_truth import resolve_execution_mode
-from services.execution.risk_tiers import default_asset_risk_tiers, scale_asset_risk_tiers
+from services.execution.risk_tiers import (
+    cap_directional_leverage,
+    cap_directional_position_fraction,
+    default_asset_risk_tiers,
+    scale_asset_risk_tiers,
+)
 from shared.config import settings
 from shared.models.risk import (
     MEDIUM_RISK_PROFILE_KEY,
@@ -27,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 AUTO_PAPER_RUNTIME_KEY = "auto_paper_btc_funding"
 AUTO_PAPER_TECHNICAL_KEY = "auto_paper_mature_templates"
-AUTO_PAPER_EXECUTION_SYMBOLS = ("BTC/USDT", "ETH/USDT")
+AUTO_PAPER_EXECUTION_SYMBOLS = AUTO_SIMULATION_EXECUTION_SYMBOLS
 CANONICAL_MANIFEST_ROOT = Path("docs/evidence/active-manifests")
 OPERATOR_EXPERIENCE_STRATEGY_KEY = "operator_experience_4h_15m_v1"
 LINK_VERIFICATION_STRATEGY_KEY = "link_verification_fixed_notional"
@@ -76,11 +81,10 @@ AUTO_PAPER_STRATEGY_RULES: dict[str, Any] = {
     "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
     "takeprofit_rules": {"risk_reward": 3.0, "trail_after_r": 1.5},
     "position_rules": {
-        # Bumped moderately more aggressive (2026-07 operator request) alongside
-        # the paper-sizing floor fix; risk_per_trade 0.01->0.015, leverage 10->15.
-        "risk_per_trade": 0.015,
-        "max_leverage": 15,
-        "max_position_fraction": 0.18,
+        # Directional channels share the operator's 1% risk / 50x / 5% margin budget.
+        "risk_per_trade": 0.01,
+        "max_leverage": 50,
+        "max_position_fraction": 2.50,
         "min_notional_usdt": 20,
     },
 }
@@ -228,12 +232,10 @@ AUTO_PAPER_SWING_RULES: dict[str, Any] = {
     "stoploss_rules": {"atr_multiple": 2.5},
     "takeprofit_rules": {"risk_reward": 2.0},
     "position_rules": {
-        # ULTRA-AGGRESSIVE Paper testing sizing: increased to 5%, matching
-        # directional lane for maximum trade sampling efficiency.
-        "risk_per_trade": 0.05,
-        "max_portfolio_initial_risk_fraction": 0.25,  # Increased from 0.20
-        "max_leverage": 30,  # Increased from 20 for medium-term
-        "max_position_fraction": 0.30,  # Increased from 0.20
+        "risk_per_trade": 0.01,
+        "max_portfolio_initial_risk_fraction": 0.25,
+        "max_leverage": 50,
+        "max_position_fraction": 2.50,
         "min_notional_usdt": 20,
     },
 }
@@ -250,7 +252,7 @@ OPERATOR_EXPERIENCE_RULES: dict[str, Any] = {
     "exit_rules": {"close_on_opposite_signal": True},
     "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
     "takeprofit_rules": {"risk_reward": 2.5, "trail_after_r": 1.5},
-    "position_rules": {"risk_per_trade": 0.01, "max_leverage": 5, "max_position_fraction": 0.05},
+    "position_rules": {"risk_per_trade": 0.01, "max_leverage": 50, "max_position_fraction": 2.50},
 }
 
 # Cross-sectional funding-rate carry: rank the fixed Top20 basket by current
@@ -277,8 +279,8 @@ AUTO_PAPER_CROSS_SECTIONAL_CARRY_RULES: dict[str, Any] = {
     "takeprofit_rules": {},
     "position_rules": {
         "risk_per_trade": 0.01,
-        "max_leverage": 5,
-        "max_position_fraction": 0.08,
+        "max_leverage": 50,
+        "max_position_fraction": 2.50,
         "min_notional_usdt": 20,
     },
 }
@@ -547,6 +549,9 @@ def _ensure_auto_paper_run(
         max_symbol_exposure = float(
             rules["position_rules"].get("max_position_fraction", max_margin_fraction * max_leverage)
         )
+        if strategy_lane in {"directional", "swing"}:
+            max_leverage = cap_directional_leverage(max_leverage)
+            max_symbol_exposure = cap_directional_position_fraction(max_symbol_exposure)
         execution_profile = {
             "auto_paper_runtime_key": runtime_key,
             "strategy_lane": strategy_lane,
@@ -669,7 +674,7 @@ def bootstrap_auto_trading_paper_run() -> str | None:
 
 
 def _rearm_directional_run_from_verified_acceptance(paper_run_id: str) -> bool:
-    """Recover exchange-first authorization from an existing exact BTC/ETH acceptance proof.
+    """Recover exchange-first authorization from an exact execution-scope acceptance proof.
 
     A prior bootstrap could preserve a stale ``paper_only`` profile even though the
     acceptance proof remained valid. This makes startup self-healing without bypassing
@@ -705,7 +710,7 @@ def _rearm_directional_run_from_verified_acceptance(paper_run_id: str) -> bool:
             verified_at=acceptance.created_at.isoformat() if acceptance.created_at is not None else None,
         )
         if armed:
-            logger.info("re-armed exchange-first directional run from exact BTC/ETH acceptance: %s", paper_run_id)
+            logger.info("re-armed exchange-first directional run from exact-scope acceptance: %s", paper_run_id)
         return bool(armed)
 
 
@@ -725,7 +730,7 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
         strategy_key=AUTO_PAPER_TECHNICAL_KEY,
         strategy_lane="directional",
         core_thesis=(
-            "Exchange-first BTC/ETH directional strategy using the validated mature-template signal pipeline. "
+            "Exchange-first directional strategy using the validated mature-template signal pipeline. "
             "Broader research candidates never receive automatic execution permission."
         ),
         rules=resolved_rules,

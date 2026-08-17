@@ -11,7 +11,13 @@ from typing import Any
 from shared.models import MarketUniverseItem, UniverseAsset
 
 AUTO_PAPER_RESEARCH_SYMBOLS: tuple[str, ...] = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
-AUTO_SIMULATION_EXECUTION_SYMBOLS: tuple[str, ...] = ("BTC/USDT", "ETH/USDT")
+AUTO_SIMULATION_EXECUTION_SYMBOLS: tuple[str, ...] = (
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "XRP/USDT",
+    "BNB/USDT",
+)
 
 
 def execution_scope_hash(symbols: Iterable[str] = AUTO_SIMULATION_EXECUTION_SYMBOLS) -> str:

@@ -290,13 +290,14 @@ def test_paper_run_auto_settings_updates_profile_and_strategy_rules(api_client, 
         f"/api/v1/execution/paper-runs/{paper_run_id}/auto-settings",
         json={
             "execution_mode": "binance_testnet",
-            "max_leverage": 5,
+            "max_leverage": 50,
             "risk_per_trade": 0.01,
             "order_notional_usdt": 120,
             "max_open_positions": 5,
             "max_symbols": 20,
-            "max_symbol_exposure": 0.15,
-            "max_total_exposure": 0.5,
+            "max_margin_fraction": 0.05,
+            "max_symbol_exposure": 2.5,
+            "max_total_exposure": 5.0,
             "daily_loss_limit": 0.04,
             "weekly_loss_limit": 0.08,
             "hard_stop_drawdown_limit": 0.2,
@@ -315,25 +316,25 @@ def test_paper_run_auto_settings_updates_profile_and_strategy_rules(api_client, 
     assert profile["max_open_positions"] == 5
     stored_profile = RiskProfileRepository(db_session).get_profile("auto-settings-risk")
     assert stored_profile is not None
-    assert stored_profile.max_leverage == 5
+    assert stored_profile.max_leverage == 50
     assert stored_profile.max_open_positions == 5
     strategy = StrategyRepository(db_session).get_strategy(strategy_id)
     assert strategy is not None
     assert strategy.rules.position_rules["order_notional_usdt"] == 120
     assert strategy.rules.entry_rules["strategy_lanes"] == ["carry", "trend_breakout"]
 
-    # The operator-set max_leverage (5x) must actually drive the tier table that
+    # The operator-set max_leverage (50x) must actually drive the tier table that
     # PaperSignalGenerator reads at order time — not stay pinned at the stale
     # default (core=20x) the client echoed back in the request body.
     tiers = profile["asset_risk_tiers"]
-    assert tiers["core"]["leverage"] == 5
-    assert tiers["standard"]["leverage"] == 2.5
+    assert tiers["core"]["leverage"] == 50
+    assert tiers["standard"]["leverage"] == 50
     refreshed = api_client.get(f"/api/v1/execution/paper-runs/{paper_run_id}").json()
     assert refreshed["active_config_hash"] is not None
     assert refreshed["pending_config_hash"] is not None
     snapshots = api_client.get(f"/api/v1/execution/paper-runs/{paper_run_id}/config-snapshots").json()
     assert snapshots["total"] == 2
-    assert snapshots["items"][-1]["config"]["execution_profile"]["max_leverage"] == 5
+    assert snapshots["items"][-1]["config"]["execution_profile"]["max_leverage"] == 50
 
 
 def test_operator_settings_remain_authoritative_after_strategy_rules_drift(api_client, db_session) -> None:
@@ -397,7 +398,7 @@ def test_operator_settings_remain_authoritative_after_strategy_rules_drift(api_c
 
     generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
     assert (
-        generator._requested_leverage(
+            generator._requested_leverage(
             strategy=updated,
             paper_run=paper_run,
             symbol="BTC/USDT",

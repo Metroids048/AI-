@@ -113,3 +113,27 @@ def test_acceptance_run_retries_compensating_close_and_stops_after_failure() -> 
     assert sum(item.run_status == "skipped" for item in result.symbol_results) == (
         len(AUTO_SIMULATION_EXECUTION_SYMBOLS) - 2
     )
+
+
+def test_acceptance_preserves_existing_short_and_protection_orders() -> None:
+    class BaselineGateway(FakeAcceptanceGateway):
+        baseline_orders = [{"algoId": "existing-tp"}, {"algoId": "existing-stop"}]
+        baseline_positions = [{"symbol": "ETH/USDT:USDT", "contracts": 9.266, "side": "short"}]
+
+        def preflight(self) -> dict:
+            return {"open_orders": self.baseline_orders, "open_positions": self.baseline_positions}
+
+        def final_state(self) -> dict:
+            return {"open_orders": self.baseline_orders, "open_positions": self.baseline_positions}
+
+    gateway = BaselineGateway()
+    result = AcceptanceService(gateway=gateway).run(AcceptanceRequest(preserve_existing_state=True))
+
+    eth_orders = [order for order in gateway.orders if order["symbol"] == "ETH/USDT"]
+    assert result.run_status == "completed"
+    assert result.baseline_preserved is True
+    assert result.baseline_position_count == 1
+    assert result.baseline_order_count == 2
+    assert gateway.leverages.get("ETH/USDT") is None
+    assert [order["side"] for order in eth_orders] == ["sell", "buy"]
+    assert tuple(round(price, 6) for price in gateway.protection_prices["ETH/USDT"]) == (102.5, 95.0)

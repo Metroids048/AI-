@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from services.data.universe import execution_scope_hash
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_scope_hash
 from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY
 from services.execution.testnet_authorization import (
     arm_validated_directional_run,
@@ -97,19 +97,20 @@ def test_directional_run_is_not_armed_without_active_config_snapshot(db_session)
 
 
 def test_directional_run_is_armed_with_exact_scope_active_snapshot(db_session) -> None:
+    symbols = list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     run = PaperRunRepository(db_session).create_paper_run(
         PaperRun(
             strategy_id="directional-strategy",
-            symbol_scope=["BTC/USDT", "ETH/USDT"],
-            candidate_symbols=["BTC/USDT", "ETH/USDT"],
+            symbol_scope=symbols,
+            candidate_symbols=symbols,
             paper_status="running",
             execution_profile={
                 "auto_paper_runtime_key": AUTO_PAPER_TECHNICAL_KEY,
                 "execution_mode": "binance_testnet",
                 "mirror_to_gateway": True,
                 "cost_gate_verified": True,
-                "acceptance_symbols": ["BTC/USDT", "ETH/USDT"],
-                "acceptance_scope_hash": execution_scope_hash(["BTC/USDT", "ETH/USDT"]),
+                "acceptance_symbols": symbols,
+                "acceptance_scope_hash": execution_scope_hash(symbols),
             },
         )
     )

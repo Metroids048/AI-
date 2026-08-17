@@ -50,7 +50,9 @@ class TestnetAcceptanceService:
 
     def run(self, request: TestnetAcceptanceRunRequest) -> TestnetAcceptanceRunResult:
         preflight = self.gateway.preflight()
-        if preflight.get("open_orders") or preflight.get("open_positions"):
+        baseline_orders = list(preflight.get("open_orders") or [])
+        baseline_positions = list(preflight.get("open_positions") or [])
+        if (baseline_orders or baseline_positions) and not request.preserve_existing_state:
             raise ValueError("testnet acceptance requires zero existing positions and open orders")
 
         symbols = request.symbols or list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
@@ -72,15 +74,25 @@ class TestnetAcceptanceService:
             tier = resolve_asset_risk_tier(symbol, tiers)
             notional = min(equity * tier.max_position_fraction, request.max_notional_usdt)
             reference_price = self.gateway.fetch_last_price(symbol)
-            stoploss_price = reference_price * (1 - request.stoploss_bps / 10_000)
-            takeprofit_price = reference_price + 2.0 * (reference_price - stoploss_price)
-            self.gateway.set_leverage(symbol=symbol, leverage=tier.leverage)
+            baseline_position = self._baseline_position_for_symbol(baseline_positions, symbol)
+            acceptance_side = (
+                "sell" if baseline_position and self._position_side(baseline_position) == "short" else "buy"
+            )
+            close_side = "buy" if acceptance_side == "sell" else "sell"
+            if acceptance_side == "sell":
+                stoploss_price = reference_price * (1 + request.stoploss_bps / 10_000)
+                takeprofit_price = reference_price - 2.0 * (stoploss_price - reference_price)
+            else:
+                stoploss_price = reference_price * (1 - request.stoploss_bps / 10_000)
+                takeprofit_price = reference_price + 2.0 * (reference_price - stoploss_price)
+            if not baseline_position:
+                self.gateway.set_leverage(symbol=symbol, leverage=tier.leverage)
             protection_refs: list[dict] = []
             order_refs: list[str] = []
             try:
                 opened = self.gateway.submit_acceptance_order(
                     symbol=symbol,
-                    side="buy",
+                    side=acceptance_side,
                     requested_notional=notional,
                     reference_price=reference_price,
                     reduce_only=False,
@@ -93,7 +105,7 @@ class TestnetAcceptanceService:
                 protection_refs = list(opened.get("protection_order_refs", []))
                 closed = self.gateway.submit_acceptance_order(
                     symbol=symbol,
-                    side="sell",
+                    side=close_side,
                     requested_notional=notional,
                     reference_price=reference_price,
                     reduce_only=True,
@@ -114,7 +126,7 @@ class TestnetAcceptanceService:
                         reference_price=reference_price,
                         order_refs=[ref for ref in order_refs if ref],
                         protection_order_refs=self._protection_ids(protection_refs),
-                        final_position_status="flat",
+                        final_position_status="baseline_preserved" if request.preserve_existing_state else "flat",
                     )
                 )
             except Exception as exc:  # noqa: BLE001 - compensation must run for gateway failures
@@ -125,7 +137,7 @@ class TestnetAcceptanceService:
                 try:
                     compensated = self.gateway.submit_acceptance_order(
                         symbol=symbol,
-                        side="sell",
+                        side=close_side,
                         requested_notional=notional,
                         reference_price=reference_price,
                         reduce_only=True,
@@ -150,7 +162,11 @@ class TestnetAcceptanceService:
                         protection_order_refs=self._protection_ids(protection_refs),
                         compensation_attempted=True,
                         compensation_succeeded=compensation_succeeded,
-                        final_position_status="flat" if compensation_succeeded else "residual_possible",
+                        final_position_status=(
+                            "baseline_preserved"
+                            if compensation_succeeded and request.preserve_existing_state
+                            else ("flat" if compensation_succeeded else "residual_possible")
+                        ),
                         failure_class=type(exc).__name__,
                         error_summary=error_summary,
                     )
@@ -181,7 +197,15 @@ class TestnetAcceptanceService:
         open_orders = list(final.get("open_orders", []))
         open_positions = list(final.get("open_positions", []))
         completed_all = len(completed) == len(symbols)
-        clean_final_state = not open_orders and not open_positions
+        if request.preserve_existing_state:
+            baseline_order_ids = {self._order_id(order) for order in baseline_orders}
+            final_order_ids = {self._order_id(order) for order in open_orders}
+            clean_final_state = (
+                self._position_signature(open_positions) == self._position_signature(baseline_positions)
+                and final_order_ids == baseline_order_ids
+            )
+        else:
+            clean_final_state = not open_orders and not open_positions
         status = "completed" if completed_all and clean_final_state else "failed"
         if status == "failed" and error_summary is None:
             error_summary = "acceptance finished with residual positions or open orders"
@@ -197,7 +221,45 @@ class TestnetAcceptanceService:
             final_open_position_count=len(open_positions),
             final_open_order_count=len(open_orders),
             error_summary=error_summary,
+            baseline_preserved=bool(request.preserve_existing_state and clean_final_state),
+            baseline_position_count=len(baseline_positions),
+            baseline_order_count=len(baseline_orders),
         )
+
+    @staticmethod
+    def _order_id(order: dict) -> str:
+        return str(order.get("algoId") or order.get("id") or order.get("orderId") or "")
+
+    @staticmethod
+    def _normal_symbol(symbol: str) -> str:
+        return symbol.replace(":USDT", "").upper()
+
+    @classmethod
+    def _baseline_position_for_symbol(cls, positions: list[dict], symbol: str) -> dict | None:
+        expected = cls._normal_symbol(symbol)
+        for position in positions:
+            if cls._normal_symbol(str(position.get("symbol") or "")) == expected:
+                return position
+        return None
+
+    @staticmethod
+    def _position_side(position: dict) -> str:
+        side = str(position.get("side") or "").lower()
+        if side in {"long", "short"}:
+            return side
+        amount = float(position.get("contracts") or position.get("positionAmt") or 0.0)
+        return "short" if amount < 0 else "long"
+
+    @classmethod
+    def _position_signature(cls, positions: list[dict]) -> dict[tuple[str, str], float]:
+        signature: dict[tuple[str, str], float] = {}
+        for position in positions:
+            quantity = abs(float(position.get("contracts") or position.get("positionAmt") or 0.0))
+            if quantity <= 0:
+                continue
+            key = (cls._normal_symbol(str(position.get("symbol") or "")), cls._position_side(position))
+            signature[key] = round(quantity, 10)
+        return signature
 
     @staticmethod
     def _protection_ids(refs: list[dict]) -> list[str]:

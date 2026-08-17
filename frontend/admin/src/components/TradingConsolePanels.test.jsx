@@ -346,7 +346,8 @@ describe("Trading console panels", () => {
 
     const panel = within(view.container);
     expect(panel.getByLabelText("执行模式")).toHaveValue("binance_simulation_first");
-    expect(panel.getByLabelText("杠杆")).toHaveValue(10);
+    expect(panel.getByLabelText("杠杆")).toHaveValue(50);
+    expect(panel.getByLabelText("保证金比例")).toHaveValue(0.05);
     expect(panel.getByLabelText("ATR止损")).toHaveValue(2);
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();

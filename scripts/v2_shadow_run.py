@@ -80,7 +80,7 @@ def _build_adapter():
     """Construct the real Binance Testnet adapter for read-only use."""
     from services.automated_trading.infrastructure.binance_adapter import BinanceTestnetAdapter
 
-    return BinanceTestnetAdapter()
+    return BinanceTestnetAdapter(execution_mode=V2ExecutionMode.BINANCE_TESTNET)
 
 
 def _load_timeframe(symbol: str, timeframe: str, limit: int = 200) -> TimeframeView:

@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from services.data.service import DEFAULT_BINANCE_TOP20
-from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
+from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS, AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.execution.bootstrap import (
     AUTO_PAPER_RUNTIME_KEY,
     AUTO_PAPER_TECHNICAL_KEY,
@@ -222,7 +222,7 @@ def test_signal_observation_bootstrap_clears_mistaken_simulation_authorization(d
     assert "acceptance_scope_hash" not in refreshed.execution_profile
 
 
-def test_directional_auto_run_uses_btc_eth_execution_scope(db_session, monkeypatch) -> None:
+def test_directional_auto_run_uses_expanded_execution_scope(db_session, monkeypatch) -> None:
     import services.execution.bootstrap as bootstrap_module
     from services.strategy_library import PaperRunRepository
 
@@ -240,9 +240,9 @@ def test_directional_auto_run_uses_btc_eth_execution_scope(db_session, monkeypat
 
     paper_run = PaperRunRepository(db_session).get_paper_run(paper_run_id or "")
     assert paper_run is not None
-    assert paper_run.candidate_symbols == ["BTC/USDT", "ETH/USDT"]
-    assert paper_run.symbol_scope == ["BTC/USDT", "ETH/USDT"]
-    assert paper_run.execution_profile["max_symbols"] == 2
+    assert paper_run.candidate_symbols == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    assert paper_run.symbol_scope == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    assert paper_run.execution_profile["max_symbols"] == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
 
 
 def test_high_density_paper_limits_are_kept_in_sync() -> None:
@@ -318,7 +318,7 @@ def test_bootstrap_preserves_verified_directional_simulation_authorization(db_se
     assert refreshed.execution_profile.get("mirror_to_gateway") is True
     assert refreshed.execution_profile.get("execution_mode") == "binance_testnet"
     assert refreshed.execution_profile.get("testnet_acceptance_verified_at") == "2026-07-12T00:00:00+00:00"
-    assert refreshed.execution_profile.get("max_symbols") == 2
+    assert refreshed.execution_profile.get("max_symbols") == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
 
 
 def test_bootstrap_preserves_operator_directional_settings_across_restart(db_session, monkeypatch) -> None:

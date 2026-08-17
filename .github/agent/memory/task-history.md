@@ -1591,3 +1591,51 @@
 - Launcher now owns a separate collector process with PID/log recovery; it cannot block Scheduler or execution.
 - Real Testnet verification produced valid rows for BTC/USDT and ETH/USDT while scheduler stayed ACTIVE/HEALTHY. Readiness remains false until natural candidate-window coverage reaches the requested gate.
 - No strategy, risk, geometry, execution path, or current position changed. Final state: `MICROSTRUCTURE_PIPELINE_READY_AND_COLLECTING`.
+
+## [TASK-2026-08-16-UNIVERSE-EXPANSION] Execution scope 2 -> 5
+
+- Expanded the authoritative Binance Testnet execution scope to BTC/USDT, ETH/USDT,
+  SOL/USDT, XRP/USDT, and BNB/USDT; scope hash is
+  `9d4e56ae53f9d0b1047efebc5ac48b28fa0cfa72d71b28178dc47dd9b11d124d`.
+- Backfilled and verified 61 current 1h bars for each added symbol; all five Testnet
+  linear swaps are active with parsed precision and min-notional metadata.
+- Shadow run completed 10/10 healthy cycles with zero submissions and zero errors.
+- Added a baseline-preserving exact-scope acceptance path. Real Testnet acceptance
+  completed 10 filled orders across five symbols while retaining the live ETH short
+  and its two protection order IDs; the acceptance proof was persisted and one V2
+  directional run was re-armed.
+- Runtime heartbeat and ACTIVE startup contract now derive expected freshness and scope
+  from the execution-universe constant. Natural V2 cycles completed for all five symbols.
+- Verification: 1,635 passed / 7 skipped full pytest; full mypy passed (257 files);
+  full ruff retains only the known Gate17 C416 baseline. The initial BTC position and
+  BTC protection IDs disappeared in an exchange-state drift before acceptance, so the
+  original pre-change BTC snapshot cannot be claimed as preserved; the post-drift
+  baseline used for acceptance was preserved.
+
+## [TASK-2026-08-16-BTC-DRIFT-DIAGNOSIS] Root cause closed
+
+- Current BTC risk state is flat: zero BTC position and zero BTC protection orders.
+- The BTC baseline disappeared through the existing runtime hard-stop path, not
+  acceptance cleanup. Protection `1000000168673444` triggered at
+  `2026-08-16T09:57:37.503000Z`, producing reduce-only exit `28542950261`, trade
+  `527891302`, fill `62975.9`, quantity `0.2764`, reason `HARD_STOP`.
+- Both five-symbol acceptance attempts began later (`10:37:22Z` and `10:42:06Z`);
+  the successful run used `--preserve-existing-state`, which skips
+  `testnet_account_cleanup`.
+- Added a read-only diagnosis artifact and supplemental natural-stop lineage entry;
+  no strategy or execution code changed in this diagnostic loop.
+## [TASK-2026-08-16-RISK-TIER-CAP] Directional sizing target corrected
+
+- Legacy core/standard tiers, volatility defaults, persisted operator sliders, and the
+  frozen PaperSignal fallback could independently emit values above the directional cap.
+- All directional resolution paths now use the operator target `max_leverage=50`,
+  `max_margin_fraction=0.05`, and `max_position_fraction=2.50`; the active
+  directional baseline remains `risk_per_trade=0.01`.
+- Active run `35298c65-cdbe-4bee-bee3-b7ded07c3204` activated snapshot
+  `ff2ebdc1-ee1d-4ec3-a137-167112cb36a7`. No exchange position, leverage setting, or
+  protection order was changed.
+- ETH short remains 9.266 at 50x and XRP short remains 972 at 20x, both protected;
+  existing positions were not re-leveraged or closed.
+- Verification: frontend Vitest `112 passed`, frontend build passed, full pytest
+  `1638 passed, 7 skipped`; full mypy `257 source files` passed; full ruff retains
+  only the known Gate17 C416 baseline.
