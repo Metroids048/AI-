@@ -1,0 +1,214 @@
+{
+  "report_type": "R-001_FIVE_SYMBOL_REGIME_RESEARCH_ELIGIBILITY",
+  "status": "RESEARCH_COMPLETE_NO_PROMOTION",
+  "holdout_results_accessed": false,
+  "scope": {
+    "execution_symbols": [
+      "BTC/USDT",
+      "ETH/USDT",
+      "BNB/USDT",
+      "SOL/USDT",
+      "XRP/USDT"
+    ],
+    "development_end": "2026-01-29T00:00:00+00:00"
+  },
+  "data_coverage": {
+    "BTC/USDT": {
+      "15m": {
+        "timeframe": "15m",
+        "bars": 37984,
+        "first_bar": "2025-07-17 20:00:00.000000",
+        "last_bar": "2026-08-17 11:45:00.000000"
+      },
+      "1h": {
+        "timeframe": "1h",
+        "bars": 9496,
+        "first_bar": "2025-07-17 20:00:00.000000",
+        "last_bar": "2026-08-17 11:00:00.000000"
+      },
+      "4h": {
+        "timeframe": "4h",
+        "bars": 2374,
+        "first_bar": "2025-07-17 20:00:00.000000",
+        "last_bar": "2026-08-17 08:00:00.000000"
+      }
+    },
+    "ETH/USDT": {
+      "15m": {
+        "timeframe": "15m",
+        "bars": 37984,
+        "first_bar": "2025-07-17 20:00:00.000000",
+        "last_bar": "2026-08-17 11:45:00.000000"
+      },
+      "1h": {
+        "timeframe": "1h",
+        "bars": 9496,
+        "first_bar": "2025-07-17 20:00:00.000000",
+        "last_bar": "2026-08-17 11:00:00.000000"
+      },
+      "4h": {
+        "timeframe": "4h",
+        "bars": 2374,
+        "first_bar": "2025-07-17 20:00:00.000000",
+        "last_bar": "2026-08-17 08:00:00.000000"
+      }
+    },
+    "BNB/USDT": {
+      "15m": {
+        "timeframe": "15m",
+        "bars": 897,
+        "first_bar": "2026-07-15 08:45:00.000000",
+        "last_bar": "2026-08-17 11:45:00.000000"
+      },
+      "1h": {
+        "timeframe": "1h",
+        "bars": 269,
+        "first_bar": "2026-07-13 12:00:00.000000",
+        "last_bar": "2026-08-17 11:00:00.000000"
+      },
+      "4h": {
+        "timeframe": "4h",
+        "bars": 129,
+        "first_bar": "2026-07-06 00:00:00.000000",
+        "last_bar": "2026-08-17 08:00:00.000000"
+      }
+    },
+    "SOL/USDT": {
+      "15m": {
+        "timeframe": "15m",
+        "bars": 37984,
+        "first_bar": "2025-07-17 20:00:00.000000",
+        "last_bar": "2026-08-17 11:45:00.000000"
+      },
+      "1h": {
+        "timeframe": "1h",
+        "bars": 9496,
+        "first_bar": "2025-07-17 20:00:00.000000",
+        "last_bar": "2026-08-17 11:00:00.000000"
+      },
+      "4h": {
+        "timeframe": "4h",
+        "bars": 2374,
+        "first_bar": "2025-07-17 20:00:00.000000",
+        "last_bar": "2026-08-17 08:00:00.000000"
+      }
+    },
+    "XRP/USDT": {
+      "15m": {
+        "timeframe": "15m",
+        "bars": 897,
+        "first_bar": "2026-07-15 08:45:00.000000",
+        "last_bar": "2026-08-17 11:45:00.000000"
+      },
+      "1h": {
+        "timeframe": "1h",
+        "bars": 269,
+        "first_bar": "2026-07-13 12:00:00.000000",
+        "last_bar": "2026-08-17 11:00:00.000000"
+      },
+      "4h": {
+        "timeframe": "4h",
+        "bars": 129,
+        "first_bar": "2026-07-06 00:00:00.000000",
+        "last_bar": "2026-08-17 08:00:00.000000"
+      }
+    }
+  },
+  "candidate_results": {
+    "htf_trend_continuation_v1": {
+      "status": "INSUFFICIENT_EVIDENCE",
+      "total_trades": 0,
+      "profit_factor": 0.0,
+      "net_expectancy": 0.0,
+      "positive_windows": 0,
+      "promotion_observations_complete": false,
+      "failed_requirements": [
+        "phase1_does_not_run_final_promotion",
+        "required_cost_observation_not_observed"
+      ]
+    },
+    "breakout_retest_v1": {
+      "status": "INSUFFICIENT_EVIDENCE",
+      "total_trades": 34,
+      "profit_factor": 1.3403292517469911,
+      "net_expectancy": 0.001987131518868853,
+      "positive_windows": 3,
+      "promotion_observations_complete": false,
+      "failed_requirements": [
+        "phase1_does_not_run_final_promotion",
+        "required_cost_observation_not_observed"
+      ]
+    },
+    "donchian_breakout_retest_v1": {
+      "status": "INSUFFICIENT_EVIDENCE",
+      "total_trades": 142,
+      "profit_factor": 0.7782789831426736,
+      "net_expectancy": -0.0015735360856156339,
+      "positive_windows": 3,
+      "promotion_observations_complete": false,
+      "failed_requirements": [
+        "phase1_does_not_run_final_promotion",
+        "required_cost_observation_not_observed"
+      ]
+    },
+    "momentum_continuation_v1": {
+      "status": "INSUFFICIENT_EVIDENCE",
+      "total_trades": 959,
+      "profit_factor": 0.9233400748431932,
+      "net_expectancy": -0.0006684566859955967,
+      "positive_windows": 1,
+      "promotion_observations_complete": false,
+      "failed_requirements": [
+        "phase1_does_not_run_final_promotion",
+        "required_cost_observation_not_observed"
+      ]
+    },
+    "volatility_expansion_v1": {
+      "status": "INSUFFICIENT_EVIDENCE",
+      "total_trades": 496,
+      "profit_factor": 1.1649512353348959,
+      "net_expectancy": 0.0014541220024053933,
+      "positive_windows": 6,
+      "promotion_observations_complete": false,
+      "failed_requirements": [
+        "phase1_does_not_run_final_promotion",
+        "required_cost_observation_not_observed"
+      ]
+    }
+  },
+  "preexisting_candidate_evidence": {
+    "failed_breakout_reversal_v1": "REJECTED_WITH_EVIDENCE",
+    "range_sweep_reversion_v1": "INSUFFICIENT_DATA"
+  },
+  "eligibility": {
+    "BTC/USDT": {
+      "status": "NO_VALIDATED_CANDIDATE_NO_TRADE",
+      "reason": "all replayed candidates failed promotion gates",
+      "candidate": null
+    },
+    "ETH/USDT": {
+      "status": "NO_VALIDATED_CANDIDATE_NO_TRADE",
+      "reason": "all replayed candidates failed promotion gates",
+      "candidate": null
+    },
+    "BNB/USDT": {
+      "status": "INSUFFICIENT_SAMPLE_NO_TRADE",
+      "reason": "insufficient 15m history for the frozen eight-window walk-forward contract",
+      "candidate": null
+    },
+    "SOL/USDT": {
+      "status": "RESEARCH_PENDING_NO_TRADE",
+      "reason": "history exists but no sealed-holdout-safe candidate replay evidence is available",
+      "candidate": null
+    },
+    "XRP/USDT": {
+      "status": "INSUFFICIENT_SAMPLE_NO_TRADE",
+      "reason": "insufficient 15m history for the frozen eight-window walk-forward contract",
+      "candidate": null
+    }
+  },
+  "follow_up_research": [
+    "STOP_GEOMETRY_001: measure 0.35% floor dominance by symbol/regime without changing live geometry.",
+    "RISK_SLIPPAGE_001: decompose realized losses beyond -1R from fill/slippage/fee evidence."
+  ]
+}
