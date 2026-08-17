@@ -775,6 +775,9 @@ def execute_v2_automated_trading_cycles(
                 max_margin_fraction=operator_settings.max_margin_fraction,
                 order_notional_usdt=operator_settings.order_notional_usdt,
                 max_position_fraction=operator_settings.max_position_fraction,
+                # A SHOCK volatility tier blocks only this symbol's new exposure.
+                # Exit/protection/reconciliation use separate reduce-only paths.
+                entry_kill_switch_active=operator_settings.volatility_no_new_entry,
                 already_evaluated_bars=_load_already_evaluated_bars(
                     symbol=symbol,
                     timeframe=timeframe,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
@@ -292,9 +293,11 @@ def refresh_volatility_asset_risk_tiers(*, lookback_days: int = 30) -> dict:
     from services.data.universe import AUTO_PAPER_RESEARCH_SYMBOLS
     from services.execution.risk_tiers import (
         atr_pct_from_daily_bars,
-        build_volatility_asset_risk_tiers,
+        build_volatility_risk_tiers,
         volatility_tier_meta,
     )
+    from services.strategy_library import ConfigSnapshotRepository
+    from shared.models import ConfigSnapshot, canonical_config_hash
 
     session = get_session_factory()()
     try:
@@ -323,23 +326,43 @@ def refresh_volatility_asset_risk_tiers(*, lookback_days: int = 30) -> dict:
                 "missing_symbols": missing,
                 "skipped_reason": "insufficient_daily_bars",
             }
-        tiers = build_volatility_asset_risk_tiers(scores)
+        tiers = build_volatility_risk_tiers(
+            scores,
+            required_symbols=("BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT"),
+        )
         meta = volatility_tier_meta(scores, lookback_days=lookback_days)
+        config_repo = ConfigSnapshotRepository(session)
         updated = 0
         for run in paper_repo.list_paper_runs():
-            if not is_auto_scheduled_paper_run(run) or run.paper_run_id is None:
+            if run.paper_status != "running" or run.execution_profile.get("strategy_lane") != "directional":
                 continue
-            profile = dict(run.execution_profile or {})
-            profile["asset_risk_tiers"] = tiers
+            active = config_repo.get_active(run.paper_run_id or "")
+            if active is None:
+                continue
+            active_profile = active.config.get("execution_profile")
+            profile = dict(active_profile) if isinstance(active_profile, dict) else dict(run.execution_profile or {})
+            profile["volatility_risk_tiers"] = tiers
             profile["volatility_tier_meta"] = meta
-            paper_repo.update_paper_run(run.paper_run_id, execution_profile=profile)
+            next_config = {**active.config, "execution_profile": profile}
+            config_hash = canonical_config_hash(next_config)
+            config_repo.create_snapshot(
+                ConfigSnapshot(
+                    config_snapshot_id=str(uuid.uuid4()),
+                    paper_run_id=run.paper_run_id or "",
+                    config=next_config,
+                    config_hash=config_hash,
+                    created_by="volatility-risk-tier-refresh",
+                    effective_cycle_id="NEXT_CYCLE",
+                    previous_snapshot_id=active.config_snapshot_id,
+                ),
+                base_config_hash=run.active_config_hash,
+            )
             updated += 1
-        session.commit()
         return {
             "updated_paper_runs": updated,
             "scored_symbols": len(scores),
             "missing_symbols": missing,
-            "tiers": {name: tiers[name]["symbols"] for name in ("vol_low", "vol_mid", "vol_high")},
+            "tiers": {name: tiers[name]["symbols"] for name in ("low", "mid", "high")},
         }
     finally:
         session.close()

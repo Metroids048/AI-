@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 from services.data.universe import exchange_to_platform_symbol
-from shared.models import AssetRiskTierSettings
+from shared.models import AssetRiskTierSettings, VolatilityRiskTierSettings
 
 CORE_SYMBOLS = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
 VOLATILITY_TIER_NAMES = ("vol_low", "vol_mid", "vol_high")
@@ -92,10 +93,19 @@ def scale_asset_risk_tiers(
             continue
         payload = raw.model_dump(mode="json") if isinstance(raw, AssetRiskTierSettings) else dict(raw)
         leverage_ratio, fraction_ratio = TIER_SCALE_RATIOS.get(name, (1.0, 1.0))
-        payload["leverage"] = cap_directional_leverage(round(max_leverage * leverage_ratio, 2))
-        payload["max_position_fraction"] = cap_directional_position_fraction(
-            round(max_symbol_exposure * fraction_ratio, 4)
-        )
+        scaled_leverage = cap_directional_leverage(round(max_leverage * leverage_ratio, 2))
+        scaled_fraction = cap_directional_position_fraction(round(max_symbol_exposure * fraction_ratio, 4))
+        # A per-symbol tier ceiling must survive an operator slider move: rescaling
+        # is allowed to tighten but never to raise a tier back to the slider value.
+        # Without this clamp, saving settings silently reverted the E-003 caps.
+        tier_leverage_ceiling = payload.get("max_leverage")
+        if tier_leverage_ceiling is not None:
+            scaled_leverage = min(scaled_leverage, float(tier_leverage_ceiling))
+        existing_fraction = payload.get("max_position_fraction")
+        if existing_fraction is not None and payload.get("max_margin_fraction") is not None:
+            scaled_fraction = min(scaled_fraction, float(existing_fraction))
+        payload["leverage"] = scaled_leverage
+        payload["max_position_fraction"] = scaled_fraction
         payload.setdefault("tier", name)
         scaled[name] = AssetRiskTierSettings.model_validate(payload).model_dump(mode="json")
     return scaled
@@ -140,7 +150,14 @@ def resolve_asset_risk_tier(
         if raw is None or not isinstance(raw, (dict, AssetRiskTierSettings)):
             continue
         payload = raw.model_dump(mode="json") if isinstance(raw, AssetRiskTierSettings) else dict(raw)
-        if "leverage" not in payload or "max_position_fraction" not in payload:
+        # A per-symbol tier may declare only the E-003 ceilings. Derive the legacy
+        # fields from them rather than skipping the tier, which would silently fall
+        # back to the permissive profile-wide values.
+        if payload.get("leverage") is None and payload.get("max_leverage") is not None:
+            payload["leverage"] = payload["max_leverage"]
+        if payload.get("max_position_fraction") is None and payload.get("max_margin_fraction") is not None:
+            payload["max_position_fraction"] = float(payload["max_margin_fraction"]) * float(payload["leverage"])
+        if payload.get("leverage") is None or payload.get("max_position_fraction") is None:
             continue
         payload.setdefault("tier", tier_name)
         tier = AssetRiskTierSettings.model_validate(
@@ -176,6 +193,79 @@ def resolve_asset_risk_tier(
         leverage=MAX_DIRECTIONAL_LEVERAGE,
         max_position_fraction=MAX_DIRECTIONAL_POSITION_FRACTION,
     )
+
+
+# E-003 validation-phase per-symbol hard upper bounds for the Testnet directional
+# lane. These are ceilings, not targets: stop-risk sizing still decides the actual
+# quantity and routinely resolves smaller. Raising any value here is forbidden
+# without an explicit operator decision.
+SYMBOL_RISK_BASE_CEILINGS: dict[str, dict[str, float]] = {
+    "BTC/USDT": {"risk_per_trade": 0.005, "max_leverage": 20.0, "max_margin_fraction": 0.020},
+    "ETH/USDT": {"risk_per_trade": 0.004, "max_leverage": 15.0, "max_margin_fraction": 0.015},
+    "BNB/USDT": {"risk_per_trade": 0.0035, "max_leverage": 12.0, "max_margin_fraction": 0.0125},
+    "SOL/USDT": {"risk_per_trade": 0.0025, "max_leverage": 10.0, "max_margin_fraction": 0.010},
+    "XRP/USDT": {"risk_per_trade": 0.0025, "max_leverage": 10.0, "max_margin_fraction": 0.010},
+}
+
+# Notional exposure ceiling implied by margin budget x leverage, kept explicit so
+# the resolved exposure clamp cannot silently exceed the margin envelope.
+SYMBOL_POSITION_FRACTION_CEILINGS: dict[str, float] = {
+    symbol: round(values["max_margin_fraction"] * values["max_leverage"], 4)
+    for symbol, values in SYMBOL_RISK_BASE_CEILINGS.items()
+}
+
+VOLATILITY_MULTIPLIERS: dict[str, float] = {
+    "low": 1.00,
+    "mid": 0.75,
+    "high": 0.50,
+    "shock": 0.25,
+}
+
+
+def symbol_risk_base_tiers() -> dict[str, dict[str, Any]]:
+    """Per-symbol base ceilings as asset tiers consumable by the V2 resolver."""
+
+    tiers: dict[str, dict[str, Any]] = {}
+    for symbol, values in SYMBOL_RISK_BASE_CEILINGS.items():
+        key = f"symbol_{symbol.split('/')[0].lower()}"
+        tiers[key] = AssetRiskTierSettings(
+            tier=key,
+            symbols=[symbol],
+            leverage=values["max_leverage"],
+            max_position_fraction=SYMBOL_POSITION_FRACTION_CEILINGS[symbol],
+            risk_per_trade=values["risk_per_trade"],
+            max_leverage=values["max_leverage"],
+            max_margin_fraction=values["max_margin_fraction"],
+        ).model_dump(mode="json")
+    return tiers
+
+
+def resolve_volatility_adjustment(
+    symbol: str,
+    tiers: Mapping[str, Any] | None = None,
+) -> tuple[Decimal, bool]:
+    """Resolve the volatility multiplier for ``symbol``.
+
+    Returns ``(multiplier, no_new_entry)``. The multiplier can only reduce risk, so
+    an unmatched symbol or an absent configuration resolves to ``1`` and leaves the
+    symbol ceilings untouched. A SHOCK tier can additionally block new entries; it
+    never affects reduce-only exits, protection, or reconciliation.
+    """
+
+    if not isinstance(tiers, Mapping) or not tiers:
+        return Decimal("1"), False
+    normalized = _normalize_symbol(symbol)
+    for name, raw in tiers.items():
+        if str(name).startswith("_") or not isinstance(raw, (dict, VolatilityRiskTierSettings)):
+            continue
+        payload = raw.model_dump(mode="json") if isinstance(raw, VolatilityRiskTierSettings) else dict(raw)
+        payload.setdefault("tier", name)
+        tier = VolatilityRiskTierSettings.model_validate(payload)
+        if normalized not in {_normalize_symbol(item) for item in tier.symbols}:
+            continue
+        multiplier = min(Decimal(str(tier.multiplier)), Decimal("1"))
+        return multiplier, bool(tier.no_new_entry)
+    return Decimal("1"), False
 
 
 def atr_pct_from_daily_bars(bars: Sequence[Any], *, period: int = 14) -> float | None:
@@ -253,6 +343,40 @@ def build_volatility_asset_risk_tiers(
         legacy = default_asset_risk_tiers()
         tiers["core"] = legacy["core"]
         tiers["standard"] = legacy["standard"]
+    return tiers
+
+
+def build_volatility_risk_tiers(
+    symbol_atr_pct: Mapping[str, float],
+    *,
+    required_symbols: Sequence[str] = (),
+) -> dict[str, dict[str, Any]]:
+    """Build dynamic LOW/MID/HIGH tiers that only multiply existing symbol ceilings.
+
+    An execution symbol without enough daily ATR data is placed in a SHOCK
+    no-entry tier. Unknown volatility must never resolve to full risk.
+    """
+
+    buckets = classify_symbols_by_atr_pct(symbol_atr_pct)
+    tiers = {
+        name.removeprefix("vol_"): VolatilityRiskTierSettings(
+            tier=name.removeprefix("vol_"),
+            symbols=buckets[name],
+            multiplier=VOLATILITY_MULTIPLIERS[name.removeprefix("vol_")],
+            no_new_entry=False,
+        ).model_dump(mode="json")
+        for name in VOLATILITY_TIER_NAMES
+    }
+    scored_symbols = {_normalize_symbol(symbol) for symbol in symbol_atr_pct}
+    missing_symbols = [
+        _normalize_symbol(symbol) for symbol in required_symbols if _normalize_symbol(symbol) not in scored_symbols
+    ]
+    tiers["shock"] = VolatilityRiskTierSettings(
+        tier="shock",
+        symbols=missing_symbols,
+        multiplier=VOLATILITY_MULTIPLIERS["shock"],
+        no_new_entry=True,
+    ).model_dump(mode="json")
     return tiers
 
 

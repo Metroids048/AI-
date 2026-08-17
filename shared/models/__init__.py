@@ -209,6 +209,7 @@ from .workflow import (
     TestnetAcceptanceRunResult,
     TestnetAcceptanceRunStatus,
     TestnetAcceptanceSymbolResult,
+    VolatilityRiskTierSettings,
 )
 
 __all__ = [
@@ -365,6 +366,7 @@ __all__ = [
     "OptimizationSubmissionRequest",
     "PaperRun",
     "AssetRiskTierSettings",
+    "VolatilityRiskTierSettings",
     "AutoTradingSettings",
     "PaperRuntimeAction",
     "PaperRuntimeCycleRequest",

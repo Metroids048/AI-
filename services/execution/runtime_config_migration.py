@@ -63,10 +63,19 @@ def stage_promoted_runtime_config(
             config_hash=pending.config_hash,
             status="pending_preserved",
         )
+    active_profile = active.config.get("execution_profile") if active is not None else None
+    # The active immutable snapshot is the runtime authority. Bootstrap is allowed
+    # to stage promoted strategy rules, but it must not reconstruct execution risk
+    # from the mutable PaperRun row and erase a newer risk remediation snapshot.
+    execution_profile = (
+        {**paper_run.execution_profile, **active_profile}
+        if isinstance(active_profile, dict)
+        else paper_run.execution_profile
+    )
     config = {
-        "execution_profile": paper_run.execution_profile,
+        "execution_profile": execution_profile,
         "strategy_rules": promoted_rules,
-        "risk_profile_id": paper_run.execution_profile.get("risk_profile_id"),
+        "risk_profile_id": execution_profile.get("risk_profile_id"),
     }
     snapshot = ConfigSnapshot.create(
         paper_run_id=paper_run.paper_run_id,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from services.execution.runtime_config_migration import stage_promoted_runtime_config
 from services.strategy_library import ConfigSnapshotRepository, PaperRunRepository, StrategyRepository
-from shared.models import PaperRun, StrategyCreate
+from shared.models import ConfigSnapshot, PaperRun, StrategyCreate
 
 
 def test_stage_promoted_runtime_config_activates_snapshot_without_mutating_strategy_row(db_session) -> None:
@@ -57,6 +57,89 @@ def test_stage_promoted_runtime_config_activates_snapshot_without_mutating_strat
     persisted = strategy_repo.get_strategy(strategy.strategy_id or "")
     assert persisted is not None
     assert persisted.rules.entry_rules["candidate_id"] == "operator_heuristic_v1"
+
+
+def test_manifest_sync_preserves_active_e003_execution_profile(db_session) -> None:
+    strategy_repo = StrategyRepository(db_session)
+    paper_repo = PaperRunRepository(db_session)
+    config_repo = ConfigSnapshotRepository(db_session)
+    strategy_key = "auto_paper_mature_templates_e003"
+    strategy = strategy_repo.create_strategy(
+        StrategyCreate(
+            strategy_key=strategy_key,
+            source="test",
+            core_thesis="sync regression",
+            rules={
+                "entry_rules": {},
+                "exit_rules": {},
+                "stoploss_rules": {},
+                "takeprofit_rules": {},
+                "position_rules": {},
+            },
+        )
+    )
+    run = paper_repo.create_paper_run(
+        PaperRun(
+            strategy_id=strategy.strategy_id or "",
+            execution_profile={
+                "auto_paper_runtime_key": strategy_key,
+                "asset_risk_tiers": {
+                    "core": {"tier": "core", "symbols": ["BTC/USDT"], "leverage": 50, "max_position_fraction": 2.5}
+                },
+            },
+            paper_status="running",
+        )
+    )
+    base_config = {
+        "execution_profile": {
+            **run.execution_profile,
+            "asset_risk_tiers": {
+                "symbol_btc": {
+                    "tier": "symbol_btc",
+                    "symbols": ["BTC/USDT"],
+                    "leverage": 20,
+                    "max_position_fraction": 0.4,
+                    "risk_per_trade": 0.005,
+                    "max_leverage": 20,
+                    "max_margin_fraction": 0.02,
+                }
+            },
+            "volatility_risk_tiers": {"low": {"tier": "low", "symbols": ["BTC/USDT"], "multiplier": 1.0}},
+        },
+        "strategy_rules": {"entry_rules": {}},
+        "risk_profile_id": None,
+    }
+    base_snapshot = ConfigSnapshot.create(
+        paper_run_id=run.paper_run_id or "",
+        config=base_config,
+        created_by="e003-test",
+        effective_cycle_id="MIGRATION_BASELINE",
+    )
+    config_repo.create_snapshot(base_snapshot, base_config_hash=None)
+
+    result = stage_promoted_runtime_config(
+        db_session,
+        strategy_key=strategy_key,
+        promoted_rules={
+            "entry_rules": {"candidate_id": "new"},
+            "exit_rules": {},
+            "stoploss_rules": {},
+            "takeprofit_rules": {},
+            "position_rules": {},
+        },
+        created_by="bootstrap-active-manifest-sync",
+    )
+
+    pending = config_repo.get_pending(run.paper_run_id or "")
+    assert result.status == "staged"
+    assert pending is not None
+    assert (
+        pending.config["execution_profile"]["asset_risk_tiers"] == base_config["execution_profile"]["asset_risk_tiers"]
+    )
+    assert (
+        pending.config["execution_profile"]["volatility_risk_tiers"]
+        == base_config["execution_profile"]["volatility_risk_tiers"]
+    )
 
 
 def test_stage_promoted_runtime_config_is_idempotent_for_same_hash(db_session) -> None:

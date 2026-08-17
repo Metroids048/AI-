@@ -149,6 +149,24 @@ class AssetRiskTierSettings(PlatformModel):
     symbols: list[str] = Field(default_factory=list)
     leverage: float = Field(ge=1, le=125)
     max_position_fraction: float = Field(gt=0, le=5)
+    # Per-symbol risk ceilings (E-003). Optional so existing persisted tiers stay
+    # valid; when absent the profile-wide value continues to apply unchanged.
+    risk_per_trade: float | None = Field(default=None, gt=0, le=0.10)
+    max_leverage: float | None = Field(default=None, ge=1, le=125)
+    max_margin_fraction: float | None = Field(default=None, gt=0, le=1)
+
+
+class VolatilityRiskTierSettings(PlatformModel):
+    """Volatility adjustment applied on top of the resolved symbol ceilings.
+
+    The multiplier may only reduce risk: it is clamped to (0, 1]. ``no_new_entry``
+    expresses a SHOCK tier that blocks new exposure without touching exits.
+    """
+
+    tier: str
+    symbols: list[str] = Field(default_factory=list)
+    multiplier: float = Field(default=1.0, gt=0, le=1)
+    no_new_entry: bool = False
 
 
 class AutoTradingSettings(PlatformModel):
