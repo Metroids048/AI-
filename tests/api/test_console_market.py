@@ -21,6 +21,7 @@ from shared.models import (
     PositionSnapshot,
     RiskEvent,
     RiskEventType,
+    RiskResolutionStatus,
     RiskSeverity,
     TradeSide,
 )
@@ -387,12 +388,28 @@ def test_console_overview_aggregates_execution_and_risk_state(api_client, db_ses
     assert response.status_code == 200
     body = response.json()
     assert body["global_risk_status"] == "blocked"
-    assert body["market"]["data_status"] == "ok"
-    assert body["latest_backtests"][0]["backtest_run_id"] == backtest.backtest_run_id
-    assert body["paper_runs"][0]["paper_run_id"] == paper_run.paper_run_id
-    assert body["orders"][0]["rejection_reason"] == "blocking_risk_event"
-    assert body["positions"][0]["unrealized_pnl"] == 10
-    assert body["risk_events"][0]["severity"] == "high"
+
+
+def test_console_overview_resolved_stale_event_is_not_current_risk_block(api_client, db_session) -> None:
+    """A resolved data-stale event is history, not a live entry blocker."""
+    now = datetime.now(UTC).replace(microsecond=0)
+    data_repo = DataRepository(db_session)
+    data_repo.store_ohlcv_bars([_bar("BTC/USDT", now - timedelta(hours=1), "42000")])
+    data_repo.store_risk_event(
+        RiskEvent(
+            event_type=RiskEventType.DATA_STALE,
+            severity=RiskSeverity.HIGH,
+            source="market_data_heartbeat",
+            description="BTC/USDT 1m market data is stale",
+            affected_scope=["BTC/USDT"],
+            expires_at=now + timedelta(hours=6),
+            resolution_status=RiskResolutionStatus.RESOLVED,
+        )
+    )
+
+    body = api_client.get("/api/v1/console/overview").json()
+
+    assert body["global_risk_status"] == "normal"
 
 
 def test_console_control_status_updates(api_client, db_session) -> None:

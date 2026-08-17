@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.auth import websocket_token_is_valid
+from services.automated_trading.domain.client_order_id import is_v2_client_order_id
 from services.automated_trading.domain.enums import V2ExecutionMode
 from services.automated_trading.infrastructure.models import (
     V2ExchangeFill,
@@ -102,6 +103,22 @@ def _cached_exchange_age_seconds() -> float | None:
         return (datetime.now(UTC) - _exchange_cache[0]).total_seconds()
 
 
+def _tag_order_ownership(order: dict) -> dict:
+    """Label an exchange open order as system-owned or externally placed.
+
+    V2 issues `A2E-`/`A2S-`/`A2T-` client ids. Anything else (for example the
+    Binance web UI's `web_algo_` algo orders) is an operator/manual order that must
+    never be counted as a system entry or pending reservation.
+    """
+    client_order_id = str(order.get("client_order_id") or "")
+    system_owned = is_v2_client_order_id(client_order_id)
+    return {
+        **order,
+        "ownership": "SYSTEM_V2_ORDER" if system_owned else "EXTERNAL_MANUAL_ORDER",
+        "system_owned": system_owned,
+    }
+
+
 def _probe_exchange_truth() -> dict:
     """Run one reconcile and cache its outcome. Runs on the probe worker thread.
 
@@ -121,7 +138,7 @@ def _probe_exchange_truth() -> dict:
         account = snapshot.get("account")
         exchange_value = {
             "positions": snapshot["open_positions"],
-            "open_orders": snapshot.get("open_orders") or [],
+            "open_orders": [_tag_order_ownership(order) for order in (snapshot.get("open_orders") or [])],
             "reconciliation_status": snapshot.get("reconciliation_status"),
             "notes": snapshot.get("notes") or [],
         }
@@ -310,11 +327,14 @@ def _v2_position_payload(position: V2ManagedPosition) -> dict:
 
 
 def _v2_order_payload(order: V2ExchangeOrder, intent: V2ExecutionIntent) -> dict:
+    system_owned = is_v2_client_order_id(str(order.client_order_id or ""))
     return {
         "exchange_order_record_id": order.order_record_id,
         "intent_id": order.intent_id,
         "client_order_id": order.client_order_id,
         "exchange_order_id": order.exchange_order_id,
+        "ownership": "SYSTEM_V2_ORDER" if system_owned else "EXTERNAL_MANUAL_ORDER",
+        "system_owned": system_owned,
         "symbol": intent.symbol,
         "side": intent.direction,
         "direction": intent.direction,
@@ -473,11 +493,7 @@ def build_no_trade_summary(
     """Project existing Runtime Truth facts into one deterministic no-trade status."""
     window_start = observed_at - timedelta(hours=window_hours)
     normalized_decisions = sorted(
-        (
-            {**item, "at": at}
-            for item in decisions
-            if (at := _decision_at(item)) is not None and at >= window_start
-        ),
+        ({**item, "at": at} for item in decisions if (at := _decision_at(item)) is not None and at >= window_start),
         key=lambda item: item["at"],
         reverse=True,
     )
@@ -494,9 +510,7 @@ def build_no_trade_summary(
     entry_fill_times = [
         at
         for item in entry_fills
-        if not bool(item.get("reduce_only"))
-        and (at := _decision_at(item)) is not None
-        and at >= window_start
+        if not bool(item.get("reduce_only")) and (at := _decision_at(item)) is not None and at >= window_start
     ]
     last_entry = max(entry_fill_times, default=None)
     hours_since_last_entry = (
@@ -534,13 +548,16 @@ def build_no_trade_summary(
         "observed_at": observed_at.isoformat(),
         "last_entry_at": _iso_datetime(last_entry),
         "hours_since_last_entry": hours_since_last_entry,
-        "runtime_status": "异常" if summary_code in {
+        "runtime_status": "异常"
+        if summary_code
+        in {
             "SCHEDULER_OFFLINE",
             "EXCHANGE_UNAVAILABLE",
             "MARKET_DATA_STALE",
             "RECONCILIATION_BLOCKED",
             "DECISION_PIPELINE_STALLED",
-        } else "正常",
+        }
+        else "正常",
         "scheduler": {
             "running": bool(scheduler.get("running")),
             "heartbeat_at": _iso_datetime(heartbeat_at) if isinstance(heartbeat_at, datetime) else heartbeat_at,
@@ -725,11 +742,7 @@ def runtime_no_trade_summary(
         )
         if not fill.reduce_only
         and fill.received_at is not None
-        and (
-            fill.received_at
-            if fill.received_at.tzinfo
-            else fill.received_at.replace(tzinfo=UTC)
-        ) >= window_start
+        and (fill.received_at if fill.received_at.tzinfo else fill.received_at.replace(tzinfo=UTC)) >= window_start
     ]
     protection_rows = [
         (protection, position)
@@ -755,9 +768,7 @@ def runtime_no_trade_summary(
         "decision_cycles": len(effective),
         "signal_generated": sum(bool(item.get("signal_generated")) for item in effective),
         "candidate_created": sum(
-            bool(item.get("signal_generated"))
-            and item.get("reason") != "NO_ENTRY_SIGNAL"
-            for item in effective
+            bool(item.get("signal_generated")) and item.get("reason") != "NO_ENTRY_SIGNAL" for item in effective
         ),
         "r2_cost_rejected": sum(item["reason"] == "NO_TRADE_COST_INEFFICIENT" for item in effective),
         "position_rejected": sum(item["reason"].startswith("POSITION_") for item in effective),
@@ -766,8 +777,7 @@ def runtime_no_trade_summary(
         "exchange_submitted": sum(order.submitted_at is not None for order, _intent in order_rows),
         "exchange_filled": len(fill_rows),
         "protection_confirmed": sum(
-            protection.state in {"PROTECTION_ACTIVE", "PROTECTION_FILLED"}
-            for protection, _position in protection_rows
+            protection.state in {"PROTECTION_ACTIVE", "PROTECTION_FILLED"} for protection, _position in protection_rows
         ),
     }
     return summary

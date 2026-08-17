@@ -26,7 +26,18 @@ def get_console_overview(
     validation_repo = ValidationRepository(db)
     paper_repo = PaperRunRepository(db)
     risk_events = data_repo.list_risk_events(active_only=True)
-    high_risk = any(str(event.severity) in {"high", "critical"} for event in risk_events)
+    directional_run_ids = {
+        run.paper_run_id
+        for run in paper_repo.list_paper_runs()
+        if run.paper_status == "running" and run.execution_profile.get("strategy_lane") == "directional"
+    }
+    current_risk_events = [
+        event
+        for event in risk_events
+        if not event.description.startswith("Paper run ")
+        or any(run_id and run_id in event.description for run_id in directional_run_ids)
+    ]
+    high_risk = any(str(event.severity) in {"high", "critical"} for event in current_risk_events)
 
     # Latest open qty per (run, symbol) — never the raw historical snapshot tail,
     # which previously painted closed ghosts as live holdings on the trading desk.

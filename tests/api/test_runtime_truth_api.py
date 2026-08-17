@@ -47,6 +47,13 @@ def _v2_position(*, position_id: str, symbol: str, direction: str, quantity: flo
     )
 
 
+def test_exchange_truth_marks_web_algo_order_as_external_manual() -> None:
+    tagged = runtime._tag_order_ownership({"client_order_id": "web_algo_kkc57fil7l80zcai0qkdnkw"})
+
+    assert tagged["ownership"] == "EXTERNAL_MANUAL_ORDER"
+    assert tagged["system_owned"] is False
+
+
 def test_runtime_snapshot_exposes_entry_paused_as_an_explicit_runtime_state(api_client, monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(tmp_path / "scheduler-state.json"))
     now = datetime.now(UTC)
