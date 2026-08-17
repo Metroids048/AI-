@@ -74,7 +74,7 @@ def check_regime_distribution(cursor: sqlite3.Cursor, lookback_hours: int = 2) -
     results = cursor.fetchall()
     total = sum(cnt for _, cnt in results)
 
-    distribution = {regime: cnt for regime, cnt in results}
+    distribution = dict(results)
     percentages = {regime: (cnt / total * 100 if total > 0 else 0) for regime, cnt in results}
 
     return {
