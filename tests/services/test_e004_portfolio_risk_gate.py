@@ -36,7 +36,7 @@ def test_candidate_breaching_total_budget_is_blocked() -> None:
     decision = _decide(Decimal("40"), committed, direction="short")
 
     assert decision.blocked is True
-    assert decision.reason_code == "PORTFOLIO_TOTAL_RISK_EXCEEDED"
+    assert decision.reason_code == "PORTFOLIO_TOTAL_RISK_LIMIT"
     assert decision.projected_total_risk_fraction > MAX_TOTAL_INITIAL_RISK_FRACTION
 
 
@@ -45,7 +45,7 @@ def test_same_direction_cluster_budget_blocks_correlated_stacking() -> None:
     decision = _decide(Decimal("30"), committed, symbol="BTC/USDT", direction="short")
 
     assert decision.blocked is True
-    assert decision.reason_code == "PORTFOLIO_CLUSTER_RISK_EXCEEDED"
+    assert decision.reason_code == "CRYPTO_CLUSTER_RISK_LIMIT"
     assert decision.projected_cluster_risk_fraction > MAX_SAME_DIRECTION_CLUSTER_RISK_FRACTION
 
 
@@ -63,7 +63,7 @@ def test_pending_intent_consumes_the_same_budget_as_a_position() -> None:
     decision = _decide(Decimal("30"), pending, symbol="BTC/USDT", direction="short")
 
     assert decision.blocked is True
-    assert decision.reason_code == "PORTFOLIO_CLUSTER_RISK_EXCEEDED"
+    assert decision.reason_code == "CRYPTO_CLUSTER_RISK_LIMIT"
 
 
 def test_terminal_intents_release_budget_by_absence() -> None:
@@ -81,7 +81,7 @@ def test_max_open_positions_blocks_a_third_entry() -> None:
     decision = _decide(Decimal("5"), committed, symbol="SOL/USDT", direction="short")
 
     assert decision.blocked is True
-    assert decision.reason_code == "PORTFOLIO_MAX_OPEN_POSITIONS"
+    assert decision.reason_code == "MAX_OPEN_EXPOSURES"
 
 
 def test_pending_intents_do_not_count_toward_open_position_limit() -> None:

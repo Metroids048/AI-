@@ -66,8 +66,11 @@ def persist_entry_intent_before_submission(
     execution_mode: V2ExecutionMode,
     decision_bar_timestamp: datetime,
     fencing_token: str,
+    initial_risk_usdt: Decimal,
 ) -> None:
-    """Durably record intent identity before any exchange-side submission."""
+    """Durably record intent identity and its risk reservation before submission."""
+    if not initial_risk_usdt.is_finite() or initial_risk_usdt <= 0:
+        raise ValueError("initial_risk_usdt must be finite and positive for new exposure")
     with get_session_factory()() as session:
         repo = AutomatedTradingRepository(session)
         if session.get(V2ExecutionCycle, cycle_id) is None:
@@ -101,6 +104,7 @@ def persist_entry_intent_before_submission(
                 decision_funnel_id=None,
                 state=V2IntentState.INTENT_CREATED,
                 decision_id=decision_id,
+                initial_risk_usdt=initial_risk_usdt,
             )
             repo.transition_intent(
                 intent_id,
@@ -201,8 +205,22 @@ def persist_entry_and_protection(
     take_profit_price: Decimal | None,
     stop_client_order_id: str | None,
     tp_client_order_id: str | None,
+    initial_risk_usdt: Decimal | None = None,
 ) -> None:
-    """Write intent → order → fills → position → protection after a real fill."""
+    """Write entry facts after a confirmed fill without inventing historical risk.
+
+    Recovery first keeps the original durable reservation. For legacy entries it
+    reconstructs only from the confirmed fill and the persisted original stop;
+    otherwise the active intent remains UNKNOWN and blocks later new exposure.
+    """
+    reconstructed_initial_risk = initial_risk_usdt
+    if reconstructed_initial_risk is None and stop_loss_price is not None:
+        fill_price = getattr(entry_result, "average_fill_price", None)
+        fill_quantity = getattr(entry_result, "filled_quantity", None)
+        if fill_price is not None and fill_quantity is not None:
+            reconstructed_initial_risk = abs(Decimal(str(fill_price)) - stop_loss_price) * Decimal(str(fill_quantity))
+    if reconstructed_initial_risk is not None and reconstructed_initial_risk <= 0:
+        raise ValueError("initial_risk_usdt must be positive when reconstructable")
     if not getattr(entry_result, "position_projectable", False):
         return
 
@@ -241,6 +259,7 @@ def persist_entry_and_protection(
                 decision_funnel_id=None,
                 state=V2IntentState.INTENT_CREATED,
                 decision_id=decision_id,
+                initial_risk_usdt=reconstructed_initial_risk,
             )
             repo.transition_intent(
                 intent_id,
@@ -250,6 +269,19 @@ def persist_entry_and_protection(
                 payload={},
             )
             intent = session.get(V2ExecutionIntent, intent_id)
+        elif intent.initial_risk_usdt is None and reconstructed_initial_risk is not None:
+            intent.initial_risk_usdt = reconstructed_initial_risk
+            repo.append_event(
+                aggregate_id=intent_id,
+                aggregate_type="INTENT",
+                event_type="InitialRiskReconstructedFromAuthoritativeFillAndStop",
+                event_payload={
+                    "initial_risk_usdt": str(reconstructed_initial_risk),
+                    "source": "authoritative_fill_and_original_stop",
+                },
+                occurred_at=entry_result.fill_timestamp or datetime.now(UTC),
+            )
+            session.flush()
         if intent is None:
             raise ValueError(f"Intent {intent_id!r} was not durable after creation")
         current_intent_state = V2IntentState(intent.state)

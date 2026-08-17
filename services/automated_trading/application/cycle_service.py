@@ -35,6 +35,7 @@ from services.automated_trading.application.entry_service import (
     EntryRuntimeContext,
     evaluate_entry,
     execute_entry,
+    round_quantity_to_step,
 )
 from services.automated_trading.application.exit_service import (
     ExitExecutionResult,
@@ -89,6 +90,7 @@ from services.automated_trading.domain.enums import (
     V2IntentState,
     V2PositionState,
 )
+from services.automated_trading.domain.portfolio_risk import evaluate_portfolio_risk
 from services.automated_trading.infrastructure.runtime_lock import EngineActivation
 from services.automated_trading.observability.decision_funnel import DecisionReasonCode
 
@@ -718,6 +720,39 @@ def _calculate_quantity(
     return min(risk_notional, exposure_ceiling, margin_budget_ceiling, margin_ceiling)
 
 
+def _candidate_initial_risk_usdt(quantity: Decimal, stop_distance: Decimal | None) -> Decimal:
+    """Compute actual entry risk from the resolved quantity and stop geometry."""
+    if quantity <= 0 or stop_distance is None or stop_distance <= 0:
+        return Decimal("0")
+    return quantity * stop_distance
+
+
+def _evaluate_durable_portfolio_risk(
+    request: CycleRequest,
+    *,
+    candidate: TradeCandidate,
+    snapshot: AuthoritativeAccountSnapshot,
+    initial_risk_usdt: Decimal,
+):
+    """Load durable reservations and fail closed on legacy active unknown risk."""
+    from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
+    from services.database import get_session_factory
+
+    with get_session_factory()() as session:
+        repo = AutomatedTradingRepository(session)
+        committed, has_unknown_active_risk = repo.list_active_initial_risk_exposures(request.execution_mode)
+    if has_unknown_active_risk:
+        return None, "UNKNOWN_ACTIVE_INTENT_RISK"
+    decision = evaluate_portfolio_risk(
+        equity=snapshot.equity,
+        candidate_symbol=request.symbol,
+        candidate_direction=candidate.direction,
+        candidate_initial_risk_usdt=initial_risk_usdt,
+        committed=committed,
+    )
+    return decision, decision.reason_code
+
+
 def _persist_reconciliation_fact(
     request: CycleRequest,
     snapshot: AuthoritativeAccountSnapshot,
@@ -1148,6 +1183,7 @@ def _recover_confirmed_v2_entry_gap(
             take_profit_price=plan.take_profit_price,
             stop_client_order_id=plan.stop_client_order_id,
             tp_client_order_id=plan.tp_client_order_id,
+            initial_risk_usdt=filled_quantity * abs(average_fill_price - plan.stop_price),
         )
         result.position_projected = True
         result.protection_active = True
@@ -2037,21 +2073,57 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         },
     )
 
-    intent_id = str(uuid.uuid4())
-    _append_funnel_stage(
-        result.funnel_payload,
-        stage="INTENT_CREATED",
-        outcome="PASSED",
-        reason_code="ENTRY_INTENT_CREATED",
-        metrics={"intent_id": intent_id},
-    )
     entry_notional = _calculate_quantity(
         request,
         snapshot,
         stop_distance=candidate.stop_distance,
         reference_price=snapshot_market.current_price,
     )
-    quantity = entry_notional / snapshot_market.current_price
+    quantity = round_quantity_to_step(
+        entry_notional / snapshot_market.current_price,
+        snapshot_market.step_size,
+    )
+    initial_risk_usdt = _candidate_initial_risk_usdt(quantity, candidate.stop_distance)
+    portfolio_decision = None
+    portfolio_reason = None
+    if request.persist_facts:
+        try:
+            portfolio_decision, portfolio_reason = _evaluate_durable_portfolio_risk(
+                request,
+                candidate=candidate,
+                snapshot=snapshot,
+                initial_risk_usdt=initial_risk_usdt,
+            )
+        except Exception as exc:  # noqa: BLE001
+            result.record_error(f"portfolio risk state unavailable: {exc}")
+            portfolio_decision, portfolio_reason = None, "PORTFOLIO_RISK_STATE_UNAVAILABLE"
+    _append_funnel_stage(
+        result.funnel_payload,
+        stage="PORTFOLIO_RISK_APPROVED",
+        outcome="PASSED" if portfolio_reason is None else "REJECTED",
+        reason_code=portfolio_reason or "OK",
+        metrics={
+            "initial_risk_usdt": str(initial_risk_usdt),
+            "committed_total_risk_usdt": (
+                str(portfolio_decision.committed_total_risk_usdt) if portfolio_decision else None
+            ),
+            "committed_cluster_risk_usdt": (
+                str(portfolio_decision.committed_cluster_risk_usdt) if portfolio_decision else None
+            ),
+        },
+    )
+    if portfolio_reason is not None:
+        result.funnel_payload["reason_code"] = portfolio_reason
+        return result
+
+    intent_id = str(uuid.uuid4())
+    _append_funnel_stage(
+        result.funnel_payload,
+        stage="INTENT_CREATED",
+        outcome="PASSED",
+        reason_code="ENTRY_INTENT_CREATED",
+        metrics={"intent_id": intent_id, "initial_risk_usdt": str(initial_risk_usdt)},
+    )
     if request.persist_facts:
         try:
             persist_entry_intent_before_submission(
@@ -2069,6 +2141,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                     else request.now
                 ),
                 fencing_token=request.fencing_token,
+                initial_risk_usdt=initial_risk_usdt,
             )
         except Exception as exc:  # noqa: BLE001
             result.record_error(f"intent persistence failed before exchange submission: {exc}")
@@ -2180,6 +2253,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                 take_profit_price=plan.take_profit_price if plan else None,
                 stop_client_order_id=plan.stop_client_order_id if plan else None,
                 tp_client_order_id=plan.tp_client_order_id if plan else None,
+                initial_risk_usdt=initial_risk_usdt,
             )
         except Exception as exc:  # noqa: BLE001
             result.record_error(f"fact persistence failed: {exc}")

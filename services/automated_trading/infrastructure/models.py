@@ -226,6 +226,9 @@ class V2ExecutionIntent(Base):
     execution_mode: Mapped[str] = mapped_column(String(30), nullable=False)
     decision_bar_timestamp: Mapped[datetime] = mapped_column(nullable=False)
     decision_funnel_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Initial stop-loss risk is an entry-time reservation. It remains nullable for
+    # rows created before migration 0023 and for reduce-only exit intents.
+    initial_risk_usdt: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
     state: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())

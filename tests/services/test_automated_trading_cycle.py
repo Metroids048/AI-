@@ -305,6 +305,8 @@ def test_persisted_testnet_canary_intent_stays_sampling_and_non_promotable(monke
 
     adapter = build_adapter_with_successful_cycle()
     monkeypatch.setattr(cycle_service, "_runtime_entry_enabled", lambda: True)
+    monkeypatch.setattr(cycle_service, "_evaluate_durable_portfolio_risk", lambda *_args, **_kwargs: (None, None))
+    monkeypatch.setattr(cycle_service, "_evaluate_durable_portfolio_risk", lambda *_args, **_kwargs: (None, None))
     monkeypatch.setattr(
         cycle_service,
         "_run_trade_review_budgeted",

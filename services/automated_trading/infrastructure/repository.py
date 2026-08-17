@@ -19,6 +19,7 @@ from services.automated_trading.domain.invariants import (
     assert_fill_receipt_valid,
     assert_protection_active_requires_exchange_order_id,
 )
+from services.automated_trading.domain.portfolio_risk import RiskExposure
 from services.automated_trading.domain.receipts import FillReceipt, ProtectionReceipt
 from services.automated_trading.domain.state import (
     validate_intent_transition,
@@ -243,7 +244,10 @@ class AutomatedTradingRepository:
         decision_funnel_id: str | None,
         state: V2IntentState,
         decision_id: str | None = None,
+        initial_risk_usdt: Decimal | None = None,
     ) -> None:
+        if initial_risk_usdt is not None and (not initial_risk_usdt.is_finite() or initial_risk_usdt <= 0):
+            raise ValueError("initial_risk_usdt must be finite and positive when supplied")
         intent = V2ExecutionIntent(
             intent_id=intent_id,
             cycle_id=cycle_id,
@@ -255,11 +259,81 @@ class AutomatedTradingRepository:
             execution_mode=execution_mode.value,
             decision_bar_timestamp=decision_bar_timestamp,
             decision_funnel_id=decision_funnel_id,
+            initial_risk_usdt=initial_risk_usdt,
             state=state.value,
             version=0,
         )
         self.session.add(intent)
         self.session.flush()
+
+    def list_active_initial_risk_exposures(
+        self,
+        execution_mode: V2ExecutionMode,
+    ) -> tuple[tuple[RiskExposure, ...], bool]:
+        """Return durable position/intent risk and whether any active risk is unknown.
+
+        A filled entry remains an intent reservation until its matching durable
+        position exists. Once the position exists it is the sole exposure record,
+        preventing both double-counting and a handoff gap. Reduce-only exit intents
+        are excluded because they cannot create new exposure.
+        """
+        active_position_states = ("POSITION_PROJECTED", "PROTECTED", "REDUCING")
+        active_intent_states = (
+            "INTENT_CREATED",
+            "EXCHANGE_SUBMITTING",
+            "EXCHANGE_UNKNOWN",
+            "EXCHANGE_ACKNOWLEDGED",
+            "FILLED",
+        )
+        positions = tuple(
+            self.session.scalars(
+                select(V2ManagedPosition).where(
+                    V2ManagedPosition.execution_mode == execution_mode.value,
+                    V2ManagedPosition.state.in_(active_position_states),
+                )
+            )
+        )
+        position_intent_ids = {position.intent_id for position in positions}
+        intents = tuple(
+            self.session.scalars(
+                select(V2ExecutionIntent).where(
+                    V2ExecutionIntent.execution_mode == execution_mode.value,
+                    V2ExecutionIntent.state.in_(active_intent_states),
+                )
+            )
+        )
+        exposures: list[RiskExposure] = []
+        unknown_risk = False
+        for position in positions:
+            intent = self.session.get(V2ExecutionIntent, position.intent_id)
+            risk = intent.initial_risk_usdt if intent is not None else None
+            if risk is None or Decimal(str(risk)) <= 0:
+                unknown_risk = True
+                continue
+            exposures.append(
+                RiskExposure(
+                    symbol=position.symbol,
+                    direction=position.direction,
+                    initial_risk_usdt=Decimal(str(risk)),
+                    source="position",
+                )
+            )
+        for intent in intents:
+            if intent.intent_id in position_intent_ids or intent.candidate_key.startswith("exit:"):
+                continue
+            risk = intent.initial_risk_usdt
+            if risk is None or Decimal(str(risk)) <= 0:
+                unknown_risk = True
+                continue
+            exposures.append(
+                RiskExposure(
+                    symbol=intent.symbol,
+                    direction=intent.direction,
+                    initial_risk_usdt=Decimal(str(risk)),
+                    source="intent",
+                )
+            )
+        return tuple(exposures), unknown_risk
 
     def transition_intent(
         self,

@@ -142,6 +142,7 @@ def test_acknowledged_unfilled_order_is_durable_before_projection(fact_db) -> No
         execution_mode=V2ExecutionMode.BINANCE_TESTNET,
         decision_bar_timestamp=datetime(2026, 7, 29, 9, 30, tzinfo=UTC),
         fencing_token="fence-ack",
+        initial_risk_usdt=Decimal("2.50"),
     )
     session: Session = fact_db()
     try:
@@ -194,6 +195,7 @@ def test_confirmed_delayed_fill_corrects_cancelled_intent(fact_db) -> None:
         execution_mode=V2ExecutionMode.BINANCE_TESTNET,
         decision_bar_timestamp=datetime(2026, 7, 30, 3, 0, tzinfo=UTC),
         fencing_token="fence-delayed",
+        initial_risk_usdt=Decimal("5.00"),
     )
     persist_entry_submission_result(
         intent_id="intent-delayed",

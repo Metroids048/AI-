@@ -146,17 +146,17 @@ def evaluate_portfolio_risk(
         )
     if len(open_positions) >= max_open_positions:
         return verdict(
-            "PORTFOLIO_MAX_OPEN_POSITIONS",
+            "MAX_OPEN_EXPOSURES",
             f"{len(open_positions)} open positions already at the {max_open_positions} limit",
         )
     if projected_total_fraction > max_total_fraction:
         return verdict(
-            "PORTFOLIO_TOTAL_RISK_EXCEEDED",
+            "PORTFOLIO_TOTAL_RISK_LIMIT",
             f"projected total initial risk {projected_total_fraction:.6f} exceeds {max_total_fraction}",
         )
     if projected_cluster_fraction > max_cluster_fraction:
         return verdict(
-            "PORTFOLIO_CLUSTER_RISK_EXCEEDED",
+            "CRYPTO_CLUSTER_RISK_LIMIT",
             (
                 f"projected same-direction crypto cluster risk {projected_cluster_fraction:.6f} "
                 f"exceeds {max_cluster_fraction}"
