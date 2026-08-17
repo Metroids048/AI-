@@ -294,6 +294,14 @@ class AutomatedTradingRepository:
             )
         )
         position_intent_ids = {position.intent_id for position in positions}
+        terminal_position_intent_ids = set(
+            self.session.scalars(
+                select(V2ManagedPosition.intent_id).where(
+                    V2ManagedPosition.execution_mode == execution_mode.value,
+                    V2ManagedPosition.state.in_(("CLOSED", "QUARANTINED")),
+                )
+            )
+        )
         intents = tuple(
             self.session.scalars(
                 select(V2ExecutionIntent).where(
@@ -319,7 +327,11 @@ class AutomatedTradingRepository:
                 )
             )
         for intent in intents:
-            if intent.intent_id in position_intent_ids or intent.candidate_key.startswith("exit:"):
+            if (
+                intent.intent_id in position_intent_ids
+                or intent.intent_id in terminal_position_intent_ids
+                or intent.candidate_key.startswith("exit:")
+            ):
                 continue
             risk = intent.initial_risk_usdt
             if risk is None or Decimal(str(risk)) <= 0:

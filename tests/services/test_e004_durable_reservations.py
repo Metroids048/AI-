@@ -129,6 +129,33 @@ def test_filled_intent_and_projected_position_are_counted_once(session: Session)
     assert exposures[0].initial_risk_usdt == Decimal("35.50")
 
 
+def test_terminal_position_releases_legacy_filled_intent_without_risk(session: Session) -> None:
+    repo = _repo_with_cycle(session)
+    _create_intent(repo, state=V2IntentState.FILLED, risk=None)
+    session.add(
+        V2ManagedPosition(
+            position_id="closed-position-e004",
+            intent_id="intent-e004",
+            order_record_id="closed-order-e004",
+            symbol="BTC/USDT",
+            direction="long",
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET.value,
+            quantity=Decimal("0.01"),
+            entry_price=Decimal("100000"),
+            entry_fee=Decimal("0"),
+            state=V2PositionState.CLOSED.value,
+            projected_at=datetime(2026, 8, 17, tzinfo=UTC),
+            closed_at=datetime(2026, 8, 17, tzinfo=UTC),
+        )
+    )
+    repo.commit()
+
+    exposures, has_unknown = repo.list_active_initial_risk_exposures(V2ExecutionMode.BINANCE_TESTNET)
+
+    assert exposures == ()
+    assert has_unknown is False
+
+
 def test_reduce_only_exit_intent_is_not_a_reservation(session: Session) -> None:
     repo = _repo_with_cycle(session)
     _create_intent(repo, risk=None)
