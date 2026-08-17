@@ -33,6 +33,7 @@ from services.automated_trading.application.exit_service import (
 )
 from services.automated_trading.application.fact_persistence import (
     persist_entry_and_protection,
+    persist_entry_intent_before_submission,
 )
 from services.automated_trading.application.production_strategy import EntryAuthority
 from services.automated_trading.application.reconciliation_service import (
@@ -305,8 +306,11 @@ def test_persisted_testnet_canary_intent_stays_sampling_and_non_promotable(monke
 
     adapter = build_adapter_with_successful_cycle()
     monkeypatch.setattr(cycle_service, "_runtime_entry_enabled", lambda: True)
-    monkeypatch.setattr(cycle_service, "_evaluate_durable_portfolio_risk", lambda *_args, **_kwargs: (None, None))
-    monkeypatch.setattr(cycle_service, "_evaluate_durable_portfolio_risk", lambda *_args, **_kwargs: (None, None))
+    monkeypatch.setattr(
+        cycle_service,
+        "persist_entry_intent_before_submission",
+        lambda **kwargs: persist_entry_intent_before_submission(**{**kwargs, "account_equity": None}),
+    )
     monkeypatch.setattr(
         cycle_service,
         "_run_trade_review_budgeted",

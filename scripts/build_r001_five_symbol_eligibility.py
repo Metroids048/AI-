@@ -15,6 +15,8 @@ DB_PATH = ROOT / ".local_paper_console.db"
 OUTPUT = ROOT / "docs/evidence/strategy-research/2026-08-17-r001-five-symbol-eligibility.json"
 
 EXECUTION_SYMBOLS = ("BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT")
+DEVELOPMENT_END = "2026-01-29 00:00:00"
+DEVELOPMENT_END = "2026-01-29 00:00:00"
 MINIMUM_15M_BARS_FOR_EIGHT_WINDOWS = 12 * 30 * 24 * 4
 
 
@@ -27,10 +29,11 @@ def _coverage() -> dict[str, dict[str, Any]]:
             rows = connection.execute(
                 """
                 select timeframe, count(*) as bars, min(time) as first_bar, max(time) as last_bar
-                from ohlcv_bars where symbol = ? and timeframe in ('15m', '1h', '4h')
+                from ohlcv_bars
+                where symbol = ? and timeframe in ('15m', '1h', '4h') and time < ?
                 group by timeframe
                 """,
-                (symbol,),
+                (symbol, DEVELOPMENT_END),
             ).fetchall()
             result[symbol] = {row["timeframe"]: dict(row) for row in rows}
         return result

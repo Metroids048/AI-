@@ -6,7 +6,11 @@ from datetime import UTC, datetime, time, timedelta
 
 from sqlalchemy import select
 
-from services.automated_trading.infrastructure.models import V2ExecutionDecision, V2ManagedPosition
+from services.automated_trading.infrastructure.models import (
+    V2ExecutionCycle,
+    V2ExecutionDecision,
+    V2ManagedPosition,
+)
 from services.strategy_library import ReviewRepository
 from services.strategy_library import models as strategy_models
 from shared.models import FailureRecord, ReviewReport
@@ -75,8 +79,10 @@ class ReviewService:
             )
         )
         decisions = tuple(
-            session.scalars(
-                select(V2ExecutionDecision).where(
+            session.execute(
+                select(V2ExecutionDecision, V2ExecutionCycle.symbol)
+                .join(V2ExecutionCycle, V2ExecutionCycle.cycle_id == V2ExecutionDecision.cycle_id)
+                .where(
                     V2ExecutionDecision.created_at >= start,
                     V2ExecutionDecision.created_at < end,
                 )
@@ -95,9 +101,11 @@ class ReviewService:
             )
             for symbol in ("BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT")
         }
-        terminal_reasons = [decision.terminal_reason for decision in decisions if decision.terminal_reason]
+        terminal_reason_by_symbol = {
+            symbol: decision.terminal_reason for decision, symbol in decisions if decision.terminal_reason
+        }
         no_trade_explanations = [
-            f"{symbol}: {next((reason for reason in terminal_reasons if reason), 'NO_SIGNAL')}"
+            f"{symbol}: {terminal_reason_by_symbol.get(symbol, 'UNKNOWN_NO_DECISION_EVIDENCE')}"
             for symbol, pnl in symbol_pnl.items()
             if pnl == 0
         ]

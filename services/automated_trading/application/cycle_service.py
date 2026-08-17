@@ -2086,17 +2086,6 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
     initial_risk_usdt = _candidate_initial_risk_usdt(quantity, candidate.stop_distance)
     portfolio_decision = None
     portfolio_reason = None
-    if request.persist_facts:
-        try:
-            portfolio_decision, portfolio_reason = _evaluate_durable_portfolio_risk(
-                request,
-                candidate=candidate,
-                snapshot=snapshot,
-                initial_risk_usdt=initial_risk_usdt,
-            )
-        except Exception as exc:  # noqa: BLE001
-            result.record_error(f"portfolio risk state unavailable: {exc}")
-            portfolio_decision, portfolio_reason = None, "PORTFOLIO_RISK_STATE_UNAVAILABLE"
     _append_funnel_stage(
         result.funnel_payload,
         stage="PORTFOLIO_RISK_APPROVED",
@@ -2126,7 +2115,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
     )
     if request.persist_facts:
         try:
-            persist_entry_intent_before_submission(
+            portfolio_reason = persist_entry_intent_before_submission(
                 cycle_id=request.cycle_id,
                 decision_id=request.decision_id,
                 intent_id=intent_id,
@@ -2142,7 +2131,11 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                 ),
                 fencing_token=request.fencing_token,
                 initial_risk_usdt=initial_risk_usdt,
+                account_equity=snapshot.equity,
             )
+            if portfolio_reason is not None:
+                result.funnel_payload["reason_code"] = portfolio_reason
+                return result
         except Exception as exc:  # noqa: BLE001
             result.record_error(f"intent persistence failed before exchange submission: {exc}")
             _append_funnel_stage(

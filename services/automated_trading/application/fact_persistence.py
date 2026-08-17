@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from services.automated_trading.application.entry_service import EntryExecutionStatus
 from services.automated_trading.application.exit_service import (
@@ -28,6 +28,7 @@ from services.automated_trading.domain.enums import (
     V2PositionState,
     V2ProtectionState,
 )
+from services.automated_trading.domain.portfolio_risk import evaluate_portfolio_risk
 from services.automated_trading.domain.receipts import ProtectionReceipt
 from services.automated_trading.infrastructure.models import (
     V2DecisionSnapshot,
@@ -67,12 +68,34 @@ def persist_entry_intent_before_submission(
     decision_bar_timestamp: datetime,
     fencing_token: str,
     initial_risk_usdt: Decimal,
-) -> None:
-    """Durably record intent identity and its risk reservation before submission."""
+    account_equity: Decimal | None = None,
+) -> str | None:
+    """Atomically gate and reserve one new entry's durable initial risk.
+
+    SQLite's immediate write transaction serializes the budget read with intent
+    insertion. A competing writer cannot evaluate the same unreserved budget.
+    """
     if not initial_risk_usdt.is_finite() or initial_risk_usdt <= 0:
         raise ValueError("initial_risk_usdt must be finite and positive for new exposure")
     with get_session_factory()() as session:
+        if session.bind is not None and session.bind.dialect.name == "sqlite":
+            session.execute(text("BEGIN IMMEDIATE"))
         repo = AutomatedTradingRepository(session)
+        committed, has_unknown_active_risk = repo.list_active_initial_risk_exposures(execution_mode)
+        if has_unknown_active_risk:
+            session.rollback()
+            return "UNKNOWN_ACTIVE_INTENT_RISK"
+        if account_equity is not None:
+            verdict = evaluate_portfolio_risk(
+                equity=account_equity,
+                candidate_symbol=symbol,
+                candidate_direction=direction,
+                candidate_initial_risk_usdt=initial_risk_usdt,
+                committed=committed,
+            )
+            if verdict.reason_code is not None:
+                session.rollback()
+                return verdict.reason_code
         if session.get(V2ExecutionCycle, cycle_id) is None:
             repo.create_cycle(
                 cycle_id=cycle_id,
@@ -114,6 +137,7 @@ def persist_entry_intent_before_submission(
                 payload={"client_order_identity": "derived_from_intent_id"},
             )
         session.commit()
+    return None
 
 
 def persist_entry_submission_result(
