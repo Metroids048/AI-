@@ -40,6 +40,8 @@ Thumbs.db
 /.pytest_ai_quant.*.db
 /.browser_paper_smoke.db
 /.local_paper_console.db
+/scripts/archive/.local_paper_console.db
+/scripts/archive/.local_paper_console.db
 /.local_paper_console.db.*
 /.local_paper_console.pre-*.db
 /.local_runtime_ledger.db
