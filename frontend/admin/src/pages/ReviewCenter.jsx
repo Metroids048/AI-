@@ -47,11 +47,11 @@ export function ReviewCenter() {
   const runtimeLoading = runtime.snapshot == null;
   const runtimeError = runtime.error || (runtime.snapshot?.exchange?.status === "unavailable" ? runtime.snapshot.exchange.error : "");
 
-  const generateTodayReview = async () => {
-    const today = new Date().toISOString().slice(0, 10);
+  const generatePreviousUtcDayReview = async () => {
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     try {
-      await request(`/api/v1/reviews/daily/${today}`, { method: "POST", body: "{}" });
-      setActionMessage("今日复盘已生成，失败模式与建议已回写。" );
+      await request(`/api/v1/reviews/daily/${yesterday}`, { method: "POST", body: "{}" });
+      setActionMessage("上一完整 UTC 日复盘已生成，失败模式与建议已回写。");
       await queryClient.invalidateQueries({ queryKey: ["review-reports"] });
     } catch (err) {
       setActionMessage(`生成复盘失败：${err.message}`);
@@ -65,7 +65,7 @@ export function ReviewCenter() {
         <h1>复盘中心</h1>
       </header>
       <section className="form-row">
-        <button type="button" onClick={generateTodayReview}>生成今日复盘</button>
+        <button type="button" onClick={generatePreviousUtcDayReview}>生成上一完整 UTC 日复盘</button>
         <button type="button" onClick={() => news.refetch()} disabled={news.isFetching}>刷新消息面</button>
         {actionMessage ? <span className="action-line">{actionMessage}</span> : null}
       </section>

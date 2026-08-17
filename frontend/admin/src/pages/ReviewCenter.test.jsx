@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ReviewCenter } from "./ReviewCenter";
@@ -37,5 +37,23 @@ describe("ReviewCenter", () => {
     expect(await screen.findByText(/BTC\/USDT/)).toBeInTheDocument();
     await waitFor(() => expect(request).toHaveBeenCalledWith("/api/v1/market/news?limit=12&refresh=false"));
     expect(request).not.toHaveBeenCalledWith("/api/v1/market/news?limit=12&refresh=true");
+  });
+
+  it("generates the previous complete UTC day instead of the current partial day", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><ReviewCenter /></QueryClientProvider>);
+    const expected = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "生成上一完整 UTC 日复盘" }))[0]);
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      `/api/v1/reviews/daily/${expected}`,
+      { method: "POST", body: "{}" },
+    ));
+    expect(request).not.toHaveBeenCalledWith(
+      `/api/v1/reviews/daily/${today}`,
+      { method: "POST", body: "{}" },
+    );
   });
 });
