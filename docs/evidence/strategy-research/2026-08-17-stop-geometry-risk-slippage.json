@@ -1,0 +1,50 @@
+{
+  "status": "RESEARCH_COMPLETE_WITH_LIMITATIONS",
+  "holdout_accessed": false,
+  "source": "artifacts\\strategy_refactor\\reports\\2026-08-15-loss-structure-table.json",
+  "stop_geometry_001": {
+    "stop_episode_count": 14,
+    "floor": "0.35%",
+    "floor_hit_rate": null,
+    "grouped_by_symbol": {
+      "BTC/USDT": {
+        "stop_count": 7,
+        "raw_distance_available": false,
+        "final_stop_distance_available": false,
+        "floor_hit_rate": null,
+        "reason": "source table has entry/decision OHLCV but not persisted initial stop price",
+        "observed_entry_to_decision_close_pct_median": "0.0002923247820641822137294180275"
+      },
+      "ETH/USDT": {
+        "stop_count": 7,
+        "raw_distance_available": false,
+        "final_stop_distance_available": false,
+        "floor_hit_rate": null,
+        "reason": "source table has entry/decision OHLCV but not persisted initial stop price",
+        "observed_entry_to_decision_close_pct_median": "0.0009648313665617014960187452951"
+      }
+    },
+    "limitation": "The immutable loss structure table does not contain the persisted initial stop geometry or ATR snapshot; floor dominance cannot be truthfully computed from this artifact alone.",
+    "live_geometry_changed": false
+  },
+  "risk_slippage_001": {
+    "stop_realized_r_distribution": {
+      "count": 14,
+      "median": "-1.285114285586838554435323751",
+      "p90": "-1.285114284896303299208607053",
+      "p95": "-1.285114284693379592881237306",
+      "max_loss": "-1.286314285714285716183850350"
+    },
+    "component_breakdown": {
+      "gross_price_move": "UNKNOWN",
+      "trigger_to_fill_slippage": "UNKNOWN",
+      "fees": "UNKNOWN",
+      "funding": "UNKNOWN",
+      "rounding": "UNKNOWN",
+      "protection_latency": "UNKNOWN"
+    },
+    "eth_minus_1_2336R": "not present at exactly this value in the source artifact; closest confirmed stop rows are retained in source evidence",
+    "xrp_minus_1_2356R": "not present in the 30-episode source artifact; no fabricated attribution",
+    "limitation": "The available report contains realized R, MFE, MAE and net PnL but lacks per-fill fee/funding/trigger/fill timestamps needed for causal decomposition."
+  }
+}

@@ -34,7 +34,7 @@ from services.validation.proposal_replay import (
 from services.validation.strategy_promotion import FinalHoldoutGuard, TrialLedger
 from shared.models import Exchange, MarketExtras, OHLCVBar, Timeframe
 
-SYMBOLS = ("BTC/USDT", "ETH/USDT")
+SYMBOLS = ("BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT")
 FINAL_HOLDOUT_START = datetime(2026, 1, 29, tzinfo=UTC)
 DEVELOPMENT_START = datetime(2023, 1, 29, tzinfo=UTC)
 WARMUP_START = DEVELOPMENT_START - timedelta(days=15)
