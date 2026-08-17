@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
+from services.automated_trading.domain.enums import V2ExecutionMode
+from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
 from services.review.service import ReviewService
 from services.strategy_library import ReviewRepository
 
@@ -27,3 +31,27 @@ def test_daily_review_explicit_date_does_not_use_current_day(db_session) -> None
 
     assert report.report_date == "2026-08-15"
     assert report.created_at is not None
+
+
+def test_daily_review_keeps_all_terminal_reasons_for_same_symbol(db_session) -> None:
+    repo = AutomatedTradingRepository(db_session)
+    for cycle_id, reason in (("cycle-review-a", "NO_SIGNAL"), ("cycle-review-b", "COST_OR_R2_BLOCK")):
+        repo.create_cycle(
+            cycle_id=cycle_id,
+            symbol="BTC/USDT",
+            timeframe="15m",
+            bar_timestamp=datetime(2026, 8, 17, 12, tzinfo=UTC),
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            fencing_token=f"fence-{cycle_id}",
+        )
+        repo.create_decision(
+            decision_id=f"decision-{cycle_id}",
+            cycle_id=cycle_id,
+            terminal_reason=reason,
+            payload={},
+        )
+    repo.commit()
+
+    report = ReviewService(ReviewRepository(db_session)).build_daily_report("2026-08-17")
+
+    assert "BTC/USDT: NO_SIGNAL, COST_OR_R2_BLOCK" in report.deviation_analysis

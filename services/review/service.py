@@ -101,11 +101,12 @@ class ReviewService:
             )
             for symbol in ("BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT")
         }
-        terminal_reason_by_symbol = {
-            symbol: decision.terminal_reason for decision, symbol in decisions if decision.terminal_reason
-        }
+        terminal_reasons_by_symbol: dict[str, list[str]] = {}
+        for decision, symbol in decisions:
+            if decision.terminal_reason:
+                terminal_reasons_by_symbol.setdefault(symbol, []).append(decision.terminal_reason)
         no_trade_explanations = [
-            f"{symbol}: {terminal_reason_by_symbol.get(symbol, 'UNKNOWN_NO_DECISION_EVIDENCE')}"
+            f"{symbol}: {', '.join(terminal_reasons_by_symbol.get(symbol, ['UNKNOWN_NO_DECISION_EVIDENCE']))}"
             for symbol, pnl in symbol_pnl.items()
             if pnl == 0
         ]

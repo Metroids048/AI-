@@ -78,8 +78,14 @@ def persist_entry_intent_before_submission(
     if not initial_risk_usdt.is_finite() or initial_risk_usdt <= 0:
         raise ValueError("initial_risk_usdt must be finite and positive for new exposure")
     with get_session_factory()() as session:
-        if session.bind is not None and session.bind.dialect.name == "sqlite":
-            session.execute(text("BEGIN IMMEDIATE"))
+        if session.bind is not None:
+            if session.bind.dialect.name == "sqlite":
+                session.execute(text("BEGIN IMMEDIATE"))
+            elif session.bind.dialect.name == "postgresql":
+                session.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:scope))"),
+                    {"scope": f"automated-trading-v2:portfolio-risk:{execution_mode.value}"},
+                )
         repo = AutomatedTradingRepository(session)
         committed, has_unknown_active_risk = repo.list_active_initial_risk_exposures(execution_mode)
         if has_unknown_active_risk:
