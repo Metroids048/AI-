@@ -20,6 +20,14 @@ AUTO_SIMULATION_EXECUTION_SYMBOLS: tuple[str, ...] = (
 )
 
 
+def execution_baseline_keys() -> frozenset[str]:
+    """Return the canonical long/short keys for the execution universe."""
+
+    return frozenset(
+        f"{symbol}:{direction}" for symbol in AUTO_SIMULATION_EXECUTION_SYMBOLS for direction in ("long", "short")
+    )
+
+
 def execution_scope_hash(symbols: Iterable[str] = AUTO_SIMULATION_EXECUTION_SYMBOLS) -> str:
     """Stable identity for the exact ordered Binance simulation execution scope."""
 

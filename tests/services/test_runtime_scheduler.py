@@ -131,6 +131,8 @@ def test_external_scheduler_state_exposes_actual_active_mode_contract(monkeypatc
             "sampling_fallback_enabled": False,
             "external_baseline_captured": True,
             "entry_authorized": False,
+            "entry_authority": "NONE",
+            "trading_state": "ENTRY_PAUSED",
             "startup_contract_errors": [],
         }
     )
@@ -141,7 +143,208 @@ def test_external_scheduler_state_exposes_actual_active_mode_contract(monkeypatc
     assert state.execution_mode == "BINANCE_TESTNET"
     assert state.execution_strategy_id == "production_strategy_pending"
     assert state.registered_jobs == ("automated_trading_v2_cycle",)
-    assert runtime_state.active_startup_contract_errors(state, requested_engine="v2_active") == ()
+    errors = runtime_state.active_startup_contract_errors(state, requested_engine="v2_active")
+    assert "ENTRY_DISABLED" in errors
+    assert "ENTRY_NOT_AUTHORIZED" in errors
+    assert "ENTRY_AUTHORITY_INVALID" in errors
+    assert "TRADING_STATE_NOT_TRADING" in errors
+
+
+def test_active_startup_contract_accepts_testnet_canary_entry_ready_state() -> None:
+    state = ExternalSchedulerState(
+        running=True,
+        heartbeat_at=datetime.now(UTC),
+        engine_activation="ACTIVE",
+        execution_mode="BINANCE_TESTNET",
+        execution_strategy_id="testnet_sampling_candidate",
+        execution_symbols=tuple(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        execution_coverage_count=len(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        registered_jobs=("automated_trading_v2_cycle",),
+        legacy_writer_enabled=False,
+        entry_enabled=True,
+        sampling_fallback_enabled=True,
+        external_baseline_captured=True,
+        entry_authorized=True,
+        entry_authority="TESTNET_CANARY",
+        trading_state="TRADING",
+    )
+
+    assert runtime_state.active_startup_contract_errors(state) == ()
+
+
+def test_active_startup_contract_accepts_approved_production_state() -> None:
+    state = ExternalSchedulerState(
+        running=True,
+        heartbeat_at=datetime.now(UTC),
+        engine_activation="ACTIVE",
+        execution_mode="BINANCE_TESTNET",
+        execution_strategy_id="approved_candidate",
+        execution_symbols=tuple(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        execution_coverage_count=len(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        registered_jobs=("automated_trading_v2_cycle",),
+        legacy_writer_enabled=False,
+        entry_enabled=True,
+        sampling_fallback_enabled=False,
+        external_baseline_captured=True,
+        entry_authorized=True,
+        entry_authority="PRODUCTION",
+        production_authorization_state="APPROVED",
+        trading_state="TRADING",
+    )
+
+    assert runtime_state.active_startup_contract_errors(state) == ()
+
+
+def test_active_startup_contract_rejects_canary_without_sampling_fallback() -> None:
+    state = ExternalSchedulerState(
+        running=True,
+        heartbeat_at=datetime.now(UTC),
+        engine_activation="ACTIVE",
+        execution_mode="BINANCE_TESTNET",
+        execution_strategy_id="testnet_sampling_candidate",
+        execution_symbols=tuple(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        execution_coverage_count=len(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        registered_jobs=("automated_trading_v2_cycle",),
+        legacy_writer_enabled=False,
+        entry_enabled=True,
+        sampling_fallback_enabled=False,
+        external_baseline_captured=True,
+        entry_authorized=True,
+        entry_authority="TESTNET_CANARY",
+        trading_state="TRADING",
+    )
+
+    assert "CANARY_SAMPLING_FALLBACK_DISABLED" in runtime_state.active_startup_contract_errors(state)
+
+
+def test_active_strategy_identity_requires_full_execution_scope_approval(monkeypatch) -> None:
+    """Five-symbol validation must never upgrade a narrower approval."""
+    from services.automated_trading.application.production_strategy import ProductionAuthorization
+    from services.execution import scheduler as scheduler_module
+
+    class _Run:
+        paper_run_id = "run-1"
+        paper_status = "running"
+        execution_profile = {"strategy_lane": "directional"}
+
+    class _Snapshot:
+        config: dict[str, dict[str, object]] = {"strategy_rules": {}}
+        config_hash = "sha256:snapshot"
+
+    class _PaperRunRepository:
+        def __init__(self, _session) -> None:  # noqa: ANN001
+            pass
+
+        def list_paper_runs(self) -> list[_Run]:
+            return [_Run()]
+
+    class _ConfigSnapshotRepository:
+        def __init__(self, _session) -> None:  # noqa: ANN001
+            pass
+
+        def get_active(self, _run_id: str) -> _Snapshot:
+            return _Snapshot()
+
+    class _Session:
+        def __enter__(self) -> _Session:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    import services.strategy_library as strategy_library
+    from services import database
+
+    monkeypatch.setattr(database, "get_session_factory", lambda: lambda: _Session())
+    monkeypatch.setattr(strategy_library, "PaperRunRepository", _PaperRunRepository)
+    monkeypatch.setattr(strategy_library, "ConfigSnapshotRepository", _ConfigSnapshotRepository)
+
+    approved_symbols = {"BTC/USDT", "ETH/USDT"}
+    monkeypatch.setattr(
+        "services.automated_trading.application.production_strategy.resolve_production_authorization",
+        lambda *, snapshot_config, snapshot_hash, symbol: ProductionAuthorization(
+            symbol in approved_symbols,
+            "partial_scope_probe",
+            candidate_id="trend_momentum_v2_enriched" if symbol in approved_symbols else None,
+        ),
+    )
+
+    assert scheduler_module._active_execution_strategy_identity() == ("production_strategy_pending", False)
+
+    monkeypatch.setattr(
+        "services.automated_trading.application.production_strategy.resolve_production_authorization",
+        lambda *, snapshot_config, snapshot_hash, symbol: ProductionAuthorization(
+            True,
+            "full_scope_probe",
+            candidate_id="trend_momentum_v2_enriched",
+        ),
+    )
+
+    assert scheduler_module._active_execution_strategy_identity() == ("trend_momentum_v2_enriched", True)
+
+
+def test_pending_production_keeps_canary_authority_and_fails_closed_without_sampling() -> None:
+    from services.automated_trading.application.production_strategy import EntryAuthority, resolve_entry_authority
+
+    canary = resolve_entry_authority(
+        production_authorized=False,
+        production_strategy_id=None,
+        execution_mode="BINANCE_TESTNET",
+        operator_testnet_canary_enabled=True,
+    )
+    disabled = resolve_entry_authority(
+        production_authorized=False,
+        production_strategy_id=None,
+        execution_mode="BINANCE_TESTNET",
+        operator_testnet_canary_enabled=False,
+    )
+
+    canary_state = ExternalSchedulerState(
+        running=True,
+        heartbeat_at=datetime.now(UTC),
+        engine_activation="ACTIVE",
+        execution_mode="BINANCE_TESTNET",
+        execution_strategy_id="production_strategy_pending",
+        execution_symbols=tuple(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        execution_coverage_count=len(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        registered_jobs=("automated_trading_v2_cycle",),
+        legacy_writer_enabled=False,
+        entry_enabled=True,
+        sampling_fallback_enabled=True,
+        external_baseline_captured=True,
+        entry_authorized=True,
+        entry_authority=canary.authority.value,
+        production_authorization_state="PENDING",
+        trading_state="TRADING",
+    )
+    paused_state = ExternalSchedulerState(
+        running=True,
+        heartbeat_at=datetime.now(UTC),
+        engine_activation="ACTIVE",
+        execution_mode="BINANCE_TESTNET",
+        execution_strategy_id="production_strategy_pending",
+        execution_symbols=tuple(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        execution_coverage_count=len(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        registered_jobs=("automated_trading_v2_cycle",),
+        legacy_writer_enabled=False,
+        entry_enabled=True,
+        sampling_fallback_enabled=False,
+        external_baseline_captured=True,
+        entry_authorized=False,
+        entry_authority=disabled.authority.value,
+        production_authorization_state="PENDING",
+        trading_state="ENTRY_PAUSED",
+    )
+
+    assert canary.authority is EntryAuthority.TESTNET_CANARY
+    assert canary.promotion_eligible is False
+    assert runtime_state.active_startup_contract_errors(canary_state) == ()
+
+    assert disabled.authority is EntryAuthority.NONE
+    errors = runtime_state.active_startup_contract_errors(paused_state)
+    assert "ENTRY_NOT_AUTHORIZED" in errors
+    assert "ENTRY_AUTHORITY_INVALID" in errors
+    assert "TRADING_STATE_NOT_TRADING" in errors
 
 
 def test_active_startup_contract_rejects_non_boolean_or_incomplete_runtime_state(tmp_path, monkeypatch) -> None:
@@ -270,7 +473,10 @@ def test_external_baseline_rejects_transient_environment_without_persistent_sour
     baseline_path.write_text(
         json.dumps(
             {
+                "schema_version": 1,
                 "execution_mode": "BINANCE_TESTNET",
+                "captured_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+                "source": "binance_testnet_authoritative_snapshot",
                 "positions": {"ETH/USDT:short": "10.976"},
             }
         ),

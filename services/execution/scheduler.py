@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from services.automated_trading.application.production_strategy import EntryAuthority, resolve_entry_authority
-from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_baseline_keys
 from shared.config import settings
 
 from .runtime_state import write_external_scheduler_state
@@ -130,14 +130,7 @@ class RuntimeSchedulerStatus:
         }
 
 
-_ALLOWED_EXTERNAL_BASELINE_KEYS = frozenset(
-    {
-        "BTC/USDT:long",
-        "BTC/USDT:short",
-        "ETH/USDT:long",
-        "ETH/USDT:short",
-    }
-)
+_ALLOWED_EXTERNAL_BASELINE_KEYS = execution_baseline_keys()
 
 
 def _normalize_external_baseline(payload: object) -> dict[str, str] | None:
@@ -191,7 +184,9 @@ def _external_baseline_capture() -> tuple[bool, dict[str, str] | None, str | Non
     expected_source = f"persistent_file:{persistent_path}"
     if (
         not isinstance(persisted_record, dict)
-        or persisted_record.get("execution_mode") != "BINANCE_TESTNET"
+        or persisted_record.get("schema_version") != 1
+        or tuple(persisted_record.get("captured_symbols", ())) != AUTO_SIMULATION_EXECUTION_SYMBOLS
+        or persisted_record.get("source") != "binance_testnet_authoritative_snapshot"
         or persisted != normalized
         or source != expected_source
     ):
@@ -250,7 +245,7 @@ def _active_execution_strategy_identity() -> tuple[str, bool]:
                     snapshot_hash=snapshot.config_hash,
                     symbol=symbol,
                 )
-                for symbol in ("BTC/USDT", "ETH/USDT")
+                for symbol in AUTO_SIMULATION_EXECUTION_SYMBOLS
             )
             resolved = tuple(authorizations)
             if not resolved or not all(item.authorized for item in resolved):

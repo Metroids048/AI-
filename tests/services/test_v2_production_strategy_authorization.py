@@ -151,6 +151,46 @@ def test_invalid_production_authorization_fails_closed(approved_manifest, mutati
     assert authorization.reason == NO_AUTHORIZED_PRODUCTION_STRATEGY
 
 
+def test_approved_manifest_with_partial_scope_cannot_authorize_any_execution_symbol(approved_manifest) -> None:
+    manifest, snapshot, snapshot_hash = approved_manifest
+    manifest["production_authorization"]["eligible_symbols"] = ["BTC/USDT", "ETH/USDT"]
+    from services.automated_trading.application import production_strategy
+
+    production_strategy._manifest_path().write_text(json.dumps(manifest), encoding="utf-8")
+
+    authorizations = tuple(
+        resolve_production_authorization(
+            snapshot_config=snapshot,
+            snapshot_hash=snapshot_hash,
+            symbol=symbol,
+        )
+        for symbol in AUTO_SIMULATION_EXECUTION_SYMBOLS
+    )
+
+    assert all(not authorization.authorized for authorization in authorizations)
+    assert {authorization.reason for authorization in authorizations} == {NO_AUTHORIZED_PRODUCTION_STRATEGY}
+
+
+def test_full_scope_manifest_without_approval_cannot_authorize_any_execution_symbol(approved_manifest) -> None:
+    manifest, snapshot, snapshot_hash = approved_manifest
+    manifest["production_authorization"]["state"] = "PENDING"
+    from services.automated_trading.application import production_strategy
+
+    production_strategy._manifest_path().write_text(json.dumps(manifest), encoding="utf-8")
+
+    authorizations = tuple(
+        resolve_production_authorization(
+            snapshot_config=snapshot,
+            snapshot_hash=snapshot_hash,
+            symbol=symbol,
+        )
+        for symbol in AUTO_SIMULATION_EXECUTION_SYMBOLS
+    )
+
+    assert all(not authorization.authorized for authorization in authorizations)
+    assert {authorization.reason for authorization in authorizations} == {NO_AUTHORIZED_PRODUCTION_STRATEGY}
+
+
 def test_approved_authorization_binds_candidate_rules_snapshot_and_scope(approved_manifest) -> None:
     _manifest, snapshot, snapshot_hash = approved_manifest
 

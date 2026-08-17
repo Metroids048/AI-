@@ -188,6 +188,18 @@ def active_startup_contract_errors(
         errors.append("LEGACY_WRITER_ENABLED")
     if state.external_baseline_captured is not True:
         errors.append("EXTERNAL_BASELINE_NOT_CAPTURED")
+    if state.entry_enabled is not True:
+        errors.append("ENTRY_DISABLED")
+    if state.entry_authorized is not True:
+        errors.append("ENTRY_NOT_AUTHORIZED")
+    if state.entry_authority not in {"TESTNET_CANARY", "PRODUCTION"}:
+        errors.append("ENTRY_AUTHORITY_INVALID")
+    if state.entry_authority == "TESTNET_CANARY" and state.sampling_fallback_enabled is not True:
+        errors.append("CANARY_SAMPLING_FALLBACK_DISABLED")
+    if state.entry_authority == "PRODUCTION" and state.production_authorization_state != "APPROVED":
+        errors.append("PRODUCTION_AUTHORIZATION_INVALID")
+    if state.trading_state != "TRADING":
+        errors.append("TRADING_STATE_NOT_TRADING")
     errors.extend(error for error in state.startup_contract_errors if error not in errors)
     return tuple(errors)
 

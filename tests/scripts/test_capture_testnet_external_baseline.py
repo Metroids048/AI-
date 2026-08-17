@@ -76,14 +76,35 @@ def test_missing_baseline_fails_closed_even_at_zero_exposure(tmp_path, monkeypat
 
 
 def test_persisted_baseline_still_rejects_invalid_shapes(tmp_path) -> None:
-    """Widening empty-dict acceptance must not widen anything else."""
+    """Widening five-symbol scope must not admit malformed baseline payloads."""
     capture = _load_capture_script()
     baseline_path = tmp_path / ".local" / "testnet-external-baseline.json"
 
-    for invalid in (None, [], "", 0):
+    invalid_payloads: tuple[object, ...] = (None, [], "", 0)
+    for invalid in invalid_payloads:
         with pytest.raises(RuntimeError, match="EXTERNAL_BASELINE_EMPTY_OR_INVALID"):
             capture.persist_external_baseline(invalid, path=baseline_path)
-    with pytest.raises(RuntimeError, match="EXTERNAL_BASELINE_INVALID_KEY"):
-        capture.persist_external_baseline({"SOL/USDT:long": "1"}, path=baseline_path)
+    for invalid_key in (
+        "DOGE/USDT:long",
+        "SOL/USDT:flat",
+        "SOLUSDT:long",
+        "SOL/USDT:long;DROP TABLE positions",
+    ):
+        with pytest.raises(RuntimeError, match="EXTERNAL_BASELINE_INVALID_KEY"):
+            capture.persist_external_baseline({invalid_key: "1"}, path=baseline_path)
+    capture.persist_external_baseline({"SOL/USDT:long": "1", "XRP/USDT:short": "2"}, path=baseline_path)
+    assert capture.load_persisted_external_baseline(path=baseline_path) == {
+        "SOL/USDT:long": "1",
+        "XRP/USDT:short": "2",
+    }
+
+
+@pytest.mark.parametrize("quantity", ("0", "-1"))
+def test_external_baseline_rejects_non_positive_quantity(tmp_path, quantity: str) -> None:
+    capture = _load_capture_script()
+
     with pytest.raises(RuntimeError, match="EXTERNAL_BASELINE_INVALID_QUANTITY"):
-        capture.persist_external_baseline({"BTC/USDT:long": "0"}, path=baseline_path)
+        capture.persist_external_baseline(
+            {"BTC/USDT:long": quantity},
+            path=tmp_path / ".local" / "testnet-external-baseline.json",
+        )

@@ -206,8 +206,13 @@ def _load_external_baseline_positions() -> dict[str, Decimal]:
     payload = json.loads(raw)
     if not isinstance(payload, dict):
         raise ValueError("V2_EXTERNAL_BASELINE_JSON must be a JSON object")
+    from services.data.universe import execution_baseline_keys
+
+    baseline_keys = execution_baseline_keys()
     baseline: dict[str, Decimal] = {}
     for key, value in payload.items():
+        if not isinstance(key, str) or key not in baseline_keys:
+            raise ValueError(f"external baseline key is outside execution scope: {key}")
         quantity = Decimal(str(value))
         if quantity <= 0:
             raise ValueError(f"external baseline quantity must be positive: {key}")

@@ -10,15 +10,10 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_baseline_keys
+
 BASELINE_FILENAME = "testnet-external-baseline.json"
-ALLOWED_BASELINE_KEYS = frozenset(
-    {
-        "BTC/USDT:long",
-        "BTC/USDT:short",
-        "ETH/USDT:long",
-        "ETH/USDT:short",
-    }
-)
+ALLOWED_BASELINE_KEYS = execution_baseline_keys()
 
 
 def _baseline_path() -> Path:
@@ -51,7 +46,9 @@ def persist_external_baseline(positions: dict[str, str], *, path: Path | None = 
     payload = {
         "schema_version": 1,
         "execution_mode": "BINANCE_TESTNET",
+        "captured_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
         "captured_at": datetime.now(UTC).isoformat(),
+        "source": "binance_testnet_authoritative_snapshot",
         "positions": normalized,
     }
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -70,7 +67,13 @@ def load_persisted_external_baseline(*, path: Path | None = None) -> dict[str, s
         raise RuntimeError(f"EXTERNAL_BASELINE_NOT_PERSISTED: {source}") from exc
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"EXTERNAL_BASELINE_INVALID_PERSISTED_JSON: {source}") from exc
-    if not isinstance(payload, dict) or payload.get("execution_mode") != "BINANCE_TESTNET":
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != 1
+        or payload.get("execution_mode") != "BINANCE_TESTNET"
+        or tuple(payload.get("captured_symbols", ())) != AUTO_SIMULATION_EXECUTION_SYMBOLS
+        or payload.get("source") != "binance_testnet_authoritative_snapshot"
+    ):
         raise RuntimeError(f"EXTERNAL_BASELINE_INVALID_PERSISTED_RECORD: {source}")
     return _validated_positions(payload.get("positions"))
 
@@ -107,6 +110,7 @@ def capture_baseline() -> dict[str, str]:
     from services.automated_trading.domain.enums import V2ExecutionMode
     from services.automated_trading.infrastructure.binance_adapter import BinanceTestnetAdapter
     from services.automated_trading.infrastructure.models import V2ManagedPosition
+    from services.data.universe import canonical_market_symbol
     from services.database import get_session_factory
 
     snapshot = BinanceTestnetAdapter(execution_mode=V2ExecutionMode.BINANCE_TESTNET).fetch_authoritative_snapshot()
@@ -121,11 +125,13 @@ def capture_baseline() -> dict[str, str]:
             )
         }
     baseline: dict[str, str] = {}
+    execution_symbols = set(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     for position in snapshot.positions:
-        if position.symbol not in {"BTC/USDT", "ETH/USDT"}:
+        symbol = canonical_market_symbol(position.symbol)
+        if symbol not in execution_symbols:
             continue
         quantity = Decimal(str(position.quantity))
-        key = f"{position.symbol}:{position.direction}"
+        key = f"{symbol}:{position.direction}"
         external_quantity = quantity - managed.get(key, Decimal("0"))
         if external_quantity > 0:
             baseline[key] = str(external_quantity)
