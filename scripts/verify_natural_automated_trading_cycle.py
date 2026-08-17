@@ -51,7 +51,6 @@ FORBIDDEN_MARKERS = (
     "acceptance",
     "manual",
     "synthetic",
-    "canary",
     "emulator",
     "fake",
 )
@@ -84,6 +83,10 @@ class NaturalCycleEvidence:
     # Protection
     stop_exchange_order_id: str | None = None
     take_profit_exchange_order_id: str | None = None
+    initial_risk_usdt: str | None = None
+    entry_authority: str | None = None
+    regime: str | None = None
+    natural_entry_passed: bool = False
 
     # Exit
     exit_trigger: str | None = None
@@ -100,6 +103,11 @@ class NaturalCycleEvidence:
     used_acceptance_shortcut: bool = False
     used_manual_intervention: bool = False
     used_synthetic_fill: bool = False
+    baseline_decision_ids: list[str] = field(default_factory=list)
+    baseline_candidate_keys: list[str] = field(default_factory=list)
+    baseline_intent_ids: list[str] = field(default_factory=list)
+    baseline_order_ids: list[str] = field(default_factory=list)
+    baseline_fill_ids: list[str] = field(default_factory=list)
     observed_cycles: int = 0
     notes: list[str] = field(default_factory=list)
 
@@ -301,6 +309,7 @@ def _poll_v2_state() -> dict[str, Any]:
                     cycle_id=entry_intent.cycle_id,
                     decision_id=entry_intent.decision_id,
                     intent_id=entry_intent.intent_id,
+                    initial_risk_usdt=entry_intent.initial_risk_usdt,
                     entry_intent_id=entry_intent.intent_id,
                     exchange_entry_order_id=entry_order.exchange_order_id,
                     average_entry_price=entry_order.average_fill_price,
@@ -324,8 +333,55 @@ def _poll_v2_state() -> dict[str, Any]:
         return {
             "positions": position_views,
             "latest_reconciliation": latest_reconciliation,
+            "decision_ids": list(session.scalars(select(V2ExecutionDecision.decision_id))),
+            "candidate_keys": list(session.scalars(select(V2ExecutionDecision.candidate_key))),
+            "intent_ids": list(session.scalars(select(V2ExecutionIntent.intent_id))),
+            "order_ids": list(session.scalars(select(V2ExchangeOrder.order_record_id))),
+            "fill_ids": list(session.scalars(select(V2ExchangeFill.fill_id))),
             "repo": None,  # never hold a session outside the block
         }
+
+
+def _natural_entry_passed(evidence: NaturalCycleEvidence) -> bool:
+    """Require a post-baseline natural V2 entry, fill, durable position, and protection."""
+    return all(
+        [
+            evidence.entry_authority == "TESTNET_CANARY",
+            bool(evidence.cycle_id),
+            bool(evidence.decision_id),
+            bool(evidence.candidate_id),
+            bool(evidence.intent_id),
+            bool(evidence.entry_exchange_order_id),
+            bool(evidence.entry_trade_ids),
+            bool(evidence.position_group_id),
+            Decimal(evidence.initial_risk_usdt or "0") > 0,
+            bool(evidence.stop_exchange_order_id),
+            not evidence.used_acceptance_shortcut,
+            not evidence.used_manual_intervention,
+            not evidence.used_synthetic_fill,
+        ]
+    )
+
+
+def _natural_entry_passed(evidence: NaturalCycleEvidence) -> bool:
+    """Require a post-baseline natural V2 entry, fill, durable position, and protection."""
+    return all(
+        [
+            evidence.entry_authority == "TESTNET_CANARY",
+            bool(evidence.cycle_id),
+            bool(evidence.decision_id),
+            bool(evidence.candidate_id),
+            bool(evidence.intent_id),
+            bool(evidence.entry_exchange_order_id),
+            bool(evidence.entry_trade_ids),
+            bool(evidence.position_group_id),
+            Decimal(evidence.initial_risk_usdt or "0") > 0,
+            bool(evidence.stop_exchange_order_id),
+            not evidence.used_acceptance_shortcut,
+            not evidence.used_manual_intervention,
+            not evidence.used_synthetic_fill,
+        ]
+    )
 
 
 def observe_natural_cycle(symbol_filter: str | None, timeout_minutes: int, poll_seconds: int) -> NaturalCycleEvidence:
@@ -355,6 +411,22 @@ def observe_natural_cycle(symbol_filter: str | None, timeout_minutes: int, poll_
         evidence.completed_at = datetime.now(UTC).isoformat()
         return evidence
     deadline = time.time() + timeout_minutes * 60
+    try:
+        baseline_state = _poll_v2_state()
+    except Exception as exc:  # noqa: BLE001
+        evidence.note(f"local V2 baseline capture failed: {type(exc).__name__}: {exc}")
+        evidence.completed_at = datetime.now(UTC).isoformat()
+        return evidence
+    evidence.baseline_decision_ids = sorted(str(item) for item in baseline_state["decision_ids"])
+    evidence.baseline_candidate_keys = sorted(str(item) for item in baseline_state["candidate_keys"])
+    evidence.baseline_intent_ids = sorted(str(item) for item in baseline_state["intent_ids"])
+    evidence.baseline_order_ids = sorted(str(item) for item in baseline_state["order_ids"])
+    evidence.baseline_fill_ids = sorted(str(item) for item in baseline_state["fill_ids"])
+    evidence.note(
+        "captured local baseline: "
+        f"decisions={len(evidence.baseline_decision_ids)} intents={len(evidence.baseline_intent_ids)} "
+        f"orders={len(evidence.baseline_order_ids)} fills={len(evidence.baseline_fill_ids)}"
+    )
     evidence.note(f"observing for up to {timeout_minutes} minutes; polling every {poll_seconds}s")
     evidence.note("NOTE: this script only observes. It never opens, closes, or mutates anything.")
 
@@ -406,6 +478,10 @@ def observe_natural_cycle(symbol_filter: str | None, timeout_minutes: int, poll_
                 avg = getattr(pos, "average_entry_price", None)
                 evidence.entry_avg_fill_price = str(avg) if avg is not None else None
                 evidence.entry_trade_ids = list(getattr(pos, "entry_trade_ids", ()) or ())
+                evidence.initial_risk_usdt = str(getattr(pos, "initial_risk_usdt", "") or "")
+                payload = getattr(pos, "decision_payload", {}) or {}
+                evidence.entry_authority = payload.get("entry_authority")
+                evidence.regime = payload.get("regime") or payload.get("market_regime")
                 evidence.note(
                     f"natural ENTRY observed: {pos_symbol} state={state_value} "
                     f"order_id={evidence.entry_exchange_order_id}"
@@ -420,6 +496,12 @@ def observe_natural_cycle(symbol_filter: str | None, timeout_minutes: int, poll_
                 evidence.stop_exchange_order_id = getattr(pos, "stop_exchange_order_id", None)
                 evidence.take_profit_exchange_order_id = getattr(pos, "take_profit_exchange_order_id", None)
                 evidence.note(f"real PROTECTION observed: stop={evidence.stop_exchange_order_id}")
+
+            if not evidence.natural_entry_passed and _natural_entry_passed(evidence):
+                evidence.natural_entry_passed = True
+                evidence.note(
+                    "NATURAL_ENTRY_PASS: natural Testnet Canary entry, fill, position, and protection confirmed"
+                )
 
             if saw_entry and state_value == "CLOSED" and not saw_exit:
                 saw_exit = True

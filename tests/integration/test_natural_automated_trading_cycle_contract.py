@@ -185,10 +185,11 @@ class TestForbiddenSourceDetection:
         _flag_forbidden_source(evidence, "fake_binance_adapter")
         assert evidence.used_synthetic_fill is True
 
-    def test_canary_flagged_as_acceptance(self) -> None:
+    def test_testnet_canary_is_a_valid_natural_entry_authority(self) -> None:
         evidence = _complete_evidence()
-        _flag_forbidden_source(evidence, "canary_order")
-        assert evidence.used_acceptance_shortcut is True
+        _flag_forbidden_source(evidence, "TESTNET_CANARY", "testnet_sampling_v2")
+        assert evidence.used_acceptance_shortcut is False
+        assert evidence.gate17_passed is True
 
     def test_legitimate_sampling_strategy_not_flagged(self) -> None:
         evidence = _complete_evidence()
