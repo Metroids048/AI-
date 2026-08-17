@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
 
@@ -15,7 +15,7 @@ from services.strategy_library import ReviewRepository
 def generate_daily_review(report_date: str | None = None) -> dict:
     session = get_session_factory()()
     try:
-        date_value = report_date or datetime.now(UTC).date().isoformat()
+        date_value = report_date or (datetime.now(UTC).date() - timedelta(days=1)).isoformat()
         report = ReviewService(ReviewRepository(session)).build_daily_report(date_value)
         return report.model_dump(mode="json")
     finally:

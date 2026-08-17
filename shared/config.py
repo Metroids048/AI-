@@ -93,7 +93,7 @@ class Settings(BaseSettings):
     market_kline_stream_poll_seconds: int = 2
     notification_dispatch_seconds: int = 60
     daily_review_hour_utc: int = 0
-    daily_review_minute_utc: int = 0
+    daily_review_minute_utc: int = 15
 
     # ---- LLM ----
     # Accept the Anthropic-SDK-conventional ANTHROPIC_API_KEY as an alias so

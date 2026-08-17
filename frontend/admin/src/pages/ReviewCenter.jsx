@@ -37,6 +37,11 @@ export function ReviewCenter() {
 
   const reviewRows = asArray(reviews.data?.items);
   const failureRows = asArray(failures.data?.items);
+  const latestReview = reviewRows[reviewRows.length - 1];
+  const reviewSummary = latestReview?.deviation_analysis ?? [];
+  const symbolReviewRows = reviewSummary.filter((item) => /^(BTC|ETH|SOL|XRP|BNB)\/USDT:/.test(item));
+  const noTradeRows = reviewSummary.filter((item) => item.includes("NO_SIGNAL") || item.includes("BLOCK"));
+
   const decisionRows = asArray(decisions.data?.items);
   const newsRows = asArray(news.data?.items);
   const runtimeLoading = runtime.snapshot == null;
@@ -66,6 +71,32 @@ export function ReviewCenter() {
       </section>
 
       <section className="records-grid review-runtime-activity">
+        <FeedPanel
+          title="上一完整 UTC 日结论"
+          rows={reviewSummary.length ? [latestReview] : []}
+          loading={reviews.isLoading}
+          error={reviews.isError ? reviews.error : null}
+          empty="尚未生成上一完整 UTC 日复盘"
+          render={(item) => (
+            <>
+              <strong>{item.deviation_analysis?.[0] ?? "暂无已实现交易"}</strong>
+              <span>{item.report_date ?? "-"} · {item.worst_performer_refs?.[0] ?? "无最差标的"}</span>
+            </>
+          )}
+        />
+        <FeedPanel
+          title="五币损益与未开单原因"
+          rows={symbolReviewRows}
+          loading={reviews.isLoading}
+          error={reviews.isError ? reviews.error : null}
+          empty="五币尚无已记录复盘原因"
+          render={(item) => (
+            <>
+              <strong>{item}</strong>
+              <span>{noTradeRows.includes(item) ? "未开单原因" : "已实现损益"}</span>
+            </>
+          )}
+        />
         <FeedPanel
           title="当前自动交易决策"
           rows={runtime.decisions}
