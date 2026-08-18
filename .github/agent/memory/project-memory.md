@@ -1090,3 +1090,18 @@
 - Active run snapshot `ff2ebdc1-ee1d-4ec3-a137-167112cb36a7` is live. Existing ETH/XRP
   positions remain untouched and protected; no exchange `setLeverage` call was made
   for them.
+
+## Runtime Truth & Canary Console closeout (2026-08-18)
+
+- Runtime endpoints share one reconciliation projection. Current live state is
+  `ACTIVE / BINANCE_TESTNET / TESTNET_CANARY`, five execution symbols, and
+  `entry_authorized=true`; data freshness was current in the final snapshot.
+- Binance authoritative positions are BTC short `0.5346`, ETH long `5.354`, and
+  SOL long `85.09`. ETH/SOL are V2-managed and fully protected with live
+  reduce-only stop/TP orders; BTC is an unmanaged external short with no live
+  protection, so reconciliation is `degraded`, BTC entry is blocked, and the
+  closeout remains P0 blocked pending operator adoption/remediation.
+- Console semantics now label BTC/ETH/SOL/XRP/BNB as `Canary 自动交易`, other
+  fixed research-universe rows as `研究 / 观察`, and explain unique filled
+  orders versus fill events and current protected positions. Strategy
+  optimization is not unlocked by this closeout.

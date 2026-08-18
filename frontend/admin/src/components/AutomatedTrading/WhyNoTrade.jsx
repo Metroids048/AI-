@@ -83,9 +83,22 @@ function SummaryCard({ summary }) {
     .filter(([code]) => code !== "DUPLICATE_DECISION")
     .sort(([, left], [, right]) => Number(right) - Number(left))
     .slice(0, 5);
+  const protection = summary.protection ?? {};
+  const reconciliation = summary.reconciliation ?? {};
   return (
     <div className="why-no-trade-summary">
       <p className="why-no-trade-status">{summaryCopy(summary)}</p>
+      {protection.p0_unprotected ? (
+        <p className="why-no-trade-p0" role="alert">
+          P0：当前权威持仓存在未确认保护，自动开仓已阻断。受管保护 {protection.protected_positions ?? 0}，未保护 {protection.unprotected_positions ?? 0}。
+        </p>
+      ) : null}
+      {reconciliation.status && reconciliation.status !== "healthy" ? (
+        <p className="why-no-trade-reconciliation" title={reconciliation.discrepancy_codes?.join(", ") || undefined}>
+          对账：{reconciliation.status} · 影响 {reconciliation.affected_symbols?.join("、") || "未指定"}
+          {reconciliation.recovery_action ? ` · ${reconciliation.recovery_action}` : ""}
+        </p>
+      ) : null}
       <p className="why-no-trade-age">
         {hasEntryAge ? `已 ${formatNumber(hours, 1)} 小时未产生新开仓` : "当前查询窗口内没有新开仓成交记录"}
       </p>
@@ -100,9 +113,11 @@ function SummaryCard({ summary }) {
           <span>候选 {summary.funnel.candidate_created ?? 0}</span>
           <span>R2 拒绝 {summary.funnel.r2_cost_rejected ?? 0}</span>
           <span>Intent {summary.funnel.intent_created ?? 0}</span>
-          <span>提交 {summary.funnel.exchange_submitted ?? 0}</span>
-          <span>成交 {summary.funnel.exchange_filled ?? 0}</span>
-          <span>保护 {summary.funnel.protection_confirmed ?? 0}</span>
+          <span>提交订单 {summary.funnel.exchange_submitted ?? 0}</span>
+          <span>成交订单 {summary.funnel.filled_orders ?? summary.funnel.exchange_filled ?? 0}</span>
+          <span>Fill Event {summary.funnel.fill_events ?? 0}</span>
+          <span>保护事件 {summary.funnel.protection_events ?? summary.funnel.protection_confirmed ?? 0}</span>
+          <span>当前保护仓位 {protection.protected_positions ?? 0}</span>
         </div>
       ) : null}
     </div>

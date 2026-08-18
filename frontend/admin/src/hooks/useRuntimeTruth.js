@@ -87,19 +87,32 @@ function useRuntimeTruthState(symbol) {
         error: firstFailure?.reason?.message ?? "",
       }));
     } finally {
-      refreshInFlight.current = false;
-      if (abortControllerRef.current === controller) abortControllerRef.current = null;
+      // A StrictMode effect cleanup (and a route unmount) can abort this request
+      // while a replacement refresh is already in flight. The old request must
+      // not clear the replacement's in-flight guard when its Promise settles.
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+        refreshInFlight.current = false;
+      }
     }
   }, [symbol]);
 
   useEffect(() => {
     mounted.current = true;
-    refresh();
+    // Defer the first refresh past React StrictMode's mount/cleanup probe. This
+    // prevents a dev-only cleanup from aborting the only initial truth burst.
+    const initialRefresh = window.setTimeout(refresh, 0);
     const timer = window.setInterval(refresh, FALLBACK_INTERVAL_MS);
     return () => {
       mounted.current = false;
+      window.clearTimeout(initialRefresh);
       window.clearInterval(timer);
-      abortControllerRef.current?.abort();
+      const controller = abortControllerRef.current;
+      if (controller) {
+        controller.abort();
+        abortControllerRef.current = null;
+        refreshInFlight.current = false;
+      }
     };
   }, [refresh]);
 

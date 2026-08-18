@@ -258,7 +258,7 @@ export function TestnetAccountPanel({ account }) {
   );
 }
 
-export function MarketList({ universe, universeStatus = "loading", selectedSymbol, onSelect }) {
+export function MarketList({ universe, universeStatus = "loading", canarySymbols = [], selectedSymbol, onSelect }) {
   const rows = asArray(universe);
   return (
     <section className="exchange-panel market-list-panel">
@@ -272,6 +272,7 @@ export function MarketList({ universe, universeStatus = "loading", selectedSymbo
         {rows.length ? (
           rows.map((item) => {
             const change = Number(item.price_change_percent ?? 0);
+            const isCanary = canarySymbols.includes(item.symbol);
             return (
               <button
                 key={item.symbol}
@@ -281,7 +282,7 @@ export function MarketList({ universe, universeStatus = "loading", selectedSymbo
               >
                 <span title={item.reason ?? ""}>
                   {item.display_symbol ?? item.symbol}
-                  <small>{marketStatusLabel(item.tradable_status)}</small>
+                  <small>{isCanary ? "Canary 自动交易" : "研究 / 观察"}</small>
                 </span>
                 <span>{formatNumber(item.last_price)}</span>
                 <span className={change >= 0 ? "positive" : "negative"}>{formatNumber(change, 2)}%</span>
@@ -545,12 +546,6 @@ export function AutoEngineStatusBadge({ status }) {
       {error ? <em>{error}</em> : null}
     </div>
   );
-}
-
-function marketStatusLabel(status) {
-  if (status === "trading") return "可交易";
-  if (status && status !== "unknown") return "不可交易";
-  return "待校验";
 }
 
 export function OrdersTable({ orders, onCancel }) {

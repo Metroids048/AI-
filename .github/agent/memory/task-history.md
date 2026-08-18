@@ -1656,3 +1656,33 @@
 - Verification: Ruff passed; core mypy passed for 9 files; focused scheduler/
   contract tests `91 passed`; frontend `113 passed`; full pytest `1694 passed,
   16 skipped, 1 failed` due to the pre-existing isolated daily-review assertion.
+
+## [TASK-2026-08-18-RUNTIME-TRUTH-CANARY-CLOSEOUT]
+
+- Runtime Truth now classifies live Binance raw algo orders (`algoStatus`,
+  `orderType`, `clientAlgoId`, `algoId`, `reduceOnly`, compact `BASEUSDT` symbols)
+  and normalizes V2 order identity. The regression suite covers raw Binance
+  protection responses.
+- Live Testnet evidence after restart: BTC short `0.5346` is an external,
+  unmanaged position with no live stop/TP and remains a P0 entry-blocking fact;
+  ETH long `5.354` and SOL long `85.09` each have live reduce-only stop and TP
+  orders covering the full authoritative quantity. ETH protection IDs are
+  `1000000171465758` / `1000000171465772`; SOL IDs are
+  `1000000171476726` / `1000000171476743`.
+- Runtime snapshot, positions, reconciliation and no-trade summary agree on
+  `degraded`, affected `BTC/USDT`, discrepancy `EXCHANGE_ONLY_POSITION`, and
+  recovery action `UNMANAGED_EXTERNAL_POSITION_REQUIRES_OPERATOR_ADOPTION`.
+  Funnel semantics distinguish unique filled orders (`5`) from fill events
+  (`11`) and protection records/events (`2`).
+- Frontend now distinguishes five Canary symbols from research/observation
+  symbols, covers all five runtime decisions, and surfaces current protected vs
+  unprotected positions. Runtime and console data hooks defer their initial
+  refresh past React StrictMode cleanup to avoid aborting the only first burst.
+- Verification: `ruff check .` passed; `mypy` passed for 258 files; Runtime Truth
+  tests `24 passed`; frontend Vitest `113 passed`; full pytest `1707 passed,
+  7 skipped, 1 failed` with only pre-existing
+  `test_daily_review_keeps_all_terminal_reasons_for_same_symbol` failing.
+- Gate: `ROUND CLOSEOUT=FAIL/BLOCKED` until the external BTC position is
+  explicitly adopted or removed by the operator and receives authoritative
+  protection. Strategy optimization remains blocked; no Canary safety values
+  or strategy gates were changed.

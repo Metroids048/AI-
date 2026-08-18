@@ -110,10 +110,11 @@ def _tag_order_ownership(order: dict) -> dict:
     Binance web UI's `web_algo_` algo orders) is an operator/manual order that must
     never be counted as a system entry or pending reservation.
     """
-    client_order_id = str(order.get("client_order_id") or "")
+    client_order_id = str(order.get("client_order_id") or order.get("clientAlgoId") or order.get("clientOrderId") or "")
     system_owned = is_v2_client_order_id(client_order_id)
     return {
         **order,
+        "client_order_id": client_order_id or None,
         "ownership": "SYSTEM_V2_ORDER" if system_owned else "EXTERNAL_MANUAL_ORDER",
         "system_owned": system_owned,
     }
@@ -221,7 +222,13 @@ def _exchange_truth() -> dict:
 
 def _platform_symbol(value: object) -> str:
     symbol = str(value or "")
-    return symbol[:-5] if symbol.endswith(":USDT") else symbol
+    if symbol.endswith(":USDT"):
+        symbol = symbol[:-5]
+    # Binance algo-order responses use compact symbols such as ETHUSDT,
+    # while the rest of the runtime truth contract uses BASE/USDT.
+    if "/" not in symbol and symbol.endswith("USDT"):
+        return f"{symbol[:-4]}/USDT"
+    return symbol
 
 
 def _position_truth(
@@ -275,6 +282,178 @@ def _position_truth(
         ),
         blocked_symbols,
     )
+
+
+def _current_protection_truth(*, exchange: dict, observed_at: datetime) -> dict:
+    """Classify live exchange protection against each authoritative position.
+
+    Historical V2 protection rows are deliberately excluded: only currently open
+    exchange orders can protect a currently open exchange position.
+    """
+    exchange_value = exchange.get("value") or {}
+
+    def _order_value(order: dict, *keys: str) -> object | None:
+        for key in keys:
+            value = order.get(key)
+            if value is not None:
+                return value
+        return None
+
+    def _order_type(order: dict) -> str:
+        return str(_order_value(order, "order_type", "orderType", "type") or "").lower()
+
+    def _order_quantity(order: dict) -> float:
+        return abs(float(str(_order_value(order, "quantity", "amount", "origQty") or 0)))
+
+    def _order_bool(order: dict, *keys: str) -> bool:
+        value = _order_value(order, *keys)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes"}
+        return bool(value)
+
+    live_orders = []
+    for order in exchange_value.get("open_orders") or []:
+        status = str(_order_value(order, "status", "algoStatus") or "").lower()
+        order_type = _order_type(order)
+        if status not in {"new", "open", "working", "submitted"}:
+            continue
+        if not any(token in order_type for token in ("stop", "take_profit", "take-profit")):
+            continue
+        live_orders.append(order)
+
+    positions = []
+    for raw in exchange_value.get("positions") or []:
+        quantity = abs(float(raw.get("contracts") or raw.get("positionAmt") or 0))
+        if quantity <= 0:
+            continue
+        symbol = _platform_symbol(raw.get("symbol"))
+        direction = str(raw.get("side") or "").lower()
+        matching = [
+            order
+            for order in live_orders
+            if _platform_symbol(order.get("symbol")) == symbol
+            and str(order.get("side") or "").lower() in ({"buy"} if direction == "short" else {"sell"})
+        ]
+        stops = [item for item in matching if "stop" in _order_type(item)]
+        targets = [item for item in matching if "take" in _order_type(item)]
+
+        def _covers(items: list[dict], expected_quantity: float = quantity) -> bool:
+            return any(_order_quantity(item) >= expected_quantity - 1e-12 for item in items)
+
+        stop = stops[0] if stops else None
+        target = targets[0] if targets else None
+        stop_covers = _covers(stops)
+        target_covers = _covers(targets)
+        protected = stop_covers and target_covers
+        positions.append(
+            {
+                "symbol": symbol,
+                "direction": direction,
+                "quantity": quantity,
+                "stop_present": bool(stop),
+                "take_profit_present": bool(target),
+                "stop_covers_quantity": stop_covers,
+                "take_profit_covers_quantity": target_covers,
+                "protected": protected,
+                "reduce_only": bool(
+                    stop is not None
+                    and target is not None
+                    and _order_bool(stop, "reduce_only", "reduceOnly")
+                    and _order_bool(target, "reduce_only", "reduceOnly")
+                ),
+                "stop_client_order_id": _order_value(stop or {}, "client_order_id", "clientAlgoId", "clientOrderId"),
+                "stop_exchange_order_id": _order_value(stop or {}, "exchange_order_id", "algoId", "orderId", "id"),
+                "take_profit_client_order_id": _order_value(
+                    target or {}, "client_order_id", "clientAlgoId", "clientOrderId"
+                ),
+                "take_profit_exchange_order_id": _order_value(
+                    target or {}, "exchange_order_id", "algoId", "orderId", "id"
+                ),
+                "reason": None if protected else "LIVE_REDUCE_ONLY_STOP_AND_TARGET_NOT_CONFIRMED",
+            }
+        )
+    protected_count = sum(bool(item["protected"]) for item in positions)
+    return {
+        "observed_at": observed_at.isoformat(),
+        "positions": positions,
+        "protected_positions": protected_count,
+        "unprotected_positions": len(positions) - protected_count,
+        "p0_unprotected": bool(positions and protected_count < len(positions)),
+        "live_protection_order_count": len(live_orders),
+    }
+
+
+def _reconciliation_truth(*, db: Session, exchange: dict, observed_at: datetime) -> dict:
+    """Single reconciliation projection shared by all Runtime Truth endpoints."""
+    v2_repo = _v2_repo(db)
+    local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
+    mismatch, blocked_symbols = _position_truth(exchange=exchange, local_open=local_open, observed_at=observed_at)
+    paper_runs = PaperRunRepository(db).list_paper_runs()
+    active_kill_switch_runs = [
+        run for run in paper_runs if bool(run.paper_metrics_summary.get("entry_kill_switch_active", False))
+    ]
+    consecutive_failures = max(
+        (int(run.paper_metrics_summary.get("reconciliation_consecutive_failures", 0)) for run in paper_runs),
+        default=0,
+    )
+    unknown_orders = v2_repo.list_exchange_unknown_intents(execution_mode=V2ExecutionMode.BINANCE_TESTNET)
+    exchange_status = str(exchange.get("status") or "")
+    exchange_has_snapshot = exchange.get("value") is not None
+    if exchange_status == "unavailable" or (exchange_status != "available" and not exchange_has_snapshot):
+        reconciliation_status = "unavailable"
+        blocked_symbols = {"BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"}
+    elif exchange_status == "stale":
+        reconciliation_status = "degraded"
+    elif active_kill_switch_runs:
+        reconciliation_status = "degraded"
+        blocked_symbols.update({"BTC/USDT", "ETH/USDT"})
+    elif unknown_orders:
+        reconciliation_status = "degraded"
+        blocked_symbols.update(order.symbol for order in unknown_orders)
+    elif mismatch["value"]["consistent"]:
+        reconciliation_status = "healthy"
+    else:
+        reconciliation_status = "degraded"
+    discrepancy_codes = []
+    if mismatch["value"]["exchange_only_positions"]:
+        discrepancy_codes.append("EXCHANGE_ONLY_POSITION")
+    if mismatch["value"]["local_only_positions"]:
+        discrepancy_codes.append("LOCAL_ONLY_POSITION")
+    if mismatch["value"]["quantity_mismatches"]:
+        discrepancy_codes.append("POSITION_QUANTITY_MISMATCH")
+    if active_kill_switch_runs:
+        discrepancy_codes.append("ENTRY_KILL_SWITCH_ACTIVE")
+    if unknown_orders:
+        discrepancy_codes.append("EXCHANGE_UNKNOWN_ORDER")
+    actions = []
+    if active_kill_switch_runs:
+        actions.append("ENTRY_KILL_SWITCH_ACTIVE")
+    if unknown_orders:
+        actions.append("EXCHANGE_UNKNOWN_REQUIRES_RECONCILIATION")
+    if mismatch["value"]["exchange_only_positions"]:
+        actions.append("UNMANAGED_EXTERNAL_POSITION_REQUIRES_OPERATOR_ADOPTION")
+    affected_symbols = sorted(blocked_symbols)
+    return {
+        "status": reconciliation_status,
+        "entry_blocked_symbols": affected_symbols,
+        "affected_symbols": affected_symbols,
+        "discrepancy_codes": discrepancy_codes,
+        "actions": actions,
+        "snapshot": exchange,
+        "mismatch": mismatch,
+        "error": (
+            exchange.get("error")
+            or ("entry kill switch remains active" if active_kill_switch_runs else None)
+            or ("unresolved exchange orders remain" if unknown_orders else None)
+        ),
+        "consecutive_failures": consecutive_failures,
+        "entry_kill_switch_active": bool(active_kill_switch_runs),
+        "unresolved_exchange_order_ids": [order.intent_id for order in unknown_orders],
+        "entry_blocked": bool(affected_symbols),
+        "recovery_action": actions[-1] if actions else None,
+        "last_healthy_at": None,
+        "last_healthy_time_source": "not_persisted",
+    }
 
 
 def _v2_repo(db: Session) -> AutomatedTradingRepository:
@@ -489,6 +668,7 @@ def build_no_trade_summary(
     decisions: list[dict],
     entry_fills: list[dict],
     funnel: dict | None = None,
+    protection_truth: dict | None = None,
 ) -> dict:
     """Project existing Runtime Truth facts into one deterministic no-trade status."""
     window_start = observed_at - timedelta(hours=window_hours)
@@ -573,6 +753,13 @@ def build_no_trade_summary(
         "reconciliation": {
             "status": reconciliation_status,
             "blocked_symbols": list(reconciliation.get("blocked_symbols") or []),
+            "affected_symbols": list(
+                reconciliation.get("affected_symbols") or reconciliation.get("blocked_symbols") or []
+            ),
+            "discrepancy_codes": list(reconciliation.get("discrepancy_codes") or []),
+            "entry_blocked": bool(reconciliation.get("blocked_symbols")),
+            "recovery_action": reconciliation.get("recovery_action"),
+            "last_healthy_at": reconciliation.get("last_healthy_at"),
         },
         "entry_runtime": {
             "trading_state": trading_state,
@@ -589,6 +776,13 @@ def build_no_trade_summary(
             "dominant_reason": dominant_reason,
         },
         "funnel": funnel or {},
+        "protection": protection_truth
+        or {
+            "positions": [],
+            "protected_positions": 0,
+            "unprotected_positions": 0,
+            "p0_unprotected": False,
+        },
         "summary_code": summary_code,
     }
 
@@ -599,11 +793,8 @@ def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
     v2_repo = _v2_repo(db)
     exchange = _exchange_truth()
     local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
-    mismatch, _blocked_symbols = _position_truth(
-        exchange=exchange,
-        local_open=local_open,
-        observed_at=observed_at,
-    )
+    reconciliation = _reconciliation_truth(db=db, exchange=exchange, observed_at=observed_at)
+    mismatch = reconciliation["mismatch"]
     scheduler = load_external_scheduler_state(now=observed_at)
     paper_runs = PaperRunRepository(db).list_paper_runs()
     entry_runtime = {
@@ -624,6 +815,13 @@ def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
             observed_at=observed_at,
         ),
         "mismatch": mismatch,
+        "reconciliation": _datum(
+            value=reconciliation,
+            source="RUNTIME_RECONCILIATION_TRUTH",
+            observed_at=observed_at,
+            status="available" if reconciliation["status"] != "unavailable" else "unavailable",
+            error=reconciliation.get("error"),
+        ),
         "scheduler": _datum(
             value={
                 **scheduler.__dict__,
@@ -669,6 +867,11 @@ def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
             source="V2_PROTECTION_FACTS",
             observed_at=observed_at,
         ),
+        "current_protection": _datum(
+            value=_current_protection_truth(exchange=exchange, observed_at=observed_at),
+            source="BINANCE_LIVE_REDUCE_ONLY_PROTECTION",
+            observed_at=observed_at,
+        ),
     }
 
 
@@ -682,7 +885,7 @@ def runtime_no_trade_summary(
     v2_repo = _v2_repo(db)
     scheduler = load_external_scheduler_state(now=observed_at)
     exchange = _exchange_truth()
-    reconciliation = runtime_reconciliation(db)
+    reconciliation = _reconciliation_truth(db=db, exchange=exchange, observed_at=observed_at)
     decision_rows = v2_repo.list_recent_decisions(since=window_start, limit=500)
     decisions = []
     for decision, cycle in decision_rows:
@@ -716,6 +919,10 @@ def runtime_no_trade_summary(
         reconciliation={
             "status": reconciliation["status"],
             "blocked_symbols": reconciliation["entry_blocked_symbols"],
+            "affected_symbols": reconciliation["affected_symbols"],
+            "discrepancy_codes": reconciliation["discrepancy_codes"],
+            "recovery_action": reconciliation["recovery_action"],
+            "last_healthy_at": reconciliation["last_healthy_at"],
         },
         entry_runtime={
             "trading_state": scheduler.trading_state or "ENTRY_PAUSED",
@@ -725,6 +932,7 @@ def runtime_no_trade_summary(
         },
         decisions=decisions,
         entry_fills=fills,
+        protection_truth=_current_protection_truth(exchange=exchange, observed_at=observed_at),
     )
     effective = [item for item in decisions if item["reason"] != "DUPLICATE_DECISION"]
     orders = v2_repo.list_exchange_orders(execution_mode=V2ExecutionMode.BINANCE_TESTNET, limit=500)
@@ -775,10 +983,21 @@ def runtime_no_trade_summary(
         "price_drift_rejected": sum(item["reason"].startswith("PRICE_DRIFT_") for item in effective),
         "intent_created": len(intent_rows),
         "exchange_submitted": sum(order.submitted_at is not None for order, _intent in order_rows),
-        "exchange_filled": len(fill_rows),
+        "exchange_filled": len({str(fill.exchange_order_id) for fill, _intent in fill_rows if fill.exchange_order_id}),
+        "fill_events": len(fill_rows),
+        "filled_orders": len({str(fill.exchange_order_id) for fill, _intent in fill_rows if fill.exchange_order_id}),
         "protection_confirmed": sum(
             protection.state in {"PROTECTION_ACTIVE", "PROTECTION_FILLED"} for protection, _position in protection_rows
         ),
+        "protection_events": sum(
+            protection.state in {"PROTECTION_ACTIVE", "PROTECTION_FILLED"} for protection, _position in protection_rows
+        ),
+        "metric_semantics": {
+            "exchange_filled": "unique_entry_exchange_orders",
+            "fill_events": "exchange_fill_receipts_trade_ids",
+            "protection_confirmed": "V2_protection_records_confirmed_in_window",
+            "protected_positions": "current_authoritative_positions_with_live_stop_and_take_profit",
+        },
     }
     return summary
 
@@ -827,9 +1046,16 @@ def runtime_exchange_orders(
 
 @router.get("/positions")
 def runtime_positions(db: Session = Depends(get_db_session)) -> dict:
+    observed_at = datetime.now(UTC)
+    exchange = _exchange_truth()
     v2_repo = _v2_repo(db)
     return {
-        "exchange": _exchange_truth(),
+        "exchange": exchange,
+        "current_protection": _datum(
+            value=_current_protection_truth(exchange=exchange, observed_at=observed_at),
+            source="BINANCE_LIVE_REDUCE_ONLY_PROTECTION",
+            observed_at=observed_at,
+        ),
         "local": _datum(
             value=[
                 _v2_position_payload(item)
@@ -871,62 +1097,7 @@ def runtime_llm_invocations(
 def runtime_reconciliation(db: Session = Depends(get_db_session)) -> dict:
     observed_at = datetime.now(UTC)
     exchange = _exchange_truth()
-    v2_repo = _v2_repo(db)
-    local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
-    mismatch, blocked_symbols = _position_truth(
-        exchange=exchange,
-        local_open=local_open,
-        observed_at=observed_at,
-    )
-    paper_runs = PaperRunRepository(db).list_paper_runs()
-    active_kill_switch_runs = [
-        run for run in paper_runs if bool(run.paper_metrics_summary.get("entry_kill_switch_active", False))
-    ]
-    consecutive_failures = max(
-        (int(run.paper_metrics_summary.get("reconciliation_consecutive_failures", 0)) for run in paper_runs),
-        default=0,
-    )
-    unknown_orders = v2_repo.list_exchange_unknown_intents(execution_mode=V2ExecutionMode.BINANCE_TESTNET)
-    exchange_status = str(exchange.get("status") or "")
-    exchange_has_snapshot = exchange.get("value") is not None
-    # Stale cached truth is degraded for ops UI, but must not invent a full BTC/ETH
-    # block when positions/orders were recently observed. Only hard-unavailable
-    # (no usable value) forces the full entry block in this projection endpoint.
-    if exchange_status == "unavailable" or (exchange_status != "available" and not exchange_has_snapshot):
-        reconciliation_status = "unavailable"
-        blocked_symbols = {"BTC/USDT", "ETH/USDT"}
-    elif exchange_status == "stale":
-        reconciliation_status = "degraded"
-    elif active_kill_switch_runs:
-        reconciliation_status = "degraded"
-        blocked_symbols.update({"BTC/USDT", "ETH/USDT"})
-    elif unknown_orders:
-        reconciliation_status = "degraded"
-        blocked_symbols.update(order.symbol for order in unknown_orders)
-    elif mismatch["value"]["consistent"]:
-        reconciliation_status = "healthy"
-    else:
-        reconciliation_status = "degraded"
-    actions = []
-    if active_kill_switch_runs:
-        actions.append("ENTRY_KILL_SWITCH_ACTIVE")
-    if unknown_orders:
-        actions.append("EXCHANGE_UNKNOWN_REQUIRES_RECONCILIATION")
-    return {
-        "status": reconciliation_status,
-        "entry_blocked_symbols": sorted(blocked_symbols),
-        "actions": actions,
-        "snapshot": exchange,
-        "mismatch": mismatch,
-        "error": (
-            exchange.get("error")
-            or ("entry kill switch remains active" if active_kill_switch_runs else None)
-            or ("unresolved exchange orders remain" if unknown_orders else None)
-        ),
-        "consecutive_failures": consecutive_failures,
-        "entry_kill_switch_active": bool(active_kill_switch_runs),
-        "unresolved_exchange_order_ids": [order.intent_id for order in unknown_orders],
-    }
+    return _reconciliation_truth(db=db, exchange=exchange, observed_at=observed_at)
 
 
 @router.websocket("/events")

@@ -54,6 +54,98 @@ def test_exchange_truth_marks_web_algo_order_as_external_manual() -> None:
     assert tagged["system_owned"] is False
 
 
+def test_exchange_truth_normalizes_raw_binance_client_algo_id() -> None:
+    tagged = runtime._tag_order_ownership({"clientAlgoId": "A2S-raw-binance"})
+
+    assert tagged["client_order_id"] == "A2S-raw-binance"
+    assert tagged["ownership"] == "SYSTEM_V2_ORDER"
+    assert tagged["system_owned"] is True
+
+
+def test_runtime_snapshot_exposes_shared_reconciliation_and_live_protection_truth(
+    api_client,
+    monkeypatch,
+) -> None:
+    observed_at = datetime.now(UTC)
+    monkeypatch.setattr(
+        runtime,
+        "_exchange_truth",
+        lambda: runtime._datum(
+            value={
+                "positions": [
+                    {
+                        "symbol": "BTC/USDT:USDT",
+                        "contracts": 0.5,
+                        "side": "short",
+                        "entry_price": 64000,
+                        "mark_price": 64100,
+                    }
+                ],
+                "open_orders": [],
+            },
+            source="BINANCE_USDT_M_TESTNET",
+            observed_at=observed_at,
+        ),
+    )
+
+    body = api_client.get("/api/v1/runtime/snapshot").json()
+
+    assert body["reconciliation"]["value"]["status"] == "degraded"
+    assert body["reconciliation"]["value"]["discrepancy_codes"] == ["EXCHANGE_ONLY_POSITION"]
+    assert body["reconciliation"]["value"]["recovery_action"] == (
+        "UNMANAGED_EXTERNAL_POSITION_REQUIRES_OPERATOR_ADOPTION"
+    )
+    protection = body["current_protection"]["value"]
+    assert protection["unprotected_positions"] == 1
+    assert protection["p0_unprotected"] is True
+
+
+def test_current_protection_truth_accepts_raw_binance_algo_order_fields() -> None:
+    observed_at = datetime.now(UTC)
+    result = runtime._current_protection_truth(
+        exchange={
+            "value": {
+                "positions": [
+                    {"symbol": "ETHUSDT", "positionAmt": "5.354", "side": "long"},
+                ],
+                "open_orders": [
+                    {
+                        "symbol": "ETHUSDT",
+                        "side": "SELL",
+                        "algoStatus": "NEW",
+                        "orderType": "STOP_MARKET",
+                        "quantity": "5.354",
+                        "reduceOnly": True,
+                        "clientAlgoId": "A2S-stop",
+                        "algoId": "1001",
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "side": "SELL",
+                        "algoStatus": "NEW",
+                        "orderType": "TAKE_PROFIT_MARKET",
+                        "quantity": "5.354",
+                        "reduceOnly": "true",
+                        "clientAlgoId": "A2T-target",
+                        "algoId": "1002",
+                    },
+                ],
+            },
+            "status": "available",
+        },
+        observed_at=observed_at,
+    )
+
+    assert result["protected_positions"] == 1
+    assert result["unprotected_positions"] == 0
+    assert result["p0_unprotected"] is False
+    position = result["positions"][0]
+    assert position["symbol"] == "ETH/USDT"
+    assert position["reduce_only"] is True
+    assert position["stop_client_order_id"] == "A2S-stop"
+    assert position["take_profit_exchange_order_id"] == "1002"
+
+
 def test_runtime_snapshot_exposes_entry_paused_as_an_explicit_runtime_state(api_client, monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(tmp_path / "scheduler-state.json"))
     now = datetime.now(UTC)

@@ -2137,6 +2137,28 @@ td {
   margin: 0 0 10px;
 }
 
+.why-no-trade-p0,
+.why-no-trade-reconciliation {
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 0 0 8px;
+  padding: 6px 8px;
+}
+
+.why-no-trade-p0 {
+  background: #fff1f0;
+  border: 1px solid #ffccc7;
+  color: #a8071a;
+  font-weight: 600;
+}
+
+.why-no-trade-reconciliation {
+  background: #fff7e6;
+  border: 1px solid #ffd591;
+  color: #ad4e00;
+}
+
 .why-no-trade-empty {
   color: #707a8a;
   font-size: 12px;

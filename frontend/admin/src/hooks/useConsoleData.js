@@ -223,10 +223,13 @@ export function useConsoleData(symbol, perpSymbol, timeframe) {
         refresh().finally(scheduleNext);
       }, interval);
     };
-    refresh().finally(scheduleNext);
+    // Defer the initial burst past React StrictMode's mount/cleanup probe so the
+    // first real console load is not aborted in development.
+    const initialRefresh = window.setTimeout(() => refresh().finally(scheduleNext), 0);
 
     return () => {
       disposed = true;
+      window.clearTimeout(initialRefresh);
       if (timer) window.clearTimeout(timer);
       activeControllerRef.current?.abort();
     };

@@ -33,6 +33,7 @@ import { useRuntimeTruth } from "../hooks/useRuntimeTruth";
 const DEFAULT_SYMBOL = "BTC/USDT";
 const DEFAULT_PERP = "BTC/USDT:USDT";
 const DEFAULT_TIMEFRAME = "1m";
+const DEFAULT_CANARY_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"];
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -207,10 +208,15 @@ function tradingStatusFromRuntimeSnapshot(snapshot) {
     : null;
 }
 
-function riskStatusFromRuntime(runtime) {
-  if (runtime?.reconciliation?.status === "unavailable") return { status: "unknown", entry_allowed: null };
-  if (runtime?.reconciliation?.entry_blocked_symbols?.length) return { status: "blocked", entry_allowed: false };
-  if (runtime?.reconciliation?.status) return { status: runtime.reconciliation.status, entry_allowed: true };
+function riskStatusFromRuntime(runtime, noTradeSummary) {
+  const reconciliation = runtime?.status && runtime.status !== "unavailable"
+    ? runtime
+    : noTradeSummary?.reconciliation;
+  if (!reconciliation || reconciliation.status === "unavailable") return { status: "unknown", entry_allowed: null };
+  if (reconciliation.entry_blocked_symbols?.length || reconciliation.blocked_symbols?.length) {
+    return { status: "blocked", entry_allowed: false };
+  }
+  if (reconciliation.status) return { status: reconciliation.status, entry_allowed: true };
   return { status: "unknown", entry_allowed: null };
 }
 
@@ -223,7 +229,13 @@ export function PaperConsole() {
   const data = useConsoleData(symbol, perpSymbol, timeframe);
   const runtime = useRuntimeTruth();
   const account = useMemo(() => accountFromRuntimeSnapshot(runtime.snapshot), [runtime.snapshot]);
-  const mode = "paper";
+  const manualMode = "paper";
+  const canarySymbols = useMemo(
+    () => runtime.snapshot?.scheduler?.value?.execution_symbols?.length
+      ? runtime.snapshot.scheduler.value.execution_symbols.map(platformSymbol)
+      : DEFAULT_CANARY_SYMBOLS,
+    [runtime.snapshot],
+  );
   const latestPaperRun = useMemo(
     () => (Array.isArray(data.overview?.paper_runs) ? data.overview.paper_runs.at(-1) : null),
     [data.overview?.paper_runs],
@@ -242,8 +254,8 @@ export function PaperConsole() {
     [runtime.snapshot],
   );
   const activeRuntimeDecisions = useMemo(
-    () => runtime.decisions.filter((item) => ["BTC/USDT", "ETH/USDT"].includes(platformSymbol(item.symbol))),
-    [runtime.decisions],
+    () => runtime.decisions.filter((item) => canarySymbols.includes(platformSymbol(item.symbol))),
+    [canarySymbols, runtime.decisions],
   );
   const runtimePositionsError = runtime.positions?.exchange?.status === "unavailable"
     ? runtime.positions.exchange.error ?? "交易所持仓暂不可用"
@@ -291,7 +303,7 @@ export function PaperConsole() {
       if (type === "runAllCycles") {
         const result = await request("/api/v1/execution/paper-runs/auto-cycle-all", {
           method: "POST",
-          body: JSON.stringify({ symbols: [], max_symbols: Number(autoSettings?.max_symbols ?? 20), timeframe, enable_decision_veto: true }),
+          body: JSON.stringify({ symbols: canarySymbols, max_symbols: canarySymbols.length, timeframe, enable_decision_veto: true }),
         });
         setActionMessage(`自动 cycle 已执行：${result.paper_runs} 个 PaperRun。`);
       }
@@ -336,7 +348,7 @@ export function PaperConsole() {
       }
       if (type === "testnetAcceptance") {
         const approved = window.confirm(
-          "这是基础设施连通性验收，不是自动策略。它会按固定 20 个币种开仓后立即平仓，预计产生 40 笔币安模拟盘成交。确认执行吗？",
+          "这是基础设施连通性验收，不是自动策略。它会按固定五币 Canary 范围开仓后立即平仓，预计产生 10 笔币安模拟盘成交。确认执行吗？",
         );
         if (!approved) return;
         const result = await request("/api/v1/execution/testnet-acceptance-runs", {
@@ -381,15 +393,16 @@ export function PaperConsole() {
         decisions={activeRuntimeDecisions}
         noTradeSummary={runtime.noTradeSummary}
         tradingStatus={tradingStatusFromRuntimeSnapshot(runtime.snapshot)}
-        globalRiskStatus={riskStatusFromRuntime(runtime.reconciliation)}
+        globalRiskStatus={riskStatusFromRuntime(runtime.reconciliation, runtime.noTradeSummary)}
         streamStatus={data.streamStatus}
         selectedSymbol={symbol}
         lastSuccessAt={runtime.lastSuccessAt}
       />
       <MarketList
-        universe={data.universe}
-        universeStatus={data.universeStatus}
-        selectedSymbol={symbol}
+          universe={data.universe}
+          universeStatus={data.universeStatus}
+          canarySymbols={canarySymbols}
+          selectedSymbol={symbol}
         onSelect={handleSelectSymbol}
       />
       <MarketHeader
@@ -423,10 +436,10 @@ export function PaperConsole() {
       </section>
       <TradingRecordsWorkspace tabs={[
         { id: "positions", label: "持仓", count: deskPositions?.length ?? null, content: <DataState loading={runtime.positions == null} error={runtimePositionsError} hasData={deskPositions != null} emptyLabel="持仓状态待确认"><PositionsTable positions={deskPositions ?? []} /></DataState> },
-        { id: "orders", label: "订单", count: deskOrders?.length ?? null, content: <DataState loading={runtime.snapshot == null} error={runtimeOrdersError} hasData={deskOrders != null} emptyLabel="订单状态待确认"><OrdersTable orders={deskOrders ?? []} onCancel={(order) => handleAction("cancelOrder", { mode, order_execution_id: order.order_execution_id })} /></DataState> },
+        { id: "orders", label: "订单", count: deskOrders?.length ?? null, content: <DataState loading={runtime.snapshot == null} error={runtimeOrdersError} hasData={deskOrders != null} emptyLabel="订单状态待确认"><OrdersTable orders={deskOrders ?? []} onCancel={(order) => handleAction("cancelOrder", { mode: manualMode, order_execution_id: order.order_execution_id })} /></DataState> },
         { id: "decisions", label: "决策详情", content: <div className="workspace-panel-grid"><DecisionDebugPanel decisionTrace={data.decisionTrace} /><MarketIntelligencePanel signal={data.intelligenceSignal} /></div> },
         { id: "account", label: "账户详情", content: <TestnetAccountPanel account={account} /> },
-        { id: "manual", label: "手动操作", content: <TradingTicket symbol={symbol} timeframe={timeframe} mode={mode} manualContext={data.manualContext} latestPosition={latestPosition} latestPrice={latestPrice} onAction={handleAction} /> },
+        { id: "manual", label: "手动 Paper 沙箱", content: <TradingTicket symbol={symbol} timeframe={timeframe} mode={manualMode} manualContext={data.manualContext} latestPosition={latestPosition} latestPrice={latestPrice} onAction={handleAction} /> },
         { id: "automation", label: "策略设置", content: <div className="workspace-panel-grid"><AutoSettingsPanel paperRunId={autoPaperRunId} autoSettings={autoSettings} onSave={(payload) => handleAction("saveAutoSettings", payload)} /><Top20MonitorPanel decisionTrace={data.decisionTrace} tradingStatus={tradingStatusFromRuntimeSnapshot(runtime.snapshot)} /><RejectionFunnelPanel summary={data.decisionTrace?.rejection_summary} /></div> },
         { id: "risk-data", label: "风险与数据", content: <div className="workspace-panel-grid"><MessageSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} riskEvents={data.overview?.risk_events} /><DataSourcesPanel dataSources={data.dataSources} intelligenceSignal={data.intelligenceSignal} /><OrderSyncPanel orderSync={data.orderSync} /></div> },
         { id: "carry", label: "套利工具", content: <div className="workspace-panel-grid"><FundingPanel signal={data.fundingSignal} onBacktest={() => handleAction("carryBacktest", { strategy_id: data.manualContext?.strategy_id ?? "" })} /><ExecutionAcceptancePanel fundingSignal={data.fundingSignal} onRunAcceptance={() => handleAction("testnetAcceptance")} onRunCarry={() => handleAction("carryExecution")} /></div> },
