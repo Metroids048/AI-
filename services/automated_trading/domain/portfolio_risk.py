@@ -69,6 +69,11 @@ class PortfolioRiskDecision:
         return not self.allowed
 
 
+def portfolio_risk_blocks(decision: PortfolioRiskDecision, *, diagnostic: bool) -> bool:
+    """Apply E-004 policy while keeping the physical open-position cap hard."""
+    return decision.reason_code is not None and (not diagnostic or decision.reason_code == "MAX_OPEN_EXPOSURES")
+
+
 def _sum_risk(exposures: Iterable[RiskExposure]) -> Decimal:
     return sum((exposure.initial_risk_usdt for exposure in exposures), Decimal("0"))
 

@@ -34,17 +34,18 @@ class FillReceipt:
 
     intent_id: str
     exchange_order_id: str
-    trade_ids: tuple[str, ...]  # Tuple for immutability
+    trade_ids: tuple[str, ...]  # Empty only for order-level authoritative recovery
     filled_quantity: Decimal
     average_fill_price: Decimal
     total_fee: Decimal
     fill_timestamp: datetime
+    source: str = "BINANCE_USER_TRADE"
 
     def __post_init__(self) -> None:
         if not self.exchange_order_id:
             raise ValueError("FillReceipt requires exchange_order_id")
-        if not self.trade_ids:
-            raise ValueError("FillReceipt requires at least one trade_id")
+        if not self.trade_ids and self.source != "BINANCE_ORDER_STATUS_RECOVERY":
+            raise ValueError("FillReceipt requires trade_ids unless order-level recovery is explicit")
         if self.filled_quantity <= 0:
             raise ValueError(f"FillReceipt filled_quantity must be > 0, got {self.filled_quantity}")
         if self.average_fill_price <= 0:

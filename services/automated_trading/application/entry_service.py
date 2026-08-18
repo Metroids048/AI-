@@ -263,8 +263,11 @@ class EntryExecutionResult:
     average_fill_price: Decimal | None = None
     total_fee: Decimal = Decimal("0")
     fill_timestamp: datetime | None = None
+    fill_source: str = "BINANCE_USER_TRADE"
     detail: str = ""
     requested_quantity: Decimal = Decimal("0")
+    guard_exchange_order_id: str | None = None
+    guard_client_order_id: str | None = None
 
     @property
     def position_projectable(self) -> bool:
@@ -272,7 +275,7 @@ class EntryExecutionResult:
         return (
             self.status in {EntryExecutionStatus.FILLED, EntryExecutionStatus.PARTIALLY_FILLED}
             and bool(self.exchange_order_id)
-            and bool(self.trade_ids)
+            and (bool(self.trade_ids) or self.fill_source == "BINANCE_ORDER_STATUS_RECOVERY")
             and self.filled_quantity > 0
             and self.average_fill_price is not None
             and self.average_fill_price > 0
@@ -334,6 +337,9 @@ def execute_entry(
     quantity: Decimal,
     leverage: int,
     engine_activation: EngineActivation,
+    margin_equity: Decimal | None = None,
+    max_margin_fraction: Decimal | None = None,
+    enforce_margin_ceiling: bool = False,
 ) -> EntryExecutionResult:
     """Submit an entry to the exchange under the Exchange-First contract.
 
@@ -346,6 +352,9 @@ def execute_entry(
         quantity: Requested quantity before step-size rounding.
         leverage: Requested leverage.
         engine_activation: SHADOW rehearses, ACTIVE submits.
+        margin_equity: Equity used for an optional post-fill margin guard.
+        max_margin_fraction: Maximum filled margin fraction for that guard.
+        enforce_margin_ceiling: Enable the post-fill guard for an exact runtime contract.
 
     Returns:
         EntryExecutionResult. Never raises for exchange failures; they are
@@ -468,6 +477,59 @@ def execute_entry(
             exchange_order_id=receipt.exchange_order_id,
             detail="order acknowledged with no confirmed fill; no position projected",
             requested_quantity=normalized_quantity,
+        )
+
+    if (
+        enforce_margin_ceiling
+        and margin_equity is not None
+        and max_margin_fraction is not None
+        and margin_equity > 0
+        and filled_quantity * vwap / Decimal(leverage) > margin_equity * max_margin_fraction
+    ):
+        # A market-order fill can move above the pre-submit price. Do not project
+        # an over-margin Canary position; immediately unwind the confirmed fill
+        # through the existing reduce-only exchange path instead.
+        from services.automated_trading.domain.client_order_id import exit_client_order_id
+        from services.automated_trading.domain.commands import SubmitReduceOnlyExit
+
+        guard_position_id = f"margin-guard:{intent_id}"
+        guard_client_order_id = exit_client_order_id(guard_position_id)
+        guard_exchange_order_id: str | None = None
+        guard_detail = (
+            f"filled margin {filled_quantity * vwap / Decimal(leverage)} exceeds "
+            f"equity margin ceiling {margin_equity * max_margin_fraction}"
+        )
+        try:
+            guard_receipt = adapter.submit_reduce_only_exit(
+                SubmitReduceOnlyExit(
+                    position_id=guard_position_id,
+                    exit_reason="CANARY_MARGIN_CEILING",
+                    reduce_quantity=filled_quantity,
+                    client_order_id=guard_client_order_id,
+                    is_emergency=True,
+                ),
+                candidate.symbol,
+                "sell" if candidate.side == "LONG" else "buy",
+            )
+            guard_exchange_order_id = str(guard_receipt.exchange_order_id)
+            guard_detail += f"; reduce-only guard submitted {guard_receipt.exchange_order_id}"
+        except Exception as exc:  # noqa: BLE001
+            guard_detail += f"; reduce-only guard failed: {exc}"
+        return EntryExecutionResult(
+            status=EntryExecutionStatus.REJECTED,
+            intent_state=V2IntentState.REJECTED,
+            client_order_id=client_order_id,
+            reason_code=DecisionReasonCode.RISK_LIMIT_EXCEEDED,
+            exchange_order_id=receipt.exchange_order_id,
+            trade_ids=trade_ids,
+            filled_quantity=filled_quantity,
+            average_fill_price=vwap,
+            total_fee=total_fee,
+            fill_timestamp=fill_timestamp,
+            detail=guard_detail,
+            requested_quantity=normalized_quantity,
+            guard_exchange_order_id=guard_exchange_order_id,
+            guard_client_order_id=guard_client_order_id,
         )
 
     partial = filled_quantity < normalized_quantity

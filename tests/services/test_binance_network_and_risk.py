@@ -40,9 +40,9 @@ def test_binance_urlopen_disables_ambient_proxy_when_no_scoped_proxy(monkeypatch
 def test_medium_risk_profile_uses_btc_eth_sampling_sizing() -> None:
     profile = medium_risk_profile()
     assert profile.risk_profile_id == MEDIUM_RISK_PROFILE_KEY
-    assert profile.max_open_positions == 2
-    assert profile.max_total_exposure == 5.00
-    assert profile.max_leverage == 50.0
+    assert profile.max_open_positions == 5
+    assert profile.max_total_exposure == 7.50
+    assert profile.max_leverage == 30.0
     assert profile.daily_loss_limit == 0.20
     assert profile.hard_stop_drawdown_limit == 0.40
 

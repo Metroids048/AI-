@@ -187,8 +187,8 @@ def test_signal_observation_run_is_automatically_scheduled_but_cannot_mirror_to_
     assert paper_run.execution_profile.get("execution_mode") == "local_paper"
     assert paper_run.execution_profile.get("mirror_to_gateway") is False
     assert paper_run.candidate_symbols == list(AUTO_PAPER_RESEARCH_SYMBOLS)
-    assert paper_run.execution_profile["asset_risk_tiers"]["core"]["leverage"] == 50.0
-    assert paper_run.execution_profile["asset_risk_tiers"]["core"]["max_position_fraction"] == 2.50
+    assert paper_run.execution_profile["asset_risk_tiers"]["core"]["leverage"] == 30.0
+    assert paper_run.execution_profile["asset_risk_tiers"]["core"]["max_position_fraction"] == 1.50
 
 
 def test_signal_observation_bootstrap_clears_mistaken_simulation_authorization(db_session) -> None:
@@ -271,8 +271,8 @@ def test_high_density_paper_limits_are_kept_in_sync() -> None:
     assert 0 < PAPER_RUNTIME_LIMITS["risk_per_trade"] <= 0.20
     assert PAPER_RUNTIME_LIMITS["max_symbol_exposure"] <= PAPER_RUNTIME_LIMITS["max_total_exposure"]
     assert position_rules["max_portfolio_initial_risk_fraction"] == 0.25
-    assert profile.max_total_exposure == 5.00
-    assert profile.max_open_positions == 2
+    assert profile.max_total_exposure == 7.50
+    assert profile.max_open_positions == 5
     assert profile.daily_loss_limit == 0.20
     assert profile.weekly_loss_limit == 0.25
     assert profile.drawdown_limit == 0.25
@@ -525,8 +525,9 @@ def test_console_launcher_migrates_database_without_relaying_api_streams() -> No
     script = (Path(__file__).resolve().parents[2] / "scripts" / "launch-paper-console.ps1").read_text(encoding="utf-8")
 
     assert "scripts/prepare_database.py --database-url $SqliteUrl" in script
+    api_start = script.index('"-m", "apps.api.local_server"')
     assert script.index("scripts/prepare_database.py --database-url $SqliteUrl") < script.index(
-        "Start-Process -FilePath $env:AGENT_PYTHON"
+        "Start-Process -FilePath $env:AGENT_PYTHON", api_start
     )
     assert "Start-Process -FilePath $env:AGENT_PYTHON" in script
     assert '"--log-level", "warning"' in script
@@ -534,7 +535,6 @@ def test_console_launcher_migrates_database_without_relaying_api_streams() -> No
     assert "run-api-local.ps1" not in script
     # API is launched directly without a PowerShell stream relay.  The separate
     # scheduler deliberately owns stdout/stderr files for health diagnostics.
-    api_start = script.index('"-m", "apps.api.local_server"')
     api_block = script[api_start : script.index("Set-Content -LiteralPath $ApiPidFile", api_start)]
     assert "-RedirectStandardOutput" not in api_block
     assert "-RedirectStandardError" not in api_block

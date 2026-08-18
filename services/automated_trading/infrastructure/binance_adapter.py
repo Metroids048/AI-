@@ -357,6 +357,31 @@ class BinanceTestnetAdapter:
             )
             raise BinanceAdapterUnavailable(f"Cannot submit market order: {e}") from e
 
+    def query_filled_order_by_id(self, symbol: str, exchange_order_id: str) -> ExchangeOrderReceipt | None:
+        """Read one Binance order's authoritative FILLED status by exchange id."""
+        client = self._ensure_gateway()
+        market_id = symbol.replace("/", "").split(":", 1)[0]
+        try:
+            rows = client.fapiPrivateGetOrder({"symbol": market_id, "orderId": str(exchange_order_id)})
+        except Exception as exc:  # noqa: BLE001
+            raise BinanceAdapterUnavailable(f"Cannot query order status: {exc}") from exc
+        if not isinstance(rows, dict) or str(rows.get("orderId")) != str(exchange_order_id):
+            return None
+        return ExchangeOrderReceipt(
+            exchange_order_id=str(rows["orderId"]),
+            client_order_id=str(rows.get("clientOrderId") or ""),
+            symbol=_canonical_symbol(str(rows.get("symbol") or symbol)),
+            side=str(rows.get("side") or "").lower(),
+            order_type=str(rows.get("type") or "market").lower(),
+            quantity=Decimal(str(rows.get("origQty") or "0")),
+            price=Decimal(str(rows.get("avgPrice") or "0")) if rows.get("avgPrice") else None,
+            status=str(rows.get("status") or "").lower(),
+            acknowledged_at=datetime.fromtimestamp(
+                int(rows.get("updateTime") or rows.get("time") or 0) / 1000,
+                tz=UTC,
+            ),
+        )
+
     def query_order_by_client_id(self, symbol: str, client_order_id: str) -> ExchangeOrderReceipt | None:
         """Query order status by client order ID.
 

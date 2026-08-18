@@ -32,6 +32,13 @@ $MicrostructureErrorLog = Join-Path $LogsDir "microstructure-error.log"
 $FrontendPidFile = Join-Path $LogsDir "frontend.pid"
 $DbPath = Join-Path $Root $DatabasePath
 $SqliteUrl = "sqlite:///$($DbPath.Replace('\', '/'))"
+$StartupResultPath = Join-Path $LogsDir "startup-result.json"
+$script:StartupStage = "INITIALIZING"
+$script:ProjectionRecoveryPending = $false
+$script:ProjectionRecoveryGap = ""
+$script:ProjectionRecoveryBootstrap = $false
+$script:StartupRecoveryResult = "NOT_REQUIRED"
+$script:StartupSafetyStop = $false
 
 $env:NO_PROXY = "127.0.0.1,localhost"
 $env:HTTP_PROXY = ""
@@ -169,6 +176,48 @@ function Stop-RecordedScheduler {
     }
 }
 
+function Write-StartupResult {
+    param(
+        [Parameter(Mandatory = $true)][string]$Status,
+        [string]$ReasonCode = "",
+        [string]$Detail = ""
+    )
+    if (-not (Test-Path -LiteralPath $LogsDir)) {
+        New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
+    }
+    $payload = [ordered]@{
+        schema_version = 1
+        status = $Status
+        stage = $script:StartupStage
+        reason_code = $ReasonCode
+        detail = $Detail
+        symbol = $script:ProjectionRecoveryGap
+        safety_stop = [bool]$script:StartupSafetyStop
+        automatic_recovery = $script:StartupRecoveryResult
+        log_paths = [ordered]@{
+            startup = $StartupLog
+            api = $ApiLog
+            scheduler = $SchedulerLog
+            scheduler_error = $SchedulerErrorLog
+        }
+        recorded_at = (Get-Date).ToUniversalTime().ToString("o")
+    }
+    $payload | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $StartupResultPath -Encoding utf8
+}
+
+trap {
+    $script:StartupSafetyStop = $true
+    $message = $_.Exception.Message
+    $reason = if ($message -match "SYSTEM_POSITION_PROJECTION_GAP") { "SYSTEM_POSITION_PROJECTION_GAP" } else { "STARTUP_FAILED" }
+    $script:StartupRecoveryResult = if ($script:ProjectionRecoveryPending) { "FAILED" } else { $script:StartupRecoveryResult }
+    $cleanup = Invoke-StartupSafetyStop -Reason $reason
+    if ($cleanup) { $message = "$message; safety_cleanup=$cleanup" }
+    Write-StartupResult -Status "FAILED" -ReasonCode $reason -Detail $message
+    Write-Host "STARTUP_FAILED stage=$($script:StartupStage) reason_code=$reason safety_stop=true recovery=$($script:StartupRecoveryResult)"
+    Write-Host "startup_result=$StartupResultPath"
+    exit 1
+}
+
 function Stop-RecordedMicrostructure {
     if (Test-Path -LiteralPath $MicrostructurePidFile) {
         $recordedPid = (Get-Content -LiteralPath $MicrostructurePidFile -Raw).Trim()
@@ -184,6 +233,31 @@ function Stop-RecordedMicrostructure {
     $orphans = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object { $_.ProcessId -ne $PID -and [string]$_.CommandLine -match "run_microstructure_collector\.py" -and [string]$_.CommandLine -match [regex]::Escape($Root) }
     foreach ($orphan in $orphans) { Stop-ProcessTree -RootPid ([int]$orphan.ProcessId) }
+}
+
+function Invoke-StartupSafetyStop {
+    param([string]$Reason = "STARTUP_FAILED")
+    $cleanupErrors = [System.Collections.Generic.List[string]]::new()
+    try {
+        if ($AutomatedTradingEngine -eq "v2_active" -and (Test-EndpointReady $ApiHealthUrl)) {
+            $body = @{ reason = "STARTUP_SAFETY_STOP:$Reason" } | ConvertTo-Json -Compress
+            $null = Invoke-WebRequest -Uri "http://127.0.0.1:$ApiPort/api/v2/automated-trading/controls/entry-disable" `
+                -Method Post -ContentType "application/json" -Body $body -UseBasicParsing -TimeoutSec 5 -Proxy $null
+        }
+    }
+    catch { $cleanupErrors.Add("entry_disable:$($_.Exception.Message)") }
+    foreach ($action in @(
+        { Stop-RecordedScheduler },
+        { Stop-RecordedMicrostructure },
+        { Stop-RecordedProcess $ApiPidFile $ApiPort },
+        { Stop-RecordedProcess $FrontendPidFile $FrontendPort }
+    )) {
+        try { & $action }
+        catch { $cleanupErrors.Add($_.Exception.Message) }
+    }
+    $script:StartupSafetyStop = $true
+    if ($cleanupErrors.Count) { return ($cleanupErrors -join " | ") }
+    return "completed"
 }
 
 function Start-MicrostructureCollector {
@@ -234,6 +308,101 @@ function Assert-ActiveTradingModeContract {
     Write-Step "ACTIVE Trading Mode Contract verified"
 }
 
+function Disable-EntryForProjectionRecovery {
+    $script:StartupStage = "PROJECTION_RECOVERY_ENTRY_DISABLED"
+    $body = @{ reason = "STARTUP_PROJECTION_RECOVERY" } | ConvertTo-Json -Compress
+    $null = Invoke-WebRequest -Uri "http://127.0.0.1:$ApiPort/api/v2/automated-trading/controls/entry-disable" `
+        -Method Post -ContentType "application/json" -Body $body -UseBasicParsing -TimeoutSec 5 -Proxy $null
+    Write-Step "entry disabled while exact V2 projection gaps are recovered"
+}
+
+function Complete-ProjectionRecovery {
+    if (-not $script:ProjectionRecoveryPending) {
+        return
+    }
+    $script:StartupStage = "PROJECTION_RECOVERY"
+    Write-Step "recovering exact V2 projection gap(s): $($script:ProjectionRecoveryGap)"
+    $deadline = (Get-Date).AddSeconds(90)
+    while ((Get-Date) -lt $deadline) {
+        $captureOutput = & $env:AGENT_PYTHON (Join-Path $Root "scripts\capture_testnet_external_baseline.py") --capture-persisted --json 2>&1
+        if ($LASTEXITCODE -eq 0 -and $captureOutput) {
+            $baselineJson = ($captureOutput | Select-Object -Last 1).ToString().Trim()
+            $env:V2_EXTERNAL_BASELINE_JSON = $baselineJson
+            $env:V2_EXTERNAL_BASELINE_SOURCE = "persistent_file:$($env:V2_EXTERNAL_BASELINE_PATH)"
+            Remove-Item Env:V2_PROJECTION_RECOVERY_BOOTSTRAP -ErrorAction SilentlyContinue
+            $script:ProjectionRecoveryPending = $false
+            $script:ProjectionRecoveryBootstrap = $false
+            $script:StartupRecoveryResult = "SUCCEEDED"
+            $script:StartupStage = "PROJECTION_RECOVERY_COMPLETE"
+            Write-Step "projection recovery succeeded; persisted external baseline refreshed: $baselineJson"
+            # The recovery scheduler inherited the temporary bootstrap
+            # environment when it was spawned.  Restart it after persistence so
+            # the next runtime process receives the durable baseline source and
+            # cannot continue publishing stale recovery state.
+            $script:StartupStage = "PROJECTION_RECOVERY_SCHEDULER_RESTART"
+            Stop-RecordedScheduler
+            Remove-Item -LiteralPath $SchedulerStateFile -Force -ErrorAction SilentlyContinue
+            Reset-LogFile $SchedulerLog
+            Reset-LogFile $SchedulerErrorLog
+            $schedulerScript = Join-Path $PSScriptRoot "run-local-paper-scheduler.py"
+            $schedulerProcess = Start-Process -FilePath $env:AGENT_PYTHON `
+                -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl, "--engine", $AutomatedTradingEngine) `
+                -WorkingDirectory $Root `
+                -WindowStyle Hidden `
+                -RedirectStandardOutput $SchedulerLog `
+                -RedirectStandardError $SchedulerErrorLog `
+                -PassThru
+            Set-Content -LiteralPath $SchedulerPidFile -Value $schedulerProcess.Id -Encoding ascii
+            $schedulerDeadline = (Get-Date).AddSeconds(30)
+            while (-not (Test-SchedulerHealthy) -and (Get-Date) -lt $schedulerDeadline) {
+                Start-Sleep -Seconds 1
+            }
+            if (-not (Test-SchedulerHealthy)) {
+                throw "Projection recovery scheduler restart failed. See $SchedulerLog"
+            }
+            $body = @{ reason = "STARTUP_PROJECTION_RECOVERY_COMPLETE" } | ConvertTo-Json -Compress
+            $null = Invoke-WebRequest -Uri "http://127.0.0.1:$ApiPort/api/v2/automated-trading/controls/entry-enable" `
+                -Method Post -ContentType "application/json" -Body $body -UseBasicParsing -TimeoutSec 5 -Proxy $null
+            Write-Step "entry re-enabled after projection recovery"
+            # RuntimeScheduler resolves entry authorization during start-up and
+            # keeps that snapshot for its published state. Restart once more
+            # after enabling the control so the published contract reflects the
+            # durable control value rather than the temporary recovery pause.
+            $script:StartupStage = "PROJECTION_RECOVERY_FINAL_SCHEDULER_RESTART"
+            Stop-RecordedScheduler
+            Remove-Item -LiteralPath $SchedulerStateFile -Force -ErrorAction SilentlyContinue
+            Reset-LogFile $SchedulerLog
+            Reset-LogFile $SchedulerErrorLog
+            $schedulerProcess = Start-Process -FilePath $env:AGENT_PYTHON `
+                -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl, "--engine", $AutomatedTradingEngine) `
+                -WorkingDirectory $Root `
+                -WindowStyle Hidden `
+                -RedirectStandardOutput $SchedulerLog `
+                -RedirectStandardError $SchedulerErrorLog `
+                -PassThru
+            Set-Content -LiteralPath $SchedulerPidFile -Value $schedulerProcess.Id -Encoding ascii
+            $finalSchedulerDeadline = (Get-Date).AddSeconds(30)
+            while (-not (Test-SchedulerHealthy) -and (Get-Date) -lt $finalSchedulerDeadline) {
+                Start-Sleep -Seconds 1
+            }
+            if (-not (Test-SchedulerHealthy)) {
+                throw "Final projection recovery scheduler restart failed. See $SchedulerLog"
+            }
+            $contractDeadline = (Get-Date).AddSeconds(30)
+            while (-not (Test-ActiveTradingModeContract) -and (Get-Date) -lt $contractDeadline) {
+                Start-Sleep -Seconds 1
+            }
+            if (-not (Test-ActiveTradingModeContract)) {
+                throw "Projection recovery completed but the restarted scheduler did not publish an active trading contract. See $SchedulerStateFile"
+            }
+            return
+        }
+        Start-Sleep -Seconds 5
+    }
+    $script:StartupSafetyStop = $true
+    throw "Projection recovery timed out; persisted baseline was not refreshed. See $SchedulerLog"
+}
+
 function Test-ActiveTradingModeContract {
     if ($AutomatedTradingEngine -ne "v2_active") {
         return $true
@@ -272,6 +441,7 @@ function Open-Frontend([string]$Url) {
 }
 
 function Ensure-Runtime {
+    $script:StartupStage = "RUNTIME_PREPARE"
     if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
         throw "Node.js/npm not found."
     }
@@ -349,8 +519,10 @@ function Ensure-Runtime {
     if ($PreserveExternalTestnetBaseline) {
         $env:V2_ALLOW_UNMANAGED_EXTERNAL_POSITIONS = "true"
         $env:V2_EXTERNAL_BASELINE_PATH = Join-Path $Root ".local\testnet-external-baseline.json"
-        Remove-Item Env:V2_EXTERNAL_BASELINE_JSON -ErrorAction SilentlyContinue
-        Remove-Item Env:V2_EXTERNAL_BASELINE_SOURCE -ErrorAction SilentlyContinue
+        if (-not $script:ProjectionRecoveryPending) {
+            Remove-Item Env:V2_EXTERNAL_BASELINE_JSON -ErrorAction SilentlyContinue
+            Remove-Item Env:V2_EXTERNAL_BASELINE_SOURCE -ErrorAction SilentlyContinue
+        }
         # On first launch, the persisted baseline file does not exist yet. Capture it now
         # so that --require-persisted can verify the current exposure matches the durable record.
         if (-not (Test-Path $env:V2_EXTERNAL_BASELINE_PATH)) {
@@ -358,23 +530,61 @@ function Ensure-Runtime {
             $captureOutput = & $env:AGENT_PYTHON (Join-Path $Root "scripts\capture_testnet_external_baseline.py") --capture-persisted --json 2>&1
             if ($LASTEXITCODE -ne 0) {
                 $captureError = ($captureOutput | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }) -join "; "
-                throw "Failed to capture the initial Testnet external position baseline: $captureError"
+                if ($captureError -match "SYSTEM_POSITION_PROJECTION_GAP") {
+                    $bootstrap = & $env:AGENT_PYTHON (Join-Path $Root "scripts\capture_testnet_external_baseline.py") --bootstrap-projection-recovery --json 2>&1
+                    if ($LASTEXITCODE -ne 0 -or -not $bootstrap) {
+                        throw "Failed to bootstrap projection recovery baseline: $captureError"
+                    }
+                    $env:V2_EXTERNAL_BASELINE_JSON = ($bootstrap | Select-Object -Last 1).ToString().Trim()
+                    $env:V2_EXTERNAL_BASELINE_SOURCE = "projection_gap_recovery_bootstrap"
+                    $env:V2_PROJECTION_RECOVERY_BOOTSTRAP = "true"
+                    $script:ProjectionRecoveryPending = $true
+                    $script:ProjectionRecoveryBootstrap = $true
+                    $script:ProjectionRecoveryGap = $captureError
+                    $script:StartupRecoveryResult = "PENDING"
+                    Write-Step "projection gap detected; using temporary recovery bootstrap baseline"
+                }
+                else {
+                    throw "Failed to capture the initial Testnet external position baseline: $captureError"
+                }
             }
         }
-        $baselineOutput = & $env:AGENT_PYTHON (Join-Path $Root "scripts\capture_testnet_external_baseline.py") --require-persisted --json 2>&1
-        if ($LASTEXITCODE -ne 0 -or -not $baselineOutput) {
-            $baselineError = ($baselineOutput | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }) -join "; "
-            throw "Failed to verify the persisted Testnet external position baseline: $baselineError"
+        if (-not $script:ProjectionRecoveryPending) {
+            $baselineOutput = & $env:AGENT_PYTHON (Join-Path $Root "scripts\capture_testnet_external_baseline.py") --require-persisted --json 2>&1
+            if ($LASTEXITCODE -ne 0 -or -not $baselineOutput) {
+                $baselineError = ($baselineOutput | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }) -join "; "
+                if ($baselineError -match "SYSTEM_POSITION_PROJECTION_GAP") {
+                    $bootstrap = & $env:AGENT_PYTHON (Join-Path $Root "scripts\capture_testnet_external_baseline.py") --bootstrap-projection-recovery --json 2>&1
+                    if ($LASTEXITCODE -ne 0 -or -not $bootstrap) {
+                        throw "Failed to bootstrap projection recovery baseline: $baselineError"
+                    }
+                    $env:V2_EXTERNAL_BASELINE_JSON = ($bootstrap | Select-Object -Last 1).ToString().Trim()
+                    $env:V2_EXTERNAL_BASELINE_SOURCE = "projection_gap_recovery_bootstrap"
+                    $env:V2_PROJECTION_RECOVERY_BOOTSTRAP = "true"
+                    $script:ProjectionRecoveryPending = $true
+                    $script:ProjectionRecoveryBootstrap = $true
+                    $script:ProjectionRecoveryGap = $baselineError
+                    $script:StartupRecoveryResult = "PENDING"
+                    Write-Step "persisted baseline exposes projection gap; using temporary recovery bootstrap baseline"
+                }
+                else {
+                    throw "Failed to verify the persisted Testnet external position baseline: $baselineError"
+                }
+            }
+            else {
+                $env:V2_EXTERNAL_BASELINE_JSON = ($baselineOutput | Select-Object -Last 1).ToString().Trim()
+                $env:V2_EXTERNAL_BASELINE_SOURCE = "persistent_file:$($env:V2_EXTERNAL_BASELINE_PATH)"
+                Remove-Item Env:V2_PROJECTION_RECOVERY_BOOTSTRAP -ErrorAction SilentlyContinue
+                Write-Step "restored persisted Testnet external baseline: $($env:V2_EXTERNAL_BASELINE_JSON)"
+            }
         }
-        $env:V2_EXTERNAL_BASELINE_JSON = ($baselineOutput | Select-Object -Last 1).ToString().Trim()
-        $env:V2_EXTERNAL_BASELINE_SOURCE = "persistent_file:$($env:V2_EXTERNAL_BASELINE_PATH)"
-        Write-Step "restored persisted Testnet external baseline: $($env:V2_EXTERNAL_BASELINE_JSON)"
     }
     else {
         Remove-Item Env:V2_ALLOW_UNMANAGED_EXTERNAL_POSITIONS -ErrorAction SilentlyContinue
         Remove-Item Env:V2_EXTERNAL_BASELINE_JSON -ErrorAction SilentlyContinue
         Remove-Item Env:V2_EXTERNAL_BASELINE_SOURCE -ErrorAction SilentlyContinue
         Remove-Item Env:V2_EXTERNAL_BASELINE_PATH -ErrorAction SilentlyContinue
+        Remove-Item Env:V2_PROJECTION_RECOVERY_BOOTSTRAP -ErrorAction SilentlyContinue
     }
     $env:RUNTIME_SCHEDULER_MODE = "inprocess"
     $env:RUNTIME_SCHEDULER_AUTOSTART = "true"
@@ -406,7 +616,8 @@ if ($AutomatedTradingEngine -eq "v2_active" -and $apiReady) {
     $apiReady = $false
 }
 
-if ($apiReady -and $frontendReady -and (Test-ProjectListener $ApiPort) -and (Test-ProjectListener $FrontendPort)) {
+$activeContractReady = $AutomatedTradingEngine -ne "v2_active" -or (Test-ActiveTradingModeContract)
+if ($apiReady -and $frontendReady -and (Test-ProjectListener $ApiPort) -and (Test-ProjectListener $FrontendPort) -and $activeContractReady) {
     if (-not (Test-SchedulerHealthy)) {
         Ensure-Runtime
         Stop-RecordedScheduler
@@ -439,6 +650,8 @@ if ($apiReady -and $frontendReady -and (Test-ProjectListener $ApiPort) -and (Tes
         Write-Step "opening browser"
         [void](Open-Frontend $FrontendUrl)
     }
+    $script:StartupStage = "READY"
+    Write-StartupResult -Status "SUCCESS" -ReasonCode "STARTUP_READY" -Detail "ACTIVE runtime and recovery chain are healthy"
     exit 0
 }
 
@@ -449,6 +662,7 @@ if (-not $apiReady) { Stop-RecordedProcess $ApiPidFile $ApiPort }
 if (-not $frontendReady) { Stop-RecordedProcess $FrontendPidFile $FrontendPort }
 
 if (-not $apiReady) {
+    $script:StartupStage = "API_START"
     Write-Step "starting API http://127.0.0.1:$ApiPort"
     # Start Uvicorn directly. PowerShell wrapper processes can retain inherited
     # handles and make the Windows ASGI server accept connections without serving them.
@@ -460,6 +674,19 @@ if (-not $apiReady) {
     Set-Content -LiteralPath $ApiPidFile -Value $apiProcess.Id -Encoding ascii
 }
 
+if ($script:ProjectionRecoveryPending) {
+    $apiDeadline = (Get-Date).AddSeconds(30)
+    while (-not (Test-EndpointReady $ApiHealthUrl) -and (Get-Date) -lt $apiDeadline) {
+        Start-Sleep -Seconds 1
+    }
+    if (-not (Test-EndpointReady $ApiHealthUrl)) {
+        throw "Projection recovery could not start because the API health endpoint is unavailable"
+    }
+    Disable-EntryForProjectionRecovery
+}
+
+$script:StartupStage = "SCHEDULER_START"
+Write-Step "scheduler baseline source=$($env:V2_EXTERNAL_BASELINE_SOURCE) bootstrap=$($env:V2_PROJECTION_RECOVERY_BOOTSTRAP)"
 Stop-RecordedScheduler
 Remove-Item -LiteralPath $SchedulerStateFile -Force -ErrorAction SilentlyContinue
 Reset-LogFile $SchedulerLog
@@ -516,6 +743,7 @@ if ($apiReady -and $frontendReady) {
         }
         throw "Paper scheduler failed its startup health check. See $SchedulerLog"
     }
+    Complete-ProjectionRecovery
     if ($AutomatedTradingEngine -eq "v2_active") {
         Assert-ActiveTradingModeContract
     }
@@ -528,11 +756,14 @@ if ($apiReady -and $frontendReady) {
         Write-Step "opening browser"
         [void](Open-Frontend $FrontendUrl)
     }
+    $script:StartupStage = "READY"
+    Write-StartupResult -Status "SUCCESS" -ReasonCode "STARTUP_READY" -Detail "ACTIVE runtime and recovery chain are healthy"
     exit 0
 }
 
 Write-Step "startup failed"
 Write-Step "check logs: $ApiLog ; $FrontendLog"
+Invoke-StartupSafetyStop -Reason "STARTUP_SERVICES_NOT_READY" | Out-Null
 Remove-Item -LiteralPath $ApiPidFile,$FrontendPidFile -Force -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $ApiLog) {
     Write-Host "--- api.log (tail) ---"
@@ -543,4 +774,5 @@ if (Test-Path -LiteralPath $FrontendLog) {
     Get-Content -LiteralPath $FrontendLog -Tail 15 -ErrorAction SilentlyContinue
 }
 Write-Step "browser was not opened because startup did not finish"
+Write-StartupResult -Status "FAILED" -ReasonCode "STARTUP_SERVICES_NOT_READY" -Detail "API or frontend did not become ready"
 exit 1

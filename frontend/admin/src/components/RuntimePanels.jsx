@@ -3,27 +3,37 @@ import { useEffect, useState } from "react";
 import { asArray, formatEnum, formatNumber, formatTime } from "../utils/format";
 
 const DEFAULT_AUTO_SETTINGS = {
-  execution_mode: "binance_simulation_first",
-  max_leverage: 50,
-  risk_per_trade: 0.01,
+  execution_mode: "binance_testnet",
+  max_leverage: 30,
+  risk_per_trade: 0.10,
   order_notional_usdt: "",
   max_open_positions: 5,
-  max_symbols: 20,
+  max_symbols: 5,
   max_margin_fraction: 0.05,
-  max_symbol_exposure: 2.5,
-  max_total_exposure: 5,
+  max_symbol_exposure: 1.5,
+  max_total_exposure: 7.5,
   daily_loss_limit: 0.04,
   weekly_loss_limit: 0.08,
   hard_stop_drawdown_limit: 0.15,
   asset_risk_tiers: {
-    core: { tier: "core", symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT"], leverage: 50, max_position_fraction: 2.5 },
-    standard: { tier: "standard", symbols: [], leverage: 50, max_position_fraction: 2.5 },
+    core: { tier: "core", symbols: ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"], leverage: 30, max_position_fraction: 1.5 },
+    standard: { tier: "standard", symbols: [], leverage: 30, max_position_fraction: 1.5 },
   },
   strategy_lanes: ["carry", "trend_breakout", "mean_reversion"],
   stoploss: { atr_multiple: 2, fixed_bps: 250 },
   takeprofit: { risk_reward: 2.5, trail_after_r: 1.5 },
   llm_veto_enabled: true,
   market_intelligence_enabled: true,
+};
+
+const CANARY_RUNTIME_CONTRACT = {
+  risk_per_trade: 0.10,
+  max_leverage: 30,
+  max_margin_fraction: 0.05,
+  max_symbol_exposure: 1.50,
+  max_open_positions: 5,
+  max_total_exposure: 7.50,
+  max_symbols: 5,
 };
 
 export function RiskEventFeed({ events, onResolve }) {
@@ -314,30 +324,36 @@ export function AutoSettingsPanel({ paperRunId, autoSettings, onSave }) {
     [group]: { ...(current[group] ?? {}), [key]: value },
   }));
   const submit = () => {
+    const effectiveForm = form.execution_mode === "binance_testnet"
+      ? { ...form, ...CANARY_RUNTIME_CONTRACT }
+      : form;
     onSave?.({
-      ...form,
-      max_leverage: Number(form.max_leverage),
-      risk_per_trade: Number(form.risk_per_trade),
-      max_margin_fraction: Number(form.max_margin_fraction),
-      order_notional_usdt: Number(form.order_notional_usdt) > 0 ? Number(form.order_notional_usdt) : null,
-      max_open_positions: Number(form.max_open_positions),
-      max_symbols: Number(form.max_symbols),
-      max_symbol_exposure: Number(form.max_symbol_exposure),
-      max_total_exposure: Number(form.max_total_exposure),
-      daily_loss_limit: Number(form.daily_loss_limit),
-      weekly_loss_limit: Number(form.weekly_loss_limit),
-      hard_stop_drawdown_limit: Number(form.hard_stop_drawdown_limit),
-      strategy_lanes: String(form.strategy_lanes_text ?? "").split(",").map((item) => item.trim()).filter(Boolean),
+      ...effectiveForm,
+      max_leverage: Number(effectiveForm.max_leverage),
+      risk_per_trade: Number(effectiveForm.risk_per_trade),
+      max_margin_fraction: Number(effectiveForm.max_margin_fraction),
+      order_notional_usdt: Number(effectiveForm.order_notional_usdt) > 0 ? Number(effectiveForm.order_notional_usdt) : null,
+      max_open_positions: Number(effectiveForm.max_open_positions),
+      max_symbols: Number(effectiveForm.max_symbols),
+      max_symbol_exposure: Number(effectiveForm.max_symbol_exposure),
+      max_total_exposure: Number(effectiveForm.max_total_exposure),
+      daily_loss_limit: Number(effectiveForm.daily_loss_limit),
+      weekly_loss_limit: Number(effectiveForm.weekly_loss_limit),
+      hard_stop_drawdown_limit: Number(effectiveForm.hard_stop_drawdown_limit),
+      strategy_lanes: String(effectiveForm.strategy_lanes_text ?? "").split(",").map((item) => item.trim()).filter(Boolean),
       stoploss: {
-        atr_multiple: Number(form.stoploss?.atr_multiple),
-        fixed_bps: Number(form.stoploss?.fixed_bps),
+        atr_multiple: Number(effectiveForm.stoploss?.atr_multiple),
+        fixed_bps: Number(effectiveForm.stoploss?.fixed_bps),
       },
       takeprofit: {
-        risk_reward: Number(form.takeprofit?.risk_reward),
-        trail_after_r: Number(form.takeprofit?.trail_after_r),
+        risk_reward: Number(effectiveForm.takeprofit?.risk_reward),
+        trail_after_r: Number(effectiveForm.takeprofit?.trail_after_r),
       },
     });
   };
+
+  const isCanary = form.execution_mode === "binance_testnet";
+  const canaryValue = (key) => (isCanary ? CANARY_RUNTIME_CONTRACT[key] : form[key]);
 
   return (
     <section className="exchange-panel runtime-control-panel">
@@ -347,17 +363,18 @@ export function AutoSettingsPanel({ paperRunId, autoSettings, onSave }) {
       </div>
       <div className="ticket-grid">
         <label>执行模式<select value={form.execution_mode} onChange={(event) => update("execution_mode", event.target.value)}>
+          <option value="binance_testnet">Binance Testnet Canary</option>
           <option value="binance_simulation_first">币安模拟盘优先</option>
           <option value="paper_only">仅本地</option>
         </select></label>
-        <label>杠杆<input type="number" value={form.max_leverage} onChange={(event) => update("max_leverage", event.target.value)} /></label>
-        <label>保证金比例<input type="number" step="0.01" min="0" max="0.05" value={form.max_margin_fraction} onChange={(event) => update("max_margin_fraction", event.target.value)} /></label>
-        <label>单笔风险<input type="number" step="0.001" value={form.risk_per_trade} onChange={(event) => update("risk_per_trade", event.target.value)} /></label>
+        <label>杠杆（Canary 30x）<input type="number" readOnly={isCanary} value={canaryValue("max_leverage")} onChange={(event) => update("max_leverage", event.target.value)} /></label>
+        <label>目标保证金比例（5%）<input type="number" step="0.01" min="0" max="0.05" readOnly={isCanary} value={canaryValue("max_margin_fraction")} onChange={(event) => update("max_margin_fraction", event.target.value)} /></label>
+        <label>诊断单笔风险<input type="number" step="0.001" readOnly={isCanary} value={canaryValue("risk_per_trade")} onChange={(event) => update("risk_per_trade", event.target.value)} /></label>
         <label>固定金额<input type="number" value={form.order_notional_usdt} onChange={(event) => update("order_notional_usdt", event.target.value)} /></label>
-        <label>最多持仓<input type="number" value={form.max_open_positions} onChange={(event) => update("max_open_positions", event.target.value)} /></label>
-        <label>扫描币种<input type="number" value={form.max_symbols} onChange={(event) => update("max_symbols", event.target.value)} /></label>
-        <label>单币敞口<input type="number" step="0.01" value={form.max_symbol_exposure} onChange={(event) => update("max_symbol_exposure", event.target.value)} /></label>
-        <label>总敞口<input type="number" step="0.01" value={form.max_total_exposure} onChange={(event) => update("max_total_exposure", event.target.value)} /></label>
+        <label>最多持仓<input type="number" readOnly={isCanary} value={canaryValue("max_open_positions")} onChange={(event) => update("max_open_positions", event.target.value)} /></label>
+        <label>扫描币种<input type="number" readOnly={isCanary} value={canaryValue("max_symbols")} onChange={(event) => update("max_symbols", event.target.value)} /></label>
+        <label>单币最大名义仓位（150% Equity）<input type="number" step="0.01" readOnly={isCanary} value={canaryValue("max_symbol_exposure")} onChange={(event) => update("max_symbol_exposure", event.target.value)} /></label>
+        <label>最大组合名义仓位（750% Equity）<input type="number" step="0.01" readOnly={isCanary} value={canaryValue("max_total_exposure")} onChange={(event) => update("max_total_exposure", event.target.value)} /></label>
         <label>日亏损<input type="number" step="0.01" value={form.daily_loss_limit} onChange={(event) => update("daily_loss_limit", event.target.value)} /></label>
         <label>周亏损<input type="number" step="0.01" value={form.weekly_loss_limit} onChange={(event) => update("weekly_loss_limit", event.target.value)} /></label>
         <label>硬停止<input type="number" step="0.01" value={form.hard_stop_drawdown_limit} onChange={(event) => update("hard_stop_drawdown_limit", event.target.value)} /></label>
@@ -369,8 +386,8 @@ export function AutoSettingsPanel({ paperRunId, autoSettings, onSave }) {
       </div>
       <div className="risk-tier-preview" aria-label="有效资产风险档位">
         {renderTierPreviewRows(form)}
-        <div><span>全局强风控</span><strong>最多 {form.max_open_positions} 仓 · 总敞口 {formatPercent(form.max_total_exposure)} · 硬回撤 {formatPercent(form.hard_stop_drawdown_limit)}</strong></div>
-        <p className="ticket-note">档位随上方杠杆/单币敞口滑块保存后重新计算，保存前展示的是当前生效值。</p>
+        <div><span>Canary Sampling 合同</span><strong>保证金 {formatPercent(canaryValue("max_margin_fraction"))} · 杠杆 {canaryValue("max_leverage")}x · 最多 {canaryValue("max_open_positions")} 仓 · 总名义 {formatPercent(canaryValue("max_total_exposure"))}</strong></div>
+        <p className="ticket-note">Binance Testnet Canary 的执行合同由运行时固定；切换到其他模式后才可编辑这些字段。</p>
       </div>
       <div className="ticket-type-tabs">
         <button type="button" className={form.llm_veto_enabled ? "active" : ""} onClick={() => update("llm_veto_enabled", !form.llm_veto_enabled)}>LLM 否决</button>
@@ -529,7 +546,7 @@ const TIER_SCALE_RATIOS = {
 };
 
 const TIER_LABELS = {
-  core: "核心币 BTC/ETH/SOL",
+  core: "Canary 币 BTC/ETH/SOL/XRP/BNB",
   standard: "其余固定 Top20",
   vol_low: "低波动分档",
   vol_mid: "中波动分档",

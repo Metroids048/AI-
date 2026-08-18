@@ -1,5 +1,20 @@
 # Project Memory
 
+## Testnet Canary runtime contract (2026-08-18)
+
+- The authoritative Binance Testnet Canary sampling contract is now the exact
+  five-symbol scope BTC/ETH/SOL/XRP/BNB with risk `0.10`, leverage `30x`, target
+  and maximum margin `0.05`, per-symbol notional `1.50x`, maximum five positions,
+  and aggregate notional `7.50x` equity.
+- The contract is applied after authority resolution and the scheduler explicitly
+  binds the `TESTNET_SAMPLING` lane. E-003, volatility shock, R2 and E-004 remain
+  diagnostic only in this scope; exchange/data/reconciliation/runtime safety stays
+  blocking. Existing positions are grandfathered and are never resized or closed
+  by this configuration change.
+- `AutoTradingSettings` defaults and validation, bootstrap/apply profile, frontend
+  display, and contract tests are synchronized. Existing exchange mark notional is
+  counted against the aggregate new-entry ceiling.
+
 ## Testnet Canary continuity and visible entry authority (2026-08-12)
 
 - V2 now resolves exactly one entry authority per cycle: `PRODUCTION` for an

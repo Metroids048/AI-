@@ -43,6 +43,9 @@ Thumbs.db
 /scripts/archive/.local_paper_console.db
 /scripts/archive/.local_paper_console.db
 /.local_paper_console.db.*
+/.local_paper_console.db-journal
+/.local_paper_console.db-wal
+/.local_paper_console.db-shm
 /.local_paper_console.pre-*.db
 /.local_runtime_ledger.db
 /.local_runtime_ledger.db.*
@@ -74,6 +77,7 @@ infra/freqtrade/config/*.json
 # bookkeeping; neither is a project artifact.
 /.pytest-report.xml
 .claude/state/
+.claude/worktrees/
 
 # AI-KNOWLEDGE-MANAGED-START
 AI原始记录/

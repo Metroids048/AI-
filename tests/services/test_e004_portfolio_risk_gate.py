@@ -9,6 +9,7 @@ from services.automated_trading.domain.portfolio_risk import (
     MAX_TOTAL_INITIAL_RISK_FRACTION,
     RiskExposure,
     evaluate_portfolio_risk,
+    portfolio_risk_blocks,
 )
 
 EQUITY = Decimal("7000")
@@ -82,6 +83,52 @@ def test_max_open_positions_blocks_a_third_entry() -> None:
 
     assert decision.blocked is True
     assert decision.reason_code == "MAX_OPEN_EXPOSURES"
+
+
+def test_canary_allows_a_fifth_position_but_blocks_a_sixth() -> None:
+    committed = [
+        RiskExposure(symbol, "long", Decimal("10")) for symbol in ("BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT")
+    ]
+    fifth = evaluate_portfolio_risk(
+        equity=EQUITY,
+        candidate_symbol="BNB/USDT",
+        candidate_direction="long",
+        candidate_initial_risk_usdt=Decimal("5"),
+        committed=committed,
+        max_open_positions=5,
+    )
+    assert fifth.allowed is True
+    assert fifth.open_position_count == 4
+
+    # The Testnet Canary passes its explicit five-position cap into this domain
+    # function; E-004's production default remains two.
+    sixth = evaluate_portfolio_risk(
+        equity=EQUITY,
+        candidate_symbol="BTC/USDT",
+        candidate_direction="long",
+        candidate_initial_risk_usdt=Decimal("5"),
+        committed=committed + [RiskExposure("BNB/USDT", "long", Decimal("10"))],
+        max_open_positions=5,
+    )
+    assert sixth.reason_code == "MAX_OPEN_EXPOSURES"
+
+
+def test_canary_portfolio_limits_are_diagnostic_except_hard_position_cap() -> None:
+    total = _decide(Decimal("40"), [RiskExposure("ETH/USDT", "long", Decimal("60"))], direction="short")
+    assert total.reason_code == "PORTFOLIO_TOTAL_RISK_LIMIT"
+    assert portfolio_risk_blocks(total, diagnostic=True) is False
+    assert portfolio_risk_blocks(total, diagnostic=False) is True
+
+    positions = evaluate_portfolio_risk(
+        equity=EQUITY,
+        candidate_symbol="BTC/USDT",
+        candidate_direction="long",
+        candidate_initial_risk_usdt=Decimal("5"),
+        committed=[RiskExposure(str(i), "long", Decimal("1")) for i in range(5)],
+        max_open_positions=5,
+    )
+    assert positions.reason_code == "MAX_OPEN_EXPOSURES"
+    assert portfolio_risk_blocks(positions, diagnostic=True) is True
 
 
 def test_pending_intents_do_not_count_toward_open_position_limit() -> None:

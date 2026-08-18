@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from shared.models import (
+    AutoTradingSettings,
     BacktestEngine,
     BacktestReport,
     ExecutionRiskState,
@@ -83,6 +84,28 @@ def test_risk_profile_defaults() -> None:
     assert profile.consecutive_loss_limit == 4
     assert profile.api_failure_limit == 3
     assert profile.api_failure_window_minutes == 10
+
+
+def test_auto_trading_settings_defaults_accept_canary_runtime_contract() -> None:
+    settings = AutoTradingSettings()
+
+    assert settings.max_leverage == 30.0
+    assert settings.risk_per_trade == 0.10
+    assert settings.max_margin_fraction == 0.05
+    assert settings.max_symbol_exposure == 1.50
+    assert settings.max_total_exposure == 7.50
+    assert settings.max_open_positions == 5
+    assert settings.max_symbols == 5
+    assert set(settings.asset_risk_tiers["core"].symbols) == {
+        "BTC/USDT",
+        "ETH/USDT",
+        "SOL/USDT",
+        "XRP/USDT",
+        "BNB/USDT",
+    }
+
+    explicit = AutoTradingSettings(max_total_exposure=7.5)
+    assert explicit.max_total_exposure == 7.5
 
 
 def test_execution_risk_state_defaults() -> None:

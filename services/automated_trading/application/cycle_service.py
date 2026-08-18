@@ -90,9 +90,14 @@ from services.automated_trading.domain.enums import (
     V2IntentState,
     V2PositionState,
 )
-from services.automated_trading.domain.portfolio_risk import evaluate_portfolio_risk
+from services.automated_trading.domain.portfolio_risk import (
+    MAX_OPEN_POSITIONS,
+    evaluate_portfolio_risk,
+    portfolio_risk_blocks,
+)
 from services.automated_trading.infrastructure.runtime_lock import EngineActivation
 from services.automated_trading.observability.decision_funnel import DecisionReasonCode
+from shared.models.risk import TESTNET_CANARY_RUNTIME_CONTRACT, TESTNET_CANARY_SYMBOLS
 
 if TYPE_CHECKING:
     from services.automated_trading.infrastructure.binance_adapter import BinanceTestnetAdapter
@@ -117,12 +122,14 @@ class CycleRequest:
     now: datetime
     direction_timeframe: TimeframeView | None = None
     state_timeframe: TimeframeView | None = None
-    risk_per_trade: Decimal = Decimal("0.01")
-    max_leverage: int = 50
+    risk_per_trade: Decimal = Decimal("0.10")
+    max_leverage: int = 30
     max_margin_fraction: Decimal = Decimal("0.05")
     order_notional_usdt: Decimal | None = None
-    # 5% equity margin at 50x is 2.50x equity notional exposure.
-    max_position_fraction: Decimal = Decimal("2.50")
+    # 5% equity margin at 30x is 1.50x equity notional exposure.
+    max_position_fraction: Decimal = Decimal("1.50")
+    max_open_positions: int | None = None
+    max_total_exposure: Decimal = Decimal("7.50")
     account_equity: Decimal = Decimal("10000")
     open_position_symbols: frozenset[str] = frozenset()
     already_evaluated_bars: frozenset[datetime] = frozenset()
@@ -151,6 +158,7 @@ class CycleRequest:
     production_authorization_reason: str = "NO_AUTHORIZED_PRODUCTION_STRATEGY"
     production_decision_reason: str = "NO_AUTHORIZED_PRODUCTION_STRATEGY"
     production_trace: dict[str, Any] = field(default_factory=dict)
+    sizing_diagnostics: dict[str, Any] = field(default_factory=dict)
     # Wall-clock budget for the advisory AI review that runs between RISK_APPROVED
     # and PRICE_DRIFT_APPROVED.  The review is advisory only (a failure yields
     # SKIPPED and never blocks execution), but it sits on the hot path: every
@@ -255,6 +263,17 @@ class R2CostGatePolicy(StrEnum):
     BLOCKING = "BLOCKING"
 
 
+def _is_testnet_canary_sampling(request: CycleRequest, candidate: TradeCandidate | None = None) -> bool:
+    """Return True only for the exact five-symbol Canary sampling contract."""
+    return (
+        request.execution_mode is V2ExecutionMode.BINANCE_TESTNET
+        and request.entry_authority is EntryAuthority.TESTNET_CANARY
+        and request.symbol in TESTNET_CANARY_SYMBOLS
+        and (candidate is None or candidate.lane is CandidateLane.TESTNET_SAMPLING)
+        and (candidate is None or candidate.strategy_id == TESTNET_CANARY_RUNTIME_CONTRACT["strategy_id"])
+    )
+
+
 def _resolve_r2_cost_gate_policy(request: CycleRequest, candidate: TradeCandidate) -> R2CostGatePolicy:
     """Keep the established Testnet Canary sampling contract explicit.
 
@@ -350,11 +369,7 @@ def _build_local_state(
                         claim_keys.add(order.exchange_order_id)
                 for fill in fills:
                     claim_keys.update(
-                        {
-                            fill.fill_id,
-                            fill.exchange_order_id,
-                            fill.trade_id,
-                        }
+                        {value for value in (fill.fill_id, fill.exchange_order_id, fill.trade_id) if value}
                     )
                 protection_exchange_order_ids: set[str] = set()
                 protection_order_refs: list[tuple[str, str, str]] = []
@@ -419,7 +434,10 @@ def _build_local_state(
                 # the persisted strategy identity used to claim the current net
                 # position; symbol/quantity alone never create this mapping.
                 if order is not None and order.exchange_order_id and fills:
-                    exchange_position_claim_refs[f"{position.symbol}:{position.direction}"] = frozen_claim_keys
+                    claim_key = f"{position.symbol}:{position.direction}"
+                    exchange_position_claim_refs[claim_key] = (
+                        exchange_position_claim_refs.get(claim_key, frozenset()) | frozen_claim_keys
+                    )
 
             all_orders = tuple(session.scalars(select(V2ExchangeOrder)))
             known_client_order_ids.update(order.client_order_id for order in all_orders)
@@ -672,6 +690,7 @@ def _calculate_quantity(
     *,
     stop_distance: Decimal | None = None,
     reference_price: Decimal | None = None,
+    candidate: TradeCandidate | None = None,
 ) -> Decimal:
     """Resolve entry notional as risk-based sizing under three hard ceilings.
 
@@ -699,8 +718,23 @@ def _calculate_quantity(
     """
     equity = max(snapshot.equity, Decimal("1"))
     exposure_ceiling = equity * request.max_position_fraction
+    total_exposure_ceiling = equity * request.max_total_exposure
     margin_budget_ceiling = equity * request.max_margin_fraction * Decimal(request.max_leverage)
     margin_ceiling = equity * Decimal(request.max_leverage)
+
+    if _is_testnet_canary_sampling(request, candidate):
+        # Canary sizing targets the configured margin directly. Risk sizing still
+        # runs below for diagnostics and is never allowed to silently shrink this
+        # sampling order. Existing exchange positions are grandfathered, but their
+        # authoritative mark-price notional consumes the aggregate 7.50x budget;
+        # quantity step rounding can only reduce the final margin.
+        committed_notional = sum(
+            (abs(position.quantity) * position.mark_price for position in snapshot.positions),
+            Decimal("0"),
+        )
+        remaining_total_exposure = max(total_exposure_ceiling - committed_notional, Decimal("0"))
+        target_notional = equity * request.max_margin_fraction * Decimal(request.max_leverage)
+        return min(target_notional, exposure_ceiling, remaining_total_exposure, margin_budget_ceiling, margin_ceiling)
 
     if request.order_notional_usdt is not None:
         return min(request.order_notional_usdt, exposure_ceiling, margin_budget_ceiling, margin_ceiling)
@@ -733,6 +767,7 @@ def _evaluate_durable_portfolio_risk(
     candidate: TradeCandidate,
     snapshot: AuthoritativeAccountSnapshot,
     initial_risk_usdt: Decimal,
+    max_open_positions: int | None = None,
 ):
     """Load durable reservations and fail closed on legacy active unknown risk."""
     from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
@@ -749,6 +784,7 @@ def _evaluate_durable_portfolio_risk(
         candidate_direction=candidate.direction,
         candidate_initial_risk_usdt=initial_risk_usdt,
         committed=committed,
+        max_open_positions=max_open_positions if max_open_positions is not None else MAX_OPEN_POSITIONS,
     )
     return decision, decision.reason_code
 
@@ -1034,9 +1070,13 @@ def _recover_confirmed_v2_entry_gap(
     from sqlalchemy import select
 
     from services.automated_trading.infrastructure.models import (
+        V2ExchangeFill,
+        V2ExchangeOrder,
         V2ExecutionCycle,
         V2ExecutionDecision,
+        V2ExecutionIntent,
         V2ManagedPosition,
+        V2ProtectionRecord,
     )
     from services.database import get_session_factory
 
@@ -1058,6 +1098,7 @@ def _recover_confirmed_v2_entry_gap(
             ).all()
         )
 
+    recovered_any = False
     for decision, decision_cycle in rows:
         payload = decision.payload or {}
         stages = {str(item.get("stage")): item for item in payload.get("stages", []) if isinstance(item, dict)}
@@ -1084,7 +1125,12 @@ def _recover_confirmed_v2_entry_gap(
             if existing_position is not None:
                 continue
 
-        side = str(candidate_metrics.get("side") or signal_metrics.get("side") or "")
+        side = str(
+            candidate_metrics.get("side")
+            or signal_metrics.get("side")
+            or (payload.get("candidate") or {}).get("side")
+            or ""
+        )
         direction = "long" if side == "LONG" else "short" if side == "SHORT" else ""
         exchange_position = next(
             (
@@ -1095,44 +1141,138 @@ def _recover_confirmed_v2_entry_gap(
             None,
         )
         if exchange_position is None:
+            order_status = (
+                adapter.query_filled_order_by_id(request.symbol, exchange_order_id)
+                if callable(getattr(adapter, "query_filled_order_by_id", None))
+                else None
+            )
+            if (
+                order_status is not None
+                and order_status.client_order_id == client_order_id
+                and order_status.status == "filled"
+                and order_status.quantity > 0
+                and order_status.price is not None
+            ):
+                with get_session_factory()() as session:
+                    from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
+
+                    order = session.scalar(select(V2ExchangeOrder).where(V2ExchangeOrder.intent_id == intent_id))
+                    intent = session.get(V2ExecutionIntent, intent_id)
+                    if order is not None and intent is not None:
+                        repo = AutomatedTradingRepository(session)
+                        existing_fill = session.scalar(
+                            select(V2ExchangeFill).where(
+                                V2ExchangeFill.exchange_order_record_id == order.order_record_id,
+                                V2ExchangeFill.exchange_order_id == exchange_order_id,
+                                V2ExchangeFill.reduce_only.is_(False),
+                            )
+                        )
+                        if existing_fill is None:
+                            repo.save_order_level_fill_recovery(
+                                intent_id=intent_id,
+                                exchange_order_record_id=order.order_record_id,
+                                account_id="binance_testnet",
+                                exchange_order_id=exchange_order_id,
+                                symbol=request.symbol,
+                                side=order_status.side.upper(),
+                                reduce_only=False,
+                                filled_quantity=order_status.quantity,
+                                fill_price=order_status.price,
+                                exchange_event_time=order_status.acknowledged_at,
+                                received_at=datetime.now(UTC),
+                            )
+                        if V2IntentState(intent.state) is V2IntentState.EXCHANGE_ACKNOWLEDGED:
+                            repo.transition_intent(
+                                intent_id,
+                                expected_current=V2IntentState.EXCHANGE_ACKNOWLEDGED,
+                                next_state=V2IntentState.CANCELLED,
+                                event_type="RecoveryConfirmedFlatAfterFill",
+                                payload={
+                                    "reason": "authoritative fill confirmed, exchange position is now flat",
+                                    "exchange_order_id": exchange_order_id,
+                                },
+                            )
+                        repo.commit()
+                        logger.warning(
+                            "closed confirmed V2 entry gap cycle=%s intent=%s order=%s: exchange position already flat",
+                            decision_cycle.cycle_id,
+                            intent_id,
+                            exchange_order_id,
+                        )
+                        recovered_any = True
+                        continue
             continue
 
         fills = adapter.fetch_fills(request.symbol, exchange_order_id)
-        if not fills:
-            continue
-        filled_quantity = sum((fill.filled_quantity for fill in fills), Decimal("0"))
-        if filled_quantity <= 0 or filled_quantity != exchange_position.quantity:
-            continue
-        notional = sum(
-            (fill.filled_quantity * fill.fill_price for fill in fills),
-            Decimal("0"),
-        )
-        average_fill_price = notional / filled_quantity
-        total_fee = sum((fill.fee for fill in fills), Decimal("0"))
-        fill_timestamp = max(fill.fill_timestamp for fill in fills)
+        fill_source = "BINANCE_USER_TRADE"
+        if fills:
+            filled_quantity = sum((fill.filled_quantity for fill in fills), Decimal("0"))
+            # Binance one-way mode reports the net position for a symbol.  Several
+            # acknowledged V2 entry intents may therefore contribute separate
+            # confirmed fills to that same position.  Exact order identity still
+            # prevents adoption by symbol/quantity; only reject a fill larger
+            # than the authoritative net position.
+            if filled_quantity <= 0 or filled_quantity > exchange_position.quantity:
+                continue
+            notional = sum((fill.filled_quantity * fill.fill_price for fill in fills), Decimal("0"))
+            average_fill_price = notional / filled_quantity
+            total_fee = sum((fill.fee for fill in fills), Decimal("0"))
+            fill_timestamp = max(fill.fill_timestamp for fill in fills)
+            trade_ids = tuple(fill.trade_id for fill in fills)
+        else:
+            order_status = (
+                adapter.query_filled_order_by_id(request.symbol, exchange_order_id)
+                if callable(getattr(adapter, "query_filled_order_by_id", None))
+                else None
+            )
+            expected_side = "buy" if direction == "long" else "sell"
+            if (
+                order_status is None
+                or order_status.client_order_id != client_order_id
+                or order_status.status != "filled"
+                or order_status.side != expected_side
+                or order_status.quantity > exchange_position.quantity
+                or order_status.price is None
+                or order_status.price <= 0
+            ):
+                continue
+            filled_quantity = order_status.quantity
+            average_fill_price = order_status.price
+            total_fee = Decimal("0")
+            fill_timestamp = order_status.acknowledged_at
+            trade_ids = ()
+            fill_source = "BINANCE_ORDER_STATUS_RECOVERY"
 
-        bar_timestamp = datetime.fromisoformat(str(payload["bar_timestamp"]).replace("Z", "+00:00"))
+        candidate_payload = payload.get("candidate") or {}
+        bar_timestamp = decision_cycle.bar_timestamp
         if bar_timestamp.tzinfo is None:
             bar_timestamp = bar_timestamp.replace(tzinfo=UTC)
+        stop_distance = candidate_payload.get("stop_distance") or candidate_metrics.get("stop_distance")
+        take_profit_distance = candidate_payload.get("take_profit_distance") or candidate_metrics.get(
+            "take_profit_distance"
+        )
+        signal_reference_price = candidate_payload.get("signal_reference_price") or signal_metrics.get("close")
+        candidate_id = candidate_payload.get("candidate_id") or candidate_metrics.get("candidate_id")
+        if not all((stop_distance, signal_reference_price, candidate_id)):
+            result.record_error("P0_PROTECTION_RECOVERY_BLOCKED_GEOMETRY")
+            return False
         candidate = TradeCandidate(
-            candidate_id=str(payload.get("candidate_id") or candidate_metrics.get("candidate_id")),
+            candidate_id=str(candidate_id),
             cycle_id=decision_cycle.cycle_id,
             strategy_id=str(payload.get("strategy_id") or "testnet_sampling_v2"),
             strategy_version=str(payload.get("strategy_version") or "1.0.0"),
-            lane=str(payload.get("lane") or CandidateLane.TESTNET_SAMPLING.value),
+            lane=str(candidate_payload.get("lane") or payload.get("lane") or CandidateLane.TESTNET_SAMPLING.value),
             candidate_type=V2CandidateType.SAMPLING,
             symbol=request.symbol,
             side=side,
             signal_candle_close_time=bar_timestamp,
-            signal_reference_price=Decimal(str(signal_metrics["close"])),
-            confidence=Decimal("0.5"),
-            stop_distance=Decimal(str(candidate_metrics["stop_distance"])),
-            take_profit_distance=(
-                Decimal(str(candidate_metrics["take_profit_distance"]))
-                if candidate_metrics.get("take_profit_distance") is not None
-                else None
+            signal_reference_price=Decimal(str(signal_reference_price)),
+            confidence=Decimal(str(candidate_payload.get("confidence") or "0.5")),
+            stop_distance=Decimal(str(stop_distance)),
+            take_profit_distance=Decimal(str(take_profit_distance)) if take_profit_distance is not None else None,
+            max_entry_drift_bps=Decimal(
+                str(candidate_payload.get("max_entry_drift_bps") or drift_metrics.get("drift_ceiling_bps") or "20")
             ),
-            max_entry_drift_bps=Decimal(str(drift_metrics.get("drift_ceiling_bps") or "20")),
             expires_at=bar_timestamp + timedelta(days=1),
             non_promotable=True,
         )
@@ -1142,27 +1282,76 @@ def _recover_confirmed_v2_entry_gap(
             client_order_id=client_order_id,
             reason_code=DecisionReasonCode.OK,
             exchange_order_id=exchange_order_id,
-            trade_ids=tuple(fill.trade_id for fill in fills),
-            requested_quantity=filled_quantity,
+            trade_ids=trade_ids,
             filled_quantity=filled_quantity,
             average_fill_price=average_fill_price,
             total_fee=total_fee,
             fill_timestamp=fill_timestamp,
-            detail="recovered from exact persisted V2 order identity and Binance fills",
+            fill_source=fill_source,
+            detail="recovered from exact persisted V2 order identity and Binance authoritative order status",
         )
         market = adapter.fetch_market_snapshot(request.symbol)
-        position_id = str(uuid.uuid4())
-        plan = build_protection_plan(
-            position_id=position_id,
-            candidate=candidate,
-            average_fill_price=average_fill_price,
-            filled_quantity=filled_quantity,
-            tick_size=market.tick_size,
-        )
-        protection = ensure_protection(plan, adapter=adapter)
-        if not protection.is_active:
-            result.record_error(f"confirmed V2 entry recovery could not activate protection: {protection.detail}")
-            return False
+        with get_session_factory()() as session:
+            existing_position = session.scalar(
+                select(V2ManagedPosition).where(
+                    V2ManagedPosition.symbol == request.symbol,
+                    V2ManagedPosition.direction == direction,
+                    V2ManagedPosition.execution_mode == request.execution_mode.value,
+                    V2ManagedPosition.state.not_in(("CLOSED", "QUARANTINED")),
+                )
+            )
+            previous_protection_version = 0
+            if existing_position is not None:
+                protections = tuple(
+                    session.scalars(
+                        select(V2ProtectionRecord).where(
+                            V2ProtectionRecord.position_id == existing_position.position_id
+                        )
+                    )
+                )
+                # Older protection rows were persisted with version=0 even
+                # though their client-order IDs already consumed revisions.
+                # Count rows as a lower bound so a recovery replacement can
+                # never reuse a unique client order ID.
+                previous_protection_version = max(
+                    len(protections),
+                    max((int(protection.version) for protection in protections), default=0),
+                )
+        position_id = existing_position.position_id if existing_position is not None else str(uuid.uuid4())
+        existing_quantity = Decimal(str(existing_position.quantity)) if existing_position is not None else Decimal("0")
+        should_project_position = existing_position is None or existing_quantity < exchange_position.quantity
+        plan = None
+        protection = None
+        # The aggregate position may already have exchange-acknowledged
+        # protection covering the authoritative net quantity.  This happens
+        # when multiple fills share one one-way-mode position: the second
+        # intent still needs its exact fill projected, but resubmitting another
+        # stop/target pair would reuse an exchange client id and over-protect
+        # the same position.
+        if should_project_position:
+            protection_quantity = exchange_position.quantity if existing_position is not None else filled_quantity
+            plan = build_protection_plan(
+                position_id=position_id,
+                candidate=candidate,
+                average_fill_price=average_fill_price,
+                filled_quantity=protection_quantity,
+                tick_size=market.tick_size,
+                attempt=previous_protection_version + 1,
+            )
+            protection = ensure_protection(plan, adapter=adapter)
+            if not protection.is_active:
+                result.record_error(f"confirmed V2 entry recovery could not activate protection: {protection.detail}")
+                return False
+        elif existing_position is not None and existing_quantity > exchange_position.quantity:
+            from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
+
+            with get_session_factory()() as session:
+                AutomatedTradingRepository(session).reconcile_position_quantity_from_authoritative_snapshot(
+                    position_id=existing_position.position_id,
+                    quantity=exchange_position.quantity,
+                    occurred_at=fill_timestamp,
+                )
+                session.commit()
 
         persist_entry_and_protection(
             cycle_id=decision_cycle.cycle_id,
@@ -1179,14 +1368,16 @@ def _recover_confirmed_v2_entry_gap(
             entry_result=entry_result,
             position_id=position_id,
             protection_result=protection,
-            stop_loss_price=plan.stop_price,
-            take_profit_price=plan.take_profit_price,
-            stop_client_order_id=plan.stop_client_order_id,
-            tp_client_order_id=plan.tp_client_order_id,
-            initial_risk_usdt=filled_quantity * abs(average_fill_price - plan.stop_price),
+            stop_loss_price=plan.stop_price if plan else None,
+            take_profit_price=plan.take_profit_price if plan else None,
+            stop_client_order_id=plan.stop_client_order_id if plan else None,
+            tp_client_order_id=plan.tp_client_order_id if plan else None,
+            initial_risk_usdt=(filled_quantity * abs(average_fill_price - plan.stop_price) if plan else None),
+            project_position=should_project_position,
+            allow_existing_position_aggregation=existing_position is not None,
         )
         result.position_projected = True
-        result.protection_active = True
+        result.protection_active = protection is not None and protection.is_active
         logger.warning(
             "recovered confirmed V2 entry gap cycle=%s intent=%s order=%s trades=%s",
             decision_cycle.cycle_id,
@@ -1194,7 +1385,8 @@ def _recover_confirmed_v2_entry_gap(
             exchange_order_id,
             [fill.trade_id for fill in fills],
         )
-    return True
+        recovered_any = True
+    return recovered_any
 
 
 def _apply_profit_protection(
@@ -1469,6 +1661,21 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
 
     Safe in SHADOW mode: no orders submitted, full decision funnel still runs.
     """
+    if (
+        request.execution_mode is V2ExecutionMode.BINANCE_TESTNET
+        and request.entry_authority is EntryAuthority.TESTNET_CANARY
+        and request.symbol in TESTNET_CANARY_SYMBOLS
+    ):
+        request = replace(
+            request,
+            risk_per_trade=Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["risk_per_trade"])),
+            max_leverage=int(TESTNET_CANARY_RUNTIME_CONTRACT["max_leverage"]),
+            max_margin_fraction=Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_margin_fraction"])),
+            order_notional_usdt=None,
+            max_position_fraction=Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_symbol_exposure"])),
+            max_open_positions=int(TESTNET_CANARY_RUNTIME_CONTRACT["max_open_positions"]),
+            max_total_exposure=Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_total_exposure"])),
+        )
     result = CycleResult(cycle_id=request.cycle_id, symbol=request.symbol)
 
     try:
@@ -1511,7 +1718,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         request.execution_mode,
         fail_closed=request.persist_facts,
     )
-    if request.persist_facts and local_load.status == "OK" and local_load.state is not None and snapshot.positions:
+    if request.persist_facts and local_load.status == "OK" and local_load.state is not None:
         try:
             recovered_entry = _recover_confirmed_v2_entry_gap(
                 request,
@@ -1856,6 +2063,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         }
         return result
     assert candidate is not None
+    canary_sampling = _is_testnet_canary_sampling(request, candidate)
     result.funnel_payload = {
         "cycle_id": request.cycle_id,
         "symbol": request.symbol,
@@ -1878,6 +2086,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         "promotion_eligible": not candidate.non_promotable,
         "strategy_trace": dict(request.production_trace),
         "candidate": serialize_trade_candidate(candidate),
+        "sizing_contract": dict(request.sizing_diagnostics),
     }
     if candidate.non_promotable and request.entry_authority is not EntryAuthority.TESTNET_CANARY:
         result.funnel_payload["execution_policy"] = "DECISION_TRACE_ONLY"
@@ -2078,6 +2287,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         snapshot,
         stop_distance=candidate.stop_distance,
         reference_price=snapshot_market.current_price,
+        candidate=candidate,
     )
     quantity = round_quantity_to_step(
         entry_notional / snapshot_market.current_price,
@@ -2086,6 +2296,57 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
     initial_risk_usdt = _candidate_initial_risk_usdt(quantity, candidate.stop_distance)
     portfolio_decision = None
     portfolio_reason = None
+    portfolio_enforced = not canary_sampling
+    if request.persist_facts:
+        try:
+            portfolio_decision, portfolio_reason = _evaluate_durable_portfolio_risk(
+                request,
+                candidate=candidate,
+                snapshot=snapshot,
+                initial_risk_usdt=initial_risk_usdt,
+                max_open_positions=(
+                    request.max_open_positions or int(TESTNET_CANARY_RUNTIME_CONTRACT["max_open_positions"])
+                    if canary_sampling
+                    else MAX_OPEN_POSITIONS
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            result.record_error(f"portfolio risk evaluation failed: {exc}")
+            portfolio_reason = "PORTFOLIO_RISK_UNAVAILABLE"
+        if portfolio_decision is not None:
+            result.funnel_payload["portfolio_risk"] = {
+                "would_block": portfolio_decision.reason_code is not None,
+                "enforced": portfolio_enforced or portfolio_decision.reason_code == "MAX_OPEN_EXPOSURES",
+                "max_open_positions": portfolio_decision.open_position_count
+                + (1 if portfolio_decision.reason_code is None else 0),
+                "reason_code": portfolio_decision.reason_code,
+                "projected_total_risk_fraction": str(portfolio_decision.projected_total_risk_fraction),
+                "projected_cluster_risk_fraction": str(portfolio_decision.projected_cluster_risk_fraction),
+            }
+        if portfolio_decision is None and portfolio_reason is not None:
+            result.funnel_payload["reason_code"] = portfolio_reason
+            _append_funnel_stage(
+                result.funnel_payload,
+                stage="PORTFOLIO_RISK_APPROVED",
+                outcome="ERROR",
+                reason_code=portfolio_reason,
+            )
+            return result
+        if portfolio_decision is not None and portfolio_risk_blocks(
+            portfolio_decision, diagnostic=not portfolio_enforced
+        ):
+            result.funnel_payload["reason_code"] = portfolio_reason
+            _append_funnel_stage(
+                result.funnel_payload,
+                stage="PORTFOLIO_RISK_APPROVED",
+                outcome="REJECTED",
+                reason_code=portfolio_reason,
+            )
+            return result
+        if portfolio_reason is not None and canary_sampling:
+            # The full E-004 decision is retained above, but only the five-position
+            # cap is execution-blocking in Testnet Canary sampling.
+            portfolio_reason = None
     _append_funnel_stage(
         result.funnel_payload,
         stage="PORTFOLIO_RISK_APPROVED",
@@ -2132,6 +2393,12 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                 fencing_token=request.fencing_token,
                 initial_risk_usdt=initial_risk_usdt,
                 account_equity=snapshot.equity,
+                portfolio_risk_enforced=portfolio_enforced,
+                max_open_positions=(
+                    request.max_open_positions or int(TESTNET_CANARY_RUNTIME_CONTRACT["max_open_positions"])
+                    if canary_sampling
+                    else MAX_OPEN_POSITIONS
+                ),
             )
             if portfolio_reason is not None:
                 result.funnel_payload["reason_code"] = portfolio_reason
@@ -2146,6 +2413,26 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             )
             return result
 
+    if request.persist_facts and not _runtime_entry_enabled():
+        result.entry_blocked_by_runtime_control = True
+        _append_funnel_stage(
+            result.funnel_payload,
+            stage="ENTRY_SUBMISSION_AUTHORIZED",
+            outcome="REJECTED",
+            reason_code=DecisionReasonCode.ENTRY_KILL_SWITCH_ACTIVE.value,
+        )
+        return result
+
+    if request.persist_facts and not _runtime_entry_enabled():
+        result.entry_blocked_by_runtime_control = True
+        _append_funnel_stage(
+            result.funnel_payload,
+            stage="ENTRY_SUBMISSION_AUTHORIZED",
+            outcome="REJECTED",
+            reason_code=DecisionReasonCode.ENTRY_KILL_SWITCH_ACTIVE.value,
+        )
+        return result
+
     entry_result = execute_entry(
         candidate,
         gate,
@@ -2155,6 +2442,9 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         quantity=quantity,
         leverage=request.max_leverage,
         engine_activation=request.engine_activation,
+        margin_equity=snapshot.equity if canary_sampling else None,
+        max_margin_fraction=request.max_margin_fraction if canary_sampling else None,
+        enforce_margin_ceiling=canary_sampling,
     )
     if request.persist_facts:
         try:

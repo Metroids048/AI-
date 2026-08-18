@@ -81,10 +81,11 @@ AUTO_PAPER_STRATEGY_RULES: dict[str, Any] = {
     "stoploss_rules": {"atr_multiple": 2.0, "fixed_bps": 250},
     "takeprofit_rules": {"risk_reward": 3.0, "trail_after_r": 1.5},
     "position_rules": {
-        # Directional channels share the operator's 1% risk / 50x / 5% margin budget.
-        "risk_per_trade": 0.01,
-        "max_leverage": 50,
-        "max_position_fraction": 2.50,
+        # Directional channels share the Testnet Canary 10% diagnostic risk /
+        # 30x / 5% margin contract. Production still applies its own gates.
+        "risk_per_trade": PAPER_RUNTIME_LIMITS["risk_per_trade"],
+        "max_leverage": PAPER_RUNTIME_LIMITS["max_leverage"],
+        "max_position_fraction": PAPER_RUNTIME_LIMITS["max_symbol_exposure"],
         "min_notional_usdt": 20,
     },
 }

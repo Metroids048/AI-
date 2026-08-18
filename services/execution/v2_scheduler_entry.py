@@ -19,7 +19,11 @@ from typing import Any
 
 from services.automated_trading.application.cycle_service import CycleRequest, run_automated_trading_cycle
 from services.automated_trading.application.decision_service import BarView, TimeframeView
-from services.automated_trading.application.operator_profile import V2ExecutionSettings, resolve_v2_execution_settings
+from services.automated_trading.application.operator_profile import (
+    V2ExecutionSettings,
+    apply_testnet_canary_runtime_contract,
+    resolve_v2_execution_settings,
+)
 from services.automated_trading.application.production_strategy import (
     NO_AUTHORIZED_PRODUCTION_STRATEGY,
     EntryAuthority,
@@ -52,6 +56,7 @@ from services.strategy_library.proposal_pipeline import (
     run_proposal_pipeline,
 )
 from shared.config import settings
+from shared.models.risk import TESTNET_CANARY_RUNTIME_CONTRACT, TESTNET_CANARY_SYMBOLS
 
 logger = logging.getLogger(__name__)
 
@@ -623,7 +628,7 @@ def execute_v2_automated_trading_cycles(
     timeframe_loader: Callable[[str, str], TimeframeView] | None = None,
     market_context_loader: MarketContextLoader | None = None,
 ) -> dict[str, Any]:
-    """Run one coordinated V2 cycle pass for BTC/USDT and ETH/USDT."""
+    """Run one coordinated V2 cycle pass for the fixed five-symbol universe."""
     payload = dict(request_payload or {})
     config = resolve_engine_activation(settings)
     if config.v2_activation is EngineActivation.DISABLED:
@@ -685,6 +690,15 @@ def execute_v2_automated_trading_cycles(
     load_timeframe = timeframe_loader or _load_v2_entry_timeframe
     load_market_context = market_context_loader or _load_v2_market_context
     symbols = list(payload.get("symbols") or AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    if config.execution_mode is V2ExecutionMode.BINANCE_TESTNET:
+        invalid_symbols = sorted(set(symbols) - set(TESTNET_CANARY_SYMBOLS))
+        if invalid_symbols:
+            return {
+                "status": "error",
+                "error": "TESTNET_CANARY_SYMBOL_SCOPE_MISMATCH",
+                "invalid_symbols": invalid_symbols,
+                "allowed_symbols": list(TESTNET_CANARY_SYMBOLS),
+            }
     timeframe = str(payload.get("timeframe") or V2_CYCLE_TIMEFRAME)
 
     symbol_results: list[dict[str, Any]] = []
@@ -739,6 +753,13 @@ def execute_v2_automated_trading_cycles(
                 execution_mode=config.execution_mode.value,
                 operator_testnet_canary_enabled=operator_settings.sampling_fallback_enabled,
             )
+            operator_settings = apply_testnet_canary_runtime_contract(
+                operator_settings,
+                symbol=symbol,
+                execution_mode=config.execution_mode.value,
+                entry_authority=entry_authority.authority.value,
+                candidate_lane=TESTNET_CANARY_RUNTIME_CONTRACT["candidate_lane"],
+            )
 
             bar_timestamp = entry_timeframe.last_closed.timestamp if entry_timeframe.last_closed else bar_slot
             decision_id = str(uuid.uuid4())
@@ -775,9 +796,15 @@ def execute_v2_automated_trading_cycles(
                 max_margin_fraction=operator_settings.max_margin_fraction,
                 order_notional_usdt=operator_settings.order_notional_usdt,
                 max_position_fraction=operator_settings.max_position_fraction,
-                # A SHOCK volatility tier blocks only this symbol's new exposure.
-                # Exit/protection/reconciliation use separate reduce-only paths.
-                entry_kill_switch_active=operator_settings.volatility_no_new_entry,
+                max_open_positions=(
+                    operator_settings.max_open_positions if operator_settings.canary_contract_applied else None
+                ),
+                max_total_exposure=operator_settings.max_total_exposure,
+                # Volatility SHOCK is diagnostic in the exact Canary sampling lane;
+                # manual/runtime/exchange safety controls remain blocking elsewhere.
+                entry_kill_switch_active=(
+                    operator_settings.volatility_no_new_entry and operator_settings.volatility_enforced
+                ),
                 already_evaluated_bars=_load_already_evaluated_bars(
                     symbol=symbol,
                     timeframe=timeframe,
@@ -798,6 +825,21 @@ def execute_v2_automated_trading_cycles(
                 production_authorization_reason=production_reason,
                 production_decision_reason=production_decision_reason,
                 production_trace=production_trace,
+                sizing_diagnostics={
+                    "contract_applied": operator_settings.canary_contract_applied,
+                    "effective_risk_per_trade": str(operator_settings.risk_per_trade),
+                    "effective_leverage": operator_settings.max_leverage,
+                    "effective_margin_fraction": str(operator_settings.max_margin_fraction),
+                    "effective_position_fraction": str(operator_settings.max_position_fraction),
+                    "effective_max_open_positions": operator_settings.max_open_positions,
+                    "effective_max_total_exposure": str(operator_settings.max_total_exposure),
+                    "tier_recommended_leverage": operator_settings.tier_recommended_leverage,
+                    "tier_would_reduce": operator_settings.tier_would_reduce,
+                    "tier_enforced": operator_settings.tier_enforced,
+                    "volatility_multiplier": str(operator_settings.volatility_multiplier),
+                    "volatility_no_new_entry": operator_settings.volatility_no_new_entry,
+                    "volatility_enforced": operator_settings.volatility_enforced,
+                },
                 ai_review_budget_seconds=settings.v2_ai_review_budget_seconds,
                 r2_cost_gate_enabled=True,
             )

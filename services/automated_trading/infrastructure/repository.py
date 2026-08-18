@@ -416,6 +416,7 @@ class AutomatedTradingRepository:
                 "to_state": "FILLED",
                 "exchange_order_id": order.exchange_order_id,
                 "trade_id": fill.trade_id,
+                "fill_source": fill.fill_source,
                 "version": intent.version,
             },
             occurred_at=datetime.now(UTC),
@@ -469,7 +470,8 @@ class AutomatedTradingRepository:
         exchange_order_record_id: str,
         account_id: str,
         exchange_order_id: str,
-        trade_id: str,
+        trade_id: str | None,
+        fill_source: str = "BINANCE_USER_TRADE",
         symbol: str,
         side: str,
         reduce_only: bool,
@@ -500,6 +502,7 @@ class AutomatedTradingRepository:
             account_id=account_id,
             exchange_order_id=exchange_order_id,
             trade_id=trade_id,
+            fill_source=fill_source,
             symbol=symbol,
             side=side,
             reduce_only=reduce_only,
@@ -516,6 +519,69 @@ class AutomatedTradingRepository:
         self._refresh_order_aggregate_from_fills(exchange_order_record_id)
         self.session.flush()
         return fill.fill_id
+
+    def get_exchange_fill_by_trade(
+        self,
+        *,
+        account_id: str,
+        trade_id: str,
+    ) -> V2ExchangeFill | None:
+        """Return an already persisted exchange fill by its exchange identity.
+
+        Binance user-trade recovery can observe the same fill more than once.
+        Callers that are replaying a higher-level persistence transaction can
+        use this to make that replay idempotent while keeping the insert method
+        strict for conflicting identities.
+        """
+        return self.session.scalar(
+            select(V2ExchangeFill).where(
+                V2ExchangeFill.account_id == account_id,
+                V2ExchangeFill.trade_id == trade_id,
+            )
+        )
+
+    def save_order_level_fill_recovery(
+        self,
+        *,
+        intent_id: str,
+        exchange_order_record_id: str,
+        account_id: str,
+        exchange_order_id: str,
+        symbol: str,
+        side: str,
+        reduce_only: bool,
+        filled_quantity: Decimal,
+        fill_price: Decimal,
+        exchange_event_time: datetime,
+        received_at: datetime,
+    ) -> str:
+        """Persist one authoritative order-status fill without inventing a trade id."""
+        existing = self.session.scalar(
+            select(V2ExchangeFill).where(
+                V2ExchangeFill.exchange_order_record_id == exchange_order_record_id,
+                V2ExchangeFill.fill_source == "BINANCE_ORDER_STATUS_RECOVERY",
+            )
+        )
+        if existing is not None:
+            return existing.fill_id
+        return self.save_exchange_fill_receipt(
+            intent_id=intent_id,
+            exchange_order_record_id=exchange_order_record_id,
+            account_id=account_id,
+            exchange_order_id=exchange_order_id,
+            trade_id=None,
+            fill_source="BINANCE_ORDER_STATUS_RECOVERY",
+            symbol=symbol,
+            side=side,
+            reduce_only=reduce_only,
+            filled_quantity=filled_quantity,
+            fill_price=fill_price,
+            commission=None,
+            commission_asset=None,
+            exchange_event_time=exchange_event_time,
+            received_at=received_at,
+            raw_hash=f"order-status:{exchange_order_id}",
+        )
 
     def save_fill_receipt(
         self,
@@ -628,6 +694,7 @@ class AutomatedTradingRepository:
         direction: str,
         execution_mode: V2ExecutionMode,
         projected_at: datetime,
+        allow_existing_position_aggregation: bool = False,
     ) -> None:
         """Project position quantities exclusively from persisted fill rows."""
         from services.automated_trading.domain.enums import V2PositionState
@@ -644,6 +711,27 @@ class AutomatedTradingRepository:
                 "fill receipt must be saved first"
             )
 
+        existing = self.session.scalar(
+            select(V2ManagedPosition).where(
+                V2ManagedPosition.symbol == symbol,
+                V2ManagedPosition.direction == direction,
+                V2ManagedPosition.execution_mode == execution_mode.value,
+                V2ManagedPosition.state.not_in(["CLOSED", "QUARANTINED"]),
+            )
+        )
+        if existing is not None and allow_existing_position_aggregation:
+            previous_quantity = Decimal(str(existing.quantity))
+            total_quantity = previous_quantity + agg["filled_quantity"]
+            existing.entry_price = (
+                (previous_quantity * Decimal(str(existing.entry_price)))
+                + (agg["filled_quantity"] * agg["average_fill_price"])
+            ) / total_quantity
+            existing.quantity = total_quantity
+            existing.entry_fee = Decimal(str(existing.entry_fee or 0)) + agg["total_fee"]
+            existing.projected_at = projected_at
+            self.session.flush()
+            return
+
         position = V2ManagedPosition(
             position_id=position_id,
             intent_id=intent_id,
@@ -659,6 +747,41 @@ class AutomatedTradingRepository:
             projected_at=projected_at,
         )
         self.session.add(position)
+        self.session.flush()
+
+    def reconcile_position_quantity_from_authoritative_snapshot(
+        self,
+        *,
+        position_id: str,
+        quantity: Decimal,
+        occurred_at: datetime,
+    ) -> None:
+        """Repair a local aggregate quantity from exchange position truth.
+
+        This is only used after exact V2 fill identity has been established;
+        it never creates a position or changes exchange state.
+        """
+        if quantity <= 0:
+            raise ValueError("authoritative position quantity must be positive")
+        position = self.session.get(V2ManagedPosition, position_id)
+        if position is None:
+            raise ValueError(f"Position {position_id!r} not found")
+        previous_quantity = Decimal(str(position.quantity))
+        if previous_quantity == quantity:
+            return
+        position.quantity = quantity
+        position.projected_at = occurred_at
+        self.append_event(
+            aggregate_id=position_id,
+            aggregate_type="POSITION",
+            event_type="PositionQuantityReconciledFromAuthoritativeSnapshot",
+            event_payload={
+                "from_quantity": str(previous_quantity),
+                "to_quantity": str(quantity),
+                "source": "binance_authoritative_snapshot",
+            },
+            occurred_at=occurred_at,
+        )
         self.session.flush()
 
     def project_position(

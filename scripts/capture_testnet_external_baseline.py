@@ -91,6 +91,33 @@ def require_persisted_external_baseline(*, path: Path | None = None) -> dict[str
             ) from exc
         raise
     if observed != persisted:
+        # A stale baseline that names a symbol/direction with an acknowledged
+        # V2 intent is a projection-recovery problem, not permission to rewrite
+        # operator-owned external exposure.  Keep the normal mismatch guard
+        # fail-closed for all other baseline drift.
+        try:
+            from sqlalchemy import select
+
+            from services.automated_trading.domain.enums import V2ExecutionMode
+            from services.automated_trading.infrastructure.models import V2ExecutionIntent
+            from services.database import get_session_factory
+
+            with get_session_factory()() as session:
+                acknowledged_keys = {
+                    f"{intent.symbol}:{intent.direction}"
+                    for intent in session.scalars(
+                        select(V2ExecutionIntent).where(
+                            V2ExecutionIntent.execution_mode == V2ExecutionMode.BINANCE_TESTNET.value,
+                            V2ExecutionIntent.state == "EXCHANGE_ACKNOWLEDGED",
+                        )
+                    )
+                }
+            for key in sorted(set(persisted) & acknowledged_keys):
+                raise RuntimeError(f"SYSTEM_POSITION_PROJECTION_GAP: {key}")
+        except RuntimeError:
+            raise
+        except Exception:
+            pass
         raise RuntimeError(
             "EXTERNAL_BASELINE_MISMATCH: "
             f"persisted={json.dumps(persisted, sort_keys=True)} "
@@ -99,7 +126,7 @@ def require_persisted_external_baseline(*, path: Path | None = None) -> dict[str
     return persisted
 
 
-def capture_baseline() -> dict[str, str]:
+def capture_baseline(*, allow_system_projection_gaps: bool = False) -> dict[str, str]:
     from shared.config import settings
 
     if not settings.binance_use_testnet or settings.live_trading_enabled:
@@ -107,9 +134,10 @@ def capture_baseline() -> dict[str, str]:
 
     from sqlalchemy import select
 
+    from services.automated_trading.domain.client_order_id import is_v2_client_order_id
     from services.automated_trading.domain.enums import V2ExecutionMode
     from services.automated_trading.infrastructure.binance_adapter import BinanceTestnetAdapter
-    from services.automated_trading.infrastructure.models import V2ManagedPosition
+    from services.automated_trading.infrastructure.models import V2ExchangeOrder, V2ExecutionIntent, V2ManagedPosition
     from services.data.universe import canonical_market_symbol
     from services.database import get_session_factory
 
@@ -124,6 +152,25 @@ def capture_baseline() -> dict[str, str]:
                 )
             )
         }
+        unprojected_system_position_keys = {
+            f"{intent.symbol}:{intent.direction}"
+            for order, intent in session.execute(
+                select(V2ExchangeOrder, V2ExecutionIntent)
+                .join(V2ExecutionIntent, V2ExchangeOrder.intent_id == V2ExecutionIntent.intent_id)
+                .where(
+                    V2ExecutionIntent.execution_mode == V2ExecutionMode.BINANCE_TESTNET.value,
+                    V2ExecutionIntent.state == "EXCHANGE_ACKNOWLEDGED",
+                )
+            )
+            if order.exchange_order_id and is_v2_client_order_id(order.client_order_id)
+        }
+    if unprojected_system_position_keys and not allow_system_projection_gaps:
+        # An acknowledged V2 order is unresolved local execution fact even when
+        # Binance is currently flat (for example, the order filled and was
+        # subsequently closed before the projection was persisted).  Do not
+        # rewrite the durable external baseline until the exact intent has been
+        # reconciled to a terminal state.
+        raise RuntimeError("SYSTEM_POSITION_PROJECTION_GAP: " + ",".join(sorted(unprojected_system_position_keys)))
     baseline: dict[str, str] = {}
     execution_symbols = set(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     for position in snapshot.positions:
@@ -132,6 +179,9 @@ def capture_baseline() -> dict[str, str]:
             continue
         quantity = Decimal(str(position.quantity))
         key = f"{symbol}:{position.direction}"
+        # Recovery bootstrap may temporarily expose the authoritative quantity
+        # as a baseline so the scheduler can run its exact-identity projection
+        # repair.  The normal capture path remains fail-closed above.
         external_quantity = quantity - managed.get(key, Decimal("0"))
         if external_quantity > 0:
             baseline[key] = str(external_quantity)
@@ -144,9 +194,16 @@ def main() -> int:
     operations = parser.add_mutually_exclusive_group()
     operations.add_argument("--capture-persisted", action="store_true")
     operations.add_argument("--require-persisted", action="store_true")
+    parser.add_argument(
+        "--bootstrap-projection-recovery",
+        action="store_true",
+        help="emit a temporary authoritative baseline while exact V2 projection gaps are repaired",
+    )
     args = parser.parse_args()
     try:
-        if args.capture_persisted:
+        if args.bootstrap_projection_recovery:
+            baseline = capture_baseline(allow_system_projection_gaps=True)
+        elif args.capture_persisted:
             baseline = capture_baseline()
             persist_external_baseline(baseline)
         elif args.require_persisted:

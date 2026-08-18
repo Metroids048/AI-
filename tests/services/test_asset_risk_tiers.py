@@ -161,10 +161,10 @@ def test_scale_asset_risk_tiers_falls_back_to_defaults_when_missing() -> None:
 def test_medium_risk_profile_allows_core_tier_but_keeps_hard_limits() -> None:
     profile = medium_risk_profile()
 
-    assert profile.max_leverage == 50.0
-    assert profile.max_symbol_exposure == 2.50
-    assert profile.max_total_exposure == 5.00
-    assert profile.max_open_positions == 2
+    assert profile.max_leverage == 30.0
+    assert profile.max_symbol_exposure == 1.50
+    assert profile.max_total_exposure == 7.50
+    assert profile.max_open_positions == 5
     assert profile.daily_loss_limit == 0.20
     assert profile.hard_stop_drawdown_limit == 0.40
 

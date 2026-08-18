@@ -9,6 +9,7 @@ PDF `level` == this model's `severity`.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import Field
 
@@ -16,16 +17,43 @@ from .base import PlatformModel
 from .enums import RiskEventType, RiskResolutionStatus, RiskSeverity
 
 MEDIUM_RISK_PROFILE_KEY = "medium_binance_top20"
-PAPER_RUNTIME_CONFIG_VERSION = "paper-btc-eth-sampling-v1"
-PAPER_RUNTIME_LIMITS: dict[str, int | float] = {
-    # Directional operator baseline: 1% stop-loss risk budget, 50x leverage and
-    # 5% equity margin per symbol (2.50x equity notional at 50x).
-    "risk_per_trade": 0.01,
+PAPER_RUNTIME_CONFIG_VERSION = "paper-testnet-canary-sampling-v2"
+TESTNET_CANARY_SYMBOLS: tuple[str, ...] = (
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "XRP/USDT",
+    "BNB/USDT",
+)
+
+# One explicit sizing contract for the Binance Testnet Canary sampling lane.
+# The derived exposure values are kept as constants so every runtime consumer and
+# its contract tests use the same arithmetic rather than copied magic numbers.
+TESTNET_CANARY_RUNTIME_CONTRACT: dict[str, Any] = {
+    "execution_mode": "BINANCE_TESTNET",
+    "entry_authority": "TESTNET_CANARY",
+    "candidate_lane": "TESTNET_SAMPLING",
+    "strategy_id": "testnet_sampling_v2",
+    "symbols": TESTNET_CANARY_SYMBOLS,
+    "risk_per_trade": 0.10,
+    "max_leverage": 30,
+    "target_margin_fraction": 0.05,
     "max_margin_fraction": 0.05,
-    "max_symbol_exposure": 2.50,
-    "max_total_exposure": 5.00,
-    "max_open_positions": 2,
-    "max_leverage": 50.0,
+    "target_notional_fraction": 1.50,
+    "max_symbol_exposure": 1.50,
+    "max_open_positions": 5,
+    "max_total_exposure": 7.50,
+}
+
+PAPER_RUNTIME_LIMITS: dict[str, int | float] = {
+    # Directional Testnet Canary baseline: 10% diagnostic stop-risk budget, 30x
+    # leverage and 5% equity margin per symbol (1.50x equity notional at 30x).
+    "risk_per_trade": 0.10,
+    "max_margin_fraction": 0.05,
+    "max_symbol_exposure": 1.50,
+    "max_total_exposure": 7.50,
+    "max_open_positions": 5,
+    "max_leverage": 30.0,
     "max_portfolio_initial_risk_fraction": 0.25,
     "daily_loss_limit": 0.20,
     "weekly_loss_limit": 0.25,
@@ -62,7 +90,7 @@ class RiskProfile(PlatformModel):
 
 
 def medium_risk_profile() -> RiskProfile:
-    """Current BTC/ETH Binance Simulation limits; never use for mainnet."""
+    """Current five-symbol Binance Testnet Canary limits; never use for mainnet."""
     return RiskProfile(
         risk_profile_id=MEDIUM_RISK_PROFILE_KEY,
         single_trade_risk_limit=PAPER_RUNTIME_LIMITS["risk_per_trade"],
@@ -77,7 +105,7 @@ def medium_risk_profile() -> RiskProfile:
         consecutive_loss_limit=int(PAPER_RUNTIME_LIMITS["consecutive_loss_limit"]),
         api_failure_limit=5,
         api_failure_window_minutes=10,
-        market_scope="Binance USDT-M BTC/ETH Simulation only",
+        market_scope="Binance USDT-M BTC/ETH/SOL/XRP/BNB Testnet Canary only",
         config_source=PAPER_RUNTIME_CONFIG_VERSION,
     )
 

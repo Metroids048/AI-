@@ -1,28 +1,28 @@
 """Apply the operator-authorized directional Testnet sizing profile.
 
-This compatibility script stages the directional 50x / 5%-margin profile.
+This compatibility script stages the directional Testnet Canary 30x / 5%-margin profile.
 
     max_margin_fraction  0.05
-    max_symbol_exposure  2.50 (0.05 margin x 50 leverage)
-    max_total_exposure   5.00 (two entry slots)
-    max_leverage         50
-    risk_per_trade       0.01
+    max_symbol_exposure  1.50 (0.05 margin x 30 leverage)
+    max_total_exposure   7.50 (five entry slots)
+    max_leverage         30
+    risk_per_trade       0.10 (diagnostic in Canary sampling)
 
-5% of equity is margin (~365 USDT at ~7300 USDT equity), so the entry notional
-is ~18,250 USDT at 50x. The V2 sizing path keeps the stop-loss risk budget as
-an independent, stricter ceiling when it binds.
+5% of equity is margin (~350 USDT at 7000 USDT equity), so the entry notional
+is ~10,500 USDT at 30x. The Canary V2 path targets this margin directly; stop-risk
+metrics remain calculated and recorded diagnostically.
 
 MEASURED BASELINE (live Testnet profile, 2026-08-12, equity 7349 USDT):
 
     exposure 0.35 @ 40x  ->  notional 2572.15 USDT,  margin 64.30 USDT per symbol
 
 The 64.30 USDT margin is what the account screen shows as "about 60U". It is
-MARGIN, not position size. Therefore moving exposure 0.35 -> 0.05 is a ~7x
-REDUCTION in notional (2572 -> 367), not an increase, and it drops margin to
-~7.3 USDT at 50x.
+MARGIN, not position size. The Canary target is explicitly 5% margin, which is
+~367.45 USDT at this equity and ~11,023.50 USDT notional at 30x.
 
-The V2 sizing path takes the minimum of risk-based sizing, the per-symbol
-notional ceiling, and the explicit margin budget (`equity * 0.05 * 50`).
+The Canary V2 sizing path targets `equity * 0.05 * 30`; exchange quantity-step
+rounding may only make actual margin slightly lower. Risk metrics remain recorded
+for diagnosis and do not shrink the Canary target.
 
 CHAIN-STALL CAUTION: the cap gates new entries only and never reduces or closes
 an open position. But a symbol already above the requested cap has every new
@@ -39,7 +39,7 @@ through the existing bootstrap path — it never mutates an in-flight cycle.
 Usage:
     python scripts/apply_e010_testnet_sizing_profile.py --dry-run
     python scripts/apply_e010_testnet_sizing_profile.py --apply
-    python scripts/apply_e010_testnet_sizing_profile.py --leverage 50 --margin 0.05 --apply
+    python scripts/apply_e010_testnet_sizing_profile.py --leverage 30 --margin 0.05 --apply
 """
 
 from __future__ import annotations
@@ -51,13 +51,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
-TARGET_MAX_LEVERAGE = 50.0
-TARGET_MAX_MARGIN_FRACTION = 0.05
-TARGET_MAX_SYMBOL_EXPOSURE = 2.50
-TARGET_MAX_TOTAL_EXPOSURE = TARGET_MAX_SYMBOL_EXPOSURE * 2
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 
-# risk_per_trade is part of the directional baseline and is staged at 0.01.
-EXECUTION_SYMBOLS = ("BTC/USDT", "ETH/USDT")
+TARGET_MAX_LEVERAGE = 30.0
+TARGET_MAX_MARGIN_FRACTION = 0.05
+TARGET_MAX_SYMBOL_EXPOSURE = 1.50
+TARGET_MAX_OPEN_POSITIONS = 5
+TARGET_MAX_TOTAL_EXPOSURE = TARGET_MAX_SYMBOL_EXPOSURE * TARGET_MAX_OPEN_POSITIONS
+TARGET_RISK_PER_TRADE = 0.10
+
+EXECUTION_SYMBOLS = AUTO_SIMULATION_EXECUTION_SYMBOLS
 
 
 def _config_hash(config: dict[str, Any]) -> str:
@@ -71,12 +74,18 @@ def _config_hash(config: dict[str, Any]) -> str:
 def _resolved_preview(profile: dict[str, Any]) -> list[str]:
     """Show what the cycle will actually receive per execution symbol."""
     from services.automated_trading.application.operator_profile import (
+        apply_testnet_canary_runtime_contract,
         resolve_v2_execution_settings,
     )
 
     lines = []
     for symbol in EXECUTION_SYMBOLS:
-        settings = resolve_v2_execution_settings(symbol, profile)
+        settings = apply_testnet_canary_runtime_contract(
+            resolve_v2_execution_settings(symbol, profile),
+            symbol=symbol,
+            execution_mode="BINANCE_TESTNET",
+            entry_authority="TESTNET_CANARY",
+        )
         lines.append(
             f"    {symbol}: leverage={settings.max_leverage}x "
             f"max_margin_fraction={settings.max_margin_fraction} "
@@ -93,8 +102,12 @@ def _apply_targets(profile: dict[str, Any], *, leverage: float, margin: float) -
     updated["max_leverage"] = leverage
     updated["max_margin_fraction"] = margin
     updated["max_symbol_exposure"] = exposure
-    updated["max_total_exposure"] = exposure * 2
-    updated["risk_per_trade"] = 0.01
+    updated["max_total_exposure"] = exposure * TARGET_MAX_OPEN_POSITIONS
+    updated["max_open_positions"] = TARGET_MAX_OPEN_POSITIONS
+    updated["max_symbols"] = len(EXECUTION_SYMBOLS)
+    updated["risk_per_trade"] = TARGET_RISK_PER_TRADE
+    updated["execution_mode"] = "binance_testnet"
+    updated["simulation_sampling_fallback_enabled"] = True
 
     # Asset tiers override profile-wide values for BTC/ETH, so they must move too
     # or the tier would silently keep the previous band.
@@ -107,6 +120,9 @@ def _apply_targets(profile: dict[str, Any], *, leverage: float, margin: float) -
             if any(symbol in EXECUTION_SYMBOLS for symbol in symbols):
                 tier["leverage"] = leverage
                 tier["max_position_fraction"] = exposure
+                tier["max_leverage"] = leverage
+                tier["risk_per_trade"] = TARGET_RISK_PER_TRADE
+                tier["max_margin_fraction"] = margin
                 print(f"  tier '{tier_name}' -> {leverage:g}x / {exposure:g} (covers {symbols})")
     return updated
 
@@ -194,10 +210,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if args.leverage > TARGET_MAX_LEVERAGE or args.margin > TARGET_MAX_MARGIN_FRACTION:
+    if args.leverage != TARGET_MAX_LEVERAGE or args.margin != TARGET_MAX_MARGIN_FRACTION:
         print(
-            f"refusing directional sizing above {TARGET_MAX_LEVERAGE:g}x / "
-            f"{TARGET_MAX_MARGIN_FRACTION:g} margin",
+            f"refusing Canary contract drift; required values are exactly "
+            f"{TARGET_MAX_LEVERAGE:g}x / {TARGET_MAX_MARGIN_FRACTION:g} margin",
             file=sys.stderr,
         )
         return 2

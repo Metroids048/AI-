@@ -43,6 +43,7 @@ from services.automated_trading.infrastructure.models import (
     V2ManagedPosition,
     V2ProtectionRecord,
 )
+from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
 from services.automated_trading.observability.decision_funnel import DecisionReasonCode
 
 
@@ -62,6 +63,42 @@ def fact_db(tmp_path, monkeypatch):
     )
     yield factory
     engine.dispose()
+
+
+def test_entry_intent_persistence_rechecks_runtime_pause(fact_db) -> None:
+    session: Session = fact_db()
+    try:
+        repo = AutomatedTradingRepository(session)
+        repo.set_runtime_control(
+            scope="global",
+            entry_enabled=False,
+            reason="containment",
+            updated_by="test",
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    reason = persist_entry_intent_before_submission(
+        cycle_id="cycle-paused",
+        decision_id="decision-paused",
+        intent_id="intent-paused",
+        symbol="ETH/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 8, 17, 15, 30, tzinfo=UTC),
+        fencing_token="fence-paused",
+        initial_risk_usdt=Decimal("0.60"),
+    )
+
+    assert reason == "ENTRY_PAUSED"
+    session = fact_db()
+    try:
+        assert session.get(V2ExecutionIntent, "intent-paused") is None
+    finally:
+        session.close()
 
 
 def test_persist_entry_and_protection_writes_full_chain(fact_db) -> None:
@@ -255,6 +292,160 @@ def test_confirmed_delayed_fill_corrects_cancelled_intent(fact_db) -> None:
         assert intent is not None
         assert intent.state == V2IntentState.FILLED.value
         assert session.get(V2ManagedPosition, "pos-delayed") is not None
+    finally:
+        session.close()
+
+
+def test_replaying_confirmed_entry_fill_is_idempotent(fact_db) -> None:
+    """A repeated Binance recovery observation must not duplicate its fill fact."""
+    entry = EntryExecutionResult(
+        status=EntryExecutionStatus.FILLED,
+        intent_state=V2IntentState.FILLED,
+        client_order_id="A2E-replay-fill",
+        exchange_order_id="xo-replay-fill",
+        trade_ids=("trade-replay-fill",),
+        filled_quantity=Decimal("0.01"),
+        average_fill_price=Decimal("65000"),
+        total_fee=Decimal("0.01"),
+        fill_timestamp=datetime(2026, 8, 18, 1, 0, tzinfo=UTC),
+    )
+    kwargs = {
+        "cycle_id": "cycle-replay-fill",
+        "decision_id": "decision-replay-fill",
+        "intent_id": "intent-replay-fill",
+        "symbol": "BTC/USDT",
+        "direction": "long",
+        "candidate_key": "testnet_sampling_v2",
+        "candidate_type": V2CandidateType.SAMPLING,
+        "execution_mode": V2ExecutionMode.BINANCE_TESTNET,
+        "decision_bar_timestamp": datetime(2026, 8, 18, 0, 45, tzinfo=UTC),
+        "fencing_token": "fence-replay-fill",
+        "leverage": 30,
+        "entry_result": entry,
+        "position_id": "pos-replay-fill",
+        "protection_result": None,
+        "stop_loss_price": None,
+        "take_profit_price": None,
+        "stop_client_order_id": None,
+        "tp_client_order_id": None,
+    }
+
+    # Simulate the original race: the fill committed, but position projection
+    # did not. Recovery then replays the same exchange fill and projects once.
+    persist_entry_and_protection(**{**kwargs, "project_position": False})
+    persist_entry_and_protection(**kwargs)
+
+    session: Session = fact_db()
+    try:
+        fills = list(session.scalars(select(V2ExchangeFill)))
+        assert len(fills) == 1
+        assert fills[0].trade_id == "trade-replay-fill"
+        assert session.get(V2ManagedPosition, "pos-replay-fill") is not None
+    finally:
+        session.close()
+
+
+def test_order_status_recovery_is_projectable_without_trade_id() -> None:
+    result = EntryExecutionResult(
+        status=EntryExecutionStatus.FILLED,
+        intent_state=V2IntentState.FILLED,
+        client_order_id="A2E-order-status",
+        exchange_order_id="14907989375",
+        filled_quantity=Decimal("0.445"),
+        average_fill_price=Decimal("4200"),
+        fill_source="BINANCE_ORDER_STATUS_RECOVERY",
+    )
+
+    assert result.position_projectable is True
+
+
+def test_user_trade_fill_without_trade_id_is_not_projectable() -> None:
+    result = EntryExecutionResult(
+        status=EntryExecutionStatus.FILLED,
+        intent_state=V2IntentState.FILLED,
+        client_order_id="A2E-missing-trade",
+        exchange_order_id="xo-missing-trade",
+        filled_quantity=Decimal("0.445"),
+        average_fill_price=Decimal("4200"),
+    )
+
+    assert result.position_projectable is False
+
+
+def test_order_level_fill_recovery_projects_once_without_fake_trade_id(fact_db) -> None:
+    persist_entry_intent_before_submission(
+        cycle_id="cycle-order-level",
+        decision_id="decision-order-level",
+        intent_id="intent-order-level",
+        symbol="SOL/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 8, 17, 15, 30, tzinfo=UTC),
+        fencing_token="fence-order-level",
+        initial_risk_usdt=Decimal("0.60"),
+    )
+    persist_entry_submission_result(
+        intent_id="intent-order-level",
+        leverage=5,
+        result=SimpleNamespace(
+            status=EntryExecutionStatus.ACKNOWLEDGED_UNFILLED,
+            intent_state=V2IntentState.EXCHANGE_ACKNOWLEDGED,
+            client_order_id="A2E-order-level",
+            exchange_order_id="xo-order-level",
+            requested_quantity=Decimal("2.26"),
+        ),
+    )
+    session: Session = fact_db()
+    try:
+        repo = AutomatedTradingRepository(session)
+        order = session.scalar(select(V2ExchangeOrder))
+        assert order is not None
+        first = repo.save_order_level_fill_recovery(
+            intent_id="intent-order-level",
+            exchange_order_record_id=order.order_record_id,
+            account_id="binance_testnet",
+            exchange_order_id="xo-order-level",
+            symbol="SOL/USDT",
+            side="BUY",
+            reduce_only=False,
+            filled_quantity=Decimal("2.26"),
+            fill_price=Decimal("75.90"),
+            exchange_event_time=datetime(2026, 8, 17, 15, 31, tzinfo=UTC),
+            received_at=datetime(2026, 8, 17, 15, 31, tzinfo=UTC),
+        )
+        second = repo.save_order_level_fill_recovery(
+            intent_id="intent-order-level",
+            exchange_order_record_id=order.order_record_id,
+            account_id="binance_testnet",
+            exchange_order_id="xo-order-level",
+            symbol="SOL/USDT",
+            side="BUY",
+            reduce_only=False,
+            filled_quantity=Decimal("2.26"),
+            fill_price=Decimal("75.90"),
+            exchange_event_time=datetime(2026, 8, 17, 15, 31, tzinfo=UTC),
+            received_at=datetime(2026, 8, 17, 15, 31, tzinfo=UTC),
+        )
+        repo.reconcile_intent_from_confirmed_fill("intent-order-level")
+        repo.project_position_from_confirmed_fills(
+            position_id="position-order-level",
+            intent_id="intent-order-level",
+            order_record_id=order.order_record_id,
+            symbol="SOL/USDT",
+            direction="long",
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            projected_at=datetime(2026, 8, 17, 15, 31, tzinfo=UTC),
+        )
+        session.commit()
+        assert first == second
+        fills = list(session.scalars(select(V2ExchangeFill)))
+        assert len(fills) == 1
+        assert fills[0].trade_id is None
+        assert fills[0].fill_source == "BINANCE_ORDER_STATUS_RECOVERY"
+        assert session.get(V2ManagedPosition, "position-order-level") is not None
+        assert session.get(V2ExecutionIntent, "intent-order-level").state == V2IntentState.FILLED.value
     finally:
         session.close()
 

@@ -1,4 +1,4 @@
-"""Testnet 50x / 5%-margin sizing contracts (S-001 through S-010).
+"""Testnet Canary 30x / 5%-margin sizing contracts (S-001 through S-010).
 
 Verifies that the 5%-margin / 50x leverage configuration:
 - Produces at most 5% equity margin, i.e. 250% equity notional
@@ -13,8 +13,14 @@ from decimal import Decimal
 from services.automated_trading.application.cycle_service import (
     CycleRequest,
     _calculate_quantity,
+    round_quantity_to_step,
 )
 from services.automated_trading.application.decision_service import TimeframeView
+from services.automated_trading.application.operator_profile import (
+    apply_testnet_canary_runtime_contract,
+    resolve_v2_execution_settings,
+)
+from services.automated_trading.application.production_strategy import EntryAuthority
 from services.automated_trading.domain.enums import V2ExecutionMode
 from services.automated_trading.infrastructure.market_snapshot_provider import (
     AuthoritativeAccountSnapshot,
@@ -23,8 +29,8 @@ from services.automated_trading.infrastructure.market_snapshot_provider import (
 # Operator-authorized Testnet values (2026-08-12).
 E010_RISK_PER_TRADE = Decimal("0.10")
 E010_MAX_MARGIN_FRACTION = Decimal("0.05")
-E010_MAX_POSITION_FRACTION = E010_MAX_MARGIN_FRACTION * Decimal("50")
-E010_MAX_LEVERAGE = 50
+E010_MAX_POSITION_FRACTION = E010_MAX_MARGIN_FRACTION * Decimal("30")
+E010_MAX_LEVERAGE = 30
 
 # Reference market geometry (BTC/USDT typical)
 REFERENCE_PRICE = Decimal("63700")
@@ -54,15 +60,17 @@ def _make_request(
         max_position_fraction=max_position_fraction,
         max_margin_fraction=max_margin_fraction,
         order_notional_usdt=order_notional_usdt,
+        entry_authority=EntryAuthority.TESTNET_CANARY,
+        sampling_fallback_enabled=True,
     )
 
 
-def _make_snapshot(equity: Decimal) -> AuthoritativeAccountSnapshot:
+def _make_snapshot(equity: Decimal, positions=None) -> AuthoritativeAccountSnapshot:
     """Build an exchange account snapshot at a given equity."""
     return AuthoritativeAccountSnapshot(
         balance=equity,
         equity=equity,
-        positions=[],
+        positions=positions or [],
         pending_orders=[],
         snapshot_timestamp=datetime.now(UTC),
     )
@@ -70,9 +78,10 @@ def _make_snapshot(equity: Decimal) -> AuthoritativeAccountSnapshot:
 
 def _notional(equity: Decimal, **kwargs) -> Decimal:
     """Resolve the entry notional for a given equity under E-010 settings."""
+    positions = kwargs.pop("positions", None)
     return _calculate_quantity(
         _make_request(**kwargs),
-        _make_snapshot(equity),
+        _make_snapshot(equity, positions=positions),
         stop_distance=STOP_DISTANCE,
         reference_price=REFERENCE_PRICE,
     )
@@ -82,25 +91,25 @@ class TestE010AggressiveSizing:
     """S-001 .. S-008 for the E-010 Testnet aggressive profile."""
 
     def test_s001_target_notional_tracks_equity(self):
-        """S-001: notional is 5% margin x 50 leverage and moves with equity."""
+        """S-001: notional is 5% margin x 30 leverage and moves with equity."""
         for equity in (Decimal("5000"), Decimal("7300"), Decimal("10000")):
             result = _notional(equity)
             expected = equity * E010_MAX_POSITION_FRACTION
             assert result == expected, f"equity={equity}: got {result}, expected {expected}"
 
     def test_s002_five_percent_of_equity_resolves_to_about_365_margin(self):
-        """S-002: ~7300 USDT equity gives ~365 USDT margin and 18,250 USDT notional."""
+        """S-002: ~7300 USDT equity gives ~365 USDT margin and 10,950 USDT notional."""
         result = _notional(Decimal("7300"))
 
-        assert Decimal("18000") <= result <= Decimal("18500"), f"notional={result}, expected ~18250"
+        assert Decimal("10700") <= result <= Decimal("11200"), f"notional={result}, expected ~10950"
         assert result == Decimal("7300") * E010_MAX_POSITION_FRACTION
 
     def test_s003_requested_leverage_is_50(self):
-        """S-003: requested leverage is 50."""
-        assert _make_request().max_leverage == 50
+        """S-003: requested leverage is 30."""
+        assert _make_request().max_leverage == 30
 
     def test_s004_five_percent_is_margin_not_notional(self):
-        """S-004: 5% is margin; 50x turns it into 250% equity notional."""
+        """S-004: 5% is margin; 30x turns it into 150% equity notional."""
         equity = Decimal("7300")
         result = _notional(equity)
 
@@ -112,14 +121,14 @@ class TestE010AggressiveSizing:
         assert result / E010_MAX_LEVERAGE == equity * E010_MAX_MARGIN_FRACTION
 
     def test_s005_leverage_scales_the_margin_budget_notional(self):
-        """S-005: preserving 5% margin means 50x is larger than 40x."""
+        """S-005: preserving 5% margin means 30x is larger than 20x."""
         equity = Decimal("7300")
 
-        at_40x = _notional(equity, max_leverage=40)
-        at_50x = _notional(equity, max_leverage=50)
+        at_20x = _notional(equity, max_leverage=20)
+        at_30x = _notional(equity, max_leverage=30)
 
-        assert at_40x == equity * E010_MAX_MARGIN_FRACTION * Decimal("40")
-        assert at_50x == equity * E010_MAX_MARGIN_FRACTION * Decimal("50")
+        assert at_20x == equity * E010_MAX_MARGIN_FRACTION * Decimal("20")
+        assert at_30x == equity * E010_MAX_MARGIN_FRACTION * Decimal("30")
 
     def test_s006_margin_budget_ceiling_binds_before_risk_budget(self):
         """S-006: the 5% margin ceiling is a real ceiling, not a nominal setting.
@@ -142,10 +151,12 @@ class TestE010AggressiveSizing:
         """S-007: shared Testnet runtime defaults match the approved settings."""
         from shared.models.risk import PAPER_RUNTIME_LIMITS
 
-        assert PAPER_RUNTIME_LIMITS["max_leverage"] == 50.0
+        assert PAPER_RUNTIME_LIMITS["max_leverage"] == 30.0
         assert PAPER_RUNTIME_LIMITS["max_margin_fraction"] == 0.05
-        assert PAPER_RUNTIME_LIMITS["max_symbol_exposure"] == 2.50
-        assert PAPER_RUNTIME_LIMITS["risk_per_trade"] == 0.01
+        assert PAPER_RUNTIME_LIMITS["max_symbol_exposure"] == 1.50
+        assert PAPER_RUNTIME_LIMITS["max_total_exposure"] == 7.50
+        assert PAPER_RUNTIME_LIMITS["max_open_positions"] == 5
+        assert PAPER_RUNTIME_LIMITS["risk_per_trade"] == 0.10
 
     def test_s008_explicit_operator_notional_still_obeys_ceilings(self):
         """S-008: a pinned order_notional_usdt cannot escape the margin ceiling."""
@@ -156,6 +167,42 @@ class TestE010AggressiveSizing:
         result = _notional(equity, order_notional_usdt=Decimal("18250"))
 
         assert result == ceiling, f"pinned notional escaped the ceiling: {result} > {ceiling}"
+
+    def test_s009_existing_mark_notional_consumes_canary_total_exposure(self):
+        """Grandfathered positions remain untouched but leave no room above 7.50x."""
+        from services.automated_trading.infrastructure.market_snapshot_provider import ExchangePositionSnapshot
+
+        positions = [
+            ExchangePositionSnapshot(
+                symbol=symbol,
+                direction="long",
+                quantity=Decimal("1"),
+                entry_price=Decimal("15000"),
+                mark_price=Decimal("15000"),
+                unrealized_pnl=Decimal("0"),
+                leverage=30,
+            )
+            for symbol in ("BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT")
+        ]
+        result = _notional(Decimal("10000"), positions=positions)
+
+        assert result == Decimal("15000")
+        full = _notional(
+            Decimal("10000"),
+            positions=positions
+            + [
+                ExchangePositionSnapshot(
+                    symbol="BNB/USDT",
+                    direction="long",
+                    quantity=Decimal("1"),
+                    entry_price=Decimal("15000"),
+                    mark_price=Decimal("15000"),
+                    unrealized_pnl=Decimal("0"),
+                    leverage=30,
+                )
+            ],
+        )
+        assert full == Decimal("0")
 
 
 class TestE010ExposureCapNeverTouchesExistingPositions:
@@ -238,7 +285,7 @@ class TestE010ExposureCapNeverTouchesExistingPositions:
 class TestE010ProfileResolution:
     """The E-010 values must survive operator-profile resolution for BTC/ETH."""
 
-    def test_core_tier_resolves_to_50x_and_five_percent_margin(self):
+    def test_all_canary_symbols_resolve_to_one_contract(self):
         """Asset-tier override is what actually reaches the cycle for BTC/ETH."""
         from services.automated_trading.application.operator_profile import (
             resolve_v2_execution_settings,
@@ -260,12 +307,20 @@ class TestE010ProfileResolution:
             },
         }
 
-        for symbol in ("BTC/USDT", "ETH/USDT"):
-            settings = resolve_v2_execution_settings(symbol, profile)
-            assert settings.max_leverage == 50, symbol
+        for symbol in ("BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"):
+            settings = apply_testnet_canary_runtime_contract(
+                resolve_v2_execution_settings(symbol, profile),
+                symbol=symbol,
+                execution_mode="BINANCE_TESTNET",
+                entry_authority="TESTNET_CANARY",
+            )
+            assert settings.max_leverage == 30, symbol
             assert settings.max_margin_fraction == Decimal("0.05"), symbol
-            assert settings.max_position_fraction == Decimal("2.50"), symbol
+            assert settings.max_position_fraction == Decimal("1.50"), symbol
+            assert settings.max_open_positions == 5, symbol
+            assert settings.max_total_exposure == Decimal("7.50"), symbol
             assert settings.risk_per_trade == Decimal("0.10"), symbol
+            assert settings.canary_contract_applied is True
 
     def test_absent_profile_falls_back_to_conservative_defaults(self):
         """With no operator profile, resolution must NOT invent the aggressive band."""
@@ -275,7 +330,71 @@ class TestE010ProfileResolution:
 
         settings = resolve_v2_execution_settings("BTC/USDT", None)
 
-        assert settings.max_leverage == 50
+        assert settings.max_leverage == 30
         assert settings.max_margin_fraction == Decimal("0.05")
-        assert settings.max_position_fraction == Decimal("2.50")
-        assert settings.risk_per_trade == Decimal("0.01")
+        assert settings.max_position_fraction == Decimal("1.50")
+        assert settings.risk_per_trade == Decimal("0.10")
+
+    def test_fixed_margin_target_survives_quantity_step_rounding(self):
+        equity = Decimal("10000")
+        notional = _notional(equity)
+        actual_quantity = round_quantity_to_step(notional / REFERENCE_PRICE, Decimal("0.001"))
+        actual_margin = actual_quantity * REFERENCE_PRICE / Decimal(E010_MAX_LEVERAGE)
+
+        assert notional == Decimal("15000")
+        assert actual_margin <= equity * E010_MAX_MARGIN_FRACTION
+        assert (equity * E010_MAX_MARGIN_FRACTION - actual_margin) < (
+            REFERENCE_PRICE * Decimal("0.001") / Decimal(E010_MAX_LEVERAGE)
+        )
+
+    def test_e003_is_diagnostic_for_canary_but_blocking_for_production(self):
+        profile = {
+            "risk_per_trade": 0.01,
+            "max_leverage": 20,
+            "max_margin_fraction": 0.02,
+            "max_symbol_exposure": 0.4,
+            "asset_risk_tiers": {
+                "btc": {
+                    "symbols": ["BTC/USDT"],
+                    "leverage": 20,
+                    "max_leverage": 20,
+                    "max_margin_fraction": 0.02,
+                    "max_position_fraction": 0.4,
+                    "risk_per_trade": 0.01,
+                }
+            },
+            "volatility_risk_tiers": {"shock": {"symbols": ["BTC/USDT"], "multiplier": 0.25, "no_new_entry": True}},
+        }
+        base = resolve_v2_execution_settings("BTC/USDT", profile)
+        canary = apply_testnet_canary_runtime_contract(
+            base,
+            symbol="BTC/USDT",
+            execution_mode="BINANCE_TESTNET",
+            entry_authority="TESTNET_CANARY",
+        )
+        production = apply_testnet_canary_runtime_contract(
+            base,
+            symbol="BTC/USDT",
+            execution_mode="BINANCE_TESTNET",
+            entry_authority="PRODUCTION",
+        )
+        assert canary.max_leverage == 30
+        assert canary.tier_recommended_leverage == 20
+        assert canary.tier_would_reduce is True
+        assert canary.tier_enforced is False
+        assert canary.volatility_enforced is False
+        assert production.max_leverage == base.max_leverage
+        assert production.volatility_enforced is True
+
+    def test_contract_requires_sampling_lane_when_lane_is_supplied(self):
+        base = resolve_v2_execution_settings("BTC/USDT", {"max_leverage": 20, "max_symbol_exposure": 0.4})
+        unchanged = apply_testnet_canary_runtime_contract(
+            base,
+            symbol="BTC/USDT",
+            execution_mode="BINANCE_TESTNET",
+            entry_authority="TESTNET_CANARY",
+            candidate_lane="PRODUCTION",
+        )
+
+        assert unchanged.canary_contract_applied is False
+        assert unchanged.max_leverage == base.max_leverage

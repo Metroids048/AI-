@@ -173,14 +173,14 @@ class AutoTradingSettings(PlatformModel):
     """Typed operator-editable automatic trading controls for a PaperRun."""
 
     execution_mode: ExecutionMode = ExecutionMode.BINANCE_TESTNET
-    max_leverage: float = Field(default=50.0, ge=1, le=125)
-    risk_per_trade: float = Field(default=0.01, ge=0, le=0.10)
+    max_leverage: float = Field(default=30.0, ge=1, le=125)
+    risk_per_trade: float = Field(default=0.10, ge=0, le=0.10)
     order_notional_usdt: float | None = Field(default=None, gt=0)
     max_open_positions: int = Field(default=5, ge=1, le=20)
-    max_symbols: int = Field(default=20, ge=1, le=20)
+    max_symbols: int = Field(default=5, ge=1, le=20)
     max_margin_fraction: float = Field(default=0.05, gt=0, le=1)
-    max_symbol_exposure: float = Field(default=2.50, ge=0, le=5)
-    max_total_exposure: float = Field(default=5.00, ge=0, le=5)
+    max_symbol_exposure: float = Field(default=1.50, ge=0, le=7.5)
+    max_total_exposure: float = Field(default=7.50, ge=0, le=7.5)
     daily_loss_limit: float = Field(default=0.04, ge=0, le=1)
     weekly_loss_limit: float = Field(default=0.08, ge=0, le=1)
     hard_stop_drawdown_limit: float = Field(default=0.15, ge=0, le=1)
@@ -188,14 +188,14 @@ class AutoTradingSettings(PlatformModel):
         default_factory=lambda: {
             "core": AssetRiskTierSettings(
                 tier="core",
-                symbols=["BTC/USDT", "ETH/USDT", "SOL/USDT"],
-                leverage=50,
-                max_position_fraction=2.50,
+                symbols=["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"],
+                leverage=30,
+                max_position_fraction=1.50,
             ),
             "standard": AssetRiskTierSettings(
                 tier="standard",
-                leverage=50,
-                max_position_fraction=2.50,
+                leverage=30,
+                max_position_fraction=1.50,
             ),
         }
     )

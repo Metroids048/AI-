@@ -182,6 +182,16 @@ def _external_baseline_capture() -> tuple[bool, dict[str, str] | None, str | Non
     except (OSError, json.JSONDecodeError):
         return False, None, None
     expected_source = f"persistent_file:{persistent_path}"
+    # The one-click ACTIVE launcher may temporarily provide an authoritative
+    # bootstrap snapshot while it repairs an exact V2 projection gap.  New
+    # entries are disabled for this phase; the scheduler must still run its
+    # existing recovery/protection path.  The launcher replaces this source
+    # with the persisted-file contract before re-enabling entries.
+    if (
+        source == "projection_gap_recovery_bootstrap"
+        and os.getenv("V2_PROJECTION_RECOVERY_BOOTSTRAP", "false").lower() == "true"
+    ):
+        return True, normalized, source
     if (
         not isinstance(persisted_record, dict)
         or persisted_record.get("schema_version") != 1

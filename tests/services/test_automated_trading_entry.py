@@ -322,6 +322,32 @@ def test_confirmed_fill_is_projectable() -> None:
     assert result.average_fill_price == Decimal("50010")
 
 
+def test_canary_post_fill_margin_breach_is_unwound_reduce_only() -> None:
+    adapter = MagicMock()
+    adapter.submit_market_order.return_value = _order_receipt()
+    adapter.fetch_fills.return_value = (_fill("0.01", "60000"),)
+    adapter.submit_reduce_only_exit.return_value = _order_receipt("guard-1")
+
+    result = execute_entry(
+        build_candidate(),
+        evaluate_entry(build_candidate(), healthy_runtime(), build_snapshot()),
+        build_snapshot(),
+        adapter=adapter,
+        intent_id=INTENT_ID,
+        quantity=Decimal("0.01"),
+        leverage=10,
+        engine_activation=EngineActivation.ACTIVE,
+        margin_equity=Decimal("1000"),
+        max_margin_fraction=Decimal("0.05"),
+        enforce_margin_ceiling=True,
+    )
+
+    assert result.status is EntryExecutionStatus.REJECTED
+    assert result.reason_code is DecisionReasonCode.RISK_LIMIT_EXCEEDED
+    assert result.position_projectable is False
+    adapter.submit_reduce_only_exit.assert_called_once()
+
+
 def test_submission_failure_creates_no_position() -> None:
     """Gate 7: a failed submission must not create a position."""
     adapter = MagicMock()

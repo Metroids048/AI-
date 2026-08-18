@@ -470,6 +470,31 @@ def test_submit_reduce_only_exit_returns_receipt():
     assert mock_client.create_order.call_args[1]["params"]["reduceOnly"] is True
 
 
+def test_query_filled_order_by_id_reads_authoritative_order_status() -> None:
+    mock_client = MagicMock()
+    mock_client.fapiPrivateGetOrder.return_value = {
+        "orderId": "order-filled",
+        "symbol": "ETHUSDT",
+        "clientOrderId": "A2E-filled",
+        "status": "FILLED",
+        "type": "MARKET",
+        "origQty": "0.444",
+        "executedQty": "0.444",
+        "avgPrice": "1912.25131",
+        "side": "BUY",
+        "updateTime": 1786982460507,
+    }
+
+    receipt = _adapter_with_mock_client(mock_client).query_filled_order_by_id("ETH/USDT", "order-filled")
+
+    assert receipt is not None
+    assert receipt.status == "filled"
+    assert receipt.client_order_id == "A2E-filled"
+    assert receipt.quantity == Decimal("0.444")
+    assert receipt.price == Decimal("1912.25131")
+    mock_client.fapiPrivateGetOrder.assert_called_once_with({"symbol": "ETHUSDT", "orderId": "order-filled"})
+
+
 def test_query_order_by_client_id_finds_open_order():
     """query_order_by_client_id resolves an open order by client ID."""
     mock_client = MagicMock()

@@ -28,7 +28,11 @@ from services.automated_trading.domain.enums import (
     V2PositionState,
     V2ProtectionState,
 )
-from services.automated_trading.domain.portfolio_risk import evaluate_portfolio_risk
+from services.automated_trading.domain.portfolio_risk import (
+    MAX_OPEN_POSITIONS,
+    evaluate_portfolio_risk,
+    portfolio_risk_blocks,
+)
 from services.automated_trading.domain.receipts import ProtectionReceipt
 from services.automated_trading.infrastructure.models import (
     V2DecisionSnapshot,
@@ -38,6 +42,7 @@ from services.automated_trading.infrastructure.models import (
     V2ExecutionIntent,
     V2ManagedPosition,
     V2ProtectionRecord,
+    V2RuntimeControl,
 )
 from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
 from services.database import get_session_factory
@@ -69,6 +74,8 @@ def persist_entry_intent_before_submission(
     fencing_token: str,
     initial_risk_usdt: Decimal,
     account_equity: Decimal | None = None,
+    portfolio_risk_enforced: bool = True,
+    max_open_positions: int = MAX_OPEN_POSITIONS,
 ) -> str | None:
     """Atomically gate and reserve one new entry's durable initial risk.
 
@@ -87,6 +94,10 @@ def persist_entry_intent_before_submission(
                     {"scope": f"automated-trading-v2:portfolio-risk:{execution_mode.value}"},
                 )
         repo = AutomatedTradingRepository(session)
+        control = session.get(V2RuntimeControl, "global")
+        if control is not None and not control.entry_enabled:
+            session.rollback()
+            return "ENTRY_PAUSED"
         committed, has_unknown_active_risk = repo.list_active_initial_risk_exposures(execution_mode)
         if has_unknown_active_risk:
             session.rollback()
@@ -98,8 +109,9 @@ def persist_entry_intent_before_submission(
                 candidate_direction=direction,
                 candidate_initial_risk_usdt=initial_risk_usdt,
                 committed=committed,
+                max_open_positions=max_open_positions,
             )
-            if verdict.reason_code is not None:
+            if portfolio_risk_blocks(verdict, diagnostic=not portfolio_risk_enforced):
                 session.rollback()
                 return verdict.reason_code
         if session.get(V2ExecutionCycle, cycle_id) is None:
@@ -168,6 +180,62 @@ def persist_entry_submission_result(
                 event_type="EntryOutcomeUnknown",
                 payload={"client_order_id": result.client_order_id},
             )
+        elif result.status is EntryExecutionStatus.REJECTED and result.exchange_order_id:
+            order = session.scalar(select(V2ExchangeOrder).where(V2ExchangeOrder.intent_id == intent_id))
+            order_record_id = (
+                order.order_record_id
+                if order is not None
+                else repo.save_order_submission(
+                    intent_id=intent_id,
+                    client_order_id=result.client_order_id,
+                    quantity=float(result.requested_quantity or result.filled_quantity),
+                    leverage=leverage,
+                    submitted_at=result.fill_timestamp or datetime.now(UTC),
+                )
+            )
+            repo.save_exchange_order_receipt(
+                order_record_id=order_record_id,
+                exchange_order_id=str(result.exchange_order_id),
+                acknowledged_at=result.fill_timestamp or datetime.now(UTC),
+            )
+            if result.trade_ids and result.filled_quantity > 0 and result.average_fill_price is not None:
+                fill_count = len(result.trade_ids)
+                per_qty = (result.filled_quantity / fill_count).quantize(Decimal("0.00000001"))
+                allocated = Decimal("0")
+                for index, trade_id in enumerate(result.trade_ids):
+                    quantity = result.filled_quantity - allocated if index == fill_count - 1 else per_qty
+                    allocated += quantity
+                    repo.save_exchange_fill_receipt(
+                        intent_id=intent_id,
+                        exchange_order_record_id=order_record_id,
+                        account_id="binance_testnet",
+                        exchange_order_id=str(result.exchange_order_id),
+                        trade_id=str(trade_id),
+                        symbol=intent.symbol,
+                        side="BUY" if intent.direction == "long" else "SELL",
+                        reduce_only=False,
+                        filled_quantity=quantity,
+                        fill_price=result.average_fill_price,
+                        commission=(result.total_fee / fill_count),
+                        commission_asset="USDT",
+                        exchange_event_time=result.fill_timestamp or datetime.now(UTC),
+                        received_at=datetime.now(UTC),
+                        raw_hash=f"{result.exchange_order_id}:{trade_id}",
+                    )
+            if current in {V2IntentState.EXCHANGE_SUBMITTING, V2IntentState.EXCHANGE_UNKNOWN}:
+                repo.transition_intent(
+                    intent_id,
+                    expected_current=current,
+                    next_state=V2IntentState.EXCHANGE_ACKNOWLEDGED,
+                    event_type="EntryAcknowledgedWithMarginGuard",
+                    payload={
+                        "exchange_order_id": result.exchange_order_id,
+                        "trade_ids": list(result.trade_ids),
+                        "margin_guard_exchange_order_id": result.guard_exchange_order_id,
+                        "margin_guard_client_order_id": result.guard_client_order_id,
+                        "detail": result.detail,
+                    },
+                )
         elif result.status is EntryExecutionStatus.REJECTED:
             repo.transition_intent(
                 intent_id,
@@ -236,6 +304,8 @@ def persist_entry_and_protection(
     stop_client_order_id: str | None,
     tp_client_order_id: str | None,
     initial_risk_usdt: Decimal | None = None,
+    project_position: bool = True,
+    allow_existing_position_aggregation: bool = False,
 ) -> None:
     """Write entry facts after a confirmed fill without inventing historical risk.
 
@@ -344,41 +414,73 @@ def persist_entry_and_protection(
             exchange_order_id=str(entry_result.exchange_order_id),
             acknowledged_at=entry_result.fill_timestamp or datetime.now(UTC),
         )
-        n = max(len(entry_result.trade_ids), 1)
-        per_qty = (entry_result.filled_quantity / n).quantize(Decimal("0.00000001"))
-        allocated = Decimal("0")
-        for idx, trade_id in enumerate(entry_result.trade_ids):
-            qty = entry_result.filled_quantity - allocated if idx == n - 1 else per_qty
-            allocated += qty
-            fee = (entry_result.total_fee / n) if n else entry_result.total_fee
-            repo.save_exchange_fill_receipt(
+        if getattr(entry_result, "fill_source", "BINANCE_USER_TRADE") == "BINANCE_ORDER_STATUS_RECOVERY":
+            repo.save_order_level_fill_recovery(
                 intent_id=intent_id,
                 exchange_order_record_id=order_id,
                 account_id="binance_testnet",
                 exchange_order_id=str(entry_result.exchange_order_id),
-                trade_id=str(trade_id),
                 symbol=symbol,
                 side="BUY" if direction == "long" else "SELL",
                 reduce_only=False,
-                filled_quantity=qty,
+                filled_quantity=entry_result.filled_quantity,
                 fill_price=entry_result.average_fill_price or Decimal("0"),
-                commission=fee,
-                commission_asset="USDT",
                 exchange_event_time=entry_result.fill_timestamp or datetime.now(UTC),
                 received_at=datetime.now(UTC),
-                raw_hash=f"{entry_result.exchange_order_id}:{trade_id}",
             )
+        else:
+            n = max(len(entry_result.trade_ids), 1)
+            per_qty = (entry_result.filled_quantity / n).quantize(Decimal("0.00000001"))
+            allocated = Decimal("0")
+            for idx, trade_id in enumerate(entry_result.trade_ids):
+                qty = entry_result.filled_quantity - allocated if idx == n - 1 else per_qty
+                allocated += qty
+                fee = (entry_result.total_fee / n) if n else entry_result.total_fee
+                existing_fill = repo.get_exchange_fill_by_trade(
+                    account_id="binance_testnet",
+                    trade_id=str(trade_id),
+                )
+                if existing_fill is not None:
+                    if (
+                        existing_fill.intent_id != intent_id
+                        or existing_fill.exchange_order_record_id != order_id
+                        or existing_fill.exchange_order_id != str(entry_result.exchange_order_id)
+                    ):
+                        raise ValueError(
+                            "exchange fill identity is already attributed to a different V2 order: "
+                            f"account_id='binance_testnet' trade_id={trade_id!r}"
+                        )
+                    continue
+                repo.save_exchange_fill_receipt(
+                    intent_id=intent_id,
+                    exchange_order_record_id=order_id,
+                    account_id="binance_testnet",
+                    exchange_order_id=str(entry_result.exchange_order_id),
+                    trade_id=str(trade_id),
+                    symbol=symbol,
+                    side="BUY" if direction == "long" else "SELL",
+                    reduce_only=False,
+                    filled_quantity=qty,
+                    fill_price=entry_result.average_fill_price or Decimal("0"),
+                    commission=fee,
+                    commission_asset="USDT",
+                    exchange_event_time=entry_result.fill_timestamp or datetime.now(UTC),
+                    received_at=datetime.now(UTC),
+                    raw_hash=f"{entry_result.exchange_order_id}:{trade_id}",
+                )
         repo.reconcile_intent_from_confirmed_fill(intent_id)
 
-        repo.project_position_from_confirmed_fills(
-            position_id=position_id,
-            intent_id=intent_id,
-            order_record_id=order_id,
-            symbol=symbol,
-            direction=direction,
-            execution_mode=execution_mode,
-            projected_at=datetime.now(UTC),
-        )
+        if project_position:
+            repo.project_position_from_confirmed_fills(
+                position_id=position_id,
+                intent_id=intent_id,
+                order_record_id=order_id,
+                symbol=symbol,
+                direction=direction,
+                execution_mode=execution_mode,
+                projected_at=datetime.now(UTC),
+                allow_existing_position_aggregation=allow_existing_position_aggregation,
+            )
 
         if protection_result is not None and stop_client_order_id and stop_loss_price is not None:
             prot_id = str(uuid.uuid4())
@@ -410,13 +512,15 @@ def persist_entry_and_protection(
                     new_state=V2ProtectionState.PROTECTION_ACTIVE,
                     activated_at=datetime.now(UTC),
                 )
-                repo.transition_position(
-                    position_id=position_id,
-                    expected_current=V2PositionState.POSITION_PROJECTED,
-                    next_state=V2PositionState.PROTECTED,
-                    event_type="Protected",
-                    payload={},
-                )
+                position = session.get(V2ManagedPosition, position_id)
+                if position is not None and position.state == V2PositionState.POSITION_PROJECTED.value:
+                    repo.transition_position(
+                        position_id=position_id,
+                        expected_current=V2PositionState.POSITION_PROJECTED,
+                        next_state=V2PositionState.PROTECTED,
+                        event_type="Protected",
+                        payload={},
+                    )
 
         session.commit()
         logger.info(
@@ -728,6 +832,21 @@ def persist_exit_result(
         for index, trade_id in enumerate(result.trade_ids):
             quantity = result.reduced_quantity - allocated if index == n - 1 else per_qty
             allocated += quantity
+            existing_fill = repo.get_exchange_fill_by_trade(
+                account_id="binance_testnet",
+                trade_id=str(trade_id),
+            )
+            if existing_fill is not None:
+                if (
+                    existing_fill.intent_id != exit_intent_id
+                    or existing_fill.exchange_order_record_id != exit_order_id
+                    or existing_fill.exchange_order_id != result.exchange_order_id
+                ):
+                    raise ValueError(
+                        "exchange fill identity is already attributed to a different V2 order: "
+                        f"account_id='binance_testnet' trade_id={trade_id!r}"
+                    )
+                continue
             repo.save_exchange_fill_receipt(
                 intent_id=exit_intent_id,
                 exchange_order_record_id=exit_order_id,

@@ -1639,3 +1639,20 @@
 - Verification: frontend Vitest `112 passed`, frontend build passed, full pytest
   `1638 passed, 7 skipped`; full mypy `257 source files` passed; full ruff retains
   only the known Gate17 C416 baseline.
+
+## [TASK-2026-08-18-TESTNET-CANARY-CONTRACT] Five-symbol runtime contract
+
+- Unified the Binance Testnet Canary runtime contract for BTC/ETH/SOL/XRP/BNB:
+  30x leverage, 5% target/max margin, 1.50x per-symbol notional, 7.50x total
+  notional, 5 open positions, and 0.10 diagnostic risk-per-trade.
+- Canary E-003, volatility shock, R2, and E-004 are diagnostic; operational,
+  exchange, data, reconciliation, and manual kill-switch controls remain blocking.
+- Sizing now consumes authoritative existing mark-price notional against the
+  aggregate cap while leaving grandfathered positions untouched. Scheduler passes
+  the explicit sampling lane into the contract and the public API schema accepts
+  the 7.50 total exposure value.
+- Added the one-click publisher and SHA/clean-tree verification. It was syntax
+  checked only; no GitHub push was attempted in this turn.
+- Verification: Ruff passed; core mypy passed for 9 files; focused scheduler/
+  contract tests `91 passed`; frontend `113 passed`; full pytest `1694 passed,
+  16 skipped, 1 failed` due to the pre-existing isolated daily-review assertion.
