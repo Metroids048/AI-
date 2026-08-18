@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from threading import Event, Thread
 from time import monotonic, sleep
+from types import SimpleNamespace
 
 import pytest
 from starlette.websockets import WebSocketDisconnect
@@ -62,6 +63,61 @@ def test_exchange_truth_normalizes_raw_binance_client_algo_id() -> None:
     assert tagged["system_owned"] is True
 
 
+def test_external_baseline_requires_completed_capture_flag() -> None:
+    scheduler = SimpleNamespace(
+        external_baseline_captured=False,
+        external_baseline_value={"BTC/USDT:short": "0.5"},
+    )
+
+    assert runtime._effective_external_baseline(scheduler) is None
+
+
+def test_runtime_projection_id_ignores_observation_times_but_changes_with_facts() -> None:
+    first_observed = datetime(2026, 8, 18, 0, 0, tzinfo=UTC)
+    second_observed = first_observed.replace(minute=1)
+    first_scheduler = SimpleNamespace(
+        running=True,
+        exchange_info_ready=True,
+        data_fresh=True,
+        execution_mode="BINANCE_TESTNET",
+        execution_symbols=("BTC/USDT",),
+        entry_enabled=True,
+        entry_authorized=True,
+        entry_authority="TESTNET_CANARY",
+        trading_state="TRADING",
+        external_baseline_captured=True,
+        external_baseline_value={"BTC/USDT:short": "0.5"},
+        heartbeat_at=first_observed,
+    )
+    second_scheduler = SimpleNamespace(**{**first_scheduler.__dict__, "heartbeat_at": second_observed})
+    exchange = {
+        "status": "available",
+        "observed_at": first_observed.isoformat(),
+        "value": {
+            "positions": [{"symbol": "BTC/USDT", "side": "short", "contracts": 0.5}],
+            "open_orders": [],
+        },
+    }
+    later_exchange = {**exchange, "observed_at": second_observed.isoformat()}
+
+    first = runtime._runtime_projection_id(exchange=exchange, scheduler=first_scheduler, local_open=[])
+    same_facts = runtime._runtime_projection_id(exchange=later_exchange, scheduler=second_scheduler, local_open=[])
+    changed = runtime._runtime_projection_id(
+        exchange={
+            **later_exchange,
+            "value": {
+                **later_exchange["value"],
+                "positions": [{"symbol": "BTC/USDT", "side": "short", "contracts": 0.6}],
+            },
+        },
+        scheduler=second_scheduler,
+        local_open=[],
+    )
+
+    assert same_facts == first
+    assert changed != first
+
+
 def test_runtime_snapshot_exposes_shared_reconciliation_and_live_protection_truth(
     api_client,
     monkeypatch,
@@ -98,6 +154,103 @@ def test_runtime_snapshot_exposes_shared_reconciliation_and_live_protection_trut
     protection = body["current_protection"]["value"]
     assert protection["unprotected_positions"] == 1
     assert protection["p0_unprotected"] is True
+
+
+def test_runtime_truth_keeps_manual_baseline_out_of_reconciliation_and_managed_p0(
+    api_client,
+    db_session,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """Manual BTC and managed ETH share one-way account truth without cross-contamination."""
+    observed_at = datetime.now(UTC)
+    monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(tmp_path / "scheduler-state.json"))
+    write_external_scheduler_state(
+        {
+            "running": True,
+            "heartbeat_at": observed_at.isoformat(),
+            "data_fresh": True,
+            "exchange_info_ready": True,
+            "external_baseline_captured": True,
+            "external_baseline_value": {"BTC/USDT:short": "0.5"},
+            "entry_authorized": True,
+            "entry_authority": "TESTNET_CANARY",
+            "trading_state": "TRADING",
+        }
+    )
+    db_session.add(_v2_position(position_id="managed-eth", symbol="ETH/USDT", direction="long", quantity=1.0))
+    db_session.commit()
+    monkeypatch.setattr(
+        runtime,
+        "_exchange_truth",
+        lambda: runtime._datum(
+            value={
+                "positions": [
+                    {"symbol": "BTC/USDT", "contracts": 0.5, "side": "short"},
+                    {"symbol": "ETH/USDT", "contracts": 1.0, "side": "long"},
+                ],
+                "open_orders": [
+                    {
+                        "symbol": "ETH/USDT",
+                        "side": "sell",
+                        "status": "NEW",
+                        "order_type": "stop_market",
+                        "quantity": 1.0,
+                        "reduce_only": True,
+                    },
+                    {
+                        "symbol": "ETH/USDT",
+                        "side": "sell",
+                        "status": "NEW",
+                        "order_type": "take_profit_market",
+                        "quantity": 1.0,
+                        "reduce_only": True,
+                    },
+                ],
+            },
+            source="BINANCE_USDT_M_TESTNET",
+            observed_at=observed_at,
+        ),
+    )
+
+    snapshot = api_client.get("/api/v1/runtime/snapshot").json()
+    positions = api_client.get("/api/v1/runtime/positions").json()
+    reconciliation = api_client.get("/api/v1/runtime/reconciliation").json()
+    no_trade = api_client.get("/api/v1/runtime/no-trade-summary").json()
+
+    assert snapshot["reconciliation"]["value"]["status"] == "healthy"
+    assert positions["reconciliation"]["value"]["status"] == "healthy"
+    assert reconciliation["status"] == "healthy"
+    assert no_trade["reconciliation"]["status"] == "healthy"
+    assert (
+        len(
+            {
+                snapshot["projection_id"],
+                positions["projection_id"],
+                reconciliation["projection_id"],
+                no_trade["projection_id"],
+            }
+        )
+        == 1
+    )
+    ownership = snapshot["reconciliation"]["value"]["ownership"]
+    assert ownership["external_manual_positions"] == [
+        {
+            "symbol": "BTC/USDT",
+            "side": "short",
+            "exchange_quantity": 0.5,
+            "local_quantity": 0.0,
+            "external_manual_quantity": 0.5,
+            "managed_quantity": 0.0,
+            "ownership": "EXTERNAL_MANUAL",
+        }
+    ]
+    protection = snapshot["current_protection"]["value"]
+    btc = next(item for item in protection["positions"] if item["symbol"] == "BTC/USDT")
+    assert btc["ownership"] == "EXTERNAL_MANUAL"
+    assert btc["protected"] is None
+    assert protection["external_manual_positions"] == 1
+    assert protection["p0_unprotected"] is False
 
 
 def test_current_protection_truth_accepts_raw_binance_algo_order_fields() -> None:

@@ -155,4 +155,40 @@ describe("desk Binance sync mappers", () => {
     expect(positions[0]).toMatchObject({ quantity: 0.01, side: "long", symbol: "BTC/USDT" });
     expect(orders[0]).toMatchObject({ gateway_order_id: "ccxt-1", symbol: "BTC/USDT" });
   });
+
+  it("keeps external manual ownership visible and out of strategy attribution", () => {
+    const positions = deskPositionsFromRuntimeTruth({
+      exchange: {
+        status: "available",
+        observed_at: "2026-08-18T00:00:00Z",
+        value: {
+          positions: [{ symbol: "BTC/USDT", contracts: 0.5, side: "short", mark_price: 64000 }],
+        },
+      },
+      reconciliation: {
+        value: {
+          mismatch: {
+            value: {
+              ownership_positions: [{
+                symbol: "BTC/USDT",
+                side: "short",
+                exchange_quantity: 0.5,
+                external_manual_quantity: 0.5,
+                managed_quantity: 0,
+                ownership: "EXTERNAL_MANUAL",
+              }],
+            },
+          },
+        },
+      },
+    });
+
+    expect(positions[0]).toMatchObject({
+      ownership: "EXTERNAL_MANUAL",
+      source: "binance_external_manual",
+      strategy_performance_eligible: false,
+      external_manual_quantity: 0.5,
+      managed_quantity: 0,
+    });
+  });
 });

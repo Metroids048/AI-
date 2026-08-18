@@ -1105,3 +1105,35 @@
   fixed research-universe rows as `研究 / 观察`, and explain unique filled
   orders versus fill events and current protected positions. Strategy
   optimization is not unlocked by this closeout.
+
+## Runtime ownership follow-up (2026-08-18)
+
+- Runtime Truth now consumes the persisted external baseline before comparing
+  exchange and V2 positions. Manual baseline BTC is projected as
+  `EXTERNAL_MANUAL` and excluded from managed protection P0; missing ownership
+  remains `UNKNOWN` and fail-closed.
+- Snapshot, positions, reconciliation, and no-trade summary expose the same
+  ownership-aware reconciliation projection. A regression fixture covers manual
+  BTC plus managed/protected ETH coexistence.
+- Opposite-direction same-symbol candidates now use the explicit
+  `MANUAL_POSITION_DIRECTION_CONFLICT` reason and are rejected per candidate;
+  other symbols remain eligible when their own runtime facts are healthy.
+
+## Runtime projection frame verification (2026-08-18)
+
+- `projection_id` now hashes current exchange positions/open orders, relevant
+  scheduler facts, external baseline, and open V2 positions; observation and
+  heartbeat timestamps are excluded so cache refreshes do not create false
+  cross-endpoint drift. A regression test proves timestamp-only changes are
+  stable while fact changes produce a new id.
+- Fresh verification: focused backend `68 passed`; frontend Vitest `114 passed`;
+  frontend production build passed; full Ruff passed; mypy passed for 258 files;
+  full pytest `1702 passed, 16 skipped, 1 failed` with only the pre-existing
+  `test_daily_review_keeps_all_terminal_reasons_for_same_symbol` failure.
+- Browser verification remains blocked by the installed Chrome plugin missing
+  its internal `browser-service.mjs`; HTTP `/trading` and `/health` both return
+  200, but this is not rendered-browser evidence.
+- Active restart was fail-closed by `EXTERNAL_BASELINE_MISMATCH` (persisted BTC
+  short `0.5346`, current exchange snapshot empty). The persistent baseline was
+  not overwritten; local services were restored in Shadow mode. Runtime Closeout
+  and strategy optimization remain BLOCKED pending operator baseline resolution.

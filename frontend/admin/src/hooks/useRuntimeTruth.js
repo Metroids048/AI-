@@ -26,6 +26,7 @@ function useRuntimeTruthState(symbol) {
     llmInvocations: [],
     reconciliation: null,
     noTradeSummary: null,
+    projectionId: null,
     streamStatus: "connecting",
     lastSuccessAt: null,
     error: "",
@@ -53,6 +54,19 @@ function useRuntimeTruthState(symbol) {
       if (!mounted.current || controller.signal.aborted) return;
       const value = (index) => (results[index].status === "fulfilled" ? results[index].value : null);
       const failureMessage = (index) => results[index].reason?.message ?? "数据不可用";
+      const truthPayloads = [value(0), value(3), value(5), value(6)].filter(Boolean);
+      const projectionIds = [...new Set(
+        truthPayloads
+          .map((payload) => payload.projection_id ?? payload.reconciliation?.value?.projection_id)
+          .filter(Boolean),
+      )];
+      if (projectionIds.length > 1) {
+        setState((current) => ({
+          ...current,
+          error: "Runtime Truth projection changed during refresh; keeping the previous frame",
+        }));
+        return;
+      }
       const firstFailure = results.find(
         (result) => result.status === "rejected" && result.reason?.name !== "AbortError",
       );
@@ -81,6 +95,7 @@ function useRuntimeTruthState(symbol) {
           runtime_status: "异常",
           error: failureMessage(6),
         },
+        projectionId: projectionIds[0] ?? current.projectionId,
         lastSuccessAt: results.some((result) => result.status === "fulfilled")
           ? new Date().toISOString()
           : current.lastSuccessAt,

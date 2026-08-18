@@ -2106,7 +2106,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             result.funnel_payload,
             stage="RISK_APPROVED",
             outcome="REJECTED",
-            reason_code=DecisionReasonCode.UNMANAGED_EXTERNAL_POSITION.value,
+            reason_code=DecisionReasonCode.MANUAL_POSITION_DIRECTION_CONFLICT.value,
             metrics={
                 "detail": "external baseline direction conflict",
                 "baseline_directions": "|".join(sorted(baseline_directions)),

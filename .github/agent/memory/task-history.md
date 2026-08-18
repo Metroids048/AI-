@@ -1,5 +1,12 @@
 # Task History
 
+### [TASK-RUNTIME-TRUTH-OWNERSHIP-CLOSEOUT] Ownership-aware Runtime Truth and manual direction isolation
+- **Date**: 2026-08-18
+- **Type**: Runtime Truth / ownership reconciliation
+- **Summary**: Added one shared ownership projection for Runtime Truth. Persisted external baselines classify exchange positions as `SYSTEM_V2`, `EXTERNAL_MANUAL`, or `UNKNOWN`; manual baseline positions no longer degrade reconciliation or enter managed protection P0, while unknown positions remain fail-closed. `/snapshot`, `/positions`, `/reconciliation`, and `/no-trade-summary` now consume the same ownership-aware reconciliation object. One-way opposite-direction candidates now emit `MANUAL_POSITION_DIRECTION_CONFLICT` and reject only that candidate.
+- **Evidence**: Runtime Truth manual+managed coexistence regression, API suite, V2 reconciliation/recovery suite, and cycle/entry/funnel tests.
+- **Safety**: No strategy, risk, leverage, stop/take-profit, exchange credential, or execution-universe values changed. Strategy optimization remains gated on Runtime closeout.
+
 ### [TASK-STRATEGY-LOOP-D16] Strict dual-timeframe alignment with two confirmations
 - **Date**: 2026-08-15
 - **Type**: Strategy research / chronological OOS validation
@@ -1686,3 +1693,17 @@
   explicitly adopted or removed by the operator and receives authoritative
   protection. Strategy optimization remains blocked; no Canary safety values
   or strategy gates were changed.
+
+## [TASK-2026-08-18-RUNTIME-TRUTH-PROJECTION-VERIFY]
+
+- Changed `apps/api/routers/runtime.py` projection identity to hash semantic
+  current facts instead of observation/heartbeat timestamps; added endpoint
+  consistency and timestamp-stability regression coverage.
+- Verified focused backend `68 passed`, frontend `114 passed`, production build,
+  full Ruff, mypy `258 source files`, and full pytest `1702 passed, 16 skipped,
+  1 failed` (the same unrelated daily-review assertion).
+- Restarted local services. Active recovery was correctly rejected with
+  `EXTERNAL_BASELINE_MISMATCH` because persisted BTC short `0.5346` disagrees
+  with the current empty exchange snapshot. Baseline was preserved; Shadow
+  service was restored. Browser plugin setup remains blocked, so no rendered UI
+  PASS or Runtime Closeout PASS is claimed.

@@ -297,7 +297,7 @@ def test_testnet_canary_rejects_opposite_unmanaged_external_baseline(monkeypatch
     result = run_automated_trading_cycle(build_request(entry_authority=EntryAuthority.TESTNET_CANARY), adapter)
 
     adapter.submit_market_order.assert_not_called()
-    assert result.funnel_payload["reason_code"] == "UNMANAGED_EXTERNAL_POSITION"
+    assert result.funnel_payload["reason_code"] == "MANUAL_POSITION_DIRECTION_CONFLICT"
 
 
 def test_persisted_testnet_canary_intent_stays_sampling_and_non_promotable(monkeypatch) -> None:

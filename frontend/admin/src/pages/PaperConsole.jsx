@@ -116,6 +116,13 @@ export function deskPositionsFromRuntimeTruth(positionsData, account = null) {
       : null;
   if (exchangeValue) {
     const observedAt = exchange.observed_at ?? new Date().toISOString();
+    const ownershipRows = asArray(
+      positionsData?.reconciliation?.value?.mismatch?.value?.ownership_positions
+        ?? positionsData?.reconciliation?.value?.ownership?.system_v2_positions,
+    );
+    const ownershipByKey = new Map(
+      ownershipRows.map((item) => [`${platformSymbol(item.symbol)}:${String(item.side ?? item.direction ?? "").toLowerCase()}`, item]),
+    );
     return asArray(exchangeValue.positions)
       .map((position) => ({ ...position, quantity: position.quantity ?? position.contracts ?? position.positionAmt, direction: position.direction ?? position.side }))
       .filter((position) => Math.abs(Number(position.quantity) || 0) > 0)
@@ -124,6 +131,12 @@ export function deskPositionsFromRuntimeTruth(positionsData, account = null) {
         const markPrice = Number(position.mark_price || position.entry_price || 0);
         const notional = Math.abs(Number(quantity) || 0) * markPrice;
         const leverage = position.leverage ?? null;
+        const ownership = ownershipByKey.get(
+          `${platformSymbol(position.symbol)}:${String(position.direction ?? position.side ?? "").toLowerCase()}`,
+        );
+        const ownershipName = ownership?.ownership ?? position.ownership ?? "UNKNOWN";
+        const externalManualQuantity = ownership?.external_manual_quantity ?? position.external_manual_quantity ?? 0;
+        const managedQuantity = ownership?.managed_quantity ?? position.managed_quantity ?? quantity;
         return {
           position_snapshot_id: `v2-binance:${position.symbol}:${position.direction}`,
           symbol: platformSymbol(position.symbol),
@@ -136,7 +149,11 @@ export function deskPositionsFromRuntimeTruth(positionsData, account = null) {
           leverage,
           unrealized_pnl: position.unrealized_pnl,
           snapshot_time: observedAt,
-          source: "binance_v2_reconciliation",
+          ownership: ownershipName,
+          external_manual_quantity: externalManualQuantity,
+          managed_quantity: managedQuantity,
+          strategy_performance_eligible: ownershipName === "SYSTEM_V2",
+          source: ownershipName === "EXTERNAL_MANUAL" ? "binance_external_manual" : "binance_v2_reconciliation",
         };
       });
   }

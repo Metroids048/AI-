@@ -126,9 +126,7 @@ def test_no_entry_fill_uses_real_fill_not_decision_timestamp():
 def test_sqlite_naive_decision_timestamp_is_normalized_to_utc():
     now = datetime.now(UTC)
     naive_recent = (now - timedelta(minutes=5)).replace(tzinfo=None)
-    result = build_no_trade_summary(
-        **_facts(decisions=[{"at": naive_recent, "reason": "NO_TRADE_COST_INEFFICIENT"}])
-    )
+    result = build_no_trade_summary(**_facts(decisions=[{"at": naive_recent, "reason": "NO_TRADE_COST_INEFFICIENT"}]))
 
     assert result["summary_code"] == "ENTRY_BLOCKED"
     assert result["decisions"]["dominant_reason"] == "NO_TRADE_COST_INEFFICIENT"
@@ -149,9 +147,7 @@ def test_reduce_only_fill_is_not_counted_as_entry():
 
 def test_stalled_decision_pipeline_beats_healthy_waiting():
     now = datetime.now(UTC)
-    result = build_no_trade_summary(
-        **_facts(decisions=[{"at": now - timedelta(hours=2), "reason": "NO_ENTRY_SIGNAL"}])
-    )
+    result = build_no_trade_summary(**_facts(decisions=[{"at": now - timedelta(hours=2), "reason": "NO_ENTRY_SIGNAL"}]))
 
     assert result["summary_code"] == "DECISION_PIPELINE_STALLED"
 
@@ -167,9 +163,7 @@ def test_recent_effective_decisions_with_no_entry_fill_are_healthy_waiting():
 
 def test_entry_fill_outside_window_is_not_reported_as_recent_entry():
     now = datetime.now(UTC)
-    result = build_no_trade_summary(
-        **_facts(entry_fills=[{"at": now - timedelta(hours=4), "reduce_only": False}])
-    )
+    result = build_no_trade_summary(**_facts(entry_fills=[{"at": now - timedelta(hours=4), "reduce_only": False}]))
 
     assert result["last_entry_at"] is None
     assert result["hours_since_last_entry"] is None
@@ -183,3 +177,13 @@ def test_entry_blocked_is_operational_block_not_runtime_failure():
 
     assert result["summary_code"] == "ENTRY_BLOCKED"
     assert result["runtime_status"] == "正常"
+
+
+def test_manual_direction_conflict_is_reported_as_entry_block():
+    now = datetime.now(UTC)
+    result = build_no_trade_summary(
+        **_facts(decisions=[{"at": now - timedelta(minutes=5), "reason": "MANUAL_POSITION_DIRECTION_CONFLICT"}])
+    )
+
+    assert result["summary_code"] == "ENTRY_BLOCKED"
+    assert result["decisions"]["dominant_reason"] == "MANUAL_POSITION_DIRECTION_CONFLICT"

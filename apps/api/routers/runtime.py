@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import UTC, datetime, timedelta
@@ -236,7 +238,16 @@ def _position_truth(
     exchange: dict,
     local_open: list[V2ManagedPosition],
     observed_at: datetime,
+    external_baseline: dict[str, str] | None = None,
 ) -> tuple[dict, set[str]]:
+    """Project exchange positions with ownership before comparing quantities.
+
+    Binance one-way mode exposes one net position per symbol.  The persisted
+    operator baseline is therefore the only safe way for the Runtime API to
+    split a manual position from a V2 increment.  A position without either a
+    baseline or a V2 projection remains ``UNKNOWN`` and is entry-blocking; it
+    must never be silently treated as a managed position.
+    """
     exchange_positions: dict[tuple[str, str], float] = {}
     for item in (exchange.get("value") or {}).get("positions") or []:
         if not isinstance(item, dict):
@@ -249,30 +260,72 @@ def _position_truth(
     local_positions = {
         (item.symbol, item.direction): abs(float(item.quantity)) for item in local_open if abs(float(item.quantity)) > 0
     }
+    baseline_positions: dict[tuple[str, str], float] = {}
+    for raw_key, raw_quantity in (external_baseline or {}).items():
+        try:
+            symbol, direction = str(raw_key).rsplit(":", 1)
+            quantity = abs(float(raw_quantity))
+        except (TypeError, ValueError):
+            continue
+        if symbol and direction and quantity > 0:
+            baseline_positions[(_platform_symbol(symbol), direction.lower())] = quantity
+
     exchange_keys = set(exchange_positions)
     local_keys = set(local_positions)
-    quantity_mismatches = [
-        {
+    quantity_mismatches: list[dict] = []
+    ownership_positions: list[dict] = []
+    external_manual_positions: list[dict] = []
+    unknown_positions: list[dict] = []
+    for symbol, side in sorted(exchange_keys):
+        exchange_quantity = exchange_positions[(symbol, side)]
+        local_quantity = local_positions.get((symbol, side), 0.0)
+        baseline_quantity = baseline_positions.get((symbol, side), 0.0)
+        if baseline_quantity > 0 and exchange_quantity + 1e-12 < baseline_quantity:
+            ownership = "UNKNOWN"
+            external_quantity = exchange_quantity
+            managed_quantity = 0.0
+        else:
+            external_quantity = min(exchange_quantity, baseline_quantity)
+            managed_quantity = max(exchange_quantity - external_quantity, 0.0)
+            if local_quantity > 1e-12:
+                ownership = "SYSTEM_V2"
+            elif external_quantity > 1e-12 and managed_quantity <= 1e-12:
+                ownership = "EXTERNAL_MANUAL"
+            else:
+                ownership = "UNKNOWN"
+        row = {
             "symbol": symbol,
             "side": side,
-            "exchange_quantity": exchange_positions[(symbol, side)],
-            "local_quantity": local_positions[(symbol, side)],
+            "exchange_quantity": exchange_quantity,
+            "local_quantity": local_quantity,
+            "external_manual_quantity": external_quantity,
+            "managed_quantity": managed_quantity,
+            "ownership": ownership,
         }
-        for symbol, side in sorted(exchange_keys & local_keys)
-        if abs(exchange_positions[(symbol, side)] - local_positions[(symbol, side)]) > 1e-12
-    ]
-    exchange_only = sorted(exchange_keys - local_keys)
+        ownership_positions.append(row)
+        if ownership == "EXTERNAL_MANUAL":
+            external_manual_positions.append(row)
+        elif ownership == "UNKNOWN":
+            unknown_positions.append(row)
+        if ownership == "SYSTEM_V2" and abs(exchange_quantity - local_quantity - external_quantity) > 1e-12:
+            quantity_mismatches.append(row)
+
+    exchange_only = sorted((item["symbol"], item["side"]) for item in unknown_positions)
     local_only = sorted(local_keys - exchange_keys)
-    blocked_symbols = {symbol for symbol, _side in [*exchange_only, *local_only]}
+    blocked_symbols = {item["symbol"] for item in unknown_positions}
+    blocked_symbols.update(symbol for symbol, _side in local_only)
     blocked_symbols.update(str(item["symbol"]) for item in quantity_mismatches)
     available = exchange.get("status") == "available"
-    consistent = available and not exchange_only and not local_only and not quantity_mismatches
+    consistent = available and not unknown_positions and not local_only and not quantity_mismatches
     return (
         _datum(
             value={
                 "exchange_only_positions": [{"symbol": symbol, "side": side} for symbol, side in exchange_only],
                 "local_only_positions": [{"symbol": symbol, "side": side} for symbol, side in local_only],
                 "quantity_mismatches": quantity_mismatches,
+                "ownership_positions": ownership_positions,
+                "external_manual_positions": external_manual_positions,
+                "unknown_positions": unknown_positions,
                 "consistent": consistent,
             },
             source="RUNTIME_RECONCILIATION_COMPARISON",
@@ -284,7 +337,67 @@ def _position_truth(
     )
 
 
-def _current_protection_truth(*, exchange: dict, observed_at: datetime) -> dict:
+def _effective_external_baseline(scheduler) -> dict[str, str] | None:
+    """Use a baseline only after the scheduler explicitly completed capture."""
+    if scheduler.external_baseline_captured is not True:
+        return None
+    return scheduler.external_baseline_value
+
+
+def _runtime_projection_id(
+    *,
+    exchange: dict,
+    scheduler,
+    local_open: list[V2ManagedPosition],
+) -> str:
+    """Stable identity for one exchange/scheduler/local Runtime Truth frame.
+
+    Observation timestamps identify when a probe ran, not which facts were
+    projected.  Including them made a cache refresh look like a semantic frame
+    change even when positions, orders, and scheduler state were unchanged.
+    """
+    payload = {
+        "exchange_status": exchange.get("status"),
+        "exchange_positions": (exchange.get("value") or {}).get("positions", []),
+        "exchange_open_orders": (exchange.get("value") or {}).get("open_orders", []),
+        "scheduler": {
+            "running": scheduler.running,
+            "exchange_info_ready": scheduler.exchange_info_ready,
+            "data_fresh": scheduler.data_fresh,
+            "execution_mode": scheduler.execution_mode,
+            "execution_symbols": sorted(scheduler.execution_symbols),
+            "entry_enabled": scheduler.entry_enabled,
+            "entry_authorized": scheduler.entry_authorized,
+            "entry_authority": scheduler.entry_authority,
+            "trading_state": scheduler.trading_state,
+            "external_baseline_captured": scheduler.external_baseline_captured,
+            "external_baseline_value": scheduler.external_baseline_value,
+        },
+        "local_positions": [
+            {
+                "position_id": item.position_id,
+                "symbol": item.symbol,
+                "direction": item.direction,
+                "state": item.state,
+                "quantity": str(item.quantity),
+                "entry_price": str(item.entry_price),
+            }
+            for item in sorted(local_open, key=lambda value: value.position_id)
+        ],
+        "external_baseline": (
+            scheduler.external_baseline_value if scheduler.external_baseline_captured is True else None
+        ),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
+
+
+def _current_protection_truth(
+    *,
+    exchange: dict,
+    observed_at: datetime,
+    local_open: list[V2ManagedPosition] | None = None,
+    external_baseline: dict[str, str] | None = None,
+) -> dict:
     """Classify live exchange protection against each authoritative position.
 
     Historical V2 protection rows are deliberately excluded: only currently open
@@ -322,12 +435,44 @@ def _current_protection_truth(*, exchange: dict, observed_at: datetime) -> dict:
         live_orders.append(order)
 
     positions = []
+    ownership_by_key: dict[tuple[str, str], dict] = {}
+    if local_open is not None:
+        ownership_datum, _blocked = _position_truth(
+            exchange=exchange,
+            local_open=local_open,
+            observed_at=observed_at,
+            external_baseline=external_baseline,
+        )
+        ownership_by_key = {
+            (str(item["symbol"]), str(item["side"])): item
+            for item in (ownership_datum.get("value") or {}).get("ownership_positions", [])
+            if isinstance(item, dict)
+        }
     for raw in exchange_value.get("positions") or []:
         quantity = abs(float(raw.get("contracts") or raw.get("positionAmt") or 0))
         if quantity <= 0:
             continue
         symbol = _platform_symbol(raw.get("symbol"))
         direction = str(raw.get("side") or "").lower()
+        ownership = ownership_by_key.get((symbol, direction), {})
+        ownership_name = str(ownership.get("ownership") or "SYSTEM_V2")
+        external_quantity = float(ownership.get("external_manual_quantity") or 0.0)
+        managed_quantity = float(ownership.get("managed_quantity") or quantity)
+        if ownership_name == "EXTERNAL_MANUAL":
+            positions.append(
+                {
+                    "symbol": symbol,
+                    "direction": direction,
+                    "quantity": quantity,
+                    "external_manual_quantity": external_quantity or quantity,
+                    "managed_quantity": 0.0,
+                    "ownership": "EXTERNAL_MANUAL",
+                    "managed": False,
+                    "protected": None,
+                    "reason": "EXTERNAL_MANUAL_POSITION_NOT_EVALUATED",
+                }
+            )
+            continue
         matching = [
             order
             for order in live_orders
@@ -337,7 +482,7 @@ def _current_protection_truth(*, exchange: dict, observed_at: datetime) -> dict:
         stops = [item for item in matching if "stop" in _order_type(item)]
         targets = [item for item in matching if "take" in _order_type(item)]
 
-        def _covers(items: list[dict], expected_quantity: float = quantity) -> bool:
+        def _covers(items: list[dict], expected_quantity: float = managed_quantity) -> bool:
             return any(_order_quantity(item) >= expected_quantity - 1e-12 for item in items)
 
         stop = stops[0] if stops else None
@@ -350,6 +495,10 @@ def _current_protection_truth(*, exchange: dict, observed_at: datetime) -> dict:
                 "symbol": symbol,
                 "direction": direction,
                 "quantity": quantity,
+                "external_manual_quantity": external_quantity,
+                "managed_quantity": managed_quantity,
+                "ownership": ownership_name,
+                "managed": ownership_name == "SYSTEM_V2",
                 "stop_present": bool(stop),
                 "take_profit_present": bool(target),
                 "stop_covers_quantity": stop_covers,
@@ -372,22 +521,40 @@ def _current_protection_truth(*, exchange: dict, observed_at: datetime) -> dict:
                 "reason": None if protected else "LIVE_REDUCE_ONLY_STOP_AND_TARGET_NOT_CONFIRMED",
             }
         )
-    protected_count = sum(bool(item["protected"]) for item in positions)
+    managed_positions = [item for item in positions if item.get("managed")]
+    protection_candidates = [item for item in positions if item.get("ownership") != "EXTERNAL_MANUAL"]
+    protected_count = sum(bool(item["protected"]) for item in managed_positions)
+    external_manual_count = sum(item.get("ownership") == "EXTERNAL_MANUAL" for item in positions)
     return {
         "observed_at": observed_at.isoformat(),
         "positions": positions,
         "protected_positions": protected_count,
-        "unprotected_positions": len(positions) - protected_count,
-        "p0_unprotected": bool(positions and protected_count < len(positions)),
+        "unprotected_positions": len(protection_candidates) - protected_count,
+        "external_manual_positions": external_manual_count,
+        # UNKNOWN is an ownership blocker, not a managed-position claim, but it
+        # remains conservatively visible as a protection candidate until an
+        # operator resolves its ownership.
+        "p0_unprotected": bool(protection_candidates and protected_count < len(protection_candidates)),
         "live_protection_order_count": len(live_orders),
     }
 
 
-def _reconciliation_truth(*, db: Session, exchange: dict, observed_at: datetime) -> dict:
+def _reconciliation_truth(
+    *,
+    db: Session,
+    exchange: dict,
+    observed_at: datetime,
+    external_baseline: dict[str, str] | None = None,
+) -> dict:
     """Single reconciliation projection shared by all Runtime Truth endpoints."""
     v2_repo = _v2_repo(db)
     local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
-    mismatch, blocked_symbols = _position_truth(exchange=exchange, local_open=local_open, observed_at=observed_at)
+    mismatch, blocked_symbols = _position_truth(
+        exchange=exchange,
+        local_open=local_open,
+        observed_at=observed_at,
+        external_baseline=external_baseline,
+    )
     paper_runs = PaperRunRepository(db).list_paper_runs()
     active_kill_switch_runs = [
         run for run in paper_runs if bool(run.paper_metrics_summary.get("entry_kill_switch_active", False))
@@ -430,7 +597,7 @@ def _reconciliation_truth(*, db: Session, exchange: dict, observed_at: datetime)
         actions.append("ENTRY_KILL_SWITCH_ACTIVE")
     if unknown_orders:
         actions.append("EXCHANGE_UNKNOWN_REQUIRES_RECONCILIATION")
-    if mismatch["value"]["exchange_only_positions"]:
+    if mismatch["value"].get("unknown_positions"):
         actions.append("UNMANAGED_EXTERNAL_POSITION_REQUIRES_OPERATOR_ADOPTION")
     affected_symbols = sorted(blocked_symbols)
     return {
@@ -450,6 +617,15 @@ def _reconciliation_truth(*, db: Session, exchange: dict, observed_at: datetime)
         "entry_kill_switch_active": bool(active_kill_switch_runs),
         "unresolved_exchange_order_ids": [order.intent_id for order in unknown_orders],
         "entry_blocked": bool(affected_symbols),
+        "ownership": {
+            "system_v2_positions": [
+                item
+                for item in mismatch["value"].get("ownership_positions", [])
+                if item.get("ownership") == "SYSTEM_V2"
+            ],
+            "external_manual_positions": mismatch["value"].get("external_manual_positions", []),
+            "unknown_positions": mismatch["value"].get("unknown_positions", []),
+        },
         "recovery_action": actions[-1] if actions else None,
         "last_healthy_at": None,
         "last_healthy_time_source": "not_persisted",
@@ -630,6 +806,7 @@ _ENTRY_BLOCKING_REASONS = frozenset(
         "NO_TRADE_COST_INEFFICIENT",
         "PRETRADE_DECISION_STALE",
         "RECONCILIATION_BLOCKED",
+        "MANUAL_POSITION_DIRECTION_CONFLICT",
     }
 )
 _DECISION_PIPELINE_MAX_AGE = timedelta(minutes=30)
@@ -793,9 +970,17 @@ def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
     v2_repo = _v2_repo(db)
     exchange = _exchange_truth()
     local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
-    reconciliation = _reconciliation_truth(db=db, exchange=exchange, observed_at=observed_at)
-    mismatch = reconciliation["mismatch"]
     scheduler = load_external_scheduler_state(now=observed_at)
+    external_baseline = _effective_external_baseline(scheduler)
+    projection_id = _runtime_projection_id(exchange=exchange, scheduler=scheduler, local_open=local_open)
+    reconciliation = _reconciliation_truth(
+        db=db,
+        exchange=exchange,
+        observed_at=observed_at,
+        external_baseline=external_baseline,
+    )
+    reconciliation["projection_id"] = projection_id
+    mismatch = reconciliation["mismatch"]
     paper_runs = PaperRunRepository(db).list_paper_runs()
     entry_runtime = {
         "entry_authority": scheduler.entry_authority or "NONE",
@@ -808,6 +993,7 @@ def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
     }
     return {
         "observed_at": observed_at.isoformat(),
+        "projection_id": projection_id,
         "exchange": exchange,
         "local_projection": _datum(
             value=[_v2_position_payload(item) for item in local_open],
@@ -868,7 +1054,12 @@ def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
             observed_at=observed_at,
         ),
         "current_protection": _datum(
-            value=_current_protection_truth(exchange=exchange, observed_at=observed_at),
+            value=_current_protection_truth(
+                exchange=exchange,
+                observed_at=observed_at,
+                local_open=local_open,
+                external_baseline=external_baseline,
+            ),
             source="BINANCE_LIVE_REDUCE_ONLY_PROTECTION",
             observed_at=observed_at,
         ),
@@ -885,7 +1076,16 @@ def runtime_no_trade_summary(
     v2_repo = _v2_repo(db)
     scheduler = load_external_scheduler_state(now=observed_at)
     exchange = _exchange_truth()
-    reconciliation = _reconciliation_truth(db=db, exchange=exchange, observed_at=observed_at)
+    local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
+    external_baseline = _effective_external_baseline(scheduler)
+    projection_id = _runtime_projection_id(exchange=exchange, scheduler=scheduler, local_open=local_open)
+    reconciliation = _reconciliation_truth(
+        db=db,
+        exchange=exchange,
+        observed_at=observed_at,
+        external_baseline=external_baseline,
+    )
+    reconciliation["projection_id"] = projection_id
     decision_rows = v2_repo.list_recent_decisions(since=window_start, limit=500)
     decisions = []
     for decision, cycle in decision_rows:
@@ -932,7 +1132,12 @@ def runtime_no_trade_summary(
         },
         decisions=decisions,
         entry_fills=fills,
-        protection_truth=_current_protection_truth(exchange=exchange, observed_at=observed_at),
+        protection_truth=_current_protection_truth(
+            exchange=exchange,
+            observed_at=observed_at,
+            local_open=local_open,
+            external_baseline=external_baseline,
+        ),
     )
     effective = [item for item in decisions if item["reason"] != "DUPLICATE_DECISION"]
     orders = v2_repo.list_exchange_orders(execution_mode=V2ExecutionMode.BINANCE_TESTNET, limit=500)
@@ -999,6 +1204,8 @@ def runtime_no_trade_summary(
             "protected_positions": "current_authoritative_positions_with_live_stop_and_take_profit",
         },
     }
+    summary["projection_id"] = projection_id
+    summary["reconciliation"]["projection_id"] = projection_id
     return summary
 
 
@@ -1049,10 +1256,34 @@ def runtime_positions(db: Session = Depends(get_db_session)) -> dict:
     observed_at = datetime.now(UTC)
     exchange = _exchange_truth()
     v2_repo = _v2_repo(db)
+    local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
+    scheduler = load_external_scheduler_state(now=observed_at)
+    external_baseline = _effective_external_baseline(scheduler)
+    projection_id = _runtime_projection_id(exchange=exchange, scheduler=scheduler, local_open=local_open)
+    reconciliation = _reconciliation_truth(
+        db=db,
+        exchange=exchange,
+        observed_at=observed_at,
+        external_baseline=external_baseline,
+    )
+    reconciliation["projection_id"] = projection_id
     return {
+        "projection_id": projection_id,
         "exchange": exchange,
+        "reconciliation": _datum(
+            value=reconciliation,
+            source="RUNTIME_RECONCILIATION_TRUTH",
+            observed_at=observed_at,
+            status="available" if reconciliation["status"] != "unavailable" else "unavailable",
+            error=reconciliation.get("error"),
+        ),
         "current_protection": _datum(
-            value=_current_protection_truth(exchange=exchange, observed_at=observed_at),
+            value=_current_protection_truth(
+                exchange=exchange,
+                observed_at=observed_at,
+                local_open=local_open,
+                external_baseline=external_baseline,
+            ),
             source="BINANCE_LIVE_REDUCE_ONLY_PROTECTION",
             observed_at=observed_at,
         ),
@@ -1097,7 +1328,18 @@ def runtime_llm_invocations(
 def runtime_reconciliation(db: Session = Depends(get_db_session)) -> dict:
     observed_at = datetime.now(UTC)
     exchange = _exchange_truth()
-    return _reconciliation_truth(db=db, exchange=exchange, observed_at=observed_at)
+    scheduler = load_external_scheduler_state(now=observed_at)
+    local_open = _v2_repo(db).get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
+    external_baseline = _effective_external_baseline(scheduler)
+    projection_id = _runtime_projection_id(exchange=exchange, scheduler=scheduler, local_open=local_open)
+    reconciliation = _reconciliation_truth(
+        db=db,
+        exchange=exchange,
+        observed_at=observed_at,
+        external_baseline=external_baseline,
+    )
+    reconciliation["projection_id"] = projection_id
+    return reconciliation
 
 
 @router.websocket("/events")
