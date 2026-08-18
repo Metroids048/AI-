@@ -889,6 +889,8 @@ class RuntimeScheduler:
                 "external_baseline_captured": self.status.external_baseline_captured,
                 "external_baseline_value": self.status.external_baseline_value,
                 "external_baseline_source": self.status.external_baseline_source,
+                "external_baseline_lifecycle": self.status.external_baseline_lifecycle,
+                "external_baseline_drift_keys": list(self.status.external_baseline_drift_keys),
                 "entry_authorized": self.status.entry_authorized,
                 "entry_authority": self.status.entry_authority,
                 "entry_authority_reason": self.status.entry_authority_reason,

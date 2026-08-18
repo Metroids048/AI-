@@ -113,9 +113,16 @@ def test_runtime_projection_id_ignores_observation_times_but_changes_with_facts(
         scheduler=second_scheduler,
         local_open=[],
     )
+    identity_changed = runtime._runtime_projection_id(
+        exchange=later_exchange,
+        scheduler=second_scheduler,
+        local_open=[],
+        db_fingerprint={"fills": [{"trade_id": "trade-2"}]},
+    )
 
     assert same_facts == first
     assert changed != first
+    assert identity_changed != first
 
 
 def test_runtime_snapshot_exposes_shared_reconciliation_and_live_protection_truth(
@@ -218,10 +225,13 @@ def test_runtime_truth_keeps_manual_baseline_out_of_reconciliation_and_managed_p
     reconciliation = api_client.get("/api/v1/runtime/reconciliation").json()
     no_trade = api_client.get("/api/v1/runtime/no-trade-summary").json()
 
-    assert snapshot["reconciliation"]["value"]["status"] == "healthy"
-    assert positions["reconciliation"]["value"]["status"] == "healthy"
-    assert reconciliation["status"] == "healthy"
-    assert no_trade["reconciliation"]["status"] == "healthy"
+    # This hand-built fixture has no durable V2 order/fill identity. The
+    # canonical service must fail closed for that managed row, while the
+    # captured BTC manual baseline remains outside managed protection/P0.
+    assert snapshot["reconciliation"]["value"]["status"] == "recovery_required"
+    assert positions["reconciliation"]["value"]["status"] == "recovery_required"
+    assert reconciliation["status"] == "recovery_required"
+    assert no_trade["reconciliation"]["status"] == "recovery_required"
     assert (
         len(
             {
@@ -798,7 +808,7 @@ def test_runtime_reconciliation_detects_v2_side_and_quantity_mismatch(
 
     body = api_client.get("/api/v1/runtime/reconciliation").json()
 
-    assert body["status"] == "degraded"
+    assert body["status"] == "recovery_required"
     assert body["mismatch"]["value"]["exchange_only_positions"] == [{"symbol": "ETH/USDT", "side": "long"}]
     assert body["mismatch"]["value"]["local_only_positions"] == [{"symbol": "ETH/USDT", "side": "short"}]
     assert body["entry_blocked_symbols"] == ["ETH/USDT"]

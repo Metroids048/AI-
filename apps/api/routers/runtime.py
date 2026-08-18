@@ -18,9 +18,9 @@ from sqlalchemy.orm import Session
 
 from apps.api.auth import websocket_token_is_valid
 from services.automated_trading.application.reconciliation_service import (
-    Discrepancy,
     DiscrepancyCode,
     LocalStateView,
+    ReconciliationResult,
     ReconciliationStatus,
     load_local_state_from_session,
     reconcile,
@@ -625,34 +625,25 @@ def _reconciliation_truth(
     # Reconciliation status and Entry blocking come from the same application
     # service used by the execution cycle.  The router's mismatch payload below
     # is presentation detail only; it is never a second source of gate truth.
-    canonical = None
-    # A few hand-built observability fixtures predate the V2 order/fill tables.
-    # They remain readable through the legacy mismatch projection, while any real
-    # V2 position with durable identity is always reconciled by the service above.
-    identity_complete = (
-        local_state is None
-        or not local_state.positions
-        or all(
-            f"{position.symbol}:{position.direction}" in (exchange_position_claim_refs or {})
-            for position in local_state.positions
-        )
-    )
-    if identity_complete:
-        try:
-            if exchange.get("value") is None:
-                canonical = unavailable(
-                    str(exchange.get("error") or "exchange snapshot unavailable"),
-                    reconciled_at=observed_at,
-                )
-            else:
-                canonical = reconcile(
-                    runtime_snapshot_from_value(exchange["value"], observed_at=observed_at),
-                    local_state or LocalStateView(),
-                    reconciled_at=observed_at,
-                    exchange_position_claim_refs=exchange_position_claim_refs,
-                )
-        except Exception as exc:  # noqa: BLE001 - an invalid snapshot is fail-closed
-            canonical = unavailable(f"runtime snapshot parse failed: {exc}", reconciled_at=observed_at)
+    canonical: ReconciliationResult
+    # Every Runtime reconciliation, including incomplete/legacy fixtures, goes
+    # through the application service. Missing identity claims therefore remain
+    # EXTERNAL_POSITION_UNCLAIMABLE instead of silently becoming SYSTEM_V2.
+    try:
+        if exchange.get("value") is None:
+            canonical = unavailable(
+                str(exchange.get("error") or "exchange snapshot unavailable"),
+                reconciled_at=observed_at,
+            )
+        else:
+            canonical = reconcile(
+                runtime_snapshot_from_value(exchange["value"], observed_at=observed_at),
+                local_state or LocalStateView(),
+                reconciled_at=observed_at,
+                exchange_position_claim_refs=exchange_position_claim_refs,
+            )
+    except Exception as exc:  # noqa: BLE001 - an invalid snapshot is fail-closed
+        canonical = unavailable(f"runtime snapshot parse failed: {exc}", reconciled_at=observed_at)
 
     paper_runs = PaperRunRepository(db).list_paper_runs()
     active_kill_switch_runs = [
@@ -664,29 +655,14 @@ def _reconciliation_truth(
     )
     unknown_orders = v2_repo.list_exchange_unknown_intents(execution_mode=V2ExecutionMode.BINANCE_TESTNET)
     exchange_status = str(exchange.get("status") or "")
-    if canonical is None:
-        exchange_has_snapshot = exchange.get("value") is not None
-        if exchange_status == "unavailable" or (exchange_status != "available" and not exchange_has_snapshot):
-            reconciliation_status = "unavailable"
-            blocked_symbols = {"BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"}
-        elif exchange_status == "stale":
-            reconciliation_status = "degraded"
-        elif mismatch["value"]["consistent"]:
-            reconciliation_status = "healthy"
-            blocked_symbols = set()
-        else:
-            reconciliation_status = "degraded"
-            blocked_symbols = set(blocked_symbols)
-        canonical_discrepancies: tuple[Discrepancy, ...] = ()
-    else:
-        canonical_status = canonical.status
-        if exchange_status == "stale" and canonical_status is ReconciliationStatus.HEALTHY:
-            canonical_status = ReconciliationStatus.DEGRADED
-        reconciliation_status = canonical_status.value.lower()
-        blocked_symbols = set(canonical.entry_blocked_symbols)
-        if canonical_status is ReconciliationStatus.UNAVAILABLE:
-            blocked_symbols.update({"BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"})
-        canonical_discrepancies = canonical.discrepancies
+    canonical_status = canonical.status
+    if exchange_status == "stale" and canonical_status is ReconciliationStatus.HEALTHY:
+        canonical_status = ReconciliationStatus.DEGRADED
+    reconciliation_status = canonical_status.value.lower()
+    blocked_symbols = set(canonical.entry_blocked_symbols)
+    if canonical_status is ReconciliationStatus.UNAVAILABLE:
+        blocked_symbols.update({"BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"})
+    canonical_discrepancies = canonical.discrepancies
     discrepancy_codes: list[str] = []
     compact_code_map = {
         DiscrepancyCode.EXTERNAL_POSITION_UNCLAIMABLE: "EXCHANGE_ONLY_POSITION",
@@ -802,6 +778,18 @@ def _runtime_projection(db: Session, *, observed_at: datetime | None = None) -> 
     scheduler = load_external_scheduler_state(now=observed)
     v2_repo = _v2_repo(db)
     local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
+    protection_rows = v2_repo.list_protection_records(
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        limit=200,
+    )
+    order_rows = v2_repo.list_exchange_orders(
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        limit=500,
+    )
+    fill_rows = v2_repo.list_exchange_fills(
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        limit=500,
+    )
     external_baseline = _effective_external_baseline(scheduler)
     claim_refs: dict[str, frozenset[str]] | None = None
     local_state: LocalStateView | None = None
@@ -824,6 +812,36 @@ def _runtime_projection(db: Session, *, observed_at: datetime | None = None) -> 
             for run in PaperRunRepository(db).list_paper_runs()
             if bool(run.paper_metrics_summary.get("entry_kill_switch_active", False))
         ),
+        "orders": [
+            {
+                "record_id": str(order.order_record_id),
+                "exchange_id": order.exchange_order_id,
+                "client_id": order.client_order_id,
+                "filled_quantity": str(order.filled_quantity),
+                "acknowledged_at": str(order.acknowledged_at),
+            }
+            for order, _intent in order_rows
+        ],
+        "fills": [
+            {
+                "fill_id": str(fill.fill_id),
+                "exchange_id": fill.exchange_order_id,
+                "trade_id": fill.trade_id,
+                "received_at": str(fill.received_at),
+            }
+            for fill, _intent in fill_rows
+        ],
+        "protections": [
+            {
+                "protection_id": str(protection.protection_id),
+                "position_id": str(protection.position_id),
+                "state": protection.state,
+                "version": protection.version,
+                "stop_exchange_id": protection.stop_exchange_order_id,
+                "target_exchange_id": protection.tp_exchange_order_id,
+            }
+            for protection, _position in protection_rows
+        ],
     }
     projection_id = _runtime_projection_id(
         exchange=exchange,
@@ -863,6 +881,7 @@ def _runtime_projection(db: Session, *, observed_at: datetime | None = None) -> 
         "exchange": exchange,
         "scheduler": scheduler,
         "local_open": tuple(local_open),
+        "protection_rows": tuple(protection_rows),
         "external_baseline": external_baseline,
         "claim_refs": claim_refs,
         "reconciliation": reconciliation,
@@ -1212,7 +1231,6 @@ def build_no_trade_summary(
 def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
     observed_at = datetime.now(UTC)
     projection = _runtime_projection(db, observed_at=observed_at)
-    v2_repo = _v2_repo(db)
     exchange = projection["exchange"]
     local_open = projection["local_open"]
     scheduler = projection["scheduler"]
@@ -1275,11 +1293,7 @@ def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
         "strategy_evidence": _strategy_evidence_datum(paper_runs=paper_runs, observed_at=observed_at),
         "protections": _datum(
             value=[
-                _v2_protection_payload(protection, position)
-                for protection, position in v2_repo.list_protection_records(
-                    execution_mode=V2ExecutionMode.BINANCE_TESTNET,
-                    limit=200,
-                )
+                _v2_protection_payload(protection, position) for protection, position in projection["protection_rows"]
             ],
             source="V2_PROTECTION_FACTS",
             observed_at=observed_at,
@@ -1473,7 +1487,6 @@ def runtime_positions(db: Session = Depends(get_db_session)) -> dict:
     exchange = projection["exchange"]
     projection_id = projection["projection_id"]
     reconciliation = projection["reconciliation"]
-    v2_repo = _v2_repo(db)
     reconciliation["projection_id"] = projection_id
     return {
         "projection_id": projection_id,
@@ -1491,15 +1504,9 @@ def runtime_positions(db: Session = Depends(get_db_session)) -> dict:
             observed_at=observed_at,
         ),
         "local": _datum(
-            value=[
-                _v2_position_payload(item)
-                for item in v2_repo.list_managed_positions(
-                    execution_mode=V2ExecutionMode.BINANCE_TESTNET,
-                    limit=200,
-                )
-            ],
+            value=[_v2_position_payload(item) for item in projection["local_open"]],
             source="V2_MANAGED_POSITION_FACTS",
-            observed_at=datetime.now(UTC),
+            observed_at=observed_at,
         ),
     }
 

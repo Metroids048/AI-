@@ -1707,3 +1707,9 @@
   with the current empty exchange snapshot. Baseline was preserved; Shadow
   service was restored. Browser plugin setup remains blocked, so no rendered UI
   PASS or Runtime Closeout PASS is claimed.
+[TASK-2026-08-19-FINAL-RUNTIME-TRADE-LIFECYCLE-CLOSEOUT]
+
+- 收口 Manual Baseline Lifecycle、canonical Runtime projection、V2 identity fingerprint 与 scheduler lifecycle persistence；没有执行任何真实交易操作。
+- 只读 forensics：30 episodes，30/30 stop floor，15 TARGET，8 DIRECTION_FAILURE，7 数据不足；指定 ETH/SOL 精确样本不在当前 cohort，未把假设写成事实。
+- 验证：Runtime 核心复验 57 passed；Ruff PASS；mypy 258 files PASS；前端 114 tests/build PASS；full pytest 1710 passed / 16 skipped / 1 pre-existing daily-review failure。
+- Gate：Runtime Deployment BLOCKED（BTC baseline 0.5346 与交易所空仓不匹配、无真实 ACTIVE closeout、Chrome tooling blocked）；Strategy Analysis READY；Strategy Deployment BLOCKED。

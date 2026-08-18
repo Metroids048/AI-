@@ -1137,3 +1137,9 @@
   short `0.5346`, current exchange snapshot empty). The persistent baseline was
   not overwritten; local services were restored in Shadow mode. Runtime Closeout
   and strategy optimization remain BLOCKED pending operator baseline resolution.
+# Runtime Truth + trade lifecycle closeout (2026-08-19)
+
+- Manual baseline now has explicit lifecycle/acknowledgement states and symbol-scoped drift blocking. No rebaseline or live order was performed; current persisted BTC short `0.5346` remains intentionally unchanged while Binance is flat.
+- Runtime `/snapshot`, `/positions`, `/reconciliation`, and `/no-trade-summary` share one ownership-aware projection ID. Canonical reconciliation is fail-closed for missing V2 order/fill identity; projection fingerprints include order/fill/protection identities and scheduler publishes baseline lifecycle/drift metadata.
+- Read-only lifecycle forensics report: `.local/trade-lifecycle-forensics.json` / `.local/trade-lifecycle-forensics.md`; current 30-row cohort does not contain the requested ETH/SOL exact episodes.
+- Gates: Runtime Deployment BLOCKED; Strategy Analysis READY; Strategy Deployment BLOCKED. No stop, sizing, leverage, fee, or promotion threshold changed.

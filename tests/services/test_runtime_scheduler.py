@@ -421,6 +421,8 @@ def test_scheduler_publishes_only_active_execution_scope(monkeypatch) -> None:
     scheduler.status.entry_enabled = True
     scheduler.status.sampling_fallback_enabled = True
     scheduler.status.external_baseline_captured = True
+    scheduler.status.external_baseline_lifecycle = "MANUAL_BASELINE_ACK_REQUIRED"
+    scheduler.status.external_baseline_drift_keys = ("BTC/USDT:short",)
     scheduler.status.entry_authorized = True
 
     scheduler._publish_external_state()
@@ -431,6 +433,8 @@ def test_scheduler_publishes_only_active_execution_scope(monkeypatch) -> None:
     assert captured["engine_activation"] == "ACTIVE"
     assert captured["execution_mode"] == "BINANCE_TESTNET"
     assert captured["entry_authorized"] is True
+    assert captured["external_baseline_lifecycle"] == "MANUAL_BASELINE_ACK_REQUIRED"
+    assert captured["external_baseline_drift_keys"] == ["BTC/USDT:short"]
 
 
 def test_scheduler_publishes_fixed_execution_scope_before_market_heartbeat(monkeypatch) -> None:
