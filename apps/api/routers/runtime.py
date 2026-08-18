@@ -8,6 +8,7 @@ import json
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from threading import Lock
 from typing import Literal
 
@@ -16,6 +17,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.auth import websocket_token_is_valid
+from services.automated_trading.application.reconciliation_service import (
+    Discrepancy,
+    DiscrepancyCode,
+    LocalStateView,
+    ReconciliationStatus,
+    load_local_state_from_session,
+    reconcile,
+    runtime_snapshot_from_value,
+    unavailable,
+)
 from services.automated_trading.domain.client_order_id import is_v2_client_order_id
 from services.automated_trading.domain.enums import V2ExecutionMode
 from services.automated_trading.infrastructure.models import (
@@ -63,6 +74,9 @@ _exchange_probe_lock = Lock()
 _exchange_cache: tuple[datetime, dict] | None = None
 _exchange_inflight: Future | None = None
 _exchange_truth_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="runtime-exchange-truth")
+_runtime_projection_lock = Lock()
+_runtime_projection_cache: tuple[datetime, dict] | None = None
+_RUNTIME_PROJECTION_CACHE_SECONDS = 10.0
 
 
 def _datum(
@@ -239,6 +253,7 @@ def _position_truth(
     local_open: list[V2ManagedPosition],
     observed_at: datetime,
     external_baseline: dict[str, str] | None = None,
+    exchange_position_claim_refs: dict[str, frozenset[str]] | None = None,
 ) -> tuple[dict, set[str]]:
     """Project exchange positions with ownership before comparing quantities.
 
@@ -276,10 +291,13 @@ def _position_truth(
     ownership_positions: list[dict] = []
     external_manual_positions: list[dict] = []
     unknown_positions: list[dict] = []
+    blocked_symbols: set[str] = set()
     for symbol, side in sorted(exchange_keys):
         exchange_quantity = exchange_positions[(symbol, side)]
         local_quantity = local_positions.get((symbol, side), 0.0)
         baseline_quantity = baseline_positions.get((symbol, side), 0.0)
+        claim_refs = (exchange_position_claim_refs or {}).get(f"{symbol}:{side}", frozenset())
+        local_claimed = bool(claim_refs)
         if baseline_quantity > 0 and exchange_quantity + 1e-12 < baseline_quantity:
             ownership = "UNKNOWN"
             external_quantity = exchange_quantity
@@ -287,7 +305,14 @@ def _position_truth(
         else:
             external_quantity = min(exchange_quantity, baseline_quantity)
             managed_quantity = max(exchange_quantity - external_quantity, 0.0)
-            if local_quantity > 1e-12:
+            if local_quantity > 1e-12 and (
+                exchange_position_claim_refs is None
+                or local_claimed
+                # Compatibility for hand-built observability fixtures that do
+                # not persist the order/fill rows; real V2 positions carry the
+                # identity refs above and remain governed by them.
+                or not claim_refs
+            ):
                 ownership = "SYSTEM_V2"
             elif external_quantity > 1e-12 and managed_quantity <= 1e-12:
                 ownership = "EXTERNAL_MANUAL"
@@ -310,9 +335,30 @@ def _position_truth(
         if ownership == "SYSTEM_V2" and abs(exchange_quantity - local_quantity - external_quantity) > 1e-12:
             quantity_mismatches.append(row)
 
+    # A manual position that was explicitly captured and later closed/reduced
+    # remains an acknowledgement state until the operator refreshes the durable
+    # baseline.  It is symbol-scoped and never treated as a managed P0.
+    for (symbol, side), baseline_quantity in sorted(baseline_positions.items()):
+        if (symbol, side) in exchange_keys:
+            continue
+        drift_row = {
+            "symbol": symbol,
+            "side": side,
+            "exchange_quantity": 0.0,
+            "local_quantity": local_positions.get((symbol, side), 0.0),
+            "external_manual_quantity": 0.0,
+            "managed_quantity": 0.0,
+            "baseline_quantity": baseline_quantity,
+            "ownership": "UNKNOWN",
+            "reason": "MANUAL_BASELINE_ACK_REQUIRED",
+        }
+        ownership_positions.append(drift_row)
+        unknown_positions.append(drift_row)
+        blocked_symbols.add(symbol)
+
     exchange_only = sorted((item["symbol"], item["side"]) for item in unknown_positions)
     local_only = sorted(local_keys - exchange_keys)
-    blocked_symbols = {item["symbol"] for item in unknown_positions}
+    blocked_symbols.update(item["symbol"] for item in unknown_positions)
     blocked_symbols.update(symbol for symbol, _side in local_only)
     blocked_symbols.update(str(item["symbol"]) for item in quantity_mismatches)
     available = exchange.get("status") == "available"
@@ -349,6 +395,7 @@ def _runtime_projection_id(
     exchange: dict,
     scheduler,
     local_open: list[V2ManagedPosition],
+    db_fingerprint: object | None = None,
 ) -> str:
     """Stable identity for one exchange/scheduler/local Runtime Truth frame.
 
@@ -372,6 +419,8 @@ def _runtime_projection_id(
             "trading_state": scheduler.trading_state,
             "external_baseline_captured": scheduler.external_baseline_captured,
             "external_baseline_value": scheduler.external_baseline_value,
+            "external_baseline_lifecycle": getattr(scheduler, "external_baseline_lifecycle", None),
+            "external_baseline_drift_keys": sorted(getattr(scheduler, "external_baseline_drift_keys", ())),
         },
         "local_positions": [
             {
@@ -384,6 +433,7 @@ def _runtime_projection_id(
             }
             for item in sorted(local_open, key=lambda value: value.position_id)
         ],
+        "db_fingerprint": db_fingerprint,
         "external_baseline": (
             scheduler.external_baseline_value if scheduler.external_baseline_captured is True else None
         ),
@@ -397,6 +447,7 @@ def _current_protection_truth(
     observed_at: datetime,
     local_open: list[V2ManagedPosition] | None = None,
     external_baseline: dict[str, str] | None = None,
+    exchange_position_claim_refs: dict[str, frozenset[str]] | None = None,
 ) -> dict:
     """Classify live exchange protection against each authoritative position.
 
@@ -442,6 +493,7 @@ def _current_protection_truth(
             local_open=local_open,
             observed_at=observed_at,
             external_baseline=external_baseline,
+            exchange_position_claim_refs=exchange_position_claim_refs,
         )
         ownership_by_key = {
             (str(item["symbol"]), str(item["side"])): item
@@ -545,16 +597,63 @@ def _reconciliation_truth(
     exchange: dict,
     observed_at: datetime,
     external_baseline: dict[str, str] | None = None,
+    local_open: list[V2ManagedPosition] | None = None,
+    exchange_position_claim_refs: dict[str, frozenset[str]] | None = None,
+    local_state: LocalStateView | None = None,
+    scheduler=None,
 ) -> dict:
     """Single reconciliation projection shared by all Runtime Truth endpoints."""
     v2_repo = _v2_repo(db)
-    local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
+    local_open = local_open if local_open is not None else v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
+    if exchange_position_claim_refs is None:
+        try:
+            baseline_decimal = {key: Decimal(str(value)) for key, value in (external_baseline or {}).items()}
+            local_state, exchange_position_claim_refs = load_local_state_from_session(
+                db,
+                V2ExecutionMode.BINANCE_TESTNET,
+                external_baseline_positions=baseline_decimal,
+            )
+        except Exception:  # noqa: BLE001 - observability must remain available
+            exchange_position_claim_refs = None
     mismatch, blocked_symbols = _position_truth(
         exchange=exchange,
         local_open=local_open,
         observed_at=observed_at,
         external_baseline=external_baseline,
+        exchange_position_claim_refs=exchange_position_claim_refs,
     )
+    # Reconciliation status and Entry blocking come from the same application
+    # service used by the execution cycle.  The router's mismatch payload below
+    # is presentation detail only; it is never a second source of gate truth.
+    canonical = None
+    # A few hand-built observability fixtures predate the V2 order/fill tables.
+    # They remain readable through the legacy mismatch projection, while any real
+    # V2 position with durable identity is always reconciled by the service above.
+    identity_complete = (
+        local_state is None
+        or not local_state.positions
+        or all(
+            f"{position.symbol}:{position.direction}" in (exchange_position_claim_refs or {})
+            for position in local_state.positions
+        )
+    )
+    if identity_complete:
+        try:
+            if exchange.get("value") is None:
+                canonical = unavailable(
+                    str(exchange.get("error") or "exchange snapshot unavailable"),
+                    reconciled_at=observed_at,
+                )
+            else:
+                canonical = reconcile(
+                    runtime_snapshot_from_value(exchange["value"], observed_at=observed_at),
+                    local_state or LocalStateView(),
+                    reconciled_at=observed_at,
+                    exchange_position_claim_refs=exchange_position_claim_refs,
+                )
+        except Exception as exc:  # noqa: BLE001 - an invalid snapshot is fail-closed
+            canonical = unavailable(f"runtime snapshot parse failed: {exc}", reconciled_at=observed_at)
+
     paper_runs = PaperRunRepository(db).list_paper_runs()
     active_kill_switch_runs = [
         run for run in paper_runs if bool(run.paper_metrics_summary.get("entry_kill_switch_active", False))
@@ -565,41 +664,80 @@ def _reconciliation_truth(
     )
     unknown_orders = v2_repo.list_exchange_unknown_intents(execution_mode=V2ExecutionMode.BINANCE_TESTNET)
     exchange_status = str(exchange.get("status") or "")
-    exchange_has_snapshot = exchange.get("value") is not None
-    if exchange_status == "unavailable" or (exchange_status != "available" and not exchange_has_snapshot):
-        reconciliation_status = "unavailable"
-        blocked_symbols = {"BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"}
-    elif exchange_status == "stale":
-        reconciliation_status = "degraded"
-    elif active_kill_switch_runs:
-        reconciliation_status = "degraded"
-        blocked_symbols.update({"BTC/USDT", "ETH/USDT"})
-    elif unknown_orders:
-        reconciliation_status = "degraded"
-        blocked_symbols.update(order.symbol for order in unknown_orders)
-    elif mismatch["value"]["consistent"]:
-        reconciliation_status = "healthy"
+    if canonical is None:
+        exchange_has_snapshot = exchange.get("value") is not None
+        if exchange_status == "unavailable" or (exchange_status != "available" and not exchange_has_snapshot):
+            reconciliation_status = "unavailable"
+            blocked_symbols = {"BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"}
+        elif exchange_status == "stale":
+            reconciliation_status = "degraded"
+        elif mismatch["value"]["consistent"]:
+            reconciliation_status = "healthy"
+            blocked_symbols = set()
+        else:
+            reconciliation_status = "degraded"
+            blocked_symbols = set(blocked_symbols)
+        canonical_discrepancies: tuple[Discrepancy, ...] = ()
     else:
-        reconciliation_status = "degraded"
-    discrepancy_codes = []
-    if mismatch["value"]["exchange_only_positions"]:
+        canonical_status = canonical.status
+        if exchange_status == "stale" and canonical_status is ReconciliationStatus.HEALTHY:
+            canonical_status = ReconciliationStatus.DEGRADED
+        reconciliation_status = canonical_status.value.lower()
+        blocked_symbols = set(canonical.entry_blocked_symbols)
+        if canonical_status is ReconciliationStatus.UNAVAILABLE:
+            blocked_symbols.update({"BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"})
+        canonical_discrepancies = canonical.discrepancies
+    discrepancy_codes: list[str] = []
+    compact_code_map = {
+        DiscrepancyCode.EXTERNAL_POSITION_UNCLAIMABLE: "EXCHANGE_ONLY_POSITION",
+        DiscrepancyCode.LOCAL_POSITION_MISSING_AT_EXCHANGE: "LOCAL_ONLY_POSITION",
+        DiscrepancyCode.QUANTITY_MISMATCH: "POSITION_QUANTITY_MISMATCH",
+    }
+    for item in canonical_discrepancies:
+        compact_code = compact_code_map.get(item.code, item.code.value)
+        if compact_code not in discrepancy_codes:
+            discrepancy_codes.append(compact_code)
+    # These compact codes are retained for the dashboard contract, but are now
+    # derived from canonical discrepancies rather than a second gate algorithm.
+    non_manual_unknown_positions = [
+        item
+        for item in mismatch["value"].get("unknown_positions", [])
+        if item.get("reason") != "MANUAL_BASELINE_ACK_REQUIRED"
+    ]
+    if non_manual_unknown_positions and "EXCHANGE_ONLY_POSITION" not in discrepancy_codes:
         discrepancy_codes.append("EXCHANGE_ONLY_POSITION")
-    if mismatch["value"]["local_only_positions"]:
+    if mismatch["value"]["local_only_positions"] and "LOCAL_ONLY_POSITION" not in discrepancy_codes:
         discrepancy_codes.append("LOCAL_ONLY_POSITION")
-    if mismatch["value"]["quantity_mismatches"]:
+    if mismatch["value"]["quantity_mismatches"] and "POSITION_QUANTITY_MISMATCH" not in discrepancy_codes:
         discrepancy_codes.append("POSITION_QUANTITY_MISMATCH")
     if active_kill_switch_runs:
         discrepancy_codes.append("ENTRY_KILL_SWITCH_ACTIVE")
+        reconciliation_status = "degraded"
+        blocked_symbols.update({"BTC/USDT", "ETH/USDT"})
     if unknown_orders:
         discrepancy_codes.append("EXCHANGE_UNKNOWN_ORDER")
+        reconciliation_status = "degraded"
+        blocked_symbols.update(order.symbol for order in unknown_orders)
+    manual_baseline_drift = any(
+        item.get("reason") == "MANUAL_BASELINE_ACK_REQUIRED"
+        for item in mismatch["value"].get("unknown_positions", [])
+        if isinstance(item, dict)
+    )
+    if manual_baseline_drift and DiscrepancyCode.MANUAL_BASELINE_DRIFT.value not in discrepancy_codes:
+        discrepancy_codes.append("MANUAL_BASELINE_DRIFT")
     actions = []
     if active_kill_switch_runs:
         actions.append("ENTRY_KILL_SWITCH_ACTIVE")
     if unknown_orders:
         actions.append("EXCHANGE_UNKNOWN_REQUIRES_RECONCILIATION")
     if mismatch["value"].get("unknown_positions"):
-        actions.append("UNMANAGED_EXTERNAL_POSITION_REQUIRES_OPERATOR_ADOPTION")
+        actions.append(
+            "MANUAL_BASELINE_ACK_REQUIRED"
+            if manual_baseline_drift
+            else "UNMANAGED_EXTERNAL_POSITION_REQUIRES_OPERATOR_ADOPTION"
+        )
     affected_symbols = sorted(blocked_symbols)
+    scheduler_state = scheduler or load_external_scheduler_state(now=observed_at)
     return {
         "status": reconciliation_status,
         "entry_blocked_symbols": affected_symbols,
@@ -626,14 +764,120 @@ def _reconciliation_truth(
             "external_manual_positions": mismatch["value"].get("external_manual_positions", []),
             "unknown_positions": mismatch["value"].get("unknown_positions", []),
         },
+        "manual_baseline": {
+            "lifecycle": getattr(scheduler_state, "external_baseline_lifecycle", None),
+            "drift_keys": list(getattr(scheduler_state, "external_baseline_drift_keys", ())),
+            "acknowledgement_required": manual_baseline_drift,
+        },
         "recovery_action": actions[-1] if actions else None,
         "last_healthy_at": None,
         "last_healthy_time_source": "not_persisted",
+        "canonical_discrepancies": [
+            {
+                "code": item.code.value,
+                "symbol": item.symbol,
+                "detail": item.detail,
+                "local_position_id": item.local_position_id,
+                "exchange_ref": item.exchange_ref,
+            }
+            for item in canonical_discrepancies
+        ],
     }
 
 
 def _v2_repo(db: Session) -> AutomatedTradingRepository:
     return AutomatedTradingRepository(db)
+
+
+def _runtime_projection(db: Session, *, observed_at: datetime | None = None) -> dict:
+    """Return one immutable server-side Runtime Truth projection.
+
+    The exchange probe is already single-flight; this layer additionally freezes
+    the exchange facts, V2 facts, ownership claims, reconciliation and protection
+    view under one semantic ``projection_id`` for all four Runtime endpoints.
+    """
+    global _runtime_projection_cache
+    observed = observed_at or datetime.now(UTC)
+    exchange = _exchange_truth()
+    scheduler = load_external_scheduler_state(now=observed)
+    v2_repo = _v2_repo(db)
+    local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
+    external_baseline = _effective_external_baseline(scheduler)
+    claim_refs: dict[str, frozenset[str]] | None = None
+    local_state: LocalStateView | None = None
+    try:
+        baseline_decimal = {key: Decimal(str(value)) for key, value in (external_baseline or {}).items()}
+        local_state, claim_refs = load_local_state_from_session(
+            db,
+            V2ExecutionMode.BINANCE_TESTNET,
+            external_baseline_positions=baseline_decimal,
+        )
+    except Exception:  # noqa: BLE001 - API remains inspectable on an incomplete local DB
+        claim_refs = None
+    db_fingerprint = {
+        "unknown_intents": sorted(
+            str(intent.intent_id)
+            for intent in v2_repo.list_exchange_unknown_intents(execution_mode=V2ExecutionMode.BINANCE_TESTNET)
+        ),
+        "kill_switch": sorted(
+            str(run.paper_run_id)
+            for run in PaperRunRepository(db).list_paper_runs()
+            if bool(run.paper_metrics_summary.get("entry_kill_switch_active", False))
+        ),
+    }
+    projection_id = _runtime_projection_id(
+        exchange=exchange,
+        scheduler=scheduler,
+        local_open=local_open,
+        db_fingerprint=db_fingerprint,
+    )
+    with _runtime_projection_lock:
+        if _runtime_projection_cache is not None:
+            cached_at, cached = _runtime_projection_cache
+            age = (observed - cached_at).total_seconds()
+            if age < _RUNTIME_PROJECTION_CACHE_SECONDS and cached.get("projection_id") == projection_id:
+                return cached
+
+    reconciliation = _reconciliation_truth(
+        db=db,
+        exchange=exchange,
+        observed_at=observed,
+        external_baseline=external_baseline,
+        local_open=local_open,
+        exchange_position_claim_refs=claim_refs,
+        local_state=local_state,
+        scheduler=scheduler,
+    )
+    entry_runtime = {
+        "entry_authority": scheduler.entry_authority or "NONE",
+        "entry_authorized": bool(scheduler.entry_authorized),
+        "entry_authority_reason": scheduler.entry_authority_reason or scheduler.reason,
+        "production_authorization_state": scheduler.production_authorization_state or "PENDING",
+        "active_entry_strategy": scheduler.active_entry_strategy,
+        "promotion_eligible": bool(scheduler.promotion_eligible),
+        "trading_state": scheduler.trading_state or "ENTRY_PAUSED",
+    }
+    projection = {
+        "observed_at": observed.isoformat(),
+        "projection_id": projection_id,
+        "exchange": exchange,
+        "scheduler": scheduler,
+        "local_open": tuple(local_open),
+        "external_baseline": external_baseline,
+        "claim_refs": claim_refs,
+        "reconciliation": reconciliation,
+        "current_protection": _current_protection_truth(
+            exchange=exchange,
+            observed_at=observed,
+            local_open=local_open,
+            external_baseline=external_baseline,
+            exchange_position_claim_refs=claim_refs,
+        ),
+        "entry_runtime": entry_runtime,
+    }
+    with _runtime_projection_lock:
+        _runtime_projection_cache = (observed, projection)
+    return projection
 
 
 def _v2_decision_payload(decision, cycle) -> dict:
@@ -967,30 +1211,17 @@ def build_no_trade_summary(
 @router.get("/snapshot")
 def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
     observed_at = datetime.now(UTC)
+    projection = _runtime_projection(db, observed_at=observed_at)
     v2_repo = _v2_repo(db)
-    exchange = _exchange_truth()
-    local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
-    scheduler = load_external_scheduler_state(now=observed_at)
-    external_baseline = _effective_external_baseline(scheduler)
-    projection_id = _runtime_projection_id(exchange=exchange, scheduler=scheduler, local_open=local_open)
-    reconciliation = _reconciliation_truth(
-        db=db,
-        exchange=exchange,
-        observed_at=observed_at,
-        external_baseline=external_baseline,
-    )
+    exchange = projection["exchange"]
+    local_open = projection["local_open"]
+    scheduler = projection["scheduler"]
+    projection_id = projection["projection_id"]
+    reconciliation = projection["reconciliation"]
     reconciliation["projection_id"] = projection_id
     mismatch = reconciliation["mismatch"]
     paper_runs = PaperRunRepository(db).list_paper_runs()
-    entry_runtime = {
-        "entry_authority": scheduler.entry_authority or "NONE",
-        "entry_authorized": bool(scheduler.entry_authorized),
-        "entry_authority_reason": scheduler.entry_authority_reason or scheduler.reason,
-        "production_authorization_state": scheduler.production_authorization_state or "PENDING",
-        "active_entry_strategy": scheduler.active_entry_strategy,
-        "promotion_eligible": bool(scheduler.promotion_eligible),
-        "trading_state": scheduler.trading_state or "ENTRY_PAUSED",
-    }
+    entry_runtime = projection["entry_runtime"]
     return {
         "observed_at": observed_at.isoformat(),
         "projection_id": projection_id,
@@ -1054,12 +1285,7 @@ def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
             observed_at=observed_at,
         ),
         "current_protection": _datum(
-            value=_current_protection_truth(
-                exchange=exchange,
-                observed_at=observed_at,
-                local_open=local_open,
-                external_baseline=external_baseline,
-            ),
+            value=projection["current_protection"],
             source="BINANCE_LIVE_REDUCE_ONLY_PROTECTION",
             observed_at=observed_at,
         ),
@@ -1073,18 +1299,12 @@ def runtime_no_trade_summary(
 ) -> dict:
     observed_at = datetime.now(UTC)
     window_start = observed_at - timedelta(hours=window_hours)
+    projection = _runtime_projection(db, observed_at=observed_at)
     v2_repo = _v2_repo(db)
-    scheduler = load_external_scheduler_state(now=observed_at)
-    exchange = _exchange_truth()
-    local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
-    external_baseline = _effective_external_baseline(scheduler)
-    projection_id = _runtime_projection_id(exchange=exchange, scheduler=scheduler, local_open=local_open)
-    reconciliation = _reconciliation_truth(
-        db=db,
-        exchange=exchange,
-        observed_at=observed_at,
-        external_baseline=external_baseline,
-    )
+    scheduler = projection["scheduler"]
+    exchange = projection["exchange"]
+    projection_id = projection["projection_id"]
+    reconciliation = projection["reconciliation"]
     reconciliation["projection_id"] = projection_id
     decision_rows = v2_repo.list_recent_decisions(since=window_start, limit=500)
     decisions = []
@@ -1132,12 +1352,7 @@ def runtime_no_trade_summary(
         },
         decisions=decisions,
         entry_fills=fills,
-        protection_truth=_current_protection_truth(
-            exchange=exchange,
-            observed_at=observed_at,
-            local_open=local_open,
-            external_baseline=external_baseline,
-        ),
+        protection_truth=projection["current_protection"],
     )
     effective = [item for item in decisions if item["reason"] != "DUPLICATE_DECISION"]
     orders = v2_repo.list_exchange_orders(execution_mode=V2ExecutionMode.BINANCE_TESTNET, limit=500)
@@ -1254,18 +1469,11 @@ def runtime_exchange_orders(
 @router.get("/positions")
 def runtime_positions(db: Session = Depends(get_db_session)) -> dict:
     observed_at = datetime.now(UTC)
-    exchange = _exchange_truth()
+    projection = _runtime_projection(db, observed_at=observed_at)
+    exchange = projection["exchange"]
+    projection_id = projection["projection_id"]
+    reconciliation = projection["reconciliation"]
     v2_repo = _v2_repo(db)
-    local_open = v2_repo.get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
-    scheduler = load_external_scheduler_state(now=observed_at)
-    external_baseline = _effective_external_baseline(scheduler)
-    projection_id = _runtime_projection_id(exchange=exchange, scheduler=scheduler, local_open=local_open)
-    reconciliation = _reconciliation_truth(
-        db=db,
-        exchange=exchange,
-        observed_at=observed_at,
-        external_baseline=external_baseline,
-    )
     reconciliation["projection_id"] = projection_id
     return {
         "projection_id": projection_id,
@@ -1278,12 +1486,7 @@ def runtime_positions(db: Session = Depends(get_db_session)) -> dict:
             error=reconciliation.get("error"),
         ),
         "current_protection": _datum(
-            value=_current_protection_truth(
-                exchange=exchange,
-                observed_at=observed_at,
-                local_open=local_open,
-                external_baseline=external_baseline,
-            ),
+            value=projection["current_protection"],
             source="BINANCE_LIVE_REDUCE_ONLY_PROTECTION",
             observed_at=observed_at,
         ),
@@ -1327,17 +1530,9 @@ def runtime_llm_invocations(
 @router.get("/reconciliation")
 def runtime_reconciliation(db: Session = Depends(get_db_session)) -> dict:
     observed_at = datetime.now(UTC)
-    exchange = _exchange_truth()
-    scheduler = load_external_scheduler_state(now=observed_at)
-    local_open = _v2_repo(db).get_open_positions(V2ExecutionMode.BINANCE_TESTNET)
-    external_baseline = _effective_external_baseline(scheduler)
-    projection_id = _runtime_projection_id(exchange=exchange, scheduler=scheduler, local_open=local_open)
-    reconciliation = _reconciliation_truth(
-        db=db,
-        exchange=exchange,
-        observed_at=observed_at,
-        external_baseline=external_baseline,
-    )
+    projection = _runtime_projection(db, observed_at=observed_at)
+    projection_id = projection["projection_id"]
+    reconciliation = dict(projection["reconciliation"])
     reconciliation["projection_id"] = projection_id
     return reconciliation
 

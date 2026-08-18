@@ -43,6 +43,8 @@ class ExternalSchedulerState:
     external_baseline_captured: bool | None = None
     external_baseline_value: dict[str, str] | None = None
     external_baseline_source: str | None = None
+    external_baseline_lifecycle: str | None = None
+    external_baseline_drift_keys: tuple[str, ...] = ()
     entry_authorized: bool | None = None
     entry_authority: str | None = None
     entry_authority_reason: str | None = None
@@ -136,6 +138,12 @@ def load_external_scheduler_state(
         ),
         external_baseline_source=(
             raw.get("external_baseline_source") if isinstance(raw.get("external_baseline_source"), str) else None
+        ),
+        external_baseline_lifecycle=(
+            raw.get("external_baseline_lifecycle") if isinstance(raw.get("external_baseline_lifecycle"), str) else None
+        ),
+        external_baseline_drift_keys=tuple(
+            str(value) for value in raw.get("external_baseline_drift_keys", []) if isinstance(value, str)
         ),
         entry_authorized=raw.get("entry_authorized") if isinstance(raw.get("entry_authorized"), bool) else None,
         entry_authority=raw.get("entry_authority") if isinstance(raw.get("entry_authority"), str) else None,

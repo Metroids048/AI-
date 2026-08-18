@@ -311,6 +311,38 @@ def _build_local_state(
     *,
     fail_closed: bool,
 ) -> LocalStateLoadResult:
+    """Load the canonical identity claim set for the cycle and Runtime API."""
+    del adapter
+    try:
+        from services.automated_trading.application.reconciliation_service import load_local_state_from_session
+        from services.database import get_session_factory
+
+        external_baseline_positions = _load_external_baseline_positions()
+        with get_session_factory()() as session:
+            state, exchange_position_claim_refs = load_local_state_from_session(
+                session,
+                execution_mode,
+                external_baseline_positions=external_baseline_positions,
+            )
+        return LocalStateLoadResult(
+            status="OK",
+            state=state,
+            exchange_position_claim_refs=exchange_position_claim_refs,
+        )
+    except Exception as exc:  # noqa: BLE001 - startup/cycle fail-closed contract
+        if fail_closed:
+            logger.error("LOCAL_STATE_UNAVAILABLE: %s", exc)
+            return LocalStateLoadResult(status="UNAVAILABLE", state=None, error_code="LOCAL_STATE_UNAVAILABLE")
+        logger.debug("local state load skipped (offline/unit): %s", exc)
+        return LocalStateLoadResult(status="OK", state=LocalStateView())
+
+
+def _build_local_state_legacy(
+    adapter,
+    execution_mode: V2ExecutionMode,
+    *,
+    fail_closed: bool,
+) -> LocalStateLoadResult:
     """Read open V2 positions for reconciliation.
 
     When ``fail_closed`` is True (armed scheduler path), DB errors block entry.

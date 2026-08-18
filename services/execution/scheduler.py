@@ -84,6 +84,8 @@ class RuntimeSchedulerStatus:
     external_baseline_captured: bool | None = None
     external_baseline_value: dict[str, str] | None = None
     external_baseline_source: str | None = None
+    external_baseline_lifecycle: str | None = None
+    external_baseline_drift_keys: tuple[str, ...] = ()
     entry_authorized: bool = False
     entry_authority: str = EntryAuthority.NONE.value
     entry_authority_reason: str = "production_pending"
@@ -119,6 +121,8 @@ class RuntimeSchedulerStatus:
             "external_baseline_captured": self.external_baseline_captured,
             "external_baseline_value": self.external_baseline_value,
             "external_baseline_source": self.external_baseline_source,
+            "external_baseline_lifecycle": self.external_baseline_lifecycle,
+            "external_baseline_drift_keys": self.external_baseline_drift_keys,
             "entry_authorized": self.entry_authorized,
             "entry_authority": self.entry_authority,
             "entry_authority_reason": self.entry_authority_reason,
@@ -365,6 +369,8 @@ class RuntimeScheduler:
         self.status.external_baseline_captured = None
         self.status.external_baseline_value = None
         self.status.external_baseline_source = None
+        self.status.external_baseline_lifecycle = None
+        self.status.external_baseline_drift_keys = ()
         self.status.entry_authorized = False
         self.status.entry_authority = EntryAuthority.NONE.value
         self.status.entry_authority_reason = "production_pending"
@@ -397,6 +403,16 @@ class RuntimeScheduler:
             self.status.external_baseline_captured = baseline_captured
             self.status.external_baseline_value = baseline_value
             self.status.external_baseline_source = baseline_source
+            lifecycle = os.getenv("V2_EXTERNAL_BASELINE_LIFECYCLE", "").strip() or None
+            raw_drift_keys = os.getenv("V2_EXTERNAL_BASELINE_DRIFT_KEYS", "").strip()
+            try:
+                parsed_drift_keys = json.loads(raw_drift_keys) if raw_drift_keys else []
+            except json.JSONDecodeError:
+                parsed_drift_keys = []
+            self.status.external_baseline_lifecycle = lifecycle
+            self.status.external_baseline_drift_keys = tuple(
+                str(key) for key in parsed_drift_keys if isinstance(key, str)
+            )
             self.status.startup_contract_errors = tuple(dict.fromkeys(errors))
             # ACTIVE can keep reconciling/protecting existing V2 positions with
             # entries paused.  Candidate-level authorization is checked inside

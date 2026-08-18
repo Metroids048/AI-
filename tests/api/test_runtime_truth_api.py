@@ -253,6 +253,61 @@ def test_runtime_truth_keeps_manual_baseline_out_of_reconciliation_and_managed_p
     assert protection["p0_unprotected"] is False
 
 
+def test_manual_baseline_drift_is_symbol_scoped_and_not_managed_p0(
+    api_client,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """Closing a captured manual position pauses only that symbol."""
+    observed_at = datetime.now(UTC)
+    monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(tmp_path / "scheduler-state.json"))
+    write_external_scheduler_state(
+        {
+            "running": True,
+            "heartbeat_at": observed_at.isoformat(),
+            "data_fresh": True,
+            "exchange_info_ready": True,
+            "external_baseline_captured": True,
+            "external_baseline_value": {"BTC/USDT:short": "0.5346"},
+            "external_baseline_lifecycle": "MANUAL_BASELINE_ACK_REQUIRED",
+            "external_baseline_drift_keys": ["BTC/USDT:short"],
+            "entry_authorized": True,
+            "entry_authority": "TESTNET_CANARY",
+            "trading_state": "TRADING",
+        }
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_exchange_truth",
+        lambda: runtime._datum(
+            value={"positions": [], "open_orders": []},
+            source="BINANCE_USDT_M_TESTNET",
+            observed_at=observed_at,
+        ),
+    )
+
+    responses = [
+        api_client.get("/api/v1/runtime/snapshot").json(),
+        api_client.get("/api/v1/runtime/positions").json(),
+        api_client.get("/api/v1/runtime/reconciliation").json(),
+        api_client.get("/api/v1/runtime/no-trade-summary").json(),
+    ]
+
+    assert len({response["projection_id"] for response in responses}) == 1
+    statuses = []
+    for response in responses:
+        reconciliation = response.get("reconciliation", {})
+        value = reconciliation.get("value") if isinstance(reconciliation, dict) else None
+        statuses.append(
+            value.get("status") if isinstance(value, dict) else reconciliation.get("status") or response.get("status")
+        )
+    assert set(statuses) == {"degraded"}
+    assert responses[0]["reconciliation"]["value"]["entry_blocked_symbols"] == ["BTC/USDT"]
+    assert responses[0]["reconciliation"]["value"]["discrepancy_codes"] == ["MANUAL_BASELINE_DRIFT"]
+    assert responses[0]["current_protection"]["value"]["p0_unprotected"] is False
+    assert responses[2]["recovery_action"] == "MANUAL_BASELINE_ACK_REQUIRED"
+
+
 def test_current_protection_truth_accepts_raw_binance_algo_order_fields() -> None:
     observed_at = datetime.now(UTC)
     result = runtime._current_protection_truth(

@@ -220,7 +220,7 @@
       "runtime_initial_target": "64666.8",
       "risk_usdt": "8.87355105",
       "bars": 207,
-      "replay_bars_7d": 5698,
+      "replay_bars_7d": 6903,
       "r0_static_replay": {
         "net_pnl_usdt": "10.7830124709450",
         "net_r": "1.215185714285714285714285714",
@@ -299,7 +299,7 @@
       "runtime_initial_target": "1907.95",
       "risk_usdt": "8.8745860",
       "bars": 161,
-      "replay_bars_7d": 5699,
+      "replay_bars_7d": 6905,
       "r0_static_replay": {
         "net_pnl_usdt": "10.7842701274",
         "net_r": "1.215185714285714285714285714",
@@ -378,7 +378,7 @@
       "runtime_initial_target": "1895.98",
       "risk_usdt": "9.04585402000000037100",
       "bars": 25,
-      "replay_bars_7d": 5504,
+      "replay_bars_7d": 6905,
       "r0_static_replay": {
         "net_pnl_usdt": "10.99239258661800049323390",
         "net_r": "1.215185715170097343932154199",
@@ -449,7 +449,7 @@
       "runtime_initial_target": "64427.8",
       "risk_usdt": "9.04478053499999999790",
       "bars": 55,
-      "replay_bars_7d": 5443,
+      "replay_bars_7d": 6903,
       "r0_static_replay": {
         "net_pnl_usdt": "10.991088138981499997208110",
         "net_r": "1.215185719150398379429556829",
@@ -528,7 +528,7 @@
       "runtime_initial_target": "64052.1",
       "risk_usdt": "9.0372539599999995345",
       "bars": 52,
-      "replay_bars_7d": 5383,
+      "replay_bars_7d": 6903,
       "r0_static_replay": {
         "net_pnl_usdt": "10.981941912563999381131050",
         "net_r": "1.215185714728326606282512858",
@@ -607,7 +607,7 @@
       "runtime_initial_target": "1861.78",
       "risk_usdt": "9.066127280",
       "bars": 129,
-      "replay_bars_7d": 5127,
+      "replay_bars_7d": 6788,
       "r0_static_replay": {
         "net_pnl_usdt": "-11.661889034368",
         "net_r": "-1.286314285493684355157211073",
@@ -669,7 +669,7 @@
       "runtime_initial_target": "63673.6",
       "risk_usdt": "9.050915020",
       "bars": 243,
-      "replay_bars_7d": 5111,
+      "replay_bars_7d": 6771,
       "r0_static_replay": {
         "net_pnl_usdt": "-11.642321281012",
         "net_r": "-1.286314284830397181212292500",
@@ -731,7 +731,7 @@
       "runtime_initial_target": "64617.7",
       "risk_usdt": "9.021740105",
       "bars": 116,
-      "replay_bars_7d": 4706,
+      "replay_bars_7d": 6749,
       "r0_static_replay": {
         "net_pnl_usdt": "-11.5939670889370",
         "net_r": "-1.285114285492598991245270416",
@@ -793,7 +793,7 @@
       "runtime_initial_target": "1898.65",
       "risk_usdt": "9.03005669999999955270",
       "bars": 114,
-      "replay_bars_7d": 4707,
+      "replay_bars_7d": 6751,
       "r0_static_replay": {
         "net_pnl_usdt": "-11.60465485597999947628838",
         "net_r": "-1.285114284606872961397905675",
@@ -855,7 +855,7 @@
       "runtime_initial_target": "64092.5",
       "risk_usdt": "8.993051795",
       "bars": 511,
-      "replay_bars_7d": 4479,
+      "replay_bars_7d": 6690,
       "r0_static_replay": {
         "net_pnl_usdt": "10.91204058388450",
         "net_r": "1.213385715175289947276457335",
@@ -934,7 +934,7 @@
       "runtime_initial_target": "1894.99",
       "risk_usdt": "8.99946740",
       "bars": 439,
-      "replay_bars_7d": 4450,
+      "replay_bars_7d": 6662,
       "r0_static_replay": {
         "net_pnl_usdt": "10.91982517934",
         "net_r": "1.213385714285714285714285714",
@@ -1005,7 +1005,7 @@
       "runtime_initial_target": "1912.65",
       "risk_usdt": "9.030071820",
       "bars": 45,
-      "replay_bars_7d": 4000,
+      "replay_bars_7d": 6212,
       "r0_static_replay": {
         "net_pnl_usdt": "10.956960153362",
         "net_r": "1.213385715171643009147185277",
@@ -1084,7 +1084,7 @@
       "runtime_initial_target": "1883.18",
       "risk_usdt": "9.039521260",
       "bars": 242,
-      "replay_bars_7d": 3683,
+      "replay_bars_7d": 5895,
       "r0_static_replay": {
         "net_pnl_usdt": "10.984697103134",
         "net_r": "1.215185714728215595789195588",
@@ -1163,7 +1163,7 @@
       "runtime_initial_target": "63166.6",
       "risk_usdt": "64.58585000",
       "bars": 372,
-      "replay_bars_7d": 3564,
+      "replay_bars_7d": 5775,
       "r0_static_replay": {
         "net_pnl_usdt": "-83.077701510",
         "net_r": "-1.286314285714285714285714286",
@@ -1234,7 +1234,7 @@
       "runtime_initial_target": "1897.82",
       "risk_usdt": "64.300404490",
       "bars": 85,
-      "replay_bars_7d": 3240,
+      "replay_bars_7d": 5452,
       "r0_static_replay": {
         "net_pnl_usdt": "78.0211922369590",
         "net_r": "1.213385714379026295919962105",
@@ -1313,7 +1313,7 @@
       "runtime_initial_target": "1901.88",
       "risk_usdt": "64.5430884699999973365",
       "bars": 240,
-      "replay_bars_7d": 3075,
+      "replay_bars_7d": 5287,
       "r0_static_replay": {
         "net_pnl_usdt": "-82.94524502891799688149810",
         "net_r": "-1.285114285590337513397892713",
@@ -1384,7 +1384,7 @@
       "runtime_initial_target": "64188.5",
       "risk_usdt": "64.8778686150000015505",
       "bars": 209,
-      "replay_bars_7d": 3044,
+      "replay_bars_7d": 5255,
       "r0_static_replay": {
         "net_pnl_usdt": "-83.37547575783100181536970",
         "net_r": "-1.285114285313532718969393052",
@@ -1446,7 +1446,7 @@
       "runtime_initial_target": "63290.8",
       "risk_usdt": "63.087071285",
       "bars": 214,
-      "replay_bars_7d": 2819,
+      "replay_bars_7d": 5030,
       "r0_static_replay": {
         "net_pnl_usdt": "76.66250778565650",
         "net_r": "1.215185714349118718960675240",
@@ -1517,7 +1517,7 @@
       "runtime_initial_target": "1876.44",
       "risk_usdt": "63.255582390",
       "bars": 21,
-      "replay_bars_7d": 2714,
+      "replay_bars_7d": 4926,
       "r0_static_replay": {
         "net_pnl_usdt": "-81.366559273434",
         "net_r": "-1.286314285619432425875416875",
@@ -1579,7 +1579,7 @@
       "runtime_initial_target": "1901.95",
       "risk_usdt": "61.83091645499999928775",
       "bars": 18,
-      "replay_bars_7d": 2624,
+      "replay_bars_7d": 4836,
       "r0_static_replay": {
         "net_pnl_usdt": "-79.459794023126999166077350",
         "net_r": "-1.285114285520208048829574798",
@@ -1641,7 +1641,7 @@
       "runtime_initial_target": "1877.97",
       "risk_usdt": "60.96093360000000191170",
       "bars": 276,
-      "replay_bars_7d": 2536,
+      "replay_bars_7d": 4748,
       "r0_static_replay": {
         "net_pnl_usdt": "74.078855690240003541550530",
         "net_r": "1.215185715105911718164368769",
@@ -1712,7 +1712,7 @@
       "runtime_initial_target": "63830.8",
       "risk_usdt": "61.09382394500000112910",
       "bars": 91,
-      "replay_bars_7d": 2490,
+      "replay_bars_7d": 4701,
       "r0_static_replay": {
         "net_pnl_usdt": "-78.51254591263300232198254",
         "net_r": "-1.285114285583339595472754789",
@@ -1774,7 +1774,7 @@
       "runtime_initial_target": "63051.4",
       "risk_usdt": "60.518661280",
       "bars": 164,
-      "replay_bars_7d": 2385,
+      "replay_bars_7d": 4596,
       "r0_static_replay": {
         "net_pnl_usdt": "73.541412647152",
         "net_r": "1.215185714484000231672011632",
@@ -1853,7 +1853,7 @@
       "runtime_initial_target": "1866.18",
       "risk_usdt": "61.35348205000000264320",
       "bars": 454,
-      "replay_bars_7d": 2236,
+      "replay_bars_7d": 4448,
       "r0_static_replay": {
         "net_pnl_usdt": "74.55587494884500351405888",
         "net_r": "1.215185714937674027289865910",
@@ -1924,7 +1924,7 @@
       "runtime_initial_target": "62736.3",
       "risk_usdt": "61.298165040",
       "bars": 129,
-      "replay_bars_7d": 2190,
+      "replay_bars_7d": 4401,
       "r0_static_replay": {
         "net_pnl_usdt": "74.488654474536",
         "net_r": "1.215185714383596497948285076",
@@ -2003,7 +2003,7 @@
       "runtime_initial_target": "62432.9",
       "risk_usdt": "62.1662494249999989675",
       "bars": 340,
-      "replay_bars_7d": 2025,
+      "replay_bars_7d": 4236,
       "r0_static_replay": {
         "net_pnl_usdt": "-79.96533472465499878988050",
         "net_r": "-1.286314285714285716183850350",
@@ -2074,7 +2074,7 @@
       "runtime_initial_target": "1858.47",
       "risk_usdt": "62.90465090",
       "bars": 61,
-      "replay_bars_7d": 1771,
+      "replay_bars_7d": 3983,
       "r0_static_replay": {
         "net_pnl_usdt": "-80.91515109054",
         "net_r": "-1.286314285714285714285714286",
@@ -2145,7 +2145,7 @@
       "runtime_initial_target": "1894.88",
       "risk_usdt": "61.5810544999999962340",
       "bars": 38,
-      "replay_bars_7d": 1604,
+      "replay_bars_7d": 3816,
       "r0_static_replay": {
         "net_pnl_usdt": "-79.1386928072999955906596",
         "net_r": "-1.285114284739960086756877415",

@@ -36,6 +36,44 @@ def test_persisted_external_baseline_survives_scheduler_state_cleanup(tmp_path, 
     assert capture.require_persisted_external_baseline(path=baseline_path) == {"ETH/USDT:short": "10.976"}
 
 
+def test_manual_baseline_lifecycle_reports_drift_without_rewriting(tmp_path, monkeypatch) -> None:
+    capture = _load_capture_script()
+    baseline_path = tmp_path / ".local" / "testnet-external-baseline.json"
+    capture.persist_external_baseline({"BTC/USDT:short": "0.5346"}, path=baseline_path)
+    monkeypatch.setattr(capture, "capture_baseline", lambda: {})
+
+    lifecycle = capture.inspect_baseline_lifecycle(path=baseline_path)
+
+    assert lifecycle["status"] == "MANUAL_BASELINE_DRIFT"
+    assert lifecycle["acknowledgement_status"] == "MANUAL_BASELINE_ACK_REQUIRED"
+    assert lifecycle["drift_keys"] == ["BTC/USDT:short"]
+    assert capture.load_persisted_external_baseline(path=baseline_path) == {"BTC/USDT:short": "0.5346"}
+    assert capture.require_persisted_external_baseline(path=baseline_path, allow_manual_drift=True) == {
+        "BTC/USDT:short": "0.5346"
+    }
+
+
+def test_manual_baseline_refresh_requires_explicit_audit_and_is_atomic(tmp_path, monkeypatch) -> None:
+    capture = _load_capture_script()
+    baseline_path = tmp_path / ".local" / "testnet-external-baseline.json"
+    capture.persist_external_baseline({"BTC/USDT:short": "0.5346"}, path=baseline_path)
+    monkeypatch.setattr(capture, "capture_baseline", lambda: {})
+
+    with pytest.raises(RuntimeError, match="BASELINE_ACKNOWLEDGEMENT_REQUIRES_OPERATOR_AND_REASON"):
+        capture.acknowledge_baseline_refresh(operator="", reason="", path=baseline_path)
+    audit = capture.acknowledge_baseline_refresh(
+        operator="operator-test",
+        reason="manual BTC close acknowledged",
+        path=baseline_path,
+    )
+
+    assert audit["status"] == "BASELINE_REFRESHED"
+    record = json.loads(baseline_path.read_text(encoding="utf-8"))
+    assert record["positions"] == {}
+    assert record["last_acknowledgement"]["previous_positions"] == {"BTC/USDT:short": "0.5346"}
+    assert record["last_acknowledgement"]["new_positions"] == {}
+
+
 def test_unpersisted_external_position_fails_closed(tmp_path, monkeypatch) -> None:
     capture = _load_capture_script()
     monkeypatch.setattr(capture, "capture_baseline", lambda: {"ETH/USDT:short": "10.976"})

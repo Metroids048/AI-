@@ -550,7 +550,26 @@ function Ensure-Runtime {
             }
         }
         if (-not $script:ProjectionRecoveryPending) {
-            $baselineOutput = & $env:AGENT_PYTHON (Join-Path $Root "scripts\capture_testnet_external_baseline.py") --require-persisted --json 2>&1
+            # Manual exposure may legitimately change after capture.  Inspect
+            # the lifecycle read-only and carry the acknowledgement state into
+            # Runtime Truth; only V2 projection gaps remain startup-fatal.
+            $lifecycleOutput = & $env:AGENT_PYTHON (Join-Path $Root "scripts\capture_testnet_external_baseline.py") --inspect-lifecycle --json 2>&1
+            if ($LASTEXITCODE -eq 0 -and $lifecycleOutput) {
+                try {
+                    $lifecycle = ($lifecycleOutput | Select-Object -Last 1).ToString().Trim() | ConvertFrom-Json
+                    if ($lifecycle.status -eq "MANUAL_BASELINE_DRIFT") {
+                        $env:V2_EXTERNAL_BASELINE_LIFECYCLE = "MANUAL_BASELINE_ACK_REQUIRED"
+                        $env:V2_EXTERNAL_BASELINE_DRIFT_KEYS = (($lifecycle.drift_keys | ConvertTo-Json -Compress))
+                        Write-Step "manual baseline drift detected; entries remain symbol-scoped until operator acknowledgement"
+                    }
+                    else {
+                        Remove-Item Env:V2_EXTERNAL_BASELINE_LIFECYCLE -ErrorAction SilentlyContinue
+                        Remove-Item Env:V2_EXTERNAL_BASELINE_DRIFT_KEYS -ErrorAction SilentlyContinue
+                    }
+                }
+                catch { Write-Step "manual baseline lifecycle output could not be parsed; preserving fail-closed baseline" }
+            }
+            $baselineOutput = & $env:AGENT_PYTHON (Join-Path $Root "scripts\capture_testnet_external_baseline.py") --require-persisted --allow-manual-drift --json 2>&1
             if ($LASTEXITCODE -ne 0 -or -not $baselineOutput) {
                 $baselineError = ($baselineOutput | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }) -join "; "
                 if ($baselineError -match "SYSTEM_POSITION_PROJECTION_GAP") {
@@ -584,6 +603,8 @@ function Ensure-Runtime {
         Remove-Item Env:V2_EXTERNAL_BASELINE_JSON -ErrorAction SilentlyContinue
         Remove-Item Env:V2_EXTERNAL_BASELINE_SOURCE -ErrorAction SilentlyContinue
         Remove-Item Env:V2_EXTERNAL_BASELINE_PATH -ErrorAction SilentlyContinue
+        Remove-Item Env:V2_EXTERNAL_BASELINE_LIFECYCLE -ErrorAction SilentlyContinue
+        Remove-Item Env:V2_EXTERNAL_BASELINE_DRIFT_KEYS -ErrorAction SilentlyContinue
         Remove-Item Env:V2_PROJECTION_RECOVERY_BOOTSTRAP -ErrorAction SilentlyContinue
     }
     $env:RUNTIME_SCHEDULER_MODE = "inprocess"

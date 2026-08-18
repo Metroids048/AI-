@@ -65,6 +65,7 @@ class DiscrepancyCode(StrEnum):
     PROTECTION_ORDER_MISSING_AT_EXCHANGE = "PROTECTION_ORDER_MISSING_AT_EXCHANGE"
     UNKNOWN_ORDER_PRESENT = "UNKNOWN_ORDER_PRESENT"
     ORPHAN_V2_CLIENT_ORDER_AT_EXCHANGE = "ORPHAN_V2_CLIENT_ORDER_AT_EXCHANGE"
+    MANUAL_BASELINE_DRIFT = "MANUAL_BASELINE_DRIFT"
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,248 @@ class LocalStateView:
     # same-direction exchange position may exceed a managed V2 position by
     # exactly this quantity; the baseline is never attributed to the strategy.
     external_baseline_positions: dict[str, Decimal] = field(default_factory=dict)
+
+
+def runtime_snapshot_from_value(value: object, *, observed_at: datetime):
+    """Convert the Runtime API exchange payload into the canonical snapshot type.
+
+    The API probe intentionally stores a JSON-shaped payload for observability. This
+    adapter is the only boundary that turns that payload back into the immutable
+    reconciliation contract, so status and entry blocking cannot drift into a second
+    ad-hoc implementation in the router.
+    """
+    from services.automated_trading.infrastructure.market_snapshot_provider import (
+        AuthoritativeAccountSnapshot,
+        ExchangeOrderSnapshot,
+        ExchangePositionSnapshot,
+    )
+
+    if not isinstance(value, dict):
+        raise ValueError("exchange snapshot must be an object")
+
+    def _decimal(item: dict, *keys: str, default: str = "0") -> Decimal:
+        for key in keys:
+            raw = item.get(key)
+            if raw not in (None, ""):
+                return Decimal(str(raw))
+        return Decimal(default)
+
+    def _symbol(item: dict) -> str:
+        raw = str(item.get("symbol") or "")
+        if raw.endswith(":USDT"):
+            raw = raw[:-5]
+        if "/" not in raw and raw.endswith("USDT"):
+            return f"{raw[:-4]}/USDT"
+        return raw
+
+    def _bool(item: dict, *keys: str) -> bool:
+        for key in keys:
+            if key not in item:
+                continue
+            raw = item[key]
+            if isinstance(raw, bool):
+                return raw
+            if isinstance(raw, str):
+                return raw.strip().lower() in {"1", "true", "yes", "y"}
+            return bool(raw)
+        return False
+
+    positions: list[ExchangePositionSnapshot] = []
+    for item in value.get("positions", ()):
+        if not isinstance(item, dict):
+            continue
+        quantity = _decimal(item, "contracts", "quantity", "positionAmt")
+        if quantity <= 0:
+            continue
+        direction = str(item.get("direction") or item.get("side") or "").lower()
+        if direction not in {"long", "short"}:
+            continue
+        positions.append(
+            ExchangePositionSnapshot(
+                symbol=_symbol(item),
+                direction=direction,
+                quantity=quantity,
+                entry_price=_decimal(item, "entry_price", "entryPrice", "avgEntryPrice"),
+                mark_price=_decimal(item, "mark_price", "markPrice", default="0"),
+                unrealized_pnl=_decimal(item, "unrealized_pnl", "unrealizedPnl", "unRealizedProfit"),
+                leverage=(int(item["leverage"]) if item.get("leverage") not in (None, "") else None),
+            )
+        )
+
+    orders: list[ExchangeOrderSnapshot] = []
+    for item in value.get("open_orders", ()):
+        if not isinstance(item, dict):
+            continue
+        order_status = str(item.get("status") or "new").lower()
+        orders.append(
+            ExchangeOrderSnapshot(
+                exchange_order_id=str(
+                    item.get("exchange_order_id") or item.get("algoId") or item.get("orderId") or item.get("id") or ""
+                ),
+                client_order_id=(
+                    str(item.get("client_order_id") or item.get("clientAlgoId") or item.get("clientOrderId"))
+                    if item.get("client_order_id") or item.get("clientAlgoId") or item.get("clientOrderId")
+                    else None
+                ),
+                symbol=_symbol(item),
+                side=str(item.get("side") or "").lower(),
+                order_type=str(
+                    item.get("order_type") or item.get("type") or item.get("orderType") or "unknown"
+                ).lower(),
+                quantity=_decimal(item, "quantity", "origQty", "qty", "algoQuantity"),
+                price=(
+                    _decimal(item, "price", "stopPrice", "triggerPrice")
+                    if any(item.get(key) not in (None, "") for key in ("price", "stopPrice", "triggerPrice"))
+                    else None
+                ),
+                status=order_status,
+                reduce_only=_bool(item, "reduce_only", "reduceOnly"),
+            )
+        )
+
+    account = value.get("account")
+    account = account if isinstance(account, dict) else {}
+    return AuthoritativeAccountSnapshot(
+        balance=_decimal(account, "balance", "wallet_balance", "totalWalletBalance"),
+        equity=_decimal(account, "equity", "total_equity", "totalMarginBalance"),
+        positions=positions,
+        pending_orders=orders,
+        snapshot_timestamp=observed_at,
+    )
+
+
+def load_local_state_from_session(
+    session,
+    execution_mode,
+    *,
+    external_baseline_positions: dict[str, Decimal] | None = None,
+) -> tuple[LocalStateView, dict[str, frozenset[str]]]:
+    """Build the canonical V2 identity claims used by reconciliation.
+
+    Runtime observability and the cycle runner must claim exchange positions from
+    the same durable identity set.  This helper deliberately reads only V2 facts
+    (orders, fills, protections and intents); symbol/quantity proximity never
+    creates an ownership claim.
+    """
+    from sqlalchemy import select
+
+    from services.automated_trading.infrastructure.models import (
+        V2ExchangeFill,
+        V2ExchangeOrder,
+        V2ExecutionIntent,
+        V2ProtectionRecord,
+    )
+    from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
+
+    mode_value = str(getattr(execution_mode, "value", execution_mode))
+    repo = AutomatedTradingRepository(session)
+    open_positions = repo.get_open_positions(execution_mode)
+    positions: list[LocalPositionView] = []
+    exchange_position_claim_refs: dict[str, frozenset[str]] = {}
+    known_client_order_ids: set[str] = set()
+
+    for position in open_positions:
+        order = session.get(V2ExchangeOrder, position.order_record_id)
+        fills = tuple(
+            session.scalars(
+                select(V2ExchangeFill).where(V2ExchangeFill.exchange_order_record_id == position.order_record_id)
+            )
+        )
+        protections = tuple(
+            session.scalars(select(V2ProtectionRecord).where(V2ProtectionRecord.position_id == position.position_id))
+        )
+        active_protections = tuple(p for p in protections if p.state == "PROTECTION_ACTIVE")
+        active_protection = active_protections[-1] if active_protections else None
+        claim_keys = {position.position_id, position.intent_id, position.order_record_id}
+        if order is not None:
+            claim_keys.add(order.client_order_id)
+            known_client_order_ids.add(order.client_order_id)
+            if order.exchange_order_id:
+                claim_keys.add(order.exchange_order_id)
+        for fill in fills:
+            claim_keys.update(value for value in (fill.fill_id, fill.exchange_order_id, fill.trade_id) if value)
+
+        protection_exchange_order_ids: set[str] = set()
+        protection_order_refs: list[tuple[str, str, str]] = []
+        for protection in protections:
+            known_client_order_ids.add(protection.stop_client_order_id)
+            if protection.tp_client_order_id:
+                known_client_order_ids.add(protection.tp_client_order_id)
+            for exchange_order_id in (protection.stop_exchange_order_id, protection.tp_exchange_order_id):
+                if exchange_order_id:
+                    protection_exchange_order_ids.add(exchange_order_id)
+                    claim_keys.add(exchange_order_id)
+            if protection.stop_exchange_order_id:
+                protection_order_refs.append(
+                    (protection.stop_exchange_order_id, protection.stop_client_order_id, "HARD_STOP")
+                )
+            if protection.tp_exchange_order_id and protection.tp_client_order_id:
+                protection_order_refs.append(
+                    (protection.tp_exchange_order_id, protection.tp_client_order_id, "TAKE_PROFIT")
+                )
+
+        frozen_claim_keys = frozenset(claim_keys)
+        positions.append(
+            LocalPositionView(
+                position_id=position.position_id,
+                symbol=position.symbol,
+                direction=position.direction,
+                quantity=Decimal(str(position.quantity)),
+                state=position.state,
+                claim_keys=frozen_claim_keys,
+                has_active_protection=bool(active_protections),
+                protection_exchange_order_ids=frozenset(protection_exchange_order_ids),
+                protection_order_refs=tuple(protection_order_refs),
+                entry_price=Decimal(str(position.entry_price)),
+                original_stop_price=(
+                    Decimal(str(active_protection.original_stop_loss_price or active_protection.stop_loss_price))
+                    if active_protection is not None
+                    else None
+                ),
+                current_stop_price=(
+                    Decimal(str(active_protection.stop_loss_price)) if active_protection is not None else None
+                ),
+                protection_id=active_protection.protection_id if active_protection is not None else None,
+                protection_policy=active_protection.policy if active_protection is not None else "P1",
+                protection_version=int(active_protection.version) if active_protection is not None else 0,
+            )
+        )
+        # A position is claimable only after an exchange order identity and a
+        # confirmed fill receipt exist for the same durable V2 aggregate.
+        if order is not None and order.exchange_order_id and fills:
+            key = f"{position.symbol}:{position.direction}"
+            exchange_position_claim_refs[key] = exchange_position_claim_refs.get(key, frozenset()) | frozen_claim_keys
+
+    all_orders = tuple(session.scalars(select(V2ExchangeOrder)))
+    known_client_order_ids.update(order.client_order_id for order in all_orders)
+    order_by_intent = {order.intent_id: order for order in all_orders}
+    pending_intents = tuple(
+        session.scalars(
+            select(V2ExecutionIntent).where(
+                V2ExecutionIntent.execution_mode == mode_value,
+                V2ExecutionIntent.state.in_(["EXCHANGE_SUBMITTING", "EXCHANGE_UNKNOWN", "EXCHANGE_ACKNOWLEDGED"]),
+            )
+        )
+    )
+    intents = tuple(
+        LocalIntentView(
+            intent_id=intent.intent_id,
+            symbol=intent.symbol,
+            client_order_id=order_by_intent[intent.intent_id].client_order_id,
+            state=intent.state,
+        )
+        for intent in pending_intents
+        if intent.intent_id in order_by_intent
+    )
+    return (
+        LocalStateView(
+            positions=tuple(positions),
+            intents=intents,
+            known_client_order_ids=frozenset(known_client_order_ids),
+            external_baseline_positions=dict(external_baseline_positions or {}),
+        ),
+        exchange_position_claim_refs,
+    )
 
 
 @dataclass(frozen=True)
@@ -266,6 +509,23 @@ def reconcile(
             exchange_claim_refs=refs,
         )
 
+        if baseline_quantity is not None and exch_pos.quantity + QUANTITY_TOLERANCE < baseline_quantity:
+            discrepancies.append(
+                Discrepancy(
+                    code=DiscrepancyCode.MANUAL_BASELINE_DRIFT,
+                    symbol=exch_pos.symbol,
+                    detail=(
+                        f"captured manual baseline {baseline_quantity} exceeds current authoritative "
+                        f"quantity {exch_pos.quantity} for {key}; operator acknowledgement is required"
+                    ),
+                    exchange_ref=key,
+                )
+            )
+            entry_blocked.add(exch_pos.symbol)
+            # Do not use a reduced manual net position as a managed V2 claim.
+            if claimed is None:
+                continue
+
         if claimed is None:
             # An explicitly captured same-direction baseline is allowed to
             # remain unmanaged. Any unrecorded quantity/direction remains
@@ -372,6 +632,28 @@ def reconcile(
         )
         entry_blocked.add(position.symbol)
         recovery_refs.append(position.position_id)
+
+    # A captured manual position is allowed to change through operator action.
+    # Its disappearance or reduction is a symbol-scoped acknowledgement state,
+    # not a managed V2 recovery failure.  Keep the old baseline until an
+    # explicit operator rebaseline is recorded.
+    exchange_position_keys = {f"{p.symbol}:{p.direction}" for p in snapshot.positions}
+    for key, baseline_quantity in local_state.external_baseline_positions.items():
+        if key in exchange_position_keys:
+            continue
+        symbol, _direction = key.rsplit(":", 1)
+        discrepancies.append(
+            Discrepancy(
+                code=DiscrepancyCode.MANUAL_BASELINE_DRIFT,
+                symbol=symbol,
+                detail=(
+                    f"captured manual baseline {baseline_quantity} at {key} is absent from the "
+                    "authoritative snapshot; operator acknowledgement is required before rebaseline"
+                ),
+                exchange_ref=key,
+            )
+        )
+        entry_blocked.add(symbol)
 
     # --- Unknown / orphan exchange orders ---
     for order in snapshot.pending_orders:
