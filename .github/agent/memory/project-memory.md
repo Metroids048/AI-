@@ -1,5 +1,25 @@
 # Project Memory
 
+## Autonomous recovery loop closeout boundary (2026-08-19)
+
+- ACTIVE startup recovery is verified: launcher `STARTUP_READY`; scheduler is
+  `ACTIVE/BINANCE_TESTNET`, `TESTNET_CANARY`, `testnet_sampling_v2`, five-symbol
+  scope BTC/ETH/SOL/XRP/BNB, `entry_authorized=true`, and no startup contract
+  errors.
+- The authorized BTC manual baseline lifecycle was refreshed from
+  `short 0.5346` to flat after confirming no unresolved V2 intents, managed
+  positions, unknown orders, or unprojected fills. This is a symbol-scoped
+  acknowledgement, not a global runtime failure.
+- A bounded read-only natural observation ran for 60 minutes / 236 cycles and
+  produced no natural entry. Evidence is
+  `docs/evidence/automated_trading_v2/natural_cycle_20260818T190030Z.json` and
+  `.local/final-auto-trading-loop-state.json` now records
+  `ACTIVE_NATURAL_ENTRY_NOT_OBSERVED`.
+- Therefore Runtime Deployment is operational, but the real
+  `Intent -> Exchange Order -> Fill -> Protection -> Reduce-only Exit` proof is
+  still pending. Do not treat this observation as a completed trading
+  lifecycle and do not relax the sampling strategy to manufacture one.
+
 ## Testnet Canary runtime contract (2026-08-18)
 
 - The authoritative Binance Testnet Canary sampling contract is now the exact

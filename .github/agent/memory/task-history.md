@@ -1,5 +1,14 @@
 # Task History
 
+### [TASK-AUTONOMOUS-RECOVERY-LOOP-2026-08-19] ACTIVE startup recovery and bounded natural observation
+- **Date**: 2026-08-19
+- **Type**: Runtime startup recovery / Testnet natural lifecycle evidence
+- **Summary**: Fixed the ACTIVE contract to accept `testnet_sampling_v2` when explicit authority is `TESTNET_CANARY`; added validated re-arm after a prior startup safety stop; retired stale protection projections for terminal `QUARANTINED` positions; and stopped repeated recovery logging for already-persisted `FILLED` entry receipts whose exchange position is now flat.
+- **Runtime evidence**: One-click launcher returned `SUCCESS / STARTUP_READY`; scheduler remained `ACTIVE`, `BINANCE_TESTNET`, five-symbol Canary, `entry_authorized=true`, `startup_contract_errors=[]`, and `reconciliation=HEALTHY` after restart. Authorized BTC baseline was refreshed from `short 0.5346` to flat with no unresolved V2 ownership facts.
+- **Natural evidence**: A read-only 60-minute scheduler observation covered 236 cycles and timed out without a natural entry. Evidence: `docs/evidence/automated_trading_v2/natural_cycle_20260818T190030Z.json`. No entry, protection, exit, or strategy deployment claim is made from this run; loop state is `ACTIVE_NATURAL_ENTRY_NOT_OBSERVED`.
+- **Strategy boundary**: Forensics/replay stayed read-only; no stop/TP, leverage, sizing, gate, or active strategy rule was changed.
+- **Verification**: targeted pytest `39 passed`; full Ruff passed; `mypy apps services shared` passed (`258` source files); full pytest `1721 passed, 7 skipped, 1 failed` with the existing daily-review terminal-reason aggregation failure only.
+
 ### [TASK-RUNTIME-TRUTH-OWNERSHIP-CLOSEOUT] Ownership-aware Runtime Truth and manual direction isolation
 - **Date**: 2026-08-18
 - **Type**: Runtime Truth / ownership reconciliation

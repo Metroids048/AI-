@@ -1,5 +1,22 @@
 # Decisions Log
 
+## ADR-078: Treat Canary authority as the execution-strategy authorization boundary
+
+- Date: 2026-08-19
+- Status: accepted
+- Context: The ACTIVE startup validator rejected `testnet_sampling_v2` by ID even
+  when the scheduler explicitly published `entry_authority=TESTNET_CANARY`.
+  This caused a false startup contract failure.
+- Decision: A non-empty execution strategy is valid when its explicit authority
+  is valid; `testnet_sampling_v2` is accepted only with `TESTNET_CANARY` authority.
+  The validator remains fail-closed for missing IDs or sampling IDs under any
+  other authority. A prior safety stop may be re-armed only after the launcher
+  has completed Testnet baseline/projection checks and only for the explicit
+  natural Testnet path.
+- Consequences: Startup can recover without weakening production authorization,
+  manual baseline isolation, or entry/risk gates. A natural entry is still
+  required before claiming an exchange lifecycle proof.
+
 ## ADR-077: Ignore style-noise ruff rules for scripts/*.py
 
 - Date: 2026-07-26

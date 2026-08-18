@@ -807,3 +807,70 @@ def test_reconciliation_cancels_absent_protection_for_closed_position(fact_db) -
         assert protection.state == V2ProtectionState.PROTECTION_CANCELLED.value
     finally:
         session.close()
+
+
+def test_reconciliation_cancels_absent_protection_for_quarantined_position(fact_db) -> None:
+    """Terminal quarantine must not leave an ACTIVE protection projection."""
+    entry = EntryExecutionResult(
+        status=EntryExecutionStatus.FILLED,
+        intent_state=V2IntentState.FILLED,
+        client_order_id="A2E-quarantined-protection",
+        exchange_order_id="xo-entry-quarantined-protection",
+        trade_ids=("trade-entry-quarantined-protection",),
+        filled_quantity=Decimal("0.01"),
+        average_fill_price=Decimal("65000"),
+        total_fee=Decimal("0.1"),
+        fill_timestamp=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+    )
+    persist_entry_and_protection(
+        cycle_id="cycle-quarantined-protection",
+        decision_id="decision-quarantined-protection",
+        intent_id="intent-quarantined-protection",
+        symbol="BTC/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 7, 29, 10, 0, tzinfo=UTC),
+        fencing_token="fence-quarantined-protection",
+        leverage=40,
+        entry_result=entry,
+        position_id="pos-quarantined-protection",
+        protection_result=SimpleNamespace(
+            is_active=True,
+            stop_exchange_order_id="xo-stop-quarantined-protection",
+            tp_exchange_order_id="xo-tp-quarantined-protection",
+        ),
+        stop_loss_price=Decimal("64000"),
+        take_profit_price=Decimal("67000"),
+        stop_client_order_id="A2S-quarantined-protection",
+        tp_client_order_id="A2T-quarantined-protection",
+    )
+    session = fact_db()
+    try:
+        position = session.get(V2ManagedPosition, "pos-quarantined-protection")
+        assert position is not None
+        position.state = V2PositionState.QUARANTINED.value
+        position.closed_at = None
+        position.version += 1
+        session.commit()
+    finally:
+        session.close()
+
+    changed = reconcile_closed_position_protections(
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        symbol="BTC/USDT",
+        exchange_open_order_ids=frozenset(),
+        observed_at=datetime(2026, 7, 29, 10, 10, tzinfo=UTC),
+    )
+
+    assert changed == 1
+    session = fact_db()
+    try:
+        protection = session.scalar(
+            select(V2ProtectionRecord).where(V2ProtectionRecord.position_id == "pos-quarantined-protection")
+        )
+        assert protection is not None
+        assert protection.state == V2ProtectionState.PROTECTION_CANCELLED.value
+    finally:
+        session.close()

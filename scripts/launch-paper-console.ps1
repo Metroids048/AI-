@@ -414,6 +414,33 @@ function Test-ActiveTradingModeContract {
     return $LASTEXITCODE -eq 0
 }
 
+function Restore-EntryAfterStartupSafetyStop {
+    # A failed ACTIVE launch leaves the durable gate disabled as a safety stop.
+    # Re-arm it only for an explicit Testnet natural run after the persisted
+    # baseline/projection checks above have succeeded. A normal operator pause
+    # (or Shadow launch) is never overridden.
+    if ($AutomatedTradingEngine -ne "v2_active" -or -not $EnableNaturalTestnet -or -not $PreserveExternalTestnetBaseline) {
+        return
+    }
+    if ($script:ProjectionRecoveryPending -or -not (Test-Path -LiteralPath $StartupResultPath)) {
+        return
+    }
+    try {
+        $previous = Get-Content -LiteralPath $StartupResultPath -Raw | ConvertFrom-Json
+        if ($previous.status -ne "FAILED" -or $previous.reason_code -ne "STARTUP_FAILED" -or $previous.safety_stop -ne $true) {
+            return
+        }
+    }
+    catch {
+        Write-Step "startup recovery gate could not parse the previous startup result; preserving entry lock"
+        return
+    }
+    $body = @{ reason = "AUTONOMOUS_TESTNET_STARTUP_RECOVERY" } | ConvertTo-Json -Compress
+    $null = Invoke-WebRequest -Uri "http://127.0.0.1:$ApiPort/api/v2/automated-trading/controls/entry-enable" `
+        -Method Post -ContentType "application/json" -Body $body -UseBasicParsing -TimeoutSec 5 -Proxy $null
+    Write-Step "entry re-enabled after validated Testnet startup safety-stop recovery"
+}
+
 function Stop-ProjectApiProcesses {
     $apiProcesses = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
@@ -705,6 +732,8 @@ if ($script:ProjectionRecoveryPending) {
     }
     Disable-EntryForProjectionRecovery
 }
+
+Restore-EntryAfterStartupSafetyStop
 
 $script:StartupStage = "SCHEDULER_START"
 Write-Step "scheduler baseline source=$($env:V2_EXTERNAL_BASELINE_SOURCE) bootstrap=$($env:V2_PROJECTION_RECOVERY_BOOTSTRAP)"

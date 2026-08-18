@@ -172,6 +172,31 @@ def test_active_startup_contract_accepts_testnet_canary_entry_ready_state() -> N
     assert runtime_state.active_startup_contract_errors(state) == ()
 
 
+def test_active_startup_contract_accepts_sampling_strategy_when_canary_is_authority() -> None:
+    """The Canary strategy ID is valid when its explicit authority is visible."""
+    state = ExternalSchedulerState(
+        running=True,
+        heartbeat_at=datetime.now(UTC),
+        engine_activation="ACTIVE",
+        execution_mode="BINANCE_TESTNET",
+        execution_strategy_id="testnet_sampling_v2",
+        execution_symbols=tuple(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        execution_coverage_count=len(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        registered_jobs=("automated_trading_v2_cycle",),
+        legacy_writer_enabled=False,
+        entry_enabled=True,
+        sampling_fallback_enabled=True,
+        external_baseline_captured=True,
+        entry_authorized=True,
+        entry_authority="TESTNET_CANARY",
+        production_authorization_state="PENDING",
+        active_entry_strategy="testnet_sampling_v2",
+        trading_state="TRADING",
+    )
+
+    assert runtime_state.active_startup_contract_errors(state) == ()
+
+
 def test_active_startup_contract_accepts_approved_production_state() -> None:
     state = ExternalSchedulerState(
         running=True,

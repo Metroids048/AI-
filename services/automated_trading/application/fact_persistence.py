@@ -713,8 +713,11 @@ def reconcile_closed_position_protections(
 ) -> int:
     """Close stale local protection projections after exchange-flat truth.
 
-    Only protections belonging to an already-CLOSED managed position are
-    touched, and only when none of their exchange order ids remains open.
+    Protections belonging to a terminal CLOSED or QUARANTINED managed
+    position are touched only when none of their exchange order ids remains
+    open. QUARANTINED positions are terminal local facts too: retaining an
+    ACTIVE protection row for one would make a flat exchange look protected
+    and block the next startup indefinitely.
     """
     cancellable_states = {
         V2ProtectionState.PROTECTION_INTENT,
@@ -735,13 +738,21 @@ def reconcile_closed_position_protections(
                 .where(
                     V2ManagedPosition.execution_mode == execution_mode.value,
                     V2ManagedPosition.symbol == symbol,
-                    V2ManagedPosition.state == V2PositionState.CLOSED.value,
+                    V2ManagedPosition.state.in_(
+                        [
+                            V2PositionState.CLOSED.value,
+                            V2PositionState.QUARANTINED.value,
+                        ]
+                    ),
                     V2ProtectionRecord.state.in_([state.value for state in cancellable_states]),
                 )
             )
         )
         changed = 0
         for protection in protections:
+            position = session.get(V2ManagedPosition, protection.position_id)
+            if position is None:
+                continue
             protection_exchange_ids = {
                 order_id
                 for order_id in (
@@ -760,7 +771,7 @@ def reconcile_closed_position_protections(
                 event_type="ProtectionReconciledCancelledAfterPositionClosed",
                 payload={
                     "exchange_open_order_ids": sorted(exchange_open_order_ids),
-                    "position_state": V2PositionState.CLOSED.value,
+                    "position_state": position.state,
                 },
                 occurred_at=observed_at,
             )

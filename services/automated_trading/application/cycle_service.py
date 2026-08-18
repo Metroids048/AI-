@@ -1173,11 +1173,26 @@ def _recover_confirmed_v2_entry_gap(
             None,
         )
         if exchange_position is None:
-            order_status = (
-                adapter.query_filled_order_by_id(request.symbol, exchange_order_id)
-                if callable(getattr(adapter, "query_filled_order_by_id", None))
-                else None
-            )
+            order_status = None
+            if callable(getattr(adapter, "query_filled_order_by_id", None)):
+                with get_session_factory()() as session:
+                    order = session.scalar(select(V2ExchangeOrder).where(V2ExchangeOrder.intent_id == intent_id))
+                    intent = session.get(V2ExecutionIntent, intent_id)
+                    if order is not None and intent is not None:
+                        existing_fill = session.scalar(
+                            select(V2ExchangeFill).where(
+                                V2ExchangeFill.exchange_order_record_id == order.order_record_id,
+                                V2ExchangeFill.exchange_order_id == exchange_order_id,
+                                V2ExchangeFill.reduce_only.is_(False),
+                            )
+                        )
+                        # A confirmed fill with no current exchange position is
+                        # already a terminal historical gap. Do not query and
+                        # log it on every cycle; the immutable fill receipt is
+                        # retained and no local position is fabricated.
+                        if existing_fill is not None and V2IntentState(intent.state) is V2IntentState.FILLED:
+                            continue
+                order_status = adapter.query_filled_order_by_id(request.symbol, exchange_order_id)
             if (
                 order_status is not None
                 and order_status.client_order_id == client_order_id

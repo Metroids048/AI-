@@ -179,7 +179,9 @@ def active_startup_contract_errors(
         errors.append("ENGINE_ACTIVATION_MISMATCH")
     if state.execution_mode != "BINANCE_TESTNET":
         errors.append("EXECUTION_MODE_MISMATCH")
-    if state.execution_strategy_id in (None, "", "testnet_sampling_v2"):
+    if state.execution_strategy_id in (None, "") or (
+        state.execution_strategy_id == "testnet_sampling_v2" and state.entry_authority != "TESTNET_CANARY"
+    ):
         errors.append("EXECUTION_STRATEGY_UNAUTHORIZED")
     from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 
