@@ -44,6 +44,10 @@ class StrategyCandidate:
     config_factory: Any  # Callable[[], dict[str, Any]]
     lifecycle_state: str = "BASELINE_ONLY"
     execution_eligible: bool = False
+    # Registry membership is not entry authorization.  Only the canonical
+    # manifest can change this field to APPROVED, and the V2 adapter still
+    # requires its snapshot/evidence/approval binding before it may write.
+    execution_authorization_state: str = "NOT_READY"
 
     def get_config(self) -> dict[str, Any]:
         """Return the strategy configuration dict."""

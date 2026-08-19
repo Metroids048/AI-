@@ -24,6 +24,15 @@ def test_evidence_candidates_have_explicit_role_specific_signal_sets() -> None:
     assert momentum["fusion_method"] == "weighted_vote"
 
 
+def test_candidate_registry_has_explicit_non_authorizing_lifecycle_metadata() -> None:
+    """Registration is research metadata, never implicit execution approval."""
+    for candidate_id in list_candidates():
+        candidate = get_candidate(candidate_id)
+        assert candidate.lifecycle_state
+        assert candidate.execution_authorization_state in {"NOT_READY", "PENDING", "APPROVED", "REVOKED"}
+        assert candidate.execution_eligible is False
+
+
 def test_trend_momentum_v2_enriched_widens_entry_without_touching_direction_filter() -> None:
     """v2_enriched fixes 15m entry starvation while keeping v1's 4h trend filter.
 
