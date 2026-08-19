@@ -35,8 +35,10 @@ export function TradingSummaryHero({
 
   // 策略运行状态
   const isStrategyActive = tradingStatus?.is_active === true;
-  const strategyStatusText = tradingStatus?.is_active === true
-    ? "运行中"
+  const strategyStatusText = tradingStatus?.entry_paused
+    ? "暂无通过验证的生产策略"
+    : tradingStatus?.is_active === true
+      ? "运行中"
     : tradingStatus?.is_active === false
       ? "已暂停"
       : "状态未知";

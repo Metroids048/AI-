@@ -1111,20 +1111,19 @@
   positions remain untouched and protected; no exchange `setLeverage` call was made
   for them.
 
-## Runtime Truth & Canary Console closeout (2026-08-18)
+## Final runtime closeout (2026-08-19)
 
-- Runtime endpoints share one reconciliation projection. Current live state is
-  `ACTIVE / BINANCE_TESTNET / TESTNET_CANARY`, five execution symbols, and
-  `entry_authorized=true`; data freshness was current in the final snapshot.
-- Binance authoritative positions are BTC short `0.5346`, ETH long `5.354`, and
-  SOL long `85.09`. ETH/SOL are V2-managed and fully protected with live
-  reduce-only stop/TP orders; BTC is an unmanaged external short with no live
-  protection, so reconciliation is `degraded`, BTC entry is blocked, and the
-  closeout remains P0 blocked pending operator adoption/remediation.
-- Console semantics now label BTC/ETH/SOL/XRP/BNB as `Canary 自动交易`, other
-  fixed research-universe rows as `研究 / 观察`, and explain unique filled
-  orders versus fill events and current protected positions. Strategy
-  optimization is not unlocked by this closeout.
+- Runtime endpoints share one reconciliation projection. The current live
+  state is `ACTIVE / BINANCE_TESTNET`, Scheduler is running, reconciliation is
+  consistent, and there are no exchange or locally open managed positions.
+- Strategy research reached `NO_VALIDATED_EDGE`: the manifest is `PENDING`,
+  eligible execution symbols are empty, and new-entry authority is
+  `NONE / ENTRY_PAUSED / NO_AUTHORIZED_PRODUCTION_STRATEGY`. This is an
+  intentional strategy-authorization pause, not an execution outage.
+- The normal desktop launcher does not enable a Testnet Canary. BTC/ETH are
+  displayed as `执行范围 / 新开仓暂停`; research-only symbols stay `研究 / 观察`.
+  Existing managed exposure remains eligible for reconciliation, protection,
+  and reduce-only exit if it appears.
 
 ## Runtime ownership follow-up (2026-08-18)
 

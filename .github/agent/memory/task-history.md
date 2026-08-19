@@ -1731,3 +1731,11 @@
 - 两个 BTC/ETH Development replay 均失败：`volatility_expansion_v1` PF 0.9633、expectancy -0.000318、max drawdown 0.7044；`breakout_retest_v1` aggregate PF 1.0045，但 BTC PF 0.7485、expectancy -0.001717。成本观测仍不完整；未读取 Validation 和一次性 Final Holdout。
 - 结论为 `NO_VALIDATED_EDGE`，entry authority 有意保持 `NONE_PENDING_PRODUCTION_STRATEGY`。没有用参数钓鱼填满数字预算：剩余家族在锁定政策下均无可辩护证据。后续必须使用新的独立数据和新的 sealed registry，禁止复用该 Development 集优化。
 - 提交 `402140f` 已推送至 `origin/backup/2026-08-10-wip`。验证：Ruff PASS；mypy 262 source files PASS；full pytest 1769 passed / 7 skipped。
+
+## [TASK-2026-08-19-FINAL-CLOSEOUT]
+
+- 策略结论已冻结为 `NO_VALIDATED_EDGE`；active manifest 保持 `PENDING`、eligible execution symbols 为空。默认 V2 一键启动不再隐式启用 Canary，生产新开仓授权为 `NONE`，原因 `NO_AUTHORIZED_PRODUCTION_STRATEGY`，状态为 `ENTRY_PAUSED`。这不是 Runtime 故障；仍允许对既有受管仓做对账、保护和 reduce-only 平仓。
+- 正式 launcher 实测启动为 `SUCCESS / READY / STARTUP_READY`；Binance Testnet 连接、Scheduler、V2 reconciliation 均健康。收口时交易所无持仓，唯一遗留的是一个 `EXTERNAL_MANUAL_ORDER`，未由系统接管或修改。
+- V2 Forensics 只读重建 41 个已平自动受管 episode（部署状态 `BLOCKED`，未读 Holdout）。Funding 仍按事实标为 unknown/account-level ambiguous，slippage 只从 immutable reference 计算；没有从报告部署或武装任何策略。
+- 前端 Trading Console 已实测显示“暂无通过验证的生产策略”、`NO_AUTHORIZED_PRODUCTION_STRATEGY` 和“自动新开仓已暂停（非系统故障）”；BTC/ETH 显示“执行范围 / 新开仓暂停”，没有暗示 Canary 自动交易。
+- 行为包 identity/冻结合约及 deterministic V2 engineering E2E 已通过；但生成数据驱动 Golden Replay baseline 时得到 `DATA_COVERAGE_INSUFFICIENT`：要求的 42 个月窗口在本地数据中不完整（可用 15m/1h/4h 从 2025-07 起，1m/5m 更短且有缺口）。因此不得把 data-backed behavioral replay 误报为 PASS，也不得以补数据/重跑策略绕过 frozen-research boundary。

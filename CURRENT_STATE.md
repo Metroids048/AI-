@@ -1,21 +1,38 @@
 # Current State
 
-Last updated: 2026-07-24 Asia/Shanghai
+Last updated: 2026-08-19 Asia/Shanghai
 
 <!-- BEGIN GENERATED: canonical-strategy-manifest -->
 ## Canonical Strategy Runtime Truth
 
 - Strategy: `trend_momentum_v2_enriched` / `2.0.0`
 - Rules Hash: `1da72b9aaabb3b412f8c0cbbfb6c8658df1a0c773f0b80e7c39e6f92d24c5e78`
-- Commit: `32f448875c0bf0512bcfa50181f6d6fbd4ff3ad3`
+- Strategy code hash: `dd69b68b129cd0181787a1e747a45492066f47c92518cdb42c1f4a28158d2c33`
+- Strategy package hash: `3232f471e5c647766c2a8fec496db6c3812e2bfac40e3e6e4b5131d01e06a154`
+- Strategy source commit (provenance): `7595d83b5ce452b3e6c16d7b1717ce418e4dc6c3`
 - Configured execution scope: BTC/USDT, ETH/USDT
 - Eligible execution symbols: none
 - Research scope: BTC/USDT, ETH/USDT, SOL/USDT, XRP/USDT, BNB/USDT
 - Authorization: `PENDING`
-- Validation conclusion: `STRATEGY_NOT_READY`
+- Validation conclusion: `NO_VALIDATED_EDGE`
 
 This block is generated from the canonical strategy manifest; do not edit it by hand.
 <!-- END GENERATED: canonical-strategy-manifest -->
+
+## Final Closeout Baseline (current)
+
+- Engineering platform: `PASS` for deterministic V2 execution, reconciliation,
+  protection/recovery, V2 funnel, forensics, and desktop startup contracts.
+- Strategy research: `NO_VALIDATED_EDGE`. No strategy has sufficient evidence
+  for Production promotion; this is a research conclusion, not a runtime fault.
+- New automatic entry: `INTENTIONALLY_PAUSED` with
+  `entry_authority=NONE`, `entry_authorized=false`, and
+  `NO_AUTHORIZED_PRODUCTION_STRATEGY`.
+- Existing managed exposure remains eligible for protection, reconciliation and
+  reduce-only exit. At this closeout snapshot there is no open managed position.
+- Mainnet is disabled. A future strategy effort requires a new independent
+  research cycle; this repository's sealed Development evidence must not be
+  optimized further.
 
 ## Authority
 
@@ -26,7 +43,7 @@ Current truth is resolved in this order: current code and tests, the active runt
 - **Execution authority:** Binance USDT-M Testnet / Binance Simulation is the authoritative execution source for the automated directional lane. SQLite/Paper records are a post-execution projection and audit/recovery cache.
 - Automatic execution universe: exactly `BTC/USDT`, `ETH/USDT`. Research universes do not grant execution permission.
 - Production desktop path: `一键启动.cmd` -> `launch-paper-console.ps1` -> API + independent `RuntimeScheduler` -> `automated_trading_v2_cycle`.
-- The V2 execution chain is the only automatic writer. Legacy writers are disabled. `testnet_sampling_v2` is an explicit Testnet Canary continuity lane, never the active Production Strategy and never strategy-performance evidence.
+- The V2 execution chain is the only automatic writer. Legacy writers are disabled. The normal desktop launcher does not arm the Testnet Canary; it starts V2 management, reconciliation and reduce-only recovery with new entry authority set to `NONE` while the Manifest is pending.
 - The generated Canonical Strategy block above is the only current strategy/scope/authorization claim in this document. All older strategy performance narratives below are historical evidence, not runtime authority.
 - Directional lane: `auto_paper_mature_templates`. When the safe Testnet settings, exact-scope acceptance, OOS/config evidence, Gatekeeper, and runtime readiness checks pass, its mode is `binance_simulation_first`.
 - Exchange-first order lifecycle: strategy/Gatekeeper authorization -> Binance submit/ack/fill -> local order and position projection using exchange average fill price and filled quantity. Local `accepted` is not a fill.
@@ -34,7 +51,7 @@ Current truth is resolved in this order: current code and tests, the active runt
 - Local-only Paper execution is reserved for tests, mocks, deterministic replay, and explicitly local research lanes. It is not proof that 7x24 exchange automation is working.
 - Manual or exchange-only positions remain unmanaged until explicitly adopted and cannot inherit historical strategy protection state.
 - Acceptance/canary orders are tagged and excluded from strategy performance.
-- Current operator runtime check on 2026-07-24 reported `execution_ready=True`, no blockers, fresh BTC/ETH market data, `binance_auto_execute=True`, and exact BTC/ETH Testnet acceptance verified. Runtime state must always be rechecked on the device actually running the service.
+- Current runtime state must always be rechecked on the device actually running the service. Historic Testnet acceptance is engineering evidence only, not current strategy authorization.
 - Mainnet remains disabled.
 
 ## Config Snapshot System (2026-07-21)
@@ -51,7 +68,12 @@ Current truth is resolved in this order: current code and tests, the active runt
 
 The operator-selected aggressive sampling profile remains active: 5% single-trade risk, 40x leverage ceiling, 35% symbol exposure, 90% total exposure, and 20% daily loss limit. It is forbidden for live trading and must be revalidated and tightened before any live phase.
 
-## Evidence
+## Historical Evidence (superseded for runtime and authorization)
+
+The material below is retained for audit only. It must not be read as a current
+claim that a strategy is approved, that Canary is trading, or that new entry is
+authorized. The Final Closeout Baseline and generated manifest block above are
+authoritative for current strategy state.
 
 Last updated: 2026-07-19
 
@@ -112,7 +134,7 @@ agent-python -m scripts.verify_config
 ```
 
 <!-- BEGIN GENERATED: pytest-verification -->
-Backend pytest (`pytest -q -m not integration`) as of 2026-08-01 01:52 UTC: `1259 passed, 0 failed, 0 error, 14 skipped` -- green.
+Backend pytest (`pytest -q -m not integration`) as of 2026-08-19 10:28 UTC: `1769 passed, 0 failed, 0 error, 7 skipped` -- green.
 
 This block is generated by `scripts/refresh_current_state.py` from a real run. Do not edit it by hand; a hand-typed count is a claim, not evidence.
 <!-- END GENERATED: pytest-verification -->

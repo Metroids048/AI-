@@ -258,7 +258,14 @@ export function TestnetAccountPanel({ account }) {
   );
 }
 
-export function MarketList({ universe, universeStatus = "loading", canarySymbols = [], selectedSymbol, onSelect }) {
+export function MarketList({
+  universe,
+  universeStatus = "loading",
+  configuredExecutionSymbols = [],
+  eligibleExecutionSymbols = [],
+  selectedSymbol,
+  onSelect,
+}) {
   const rows = asArray(universe);
   return (
     <section className="exchange-panel market-list-panel">
@@ -272,7 +279,8 @@ export function MarketList({ universe, universeStatus = "loading", canarySymbols
         {rows.length ? (
           rows.map((item) => {
             const change = Number(item.price_change_percent ?? 0);
-            const isCanary = canarySymbols.includes(item.symbol);
+            const isConfigured = configuredExecutionSymbols.includes(item.symbol);
+            const isEligible = eligibleExecutionSymbols.includes(item.symbol);
             return (
               <button
                 key={item.symbol}
@@ -282,7 +290,13 @@ export function MarketList({ universe, universeStatus = "loading", canarySymbols
               >
                 <span title={item.reason ?? ""}>
                   {item.display_symbol ?? item.symbol}
-                  <small>{isCanary ? "Canary 自动交易" : "研究 / 观察"}</small>
+                  <small>
+                    {isEligible
+                      ? "生产策略已授权"
+                      : isConfigured
+                        ? "执行范围 / 新开仓暂停"
+                        : "研究 / 观察"}
+                  </small>
                 </span>
                 <span>{formatNumber(item.last_price)}</span>
                 <span className={change >= 0 ? "positive" : "negative"}>{formatNumber(change, 2)}%</span>

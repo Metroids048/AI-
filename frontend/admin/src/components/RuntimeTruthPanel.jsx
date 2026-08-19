@@ -18,6 +18,13 @@ function listCount(items) {
   return Array.isArray(items) ? items.length : 0;
 }
 
+function entryPauseExplanation(reason) {
+  if (reason === "NO_AUTHORIZED_PRODUCTION_STRATEGY" || reason === "production_pending") {
+    return "暂无通过验证的生产策略：策略尚未通过收益/风险验证，不是系统故障。";
+  }
+  return `原因：${reason || "NO_ENTRY_AUTHORITY"}`;
+}
+
 export function RuntimeTruthPanel({ runtime, symbol }) {
   const snapshot = runtime.snapshot;
   const mismatch = snapshot?.mismatch;
@@ -72,8 +79,8 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
       ) : null}
       {entryRuntimeValue?.trading_state === "ENTRY_PAUSED" ? (
         <div className="truth-blocker" role="alert">
-          <strong>新开仓已暂停</strong>
-          <p>原因：{entryRuntimeValue.entry_authority_reason || "NO_ENTRY_AUTHORITY"}</p>
+          <strong>自动新开仓：暂停</strong>
+          <p>{entryPauseExplanation(entryRuntimeValue.entry_authority_reason)}</p>
           <p>调度、已有仓位保护、恢复与 reduce-only 平仓仍正常运行。</p>
         </div>
       ) : null}
@@ -93,13 +100,18 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
           <p>Production：{entryRuntimeValue?.production_authorization_state || "PENDING"}</p>
         </article>
         <article>
-          <h3>当前自动策略</h3>
-          <strong>{strategyManifestValue?.strategy_id || "STRATEGY_NOT_READY"}</strong>
+          <h3>生产策略</h3>
+          <strong>
+            {strategyManifestValue?.authorization_state === "PENDING"
+              ? "暂无通过验证的生产策略"
+              : strategyManifestValue?.strategy_id || "STRATEGY_NOT_READY"}
+          </strong>
           <p>版本：{strategyManifestValue?.strategy_version || "无"}</p>
           <p>Rules Hash：{strategyManifestValue?.rules_hash?.slice(0, 12) || "无"}</p>
           <p>执行范围：{(strategyManifestValue?.configured_execution_scope || []).join(" / ") || "无"}</p>
           <p>研究范围：{(strategyManifestValue?.research_symbols || []).join(" / ") || "无"}</p>
           <p>授权：{strategyManifestValue?.authorization_state || "UNKNOWN"}</p>
+          <p>研究结论：{strategyManifestValue?.validation_evidence?.conclusion || "UNKNOWN"}</p>
         </article>
         <article>
           <h3>自动平仓</h3>

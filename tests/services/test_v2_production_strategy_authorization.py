@@ -64,7 +64,7 @@ def test_pending_production_requires_explicit_testnet_canary_acceptance() -> Non
     )
 
     assert standard.authority is EntryAuthority.NONE
-    assert standard.reason == "testnet_canary_requires_explicit_acceptance"
+    assert standard.reason == NO_AUTHORIZED_PRODUCTION_STRATEGY
     assert canary.authority is EntryAuthority.TESTNET_CANARY
     assert canary.promotion_eligible is False
     assert disabled.authority is EntryAuthority.NONE

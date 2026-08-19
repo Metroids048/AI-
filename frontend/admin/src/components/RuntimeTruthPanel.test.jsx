@@ -30,8 +30,8 @@ describe("RuntimeTruthPanel", () => {
       />,
     );
 
-    expect(screen.getByText("新开仓已暂停")).toBeTruthy();
-    expect(screen.getByText(/production_pending/)).toBeTruthy();
+    expect(screen.getByText("自动新开仓：暂停")).toBeTruthy();
+    expect(screen.getByText(/暂无通过验证的生产策略/)).toBeTruthy();
     expect(screen.getByText("自动平仓")).toBeTruthy();
   });
 

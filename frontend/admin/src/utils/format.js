@@ -212,7 +212,9 @@ export function formatNoTradeSummary(summaryCode, dominantReason, count = 0) {
     EXCHANGE_UNAVAILABLE: "自动交易程序异常：交易所暂不可用",
     MARKET_DATA_STALE: "自动交易程序异常：行情数据未及时更新",
     RECONCILIATION_BLOCKED: "自动交易程序异常：账户对账异常",
-    ENTRY_PAUSED: `新开仓已暂停：${reason}`,
+    ENTRY_PAUSED: dominantReason === "NO_AUTHORIZED_PRODUCTION_STRATEGY"
+      ? "自动新开仓已暂停：暂无通过验证的生产策略（非系统故障）"
+      : `新开仓已暂停：${reason}`,
     DECISION_PIPELINE_STALLED: "自动交易程序异常：策略判断流水已停止更新",
     ENTRY_BLOCKED: `新开仓被拦截：${reason}${suffix}`,
     HEALTHY_WAITING_FOR_SIGNAL: "策略正在等待交易机会",

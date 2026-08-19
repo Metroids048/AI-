@@ -88,7 +88,7 @@ class RuntimeSchedulerStatus:
     external_baseline_drift_keys: tuple[str, ...] = ()
     entry_authorized: bool = False
     entry_authority: str = EntryAuthority.NONE.value
-    entry_authority_reason: str = "production_pending"
+    entry_authority_reason: str = "NO_AUTHORIZED_PRODUCTION_STRATEGY"
     production_authorization_state: str = "PENDING"
     active_entry_strategy: str | None = None
     promotion_eligible: bool = False
@@ -373,7 +373,7 @@ class RuntimeScheduler:
         self.status.external_baseline_drift_keys = ()
         self.status.entry_authorized = False
         self.status.entry_authority = EntryAuthority.NONE.value
-        self.status.entry_authority_reason = "production_pending"
+        self.status.entry_authority_reason = "NO_AUTHORIZED_PRODUCTION_STRATEGY"
         self.status.production_authorization_state = "PENDING"
         self.status.active_entry_strategy = None
         self.status.promotion_eligible = False

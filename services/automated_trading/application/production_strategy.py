@@ -79,14 +79,10 @@ def resolve_entry_authority(
             "testnet_sampling_v2",
             False,
         )
-    reason = (
-        "testnet_canary_requires_explicit_acceptance"
-        if execution_mode == "BINANCE_TESTNET" and operator_testnet_canary_enabled
-        else "operator_disabled"
-        if execution_mode == "BINANCE_TESTNET"
-        else "production_pending"
-    )
-    return EntryAuthorityResolution(EntryAuthority.NONE, reason, None, False)
+    # A pending manifest is the primary reason for a paused production entry.
+    # Do not surface a stale Canary capability as the user's why-no-trade
+    # explanation: it is neither an approved strategy nor an active writer.
+    return EntryAuthorityResolution(EntryAuthority.NONE, NO_AUTHORIZED_PRODUCTION_STRATEGY, None, False)
 
 
 @dataclass(frozen=True)

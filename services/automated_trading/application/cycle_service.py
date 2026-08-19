@@ -151,7 +151,7 @@ class CycleRequest:
     # The scheduler resolves this once before constructing the request.  The
     # cycle never infers a second writer from a strategy candidate.
     entry_authority: EntryAuthority = EntryAuthority.NONE
-    entry_authority_reason: str = "production_pending"
+    entry_authority_reason: str = "NO_AUTHORIZED_PRODUCTION_STRATEGY"
     # Only the scheduler may supply a candidate here, after it has bound the
     # approved manifest authorization to the immutable active ConfigSnapshot.
     production_candidate: TradeCandidate | None = None

@@ -33,7 +33,6 @@ import { useRuntimeTruth } from "../hooks/useRuntimeTruth";
 const DEFAULT_SYMBOL = "BTC/USDT";
 const DEFAULT_PERP = "BTC/USDT:USDT";
 const DEFAULT_TIMEFRAME = "1m";
-const DEFAULT_CANARY_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"];
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -220,9 +219,17 @@ export function accountFromRuntimeSnapshot(snapshot) {
 
 function tradingStatusFromRuntimeSnapshot(snapshot) {
   const scheduler = snapshot?.scheduler;
-  return scheduler?.status === "available" && scheduler.value
-    ? { is_active: scheduler.value.running === true }
-    : null;
+  const entryRuntime = snapshot?.entry_runtime?.value;
+  const manifest = snapshot?.strategy_manifest?.value;
+  if (scheduler?.status !== "available" || !scheduler.value) return null;
+  return {
+    is_active: scheduler.value.running === true && entryRuntime?.trading_state === "TRADING",
+    scheduler_running: scheduler.value.running === true,
+    entry_paused: entryRuntime?.trading_state === "ENTRY_PAUSED",
+    entry_reason: entryRuntime?.entry_authority_reason,
+    strategy_authorization: manifest?.authorization_state,
+    strategy_conclusion: manifest?.validation_evidence?.conclusion,
+  };
 }
 
 function riskStatusFromRuntime(runtime, noTradeSummary) {
@@ -247,10 +254,12 @@ export function PaperConsole() {
   const runtime = useRuntimeTruth();
   const account = useMemo(() => accountFromRuntimeSnapshot(runtime.snapshot), [runtime.snapshot]);
   const manualMode = "paper";
-  const canarySymbols = useMemo(
-    () => runtime.snapshot?.scheduler?.value?.execution_symbols?.length
-      ? runtime.snapshot.scheduler.value.execution_symbols.map(platformSymbol)
-      : DEFAULT_CANARY_SYMBOLS,
+  const configuredExecutionSymbols = useMemo(
+    () => runtime.snapshot?.strategy_manifest?.value?.configured_execution_scope?.map(platformSymbol) ?? [],
+    [runtime.snapshot],
+  );
+  const eligibleExecutionSymbols = useMemo(
+    () => runtime.snapshot?.strategy_manifest?.value?.eligible_execution_symbols?.map(platformSymbol) ?? [],
     [runtime.snapshot],
   );
   const latestPaperRun = useMemo(
@@ -271,8 +280,8 @@ export function PaperConsole() {
     [runtime.snapshot],
   );
   const activeRuntimeDecisions = useMemo(
-    () => runtime.decisions.filter((item) => canarySymbols.includes(platformSymbol(item.symbol))),
-    [canarySymbols, runtime.decisions],
+    () => runtime.decisions.filter((item) => configuredExecutionSymbols.includes(platformSymbol(item.symbol))),
+    [configuredExecutionSymbols, runtime.decisions],
   );
   const runtimePositionsError = runtime.positions?.exchange?.status === "unavailable"
     ? runtime.positions.exchange.error ?? "交易所持仓暂不可用"
@@ -320,7 +329,7 @@ export function PaperConsole() {
       if (type === "runAllCycles") {
         const result = await request("/api/v1/execution/paper-runs/auto-cycle-all", {
           method: "POST",
-          body: JSON.stringify({ symbols: canarySymbols, max_symbols: canarySymbols.length, timeframe, enable_decision_veto: true }),
+          body: JSON.stringify({ symbols: configuredExecutionSymbols, max_symbols: configuredExecutionSymbols.length, timeframe, enable_decision_veto: true }),
         });
         setActionMessage(`自动 cycle 已执行：${result.paper_runs} 个 PaperRun。`);
       }
@@ -418,7 +427,8 @@ export function PaperConsole() {
       <MarketList
           universe={data.universe}
           universeStatus={data.universeStatus}
-          canarySymbols={canarySymbols}
+          configuredExecutionSymbols={configuredExecutionSymbols}
+          eligibleExecutionSymbols={eligibleExecutionSymbols}
           selectedSymbol={symbol}
         onSelect={handleSelectSymbol}
       />

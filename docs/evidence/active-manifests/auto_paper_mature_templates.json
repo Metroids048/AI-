@@ -4,8 +4,8 @@
   "strategy_id": "trend_momentum_v2_enriched",
   "strategy_version": "2.0.0",
   "rules_hash": "1da72b9aaabb3b412f8c0cbbfb6c8658df1a0c773f0b80e7c39e6f92d24c5e78",
-  "strategy_code_hash": "07a878216f8416e6d0300d44c45b34f6e6ebbddf92dfa0c7ad7590d0037e117f",
-  "strategy_package_hash": "2b8f65a37a8e06288b1207815466d9ab9d7da84cbf2447384e4b59f66c2987d5",
+  "strategy_code_hash": "dd69b68b129cd0181787a1e747a45492066f47c92518cdb42c1f4a28158d2c33",
+  "strategy_package_hash": "3232f471e5c647766c2a8fec496db6c3812e2bfac40e3e6e4b5131d01e06a154",
   "strategy_source_commit": "7595d83b5ce452b3e6c16d7b1717ce418e4dc6c3",
   "approval_commit": null,
   "configured_execution_scope": ["BTC/USDT", "ETH/USDT"],
@@ -17,7 +17,7 @@
     "cost_model_ref": null,
     "report_ref": null,
     "metrics": null,
-    "conclusion": "STRATEGY_NOT_READY"
+    "conclusion": "NO_VALIDATED_EDGE"
   },
   "golden_behavior_ref": null,
   "authorization_state": "PENDING",

@@ -16,7 +16,7 @@
 - Canonical strategy truth: [`docs/evidence/active-manifests/auto_paper_mature_templates.json`](docs/evidence/active-manifests/auto_paper_mature_templates.json).
 - Configured automatic execution boundary: BTC/USDT, ETH/USDT only; an unapproved Manifest produces no Production entries.
 - Research coverage: BTC/USDT, ETH/USDT, SOL/USDT, XRP/USDT, BNB/USDT. Research coverage never grants execution permission.
-- Testnet Canary is an explicit execution-continuity tool, not a Production Strategy and not strategy-performance evidence.
+- 当前没有通过验证的 Production Strategy：正常启动仅管理既有仓位、保护、对账和 reduce-only 平仓；自动新开仓为 `NONE / PAUSED_BY_STRATEGY_AUTHORIZATION`，这不是系统故障。
 - Validation order: historical OOS replay -> Paper/Binance Simulation -> small-capital live only after renewed validation.
 - Mainnet remains disabled.
 

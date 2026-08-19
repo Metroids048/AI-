@@ -23,11 +23,11 @@ def test_explicit_development_scheduler_keeps_v2_shadow_default(relative_path: s
     assert re.findall(pattern, source) == ["v2_shadow"]
 
 
-def test_one_click_launcher_requests_the_active_testnet_contract() -> None:
+def test_one_click_launcher_requests_active_management_without_canary_entry() -> None:
     source = (ROOT / "一键启动.cmd").read_text(encoding="utf-8")
 
     assert source.count("-AutomatedTradingEngine v2_active") == 2
-    assert source.count("-EnableNaturalTestnet") == 2
+    assert "-EnableNaturalTestnet" not in source
     assert source.count("-PreserveExternalTestnetBaseline") == 2
 
 

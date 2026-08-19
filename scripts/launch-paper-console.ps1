@@ -528,13 +528,10 @@ function Ensure-Runtime {
     if ($AutomatedTradingEngine -eq "v2_active") {
         $env:AUTOMATED_TRADING_ENGINE = $AutomatedTradingEngine
     }
-    if ($AutomatedTradingEngine -eq "v2_active" -and -not $EnableNaturalTestnet) {
-        throw "v2_active requires -EnableNaturalTestnet; daily launcher remains Shadow by default."
-    }
     if ($EnableNaturalTestnet) {
-        # Arm only the explicit Gate 17 observer authorization. This flag does
-        # not enable order submission; V2_ACTIVE and the persisted entry gate
-        # remain the independent execution controls.
+        # This explicit, non-default switch is retained only for historical
+        # Testnet engineering acceptance. Normal V2 startup manages and
+        # reconciles existing exposure with EntryAuthority.NONE.
         $env:V2_NATURAL_E2E_ENABLED = "true"
     }
     else {
