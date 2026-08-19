@@ -1836,5 +1836,7 @@
   `entry_enabled=true`, `entry_authority=NONE`, `entry_authorized=false`,
   `trading_state=ENTRY_PAUSED`, `production_authorization_state=PENDING`.
 - Natural proof artifact: `artifacts/real-binance-natural-order-proof.json`.
-  Remote push and new V2 transaction baseline freeze remain pending until the
-  closeout commit is created and pushed.
+  Closeout implementation commit `5e4eed2`, baseline refreeze commit
+  `19ef6b3`, and baseline-test synchronization commit `0d8a28b` are pushed to
+  `origin/backup/2026-08-10-wip`; the refrozen baseline is
+  `5e4eed22ddda72f322dcc1996dee24239cba18cf`.
