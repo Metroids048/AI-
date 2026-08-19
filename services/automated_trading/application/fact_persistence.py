@@ -958,6 +958,42 @@ def persist_exit_result(
     ):
         raise ValueError("confirmed exit persistence requires order id, trade ids, quantity, price, and timestamp")
 
+    # Receipt recovery is restart-safe.  If an exact terminal exchange fact was
+    # already projected, accept only the identical receipt identity and leave
+    # the immutable facts untouched.  A different receipt against a CLOSED
+    # position remains an incident-worthy conflict, never a second transition.
+    with get_session_factory()() as session:
+        position = session.get(V2ManagedPosition, position_id)
+        if position is None:
+            raise ValueError(f"Position {position_id!r} not found")
+        if position.state == V2PositionState.CLOSED.value:
+            existing_order = session.scalar(
+                select(V2ExchangeOrder).where(V2ExchangeOrder.client_order_id == result.client_order_id)
+            )
+            existing_trade_ids = (
+                {
+                    str(fill.trade_id)
+                    for fill in session.scalars(
+                        select(V2ExchangeFill).where(
+                            V2ExchangeFill.exchange_order_record_id == existing_order.order_record_id
+                        )
+                    )
+                    if fill.trade_id
+                }
+                if existing_order is not None
+                else set()
+            )
+            if (
+                existing_order is not None
+                and existing_order.exchange_order_id == result.exchange_order_id
+                and existing_trade_ids == {str(trade_id) for trade_id in result.trade_ids}
+            ):
+                return
+            raise ValueError(
+                f"Position {position_id!r} is already CLOSED with a different exit receipt; "
+                "refusing to overwrite historical exchange facts"
+            )
+
     persist_exit_intent_before_submission(
         cycle_id=cycle_id,
         position_id=position_id,

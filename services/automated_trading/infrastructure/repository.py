@@ -939,7 +939,13 @@ class AutomatedTradingRepository:
             (fill.filled_quantity for fill in fills),
             Decimal("0"),
         )
-        if reduced_quantity < position.quantity:
+        # Receipts and the managed projection are exchange quantities at an
+        # eight-decimal contract boundary. SQLite can retain a sub-step binary
+        # decimal residue (for example 9.298999999999999488 for 9.299), which
+        # is not a genuine residual exposure. A material under-fill remains a
+        # hard failure; this tolerance never rounds a requested exit upward.
+        quantity_tolerance = Decimal("0.00000001")
+        if reduced_quantity + quantity_tolerance < position.quantity:
             raise ValueError(
                 f"quarantine repair fill quantity {reduced_quantity} is below projected quantity {position.quantity}"
             )

@@ -136,6 +136,18 @@ def test_empty_snapshot_with_empty_local_is_healthy():
     assert result.discrepancies == ()
 
 
+def test_historical_ledger_gap_degrades_history_without_blocking_current_exposure():
+    """A resolved legacy Testnet gap is visible, but is not a live-exposure blocker."""
+    local = LocalStateView(historical_ledger_gap_intent_ids=frozenset({"legacy-intent"}))
+
+    result = reconcile(_snapshot(), local, reconciled_at=NOW)
+
+    assert result.status is ReconciliationStatus.HEALTHY
+    assert result.entry_allowed_globally is True
+    assert result.historical_ledger_integrity == "DEGRADED"
+    assert result.historical_gap_count == 1
+
+
 def test_confirmed_entry_fill_without_position_projection_requires_recovery():
     """A flat account is not healthy while an acknowledged V2 entry has a fill receipt.
 

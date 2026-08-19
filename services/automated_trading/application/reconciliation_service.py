@@ -121,6 +121,11 @@ class LocalStateView:
     # same-direction exchange position may exceed a managed V2 position by
     # exactly this quantity; the baseline is never attributed to the strategy.
     external_baseline_positions: dict[str, Decimal] = field(default_factory=dict)
+    # A legacy Testnet episode may be formally cut over only after exhaustive
+    # evidence search proves current exchange exposure is flat.  These ids are
+    # intentionally reported separately from live reconciliation so stale
+    # historical accounting cannot permanently block a safe runtime.
+    historical_ledger_gap_intent_ids: frozenset[str] = frozenset()
 
 
 def runtime_snapshot_from_value(value: object, *, observed_at: datetime):
@@ -249,6 +254,7 @@ def load_local_state_from_session(
     from services.automated_trading.infrastructure.models import (
         V2ExchangeFill,
         V2ExchangeOrder,
+        V2ExecutionIncident,
         V2ExecutionIntent,
         V2ManagedPosition,
         V2ProtectionRecord,
@@ -365,6 +371,16 @@ def load_local_state_from_session(
             )
         )
     }
+    historical_ledger_gap_intent_ids = {
+        incident.intent_id
+        for incident in session.scalars(
+            select(V2ExecutionIncident).where(
+                V2ExecutionIncident.incident_type == "HISTORICAL_LEDGER_GAP",
+                V2ExecutionIncident.intent_id.is_not(None),
+            )
+        )
+        if incident.intent_id
+    }
     pending_states = {"EXCHANGE_SUBMITTING", "EXCHANGE_UNKNOWN", "EXCHANGE_ACKNOWLEDGED"}
     intents = tuple(
         LocalIntentView(
@@ -375,14 +391,20 @@ def load_local_state_from_session(
             ),
             state=intent.state,
             has_confirmed_entry_fill=(
-                intent.intent_id in intents_with_confirmed_entry_fill and intent.intent_id not in projected_intent_ids
+                intent.intent_id in intents_with_confirmed_entry_fill
+                and intent.intent_id not in projected_intent_ids
+                and intent.intent_id not in historical_ledger_gap_intent_ids
             ),
             has_quarantined_lifecycle=intent.intent_id in quarantined_intent_ids,
         )
         for intent in all_testnet_intents
         if (
             intent.state in pending_states
-            or (intent.intent_id in intents_with_confirmed_entry_fill and intent.intent_id not in projected_intent_ids)
+            or (
+                intent.intent_id in intents_with_confirmed_entry_fill
+                and intent.intent_id not in projected_intent_ids
+                and intent.intent_id not in historical_ledger_gap_intent_ids
+            )
             or intent.intent_id in quarantined_intent_ids
         )
     )
@@ -392,6 +414,7 @@ def load_local_state_from_session(
             intents=intents,
             known_client_order_ids=frozenset(known_client_order_ids),
             external_baseline_positions=dict(external_baseline_positions or {}),
+            historical_ledger_gap_intent_ids=frozenset(historical_ledger_gap_intent_ids),
         ),
         exchange_position_claim_refs,
     )
@@ -420,6 +443,8 @@ class ReconciliationResult:
     unavailable_reason: str | None = None
     reconciled_at: datetime | None = None
     snapshot_positions: tuple[str, ...] = field(default=())
+    historical_ledger_integrity: str = "HEALTHY"
+    historical_gap_count: int = 0
 
     @property
     def entry_allowed_globally(self) -> bool:
@@ -771,6 +796,8 @@ def reconcile(
         recovery_required_refs=tuple(dict.fromkeys(recovery_refs)),
         reconciled_at=reconciled_at,
         snapshot_positions=tuple(f"{p.symbol}:{p.direction}:{p.quantity}" for p in snapshot.positions),
+        historical_ledger_integrity=("DEGRADED" if local_state.historical_ledger_gap_intent_ids else "HEALTHY"),
+        historical_gap_count=len(local_state.historical_ledger_gap_intent_ids),
     )
 
 

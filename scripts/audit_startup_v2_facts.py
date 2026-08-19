@@ -21,6 +21,7 @@ from services.automated_trading.domain.enums import V2ExecutionMode
 from services.automated_trading.infrastructure.models import (
     V2ExchangeFill,
     V2ExchangeOrder,
+    V2ExecutionIncident,
     V2ExecutionIntent,
     V2ManagedPosition,
     V2ProtectionRecord,
@@ -111,9 +112,20 @@ def audit(database_url: str) -> dict[str, Any]:
                 for item in session.scalars(select(V2ExchangeFill).where(V2ExchangeFill.reduce_only.is_(False)))
                 if item.intent_id in intent_by_id
             )
+            historical_gap_incidents = tuple(
+                session.scalars(
+                    select(V2ExecutionIncident).where(
+                        V2ExecutionIncident.incident_type == "HISTORICAL_LEDGER_GAP",
+                        V2ExecutionIncident.intent_id.is_not(None),
+                    )
+                )
+            )
+            historical_gap_intent_ids = {
+                incident.intent_id for incident in historical_gap_incidents if incident.intent_id
+            }
             unprojected_fills_by_intent: dict[str, list[V2ExchangeFill]] = {}
             for fill in entry_fills:
-                if fill.intent_id not in position_by_intent:
+                if fill.intent_id not in position_by_intent and fill.intent_id not in historical_gap_intent_ids:
                     unprojected_fills_by_intent.setdefault(fill.intent_id, []).append(fill)
             lifecycle_gaps: list[dict[str, Any]] = []
             for intent_id, persisted_fills in unprojected_fills_by_intent.items():
@@ -210,6 +222,19 @@ def audit(database_url: str) -> dict[str, Any]:
                     for item in orphan_protections
                 ],
                 "lifecycle_gaps": lifecycle_gaps,
+                "historical_ledger_integrity": "DEGRADED" if historical_gap_incidents else "HEALTHY",
+                "historical_gap_count": len(historical_gap_incidents),
+                "historical_gaps": [
+                    {
+                        "incident_id": incident.incident_id,
+                        "intent_id": incident.intent_id,
+                        "position_id": incident.position_id,
+                        "resolution": incident.context.get("resolution"),
+                        "realized_pnl": incident.context.get("realized_pnl"),
+                        "cutover_epoch": incident.context.get("cutover_epoch"),
+                    }
+                    for incident in historical_gap_incidents
+                ],
             }
             result["safe_for_manual_baseline_ack"] = not any(
                 (

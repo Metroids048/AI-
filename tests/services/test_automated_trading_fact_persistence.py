@@ -29,6 +29,10 @@ from services.automated_trading.application.fact_persistence import (
     reconcile_closed_position_protections,
     recover_confirmed_margin_guard_lifecycle,
 )
+from services.automated_trading.application.historical_ledger import (
+    HistoricalEvidenceSource,
+    record_historical_ledger_gap,
+)
 from services.automated_trading.application.reconciliation_service import (
     ReconciliationStatus,
     load_local_state_from_session,
@@ -925,23 +929,37 @@ def test_confirmed_exit_repairs_quarantined_projection_to_closed(fact_db) -> Non
     finally:
         session.close()
 
+    exit_result = ExitExecutionResult(
+        status=ExitExecutionStatus.CLOSED,
+        position_state=V2PositionState.CLOSED,
+        client_order_id="A2X-quarantine-repair-2",
+        exchange_order_id="14909451503",
+        trade_ids=("308716592",),
+        # SQLite preserves this historical binary-decimal drift.  It is below
+        # the eight-decimal exchange quantity by less than one step, not a
+        # real partial exit.
+        reduced_quantity=Decimal("0.1639999999999999"),
+        average_fill_price=Decimal("1918.5"),
+        total_fee=Decimal("0.1258536"),
+        remaining_quantity=Decimal("0"),
+        fill_timestamp=datetime(2026, 7, 29, 9, 50, 39, tzinfo=UTC),
+    )
     persist_exit_result(
         cycle_id="cycle-exit-quarantine-repair",
         position_id="pos-quarantine-repair",
         execution_mode=V2ExecutionMode.BINANCE_TESTNET,
         reason=ExitReason.PROTECTION_FAILURE_EMERGENCY,
-        result=ExitExecutionResult(
-            status=ExitExecutionStatus.CLOSED,
-            position_state=V2PositionState.CLOSED,
-            client_order_id="A2X-quarantine-repair-2",
-            exchange_order_id="14909451503",
-            trade_ids=("308716592",),
-            reduced_quantity=Decimal("0.164"),
-            average_fill_price=Decimal("1918.5"),
-            total_fee=Decimal("0.1258536"),
-            remaining_quantity=Decimal("0"),
-            fill_timestamp=datetime(2026, 7, 29, 9, 50, 39, tzinfo=UTC),
-        ),
+        result=exit_result,
+        fencing_token="fence-exit-quarantine-repair",
+    )
+    # An exact historical receipt may be re-read after restart; the replay must
+    # not create another order, fill, or state transition.
+    persist_exit_result(
+        cycle_id="cycle-exit-quarantine-repair",
+        position_id="pos-quarantine-repair",
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        reason=ExitReason.PROTECTION_FAILURE_EMERGENCY,
+        result=exit_result,
         fencing_token="fence-exit-quarantine-repair",
     )
 
@@ -959,6 +977,69 @@ def test_confirmed_exit_repairs_quarantined_projection_to_closed(fact_db) -> Non
         )
         assert protection is not None
         assert protection.state == V2ProtectionState.PROTECTION_CANCELLED.value
+    finally:
+        session.close()
+
+
+def test_testnet_historical_gap_is_audited_but_not_a_live_reconciliation_blocker(fact_db) -> None:
+    """A flat legacy Testnet entry gap is cut over without inventing an exit."""
+    entry = EntryExecutionResult(
+        status=EntryExecutionStatus.FILLED,
+        intent_state=V2IntentState.FILLED,
+        client_order_id="A2E-historical-gap",
+        exchange_order_id="xo-entry-historical-gap",
+        trade_ids=("trade-entry-historical-gap",),
+        filled_quantity=Decimal("0.2"),
+        average_fill_price=Decimal("1900"),
+        total_fee=Decimal("0.1"),
+        fill_timestamp=datetime(2026, 8, 17, 16, 0, tzinfo=UTC),
+    )
+    persist_entry_and_protection(
+        cycle_id="cycle-historical-gap",
+        decision_id="decision-historical-gap",
+        intent_id="intent-historical-gap",
+        symbol="ETH/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 8, 17, 16, 0, tzinfo=UTC),
+        fencing_token="fence-historical-gap",
+        leverage=40,
+        entry_result=entry,
+        position_id="unused-historical-gap-position",
+        protection_result=None,
+        stop_loss_price=None,
+        take_profit_price=None,
+        stop_client_order_id=None,
+        tp_client_order_id=None,
+        project_position=False,
+    )
+
+    session: Session = fact_db()
+    try:
+        resolution = record_historical_ledger_gap(
+            session,
+            intent_id="intent-historical-gap",
+            current_flat_symbols=frozenset({"ETH/USDT"}),
+            current_open_order_ids=frozenset(),
+            active_protection_ids=frozenset(),
+            sources_checked=frozenset(HistoricalEvidenceSource),
+            cutover_epoch="v2-writer-2026-08-18",
+            writer_started_at=datetime(2026, 8, 18, tzinfo=UTC),
+            resolution_reason="aggregate exit cannot be allocated to this individual entry",
+            last_known_exchange_evidence={"aggregate_exit_order_id": "real-aggregate-exit"},
+            observed_at=datetime(2026, 8, 19, tzinfo=UTC),
+        )
+        session.commit()
+        assert resolution.created is True
+        assert resolution.strategy_performance_eligible is False
+        assert session.get(V2ManagedPosition, "unused-historical-gap-position") is None
+        assert session.scalar(select(V2ExchangeFill).where(V2ExchangeFill.reduce_only.is_(True))) is None
+
+        local, _ = load_local_state_from_session(session, V2ExecutionMode.BINANCE_TESTNET)
+        assert local.intents == ()
+        assert local.historical_ledger_gap_intent_ids == frozenset({"intent-historical-gap"})
     finally:
         session.close()
 
