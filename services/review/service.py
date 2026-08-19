@@ -83,8 +83,12 @@ class ReviewService:
                 select(V2ExecutionDecision, V2ExecutionCycle.symbol)
                 .join(V2ExecutionCycle, V2ExecutionCycle.cycle_id == V2ExecutionDecision.cycle_id)
                 .where(
-                    V2ExecutionDecision.created_at >= start,
-                    V2ExecutionDecision.created_at < end,
+                    # A daily strategy report is indexed by the evaluated
+                    # closed bar, not wall-clock persistence time.  Delayed
+                    # writes/recovery must remain attributable to their
+                    # original decision day.
+                    V2ExecutionCycle.bar_timestamp >= start,
+                    V2ExecutionCycle.bar_timestamp < end,
                 )
             )
         )

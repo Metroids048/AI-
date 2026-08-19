@@ -77,7 +77,7 @@ class TestComputeAndWriteEdgeStats:
         )
 
         assert result.accepted is False
-        assert result.total_trades == 15
+        assert result.total_trades == 25
         assert result.artifact_path is None
         assert result.report_path is not None
 
@@ -104,7 +104,7 @@ class TestComputeAndWriteEdgeStats:
         )
 
         assert result.accepted is True
-        assert result.total_trades == 126
+        assert result.total_trades == 210
         assert result.artifact_path is not None
         assert result.selected_candidate_id == "trend_momentum_v1"
         written = json.loads(

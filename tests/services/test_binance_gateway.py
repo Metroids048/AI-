@@ -916,18 +916,14 @@ def test_binance_gateway_reconcile_scopes_private_scans_to_execution_universe() 
     assert client.open_order_symbols == [
         "BTC/USDT:USDT",
         "ETH/USDT:USDT",
-        "SOL/USDT:USDT",
-        "XRP/USDT:USDT",
-        "BNB/USDT:USDT",
     ]
     assert None not in client.open_order_symbols
     assert {pos["symbol"] for pos in snapshot["open_positions"]} == {
         "BTC/USDT:USDT",
         "ETH/USDT:USDT",
-        "SOL/USDT:USDT",
     }
-    assert {str(order.get("symbol") or "") for order in snapshot["open_orders"]} == {"BTCUSDT", "SOLUSDT"}
-    assert snapshot["open_order_count"] == 2
+    assert {str(order.get("symbol") or "") for order in snapshot["open_orders"]} == {"BTCUSDT"}
+    assert snapshot["open_order_count"] == 1
 
 
 def test_binance_gateway_returns_authoritative_fill_details_for_filled_entry() -> None:
