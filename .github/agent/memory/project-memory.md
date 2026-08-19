@@ -13,6 +13,8 @@
   isolated research worker, and preserved `ENTRY_PAUSED / NONE / PENDING`.
 - VERIFIED: `/ops` browser evidence showed Runtime Truth, entry pause explanation,
   stale-data labeling, 30s polling, and no console errors.
+- VERIFIED: the durable browser verifier now targets `/ops`, checks the actual
+  `/api/v1/runtime/*` contract, and passes its full checklist including polling.
 - VERIFIED: `contracts/v2_transaction_contract.json` and
   `scripts/verify_v2_transaction_contract.py` freeze the V2 transaction hot path;
   ordinary staged edits fail with `V2_HOTPATH_CHANGE_REQUIRES_EXPLICIT_APPROVAL`.

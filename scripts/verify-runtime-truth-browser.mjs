@@ -10,10 +10,12 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const LOG_DIR = path.join(ROOT, "logs", "p2-runtime-truth-verify");
-const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://127.0.0.1:5173/trading";
+// Runtime Truth panels live on the operations surface; /trading is the
+// transaction desk and intentionally does not render the full evidence grid.
+const FRONTEND_URL = process.env.FRONTEND_URL ?? "http://127.0.0.1:5173/ops";
 const API_BASE = process.env.API_BASE ?? "http://127.0.0.1:8016";
 const TOKEN = process.env.ADMIN_TOKEN ?? "dev-admin-token";
-const POLL_WAIT_MS = 26_000; // observe at least two 10s V2 refresh intervals
+const POLL_WAIT_MS = 36_000; // observe at least two 30s Runtime Truth refresh intervals
 
 fs.mkdirSync(LOG_DIR, { recursive: true });
 
@@ -38,11 +40,11 @@ function save(name, data) {
 
 async function apiCheck() {
   const endpoints = [
-    "/api/v2/automated-trading/runtime",
-    "/api/v2/automated-trading/decisions?limit=5",
-    "/api/v2/automated-trading/positions",
-    "/api/v2/automated-trading/llm-invocations?limit=5",
-    "/api/v2/automated-trading/reconciliation",
+    "/api/v1/runtime/snapshot",
+    "/api/v1/runtime/decisions?limit=5",
+    "/api/v1/runtime/positions",
+    "/api/v1/runtime/llm-invocations?limit=5",
+    "/api/v1/runtime/reconciliation",
   ];
   const datumFields = ["source", "observed_at", "freshness", "status"];
   const results = {};
@@ -58,7 +60,7 @@ async function apiCheck() {
       const body = await res.json();
       const structure = { status: res.status, elapsed_ms: elapsed };
 
-      if (ep.endsWith("/runtime")) {
+      if (ep.endsWith("/snapshot")) {
         for (const key of ["exchange", "local_projection", "reconciliation", "scheduler"]) {
           const block = body[key];
           structure[key] = block
@@ -66,14 +68,14 @@ async function apiCheck() {
             : null;
         }
         structure.snapshot_at = body.snapshot_at ?? null;
-      } else if (ep.includes("positions")) {
+      } else if (ep.endsWith("/positions")) {
         for (const key of ["exchange", "local_projection"]) {
           const block = body[key];
           structure[key] = block
             ? Object.fromEntries(datumFields.map((f) => [f, block[f] ?? null]))
             : null;
         }
-      } else if (ep.includes("reconciliation")) {
+      } else if (ep.endsWith("/reconciliation")) {
         structure.status_field = body.status ?? null;
         structure.observed_at = body.observed_at ?? null;
         structure.entry_blocked_symbols = body.entry_blocked_symbols ?? null;
@@ -116,7 +118,7 @@ function analyzePollingTimestamps(allTimestamps, snapshotTimestamps) {
   const max = Math.max(...intervals);
   const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
   const notSpam = min >= 5000;
-  const nearFallback = avg >= 8_000 && avg <= 15_000;
+  const nearFallback = avg >= 25_000 && avg <= 40_000;
   return {
     pass: notSpam && nearFallback,
     refresh_cycles: timestamps.length,
@@ -145,17 +147,17 @@ async function browserCheck() {
 
   page.on("request", (req) => {
     const url = req.url();
-    if (url.includes("/api/v2/automated-trading/")) {
+    if (url.includes("/api/v1/runtime/")) {
       const ts = Date.now();
       runtimeTimestamps.push(ts);
-      if (url.endsWith("/automated-trading/runtime")) snapshotTimestamps.push(ts);
+      if (url.endsWith("/runtime/snapshot")) snapshotTimestamps.push(ts);
       report.runtimeRequests.push({ url, method: req.method(), ts: new Date().toISOString() });
     }
   });
 
   page.on("response", async (res) => {
     const url = res.url();
-    if (url.includes("/api/v2/automated-trading/")) {
+    if (url.includes("/api/v1/runtime/")) {
       const existing = report.runtimeRequests.find((r) => r.url === url && !r.status);
       if (existing) existing.status = res.status();
     }
@@ -189,7 +191,7 @@ async function browserCheck() {
   };
 
   // V2 Runtime Truth panels
-  const v2PanelTitles = ["V2 引擎状态", "为什么不开单?", "交易所 vs 本地投影"];
+  const v2PanelTitles = ["为什么没有交易", "Binance Testnet", "Mismatch / Reconciliation"];
   const panelVisibility = {};
   for (const title of v2PanelTitles) {
     panelVisibility[title] = await page

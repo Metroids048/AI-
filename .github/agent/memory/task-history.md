@@ -1757,6 +1757,8 @@
 - Runtime evidence: `logs/startup-result.json` reported `STARTUP_READY`; `/ops`
   Playwright check showed Runtime Truth and `ENTRY_PAUSED`; snapshot polling was
   approximately 30 seconds with no console errors.
+- The browser verifier was corrected to use the real `/ops` Runtime Truth surface
+  and its final checklist passed.
 - Safety boundary: production authorization remains `PENDING`, entry authority
   remains `NONE`, and the Testnet contract tool fail-closed without explicit
   authorization/credentials.
