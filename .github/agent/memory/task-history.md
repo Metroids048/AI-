@@ -1840,3 +1840,34 @@
   `19ef6b3`, and baseline-test synchronization commit `0d8a28b` are pushed to
   `origin/backup/2026-08-10-wip`; the refrozen baseline is
   `5e4eed22ddda72f322dcc1996dee24239cba18cf`.
+
+## [TASK-2026-08-20-FINAL-PROJECT-CLOSEOUT-EDGE-V2]
+
+- Scope deliberately limited to engineering hygiene, methodology audit, and
+  the existing `volatility_expansion_v1` / `breakout_retest_v1` candidates.
+  No V2 execution Hot Path file was modified.
+- Current toolchain: `mypy` PASS (`274 source files`, archive excluded by the
+  formal `pyproject.toml` file scope), Ruff PASS, full pytest `1782 passed,
+  16 skipped, 2 warnings`, and V2 transaction contract verifier exit code 0.
+- Database audit found two historical MEDIUM `PROTECTION_RECOVERY_FAILED`
+  rows (2026-08-10 and 2026-08-14). They remain immutable historical incident
+  records; subsequent evidence shows 41/41 managed positions CLOSED,
+  `37 PROTECTION_FILLED + 4 PROTECTION_CANCELLED`, and latest reconciliation
+  HEALTHY with 0/0 open exchange/local positions. No current P0/P1 exposure
+  remains, and the existing resolution contract does not silently close this
+  incident type.
+- Methodology audit classified next-bar parity, point-in-time funding,
+  walk-forward ledger, stationary-cluster bootstrap, FinalHoldoutGuard,
+  trial registry, lookahead-analysis, and recursive-analysis as
+  `ALREADY_SATISFIED`. Spread, latency, and partial-fill remain
+  `EXTERNAL_EVIDENCE_REQUIRED` because current replay artifacts mark them
+  `ASSUMED`.
+- Trade audit: `volatility_expansion_v1` has 453 reported and 453 unique
+  proposal IDs (0 duplicates), PF `1.144345`, expectancy `0.001324885`,
+  positive windows `6/8`; +5 bps/side PF `1.049003`, +10 bps/side PF
+  `0.963235`. `breakout_retest_v1` has 31/31 unique trades, PF `1.082597`,
+  expectancy `0.000531709`, positive windows `3/8`, and +5 bps/side negative
+  expectancy. Neither satisfies the unchanged Promotion Gate.
+- Final decision: `PROJECT_CLOSEOUT: NO_VALIDATED_EDGE`. Production remains
+  `PENDING`; entry authority remains `NONE`; no new trial or strategy family
+  was added.
