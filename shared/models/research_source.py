@@ -31,6 +31,10 @@ class StrategySourceManifest(PlatformModel):
     priority: int = 100
     source_notes: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    upstream_ref: str | None = None
+    upstream_sha: str | None = None
+    integration_mode: str | None = None
+    copy_policy: str | None = None
     last_scanned_at: datetime | None = None
 
 

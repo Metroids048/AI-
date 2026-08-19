@@ -32,6 +32,7 @@ echo ========================================
 echo Trading: http://127.0.0.1:5173/trading
 echo API:     http://127.0.0.1:8016
 echo Logs:    logs\startup-last.log logs\api.log logs\frontend.log
+echo Research: logs\research-runtime-state.json logs\research-worker.log
 echo.
 echo [3/3] Startup completed. Browser will open automatically.
 pause

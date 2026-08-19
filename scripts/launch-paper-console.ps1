@@ -29,6 +29,10 @@ $SchedulerErrorLog = Join-Path $LogsDir "scheduler-error.log"
 $MicrostructurePidFile = Join-Path $LogsDir "microstructure.pid"
 $MicrostructureLog = Join-Path $LogsDir "microstructure.log"
 $MicrostructureErrorLog = Join-Path $LogsDir "microstructure-error.log"
+$ResearchWorkerPidFile = Join-Path $LogsDir "research-worker.pid"
+$ResearchWorkerLog = Join-Path $LogsDir "research-worker.log"
+$ResearchWorkerErrorLog = Join-Path $LogsDir "research-worker-error.log"
+$ResearchRuntimeStateFile = Join-Path $LogsDir "research-runtime-state.json"
 $FrontendPidFile = Join-Path $LogsDir "frontend.pid"
 $DbPath = Join-Path $Root $DatabasePath
 $SqliteUrl = "sqlite:///$($DbPath.Replace('\', '/'))"
@@ -176,6 +180,38 @@ function Stop-RecordedScheduler {
     }
 }
 
+function Stop-RecordedResearchWorker {
+    if (Test-Path -LiteralPath $ResearchWorkerPidFile) {
+        $recordedPid = (Get-Content -LiteralPath $ResearchWorkerPidFile -Raw).Trim()
+        if ($recordedPid -match '^\d+$') {
+            $ownerInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $recordedPid" -ErrorAction SilentlyContinue
+            if ([string]$ownerInfo.CommandLine -match "run-research-worker\.py") {
+                Write-Step "stopping prior research worker (pid $recordedPid)"
+                Stop-ProcessTree -RootPid ([int]$recordedPid)
+            }
+        }
+        Remove-Item -LiteralPath $ResearchWorkerPidFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Start-ResearchWorker {
+    Stop-RecordedResearchWorker
+    Reset-LogFile $ResearchWorkerLog
+    Reset-LogFile $ResearchWorkerErrorLog
+    $researchScript = Join-Path $PSScriptRoot "run-research-worker.py"
+    $worker = Start-Process -FilePath $env:AGENT_PYTHON `
+        -ArgumentList @($researchScript, "--database-url", $SqliteUrl) `
+        -WorkingDirectory $Root `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $ResearchWorkerLog `
+        -RedirectStandardError $ResearchWorkerErrorLog `
+        -PassThru
+    Set-Content -LiteralPath $ResearchWorkerPidFile -Value $worker.Id -Encoding ascii
+    @{ status = "started"; pid = $worker.Id; research_only = $true; started_at = (Get-Date).ToUniversalTime().ToString("o") } |
+        ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $ResearchRuntimeStateFile -Encoding utf8
+    Write-Step "research worker started (pid $($worker.Id), research-only)"
+}
+
 function Write-StartupResult {
     param(
         [Parameter(Mandatory = $true)][string]$Status,
@@ -185,7 +221,7 @@ function Write-StartupResult {
     if (-not (Test-Path -LiteralPath $LogsDir)) {
         New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
     }
-    $payload = [ordered]@{
+$payload = [ordered]@{
         schema_version = 1
         status = $Status
         stage = $script:StartupStage
@@ -199,6 +235,12 @@ function Write-StartupResult {
             api = $ApiLog
             scheduler = $SchedulerLog
             scheduler_error = $SchedulerErrorLog
+            research_worker = $ResearchWorkerLog
+            research_worker_error = $ResearchWorkerErrorLog
+        }
+        research = [ordered]@{
+            status = if (Test-Path -LiteralPath $ResearchRuntimeStateFile) { "started" } else { "unavailable" }
+            state_file = $ResearchRuntimeStateFile
         }
         recorded_at = (Get-Date).ToUniversalTime().ToString("o")
     }
@@ -747,6 +789,7 @@ $schedulerProcess = Start-Process -FilePath $env:AGENT_PYTHON `
     -RedirectStandardError $SchedulerErrorLog `
     -PassThru
 Set-Content -LiteralPath $SchedulerPidFile -Value $schedulerProcess.Id -Encoding ascii
+Start-ResearchWorker
 Start-MicrostructureCollector
 
 if (-not $frontendReady) {

@@ -1080,6 +1080,27 @@ class ValidationRepository:
         self.session.refresh(row)
         return _backtest_from_orm(row)
 
+    def update_backtest_run(self, backtest_run_id: str, **fields) -> BacktestRun | None:
+        row = self.session.get(models.BacktestRun, backtest_run_id)
+        if row is None:
+            return None
+        for key, value in fields.items():
+            if key in {
+                "parameter_set",
+                "market_regime_coverage",
+                "sample_split_plan",
+                "validation_methodology",
+                "stress_test_scenarios",
+            }:
+                value = _jsonable(value)
+            elif key in {"metrics_summary", "eligibility_result"} and hasattr(value, "model_dump"):
+                value = value.model_dump(mode="json")
+            setattr(row, key, value)
+        row.updated_at = _utcnow()
+        self.session.commit()
+        self.session.refresh(row)
+        return _backtest_from_orm(row)
+
 
 class OptimizationRepository:
     def __init__(self, session: Session):
@@ -1104,6 +1125,18 @@ class OptimizationRepository:
             run_status=run.run_status,
         )
         self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _optimization_from_orm(row)
+
+    def update_run(self, optimization_run_id: str, **fields) -> OptimizationRun | None:
+        row = self.session.get(models.OptimizationRun, optimization_run_id)
+        if row is None:
+            return None
+        for key, value in fields.items():
+            if key == "best_candidate_summary":
+                value = _jsonable(value)
+            setattr(row, key, value)
         self.session.commit()
         self.session.refresh(row)
         return _optimization_from_orm(row)
@@ -1986,8 +2019,7 @@ class AgentTaskRepository:
         for row in rows:
             payload = row.output_payload if isinstance(row.output_payload, dict) else {}
             state_ok = bool(payload.get("baseline_preserved")) or (
-                payload.get("final_open_position_count") == 0
-                and payload.get("final_open_order_count") == 0
+                payload.get("final_open_position_count") == 0 and payload.get("final_open_order_count") == 0
             )
             if (
                 state_ok

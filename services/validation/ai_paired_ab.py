@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from shared.models import PlatformModel
 
@@ -22,6 +22,18 @@ class AIExecutionEligibility(PlatformModel):
     execution_eligible: bool
     mode: Literal["EXPLANATION_ONLY", "RANKING_ELIGIBLE"]
     failed_requirements: tuple[str, ...]
+
+
+class ResearchCouncilABResult(PlatformModel):
+    """Paired baseline/council evidence; this is advisory and never an order command."""
+
+    baseline_candidate_id: str
+    council_candidate_id: str
+    baseline_metrics: dict[str, Any]
+    council_metrics: dict[str, Any]
+    verdict: Literal["insufficient_evidence", "baseline_preferred", "council_preferred"]
+    evidence_refs: tuple[str, ...] = ()
+    order_side_effects: bool = False
 
 
 def evaluate_ai_execution_eligibility(metrics: AIPairedABMetrics) -> AIExecutionEligibility:

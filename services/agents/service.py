@@ -12,6 +12,7 @@ from collections.abc import Callable
 from research_source.open_source_strategy_library import OpenSourceStrategyExtractor, OpenSourceStrategyLibrary
 from research_source.worldquant_adapter import LocalAlphaScanner
 from services.agents.llm_runtime import StructuredLLMRuntime, UnavailableLLMRuntime
+from services.research.integrations.research_council import ResearchCouncil
 from services.strategy_library import (
     AgentTaskRepository,
     LlmInvocationRepository,
@@ -54,6 +55,7 @@ class AgentTaskService:
         self.alpha_scanner = LocalAlphaScanner()
         self.open_source_library = OpenSourceStrategyLibrary()
         self.open_source_extractor = OpenSourceStrategyExtractor()
+        self.research_council = ResearchCouncil(llm_runtime=self.llm_runtime)
         # Executor registry — replaces the legacy if/elif dispatch chain.
         # New agent executors are registered via register_executor() without
         # modifying _execute(). Keys are (agent_type, task_type) tuples.
@@ -78,6 +80,7 @@ class AgentTaskService:
         self._executors[("strategy_agent", "materialize_seed_strategy_drafts")] = self._handle_materialize_drafts
         self._executors[("decision_veto_agent", "pre_execution_veto")] = self._handle_deterministic_veto
         self._executors[("review_agent", "summarize_failures")] = self._handle_summarize_failures
+        self._executors[("research_agent", "research_council_review")] = self._handle_research_council_review
 
     def list_tasks(self, *, limit: int = 50) -> list[AgentTask]:
         return self.agent_repo.list_tasks(limit=limit)
@@ -315,6 +318,18 @@ class AgentTaskService:
                 "do not promote strategies without validation evidence",
             ],
             "output_ref": f"review_summary:{task.agent_task_id}",
+        }
+
+    def _handle_research_council_review(self, task: AgentTask) -> dict:
+        candidate_id = str(task.input_payload.get("candidate_id") or task.agent_task_id)
+        verdict = self.research_council.review(candidate_id, task.input_payload)
+        return {
+            "executor_registered": True,
+            "completed": True,
+            "executor_name": "research_council",
+            "verdict": verdict.model_dump(mode="json"),
+            "order_side_effects": False,
+            "output_ref": f"research_council:{candidate_id}",
         }
 
     def _execute_llm_classification(self, task: AgentTask) -> dict:

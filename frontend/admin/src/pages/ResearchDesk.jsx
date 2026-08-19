@@ -35,6 +35,11 @@ export function ResearchDesk() {
     queryFn: () => request("/api/v1/market/macro-events?limit=20&refresh=false"),
     refetchInterval: 30000,
   });
+  const runtime = useQuery({
+    queryKey: ["research-runtime"],
+    queryFn: () => request("/api/v1/research-sources/runtime"),
+    refetchInterval: 15000,
+  });
 
   const promoteIdea = useMutation({
     mutationFn: (ideaId) => request(`/api/v1/strategies/ideas/${ideaId}/drafts`, { method: "POST", body: "{}" }),
@@ -50,6 +55,9 @@ export function ResearchDesk() {
   const ideaRows = asArray(ideas.data?.items);
   const newsRows = asArray(news.data?.items);
   const macroRows = asArray(macro.data?.items);
+  const engineRows = Object.values(runtime.data?.engines ?? {});
+  const runSummary = runtime.data?.runs ?? {};
+  const researchTruth = runtime.data?.research_truth ?? {};
   const assetCount = sourceRows.reduce((total, item) => total + Number(item.asset_count ?? item.local_asset_count ?? 0), 0);
 
   return (
@@ -71,6 +79,65 @@ export function ResearchDesk() {
         <div className="metric"><span>本地资产</span><strong>{formatNumber(assetCount, 0)}</strong></div>
         <div className="metric"><span>策略想法</span><strong>{ideas.isLoading ? "加载中" : ideaRows.length}</strong></div>
         <div className="metric"><span>新闻 / 宏观输入</span><strong>{news.isLoading || macro.isLoading ? "加载中" : newsRows.length + macroRows.length}</strong></div>
+        <div className="metric"><span>研究队列</span><strong>{runtime.isLoading ? "加载中" : Number(runSummary.queued ?? 0) + Number(runSummary.running ?? 0)}</strong></div>
+        <div className="metric"><span>生产授权</span><strong>{runtime.data?.production_authorization ?? "未知"}</strong></div>
+      </section>
+
+      <section className="records-grid">
+        <section className="exchange-panel table-panel">
+          <div className="panel-title"><h2>研究引擎与来源 Pin</h2><span>{engineRows.length}</span></div>
+          {runtime.isError ? <div className="empty-list">研究运行时不可用：{runtime.error.message}</div> : (
+            <table>
+              <thead><tr><th>引擎</th><th>可用性</th><th>SHA</th><th>模式</th></tr></thead>
+              <tbody>{engineRows.map((item) => (
+                <tr key={item.engine}><td>{item.engine}</td><td>{item.available ? "available" : "unavailable"}</td><td>{item.sha}</td><td>{item.mode}</td></tr>
+              ))}</tbody>
+            </table>
+          )}
+        </section>
+        <section className="exchange-panel table-panel">
+          <div className="panel-title"><h2>实验状态</h2><span>{Number(runSummary.completed ?? 0) + Number(runSummary.failed ?? 0)}</span></div>
+          <table>
+            <thead><tr><th>类型</th><th>引擎</th><th>状态</th><th>Run</th></tr></thead>
+            <tbody>{asArray(runSummary.recent).length ? asArray(runSummary.recent).map((item) => (
+              <tr key={`${item.type}-${item.id}`}><td>{item.type}</td><td>{item.engine}</td><td>{item.status}</td><td>{item.id}</td></tr>
+            )) : <tr><td colSpan="4">暂无外部研究运行</td></tr>}</tbody>
+          </table>
+        </section>
+      </section>
+
+      <section className="records-grid">
+        <ResearchEvidenceTable
+          title="Top Candidates / Plateau"
+          count={asArray(researchTruth.top_candidates).length}
+          headers={["Run", "参数", "净期望", "PF"]}
+          rows={asArray(researchTruth.top_candidates).map((item) => [
+            item.run_id,
+            JSON.stringify(item.parameters ?? {}),
+            formatNumber(item.expectancy_net_r, 4),
+            formatNumber(item.profit_factor, 3),
+          ])}
+          empty="暂无可追溯的候选参数高原"
+        />
+        <ResearchEvidenceTable
+          title="Bias Gate / Native OOS"
+          count={asArray(researchTruth.bias_gates).length}
+          headers={["Run", "Lookahead", "Recursive", "Native OOS"]}
+          rows={asArray(researchTruth.bias_gates).map((item, index) => [
+            item.run_id,
+            item.lookahead,
+            item.recursive,
+            asArray(researchTruth.native_oos)[index]?.status ?? "NOT_RUN",
+          ])}
+          empty="暂无 bias 或 native OOS 证据"
+        />
+        <ResearchEvidenceTable
+          title="Council Verdict"
+          count={asArray(researchTruth.council).length}
+          headers={["Run", "Verdict"]}
+          rows={asArray(researchTruth.council).map((item) => [item.run_id, item.verdict])}
+          empty="暂无研究委员会结论"
+        />
       </section>
 
       <section className="records-grid">
@@ -82,6 +149,8 @@ export function ResearchDesk() {
                 <th>Source</th>
                 <th>类型</th>
                 <th>许可证</th>
+                <th>Pin</th>
+                <th>融合模式</th>
                 <th>资产</th>
                 <th>状态</th>
               </tr>
@@ -96,10 +165,12 @@ export function ResearchDesk() {
                   <td>{item.source_id}</td>
                   <td>{item.source_type ?? item.category ?? "-"}</td>
                   <td>{item.license ?? item.license_policy ?? "-"}</td>
+                  <td>{item.upstream_sha ? item.upstream_sha.slice(0, 12) : "-"}</td>
+                  <td>{item.integration_mode ?? "research_reference"}</td>
                   <td>{item.asset_count ?? item.local_asset_count ?? 0}</td>
                   <td>{formatEnum(item.ingestion_status ?? item.status, "已登记")}</td>
                 </tr>
-              )) : <tr><td colSpan="5">暂无研究源</td></tr>}
+              )) : <tr><td colSpan="7">暂无研究源</td></tr>}
             </tbody>
           </table>
         </section>
@@ -156,6 +227,20 @@ export function ResearchDesk() {
         )} />
       </section>
     </main>
+  );
+}
+
+function ResearchEvidenceTable({ title, count, headers, rows, empty }) {
+  return (
+    <section className="exchange-panel table-panel">
+      <div className="panel-title"><h2>{title}</h2><span>{count}</span></div>
+      <table>
+        <thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead>
+        <tbody>{rows.length ? rows.map((row, index) => (
+          <tr key={`${title}-${index}`}>{row.map((value, cellIndex) => <td key={`${index}-${cellIndex}`}>{value}</td>)}</tr>
+        )) : <tr><td colSpan={headers.length}>{empty}</td></tr>}</tbody>
+      </table>
+    </section>
   );
 }
 

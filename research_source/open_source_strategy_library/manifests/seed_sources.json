@@ -4,6 +4,10 @@
     "name": "Freqtrade",
     "repo_url": "https://github.com/freqtrade/freqtrade",
     "license": "GPL-3.0",
+    "upstream_ref": "develop",
+    "upstream_sha": "b3404c9d81422fed6a8fd83d3d296c37c7915327",
+    "integration_mode": "external_subprocess_validator",
+    "copy_policy": "research_only_no_runtime_code_copy",
     "license_policy": "distilled_research_only",
     "project_role": "crypto_strategy_shapes",
     "asset_categories": [
@@ -381,7 +385,11 @@
     "source_id": "tradingagents",
     "name": "TradingAgents",
     "repo_url": "https://github.com/TauricResearch/TradingAgents",
-    "license": "MIT",
+    "license": "Apache-2.0",
+    "upstream_ref": "main",
+    "upstream_sha": "a33fd4c0f134485a43553a2c23a63cb14adbd88f",
+    "integration_mode": "distilled_pattern_native_implementation",
+    "copy_policy": "roles_and_protocols_only",
     "license_policy": "distilled_research_allowed",
     "project_role": "llm_research_workflow",
     "asset_categories": [
@@ -411,8 +419,28 @@
       "multi_agent_research",
       "review_workflow"
     ],
-    "license_notes": "Use multi-agent research/review roles only.",
+    "license_notes": "Apache-2.0; use multi-agent research/review roles only, without turning agents into traders.",
     "source_notes": "Extract analyst/research/review patterns without turning agents into traders."
+  },
+  {
+    "source_id": "fincept_terminal",
+    "name": "Fincept Terminal",
+    "repo_url": "https://github.com/Fincept-Corporation/FinceptTerminal",
+    "license": "AGPL-3.0",
+    "upstream_ref": "main",
+    "upstream_sha": "14ffe1df805c76e6ad835fcb79e88a31eb706970",
+    "integration_mode": "architecture_pattern_only",
+    "copy_policy": "provider_context_ideas_only",
+    "license_policy": "metadata_only",
+    "project_role": "research_data_workstation",
+    "asset_categories": ["data_provider", "datahub", "research_workstation", "freshness"],
+    "crypto_relevance": "medium",
+    "priority": 101,
+    "asset_allowlist": [{"path": "README.md", "asset_type": "architecture_note", "extraction_tags": ["datahub", "provider", "freshness"]}],
+    "asset_denylist": [".env", "secrets", "credentials", "token"],
+    "strategy_extraction_targets": ["data_provenance", "research_context", "provider_adapter"],
+    "license_notes": "AGPL-3.0; architecture and data-context patterns only, no desktop runtime code copied.",
+    "source_notes": "Study DataHub/provider boundaries, source provenance, freshness, and research workstation context."
   },
   {
     "source_id": "tradingagents_cn",
@@ -644,7 +672,11 @@
     "source_id": "vectorbt",
     "name": "vectorbt",
     "repo_url": "https://github.com/polakowo/vectorbt",
-    "license": "Apache-2.0",
+    "license": "Apache-2.0 + Commons Clause",
+    "upstream_ref": "master",
+    "upstream_sha": "34b6d5935e3ea3eccd549e2592bc0f455b8045f5",
+    "integration_mode": "external_subprocess_research_engine",
+    "copy_policy": "research_only_no_core_vendor",
     "license_policy": "distilled_research_allowed",
     "project_role": "research_framework_candidate",
     "asset_categories": [
@@ -673,7 +705,7 @@
       "parameter_grid",
       "vectorized_backtest"
     ],
-    "license_notes": "Use research/backtest experiment patterns; no runtime dependency in this tranche.",
+    "license_notes": "Apache-2.0 + Commons Clause; use research/backtest experiment patterns through an external subprocess only.",
     "source_notes": "Candidate for high-speed parameter grid validation and vectorized research experiments."
   },
   {

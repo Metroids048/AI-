@@ -63,6 +63,16 @@ def test_research_source_asset_endpoints_return_404_for_unknown_source(api_clien
     assert refresh_resp.status_code == 404
 
 
+def test_research_runtime_reports_pins_and_keeps_production_pending(api_client) -> None:
+    response = api_client.get("/api/v1/research-sources/runtime")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["research_only"] is True
+    assert body["production_authorization"] == "PENDING"
+    assert body["pinned_sources"]["engines"]["vectorbt"]["license"] == "Apache-2.0 + Commons Clause"
+    assert body["pinned_sources"]["engines"]["freqtrade"]["integration_mode"] == "external_subprocess_validator"
+
+
 def test_agent_tasks_import_extract_and_materialize_open_source_drafts(api_client) -> None:
     import_task = api_client.post(
         "/api/v1/agents/tasks",

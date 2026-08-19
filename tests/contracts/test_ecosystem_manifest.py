@@ -13,7 +13,7 @@ def test_ecosystem_research_sources_have_explicit_license_boundaries() -> None:
         "jesse": ("MIT", "distilled_research_allowed"),
         "nautilus_trader": ("LGPL-3.0", "distilled_research_only"),
         "qlib": ("MIT", "distilled_research_allowed"),
-        "vectorbt": ("Apache-2.0", "distilled_research_allowed"),
+        "vectorbt": ("Apache-2.0 + Commons Clause", "distilled_research_allowed"),
         "openbb": ("AGPL-3.0", "distilled_research_only"),
         "lumen": ("MIT", "distilled_research_allowed"),
         "hydraquant": ("GPL-3.0", "distilled_research_only"),

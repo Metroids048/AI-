@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "engines": {
+    "freqtrade": {
+      "repo_url": "https://github.com/freqtrade/freqtrade",
+      "ref": "develop",
+      "sha": "b3404c9d81422fed6a8fd83d3d296c37c7915327",
+      "license": "GPL-3.0",
+      "integration_mode": "external_subprocess_validator",
+      "copy_policy": "research_only_no_runtime_code_copy"
+    },
+    "vectorbt": {
+      "repo_url": "https://github.com/polakowo/vectorbt",
+      "ref": "master",
+      "sha": "34b6d5935e3ea3eccd549e2592bc0f455b8045f5",
+      "license": "Apache-2.0 + Commons Clause",
+      "integration_mode": "external_subprocess_research_engine",
+      "copy_policy": "research_only_no_core_vendor"
+    },
+    "tradingagents": {
+      "repo_url": "https://github.com/TauricResearch/TradingAgents",
+      "ref": "main",
+      "sha": "a33fd4c0f134485a43553a2c23a63cb14adbd88f",
+      "license": "Apache-2.0",
+      "integration_mode": "distilled_pattern_native_implementation",
+      "copy_policy": "roles_and_protocols_only"
+    },
+    "fincept_terminal": {
+      "repo_url": "https://github.com/Fincept-Corporation/FinceptTerminal",
+      "ref": "main",
+      "sha": "14ffe1df805c76e6ad835fcb79e88a31eb706970",
+      "license": "AGPL-3.0",
+      "integration_mode": "architecture_pattern_only",
+      "copy_policy": "provider_context_ideas_only"
+    }
+  }
+}
