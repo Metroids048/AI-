@@ -7,6 +7,7 @@ from services.research.integrations import (
     FreqtradeValidationAdapter,
     ResearchContextBundle,
     ResearchCouncil,
+    ResearchExperimentResult,
     ResearchExperimentSpec,
     ResearchOrchestrator,
     VectorbtScreenAdapter,
@@ -73,7 +74,16 @@ def test_orchestrator_enforces_bias_gate_and_never_authorizes() -> None:
 def test_orchestrator_surfaces_freqtrade_subprocess_failure() -> None:
     class FailingFreqtrade:
         def validate(self, spec, rows, *, run_id, candidate=None):
-            return FreqtradeValidationAdapter(executable=None).validate(spec, rows, run_id=run_id, candidate=candidate)
+            return ResearchExperimentResult(
+                run_id=run_id,
+                engine="freqtrade",
+                input_spec_hash=spec.input_spec_hash,
+                dataset_hash=spec.dataset_hash,
+                cost_model_hash=spec.cost_model_hash,
+                strategy_hash=spec.strategy_hash,
+                status="failed",
+                failure_reason="FREQTRADE_UNAVAILABLE",
+            )
 
     result = ResearchOrchestrator(freqtrade=FailingFreqtrade()).run_pipeline(
         _spec(),
