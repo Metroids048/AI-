@@ -782,18 +782,15 @@ def _execute_v2_automated_trading_cycles(
                 symbol_results.append(symbol_result)
                 task_failed = True
                 continue
-            try:
-                entry_timeframe = load_timeframe(symbol, timeframe)
-                direction_timeframe = load_timeframe(symbol, "1h")
-                state_timeframe = load_timeframe(symbol, "4h")
-            except Exception as exc:  # noqa: BLE001
-                symbol_result.update({"status": "error", "error": f"market_data_unavailable: {exc}"})
-                symbol_results.append(symbol_result)
-                task_failed = True
-                continue
-
             management_only = symbol not in AUTO_SIMULATION_EXECUTION_SYMBOLS
             if management_only:
+                # Existing managed exposure must reconcile and recover even if
+                # its now-research-only market feed has been retired.  Empty
+                # timeframes are safe because EntryAuthority.NONE prevents a
+                # strategy evaluation from ever becoming an order submission.
+                entry_timeframe = TimeframeView(timeframe=timeframe, bars=())
+                direction_timeframe = None
+                state_timeframe = None
                 production_candidate = None
                 production_authorized = False
                 production_reason = NO_AUTHORIZED_PRODUCTION_STRATEGY
@@ -806,6 +803,15 @@ def _execute_v2_automated_trading_cycles(
                     operator_testnet_canary_enabled=False,
                 )
             else:
+                try:
+                    entry_timeframe = load_timeframe(symbol, timeframe)
+                    direction_timeframe = load_timeframe(symbol, "1h")
+                    state_timeframe = load_timeframe(symbol, "4h")
+                except Exception as exc:  # noqa: BLE001
+                    symbol_result.update({"status": "error", "error": f"market_data_unavailable: {exc}"})
+                    symbol_results.append(symbol_result)
+                    task_failed = True
+                    continue
                 try:
                     (
                         production_candidate,
@@ -1009,18 +1015,19 @@ def _execute_v2_automated_trading_cycles(
                     symbol,
                     _safe_error_message(exc),
                 )
-            pending_research.append(
-                {
-                    "decision_id": decision_id,
-                    "cycle_id": cycle_id,
-                    "symbol": symbol,
-                    "bar_timestamp": bar_timestamp,
-                    "entry_timeframe": entry_timeframe,
-                    "active_strategy_id": active_strategy_id,
-                    "active_decision": active_decision,
-                    "active_terminal_reason": active_terminal_reason,
-                }
-            )
+            if not management_only:
+                pending_research.append(
+                    {
+                        "decision_id": decision_id,
+                        "cycle_id": cycle_id,
+                        "symbol": symbol,
+                        "bar_timestamp": bar_timestamp,
+                        "entry_timeframe": entry_timeframe,
+                        "active_strategy_id": active_strategy_id,
+                        "active_decision": active_decision,
+                        "active_terminal_reason": active_terminal_reason,
+                    }
+                )
             symbol_result.update(
                 {
                     "status": "completed",

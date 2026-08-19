@@ -464,6 +464,118 @@ def test_generic_scheduler_payload_cannot_arm_testnet_canary(v2_db, monkeypatch)
     assert captured_requests[0].entry_authority is EntryAuthority.NONE
 
 
+def test_historical_managed_research_symbol_reaches_recovery_cycle_without_ohlcv(v2_db, monkeypatch) -> None:
+    """A scope reduction cannot strand existing XRP/SOL/BNB managed exposure."""
+    now = datetime.now(UTC)
+    session: Session = v2_db()
+    try:
+        session.add(
+            V2ExecutionCycle(
+                cycle_id="legacy-xrp-cycle",
+                symbol="XRP/USDT",
+                timeframe="15m",
+                bar_timestamp=now,
+                execution_mode="BINANCE_TESTNET",
+                fencing_token="legacy-xrp-fence",
+            )
+        )
+        session.add(
+            V2ExecutionDecision(
+                decision_id="legacy-xrp-decision",
+                cycle_id="legacy-xrp-cycle",
+                candidate_key="testnet_sampling_v2",
+                payload={},
+            )
+        )
+        session.flush()
+        session.add(
+            V2ExecutionIntent(
+                intent_id="legacy-xrp-intent",
+                cycle_id="legacy-xrp-cycle",
+                decision_id="legacy-xrp-decision",
+                symbol="XRP/USDT",
+                direction="short",
+                candidate_key="testnet_sampling_v2",
+                candidate_type="SAMPLING",
+                execution_mode="BINANCE_TESTNET",
+                decision_bar_timestamp=now,
+                state="FILLED",
+            )
+        )
+        session.flush()
+        session.add(
+            V2ExchangeOrder(
+                order_record_id="legacy-xrp-order",
+                intent_id="legacy-xrp-intent",
+                client_order_id="legacy-xrp-client",
+                exchange_order_id="legacy-xrp-exchange-order",
+                quantity=Decimal("10"),
+                leverage=1,
+                average_fill_price=Decimal("1"),
+                filled_quantity=Decimal("10"),
+                trade_ids={"trade_ids": ["legacy-xrp-trade"]},
+                created_at=now,
+            )
+        )
+        session.flush()
+        session.add(
+            V2ManagedPosition(
+                position_id="legacy-xrp-position",
+                intent_id="legacy-xrp-intent",
+                order_record_id="legacy-xrp-order",
+                symbol="XRP/USDT",
+                direction="short",
+                execution_mode="BINANCE_TESTNET",
+                quantity=Decimal("10"),
+                entry_price=Decimal("1"),
+                entry_fee=Decimal("0"),
+                state="PROTECTED",
+                projected_at=now,
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.resolve_engine_activation",
+        lambda _settings: EngineActivationConfig(
+            v2_activation=EngineActivation.ACTIVE,
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            allow_legacy_writer=False,
+            warnings=[],
+        ),
+    )
+    captured_requests = []
+
+    def fake_cycle(request, _adapter):
+        captured_requests.append(request)
+        return SimpleNamespace(
+            funnel_payload={"terminal_stage": "NO_CANDIDATE", "reason_code": "test"},
+            reconciliation_status=SimpleNamespace(value="HEALTHY"),
+            entry_submitted=False,
+            errors=[],
+        )
+
+    monkeypatch.setattr("services.execution.v2_scheduler_entry.run_automated_trading_cycle", fake_cycle)
+
+    def unavailable_only_for_legacy_symbol(symbol: str, _timeframe: str) -> TimeframeView:
+        if symbol == "XRP/USDT":
+            raise RuntimeError("retired research feed")
+        return _bars()
+
+    result = execute_v2_automated_trading_cycles(
+        {"symbols": ["BTC/USDT"], "interval_seconds": 60, "scheduler_instance_id": "legacy-xrp-recovery"},
+        adapter_factory=_fake_adapter,
+        timeframe_loader=unavailable_only_for_legacy_symbol,
+    )
+
+    assert result["status"] in {"completed", "partial_failure"}
+    managed = next(request for request in captured_requests if request.symbol == "XRP/USDT")
+    assert managed.entry_authority is EntryAuthority.NONE
+    assert managed.entry_timeframe.bars == ()
+
+
 def test_v2_scheduler_uses_operator_profile_after_next_cycle_activation(v2_db, monkeypatch) -> None:
     """S-201/S-202/S-203: API-owned profile becomes V2's next-cycle input."""
     session: Session = v2_db()
