@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -17,10 +18,9 @@ from pathlib import Path
 from typing import Any
 
 from services.research.exit_policy_shadow.contracts import Bar
-from services.research.exit_policy_shadow.loader import build_entry_context, load_bars, load_real_entries
+from services.research.exit_policy_shadow.loader import build_entry_context, load_bars
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT = ROOT / "docs/audits/2026-08-16-runtime-p1-parity.json"
 DEFAULT_DATABASE = ROOT / ".local_paper_console.db"
 DEFAULT_OUTPUT = ROOT / ".local/trade-lifecycle-forensics.json"
 DEFAULT_MARKDOWN = ROOT / ".local/trade-lifecycle-forensics.md"
@@ -44,6 +44,138 @@ def decimal(value: Any) -> Decimal:
 def parse_datetime(value: Any) -> datetime:
     parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def load_authoritative_closed_episodes(database_path: Path) -> list[dict[str, Any]]:
+    """Read every closed automatic V2 position from the execution facts.
+
+    The cohort is deliberately derived from the V2 intent, fill, position and
+    protection tables, rather than from a hand-maintained parity audit.  A
+    historical ``exit:*:MANUAL_REDUCE_ONLY`` intent is an accounting recovery,
+    not an automatic strategy episode, and is excluded.  Missing receipts stay
+    in the report as incomplete evidence instead of being invented from local
+    PnL or a static fixture.
+    """
+    uri = f"file:{database_path.resolve().as_posix()}?mode=ro"
+    connection = sqlite3.connect(uri, uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        records = connection.execute(
+            """
+            WITH entry_fills AS (
+                SELECT
+                    intent_id,
+                    MIN(exchange_event_time) AS entry_time,
+                    SUM(filled_quantity) AS entry_filled_quantity,
+                    SUM(filled_quantity * fill_price) / SUM(filled_quantity) AS entry_fill_price,
+                    SUM(COALESCE(commission, 0)) AS entry_fill_commission
+                FROM v2_exchange_fills
+                WHERE reduce_only = 0
+                GROUP BY intent_id
+            ), exit_fills AS (
+                SELECT
+                    intent_id,
+                    MAX(exchange_event_time) AS exit_time,
+                    SUM(filled_quantity) AS exit_filled_quantity,
+                    SUM(filled_quantity * fill_price) / SUM(filled_quantity) AS exit_fill_price,
+                    SUM(COALESCE(commission, 0)) AS exit_fill_commission
+                FROM v2_exchange_fills
+                WHERE reduce_only = 1
+                GROUP BY intent_id
+            )
+            SELECT
+                mp.position_id,
+                mp.symbol,
+                mp.direction,
+                mp.quantity,
+                mp.entry_price,
+                mp.entry_fee,
+                mp.closed_at,
+                mp.realized_pnl,
+                i.candidate_key,
+                i.candidate_type,
+                i.decision_bar_timestamp,
+                entry_fill.entry_fill_price,
+                entry_fill.entry_fill_commission,
+                entry_fill.entry_time,
+                protection.stop_loss_price,
+                protection.take_profit_price,
+                protection.stop_exchange_order_id,
+                protection.tp_exchange_order_id,
+                json_extract(close_event.event_payload, '$.reason') AS exit_reason,
+                json_extract(close_event.event_payload, '$.exchange_order_id') AS exit_exchange_order_id,
+                exit_fill.exit_fill_price,
+                exit_fill.exit_fill_commission,
+                exit_fill.exit_time
+            FROM v2_managed_positions AS mp
+            JOIN v2_execution_intents AS i ON i.intent_id = mp.intent_id
+            LEFT JOIN entry_fills AS entry_fill ON entry_fill.intent_id = i.intent_id
+            LEFT JOIN v2_protection_records AS protection ON protection.protection_id = (
+                SELECT protection_candidate.protection_id
+                FROM v2_protection_records AS protection_candidate
+                WHERE protection_candidate.position_id = mp.position_id
+                ORDER BY protection_candidate.created_at DESC, protection_candidate.protection_id DESC
+                LIMIT 1
+            )
+            LEFT JOIN v2_execution_events AS close_event ON close_event.event_id = (
+                SELECT event_candidate.event_id
+                FROM v2_execution_events AS event_candidate
+                WHERE event_candidate.aggregate_id = mp.position_id
+                  AND event_candidate.aggregate_type = 'POSITION'
+                  AND event_candidate.event_type IN ('PositionClosed', 'QuarantinedProjectionCorrectedFromConfirmedExit')
+                ORDER BY event_candidate.occurred_at DESC, event_candidate.event_id DESC
+                LIMIT 1
+            )
+            LEFT JOIN exit_fills AS exit_fill
+                ON exit_fill.intent_id = json_extract(close_event.event_payload, '$.exit_intent_id')
+            WHERE mp.state = 'CLOSED'
+              AND i.candidate_key NOT LIKE 'exit:%'
+            ORDER BY entry_fill.entry_time ASC, mp.position_id ASC
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+
+    episodes: list[dict[str, Any]] = []
+    for record in records:
+        entry_time = record["entry_time"]
+        exit_time = record["exit_time"]
+        exit_reason = str(record["exit_reason"] or "UNKNOWN_EXIT")
+        complete = entry_time is not None and exit_time is not None and record["stop_loss_price"] is not None
+        episodes.append(
+            {
+                "position_id": record["position_id"],
+                "symbol": record["symbol"],
+                "direction": record["direction"],
+                "quantity": str(record["quantity"]),
+                "entry_price": str(record["entry_fill_price"] or record["entry_price"]),
+                "entry_time": entry_time,
+                "exit_time": exit_time,
+                "decision_bar": record["decision_bar_timestamp"],
+                "candidate_key": record["candidate_key"],
+                "candidate_type": record["candidate_type"],
+                "initial_stop": str(record["stop_loss_price"]) if record["stop_loss_price"] is not None else None,
+                "initial_target": str(record["take_profit_price"]) if record["take_profit_price"] is not None else None,
+                "exit_reason": exit_reason,
+                "exit_price": str(record["exit_fill_price"]) if record["exit_fill_price"] is not None else None,
+                "entry_fee_usdt": str(record["entry_fill_commission"] or record["entry_fee"] or 0),
+                "exit_fee_usdt": str(record["exit_fill_commission"] or 0),
+                "realized_net_pnl_usdt": str(record["realized_pnl"]) if record["realized_pnl"] is not None else None,
+                "funding_usdt": None,
+                "slippage_usdt": None,
+                "evidence_status": "COMPLETE" if complete else "INCOMPLETE_EXECUTION_RECEIPT",
+                "missing_evidence": [
+                    name
+                    for name, value in (
+                        ("entry_fill", entry_time),
+                        ("exit_fill", exit_time),
+                        ("initial_stop", record["stop_loss_price"]),
+                    )
+                    if value is None
+                ],
+            }
+        )
+    return episodes
 
 
 def stop_floor_evidence(*, entry_price: Decimal, atr14: Decimal | None, runtime_stop: Decimal) -> dict[str, Any]:
@@ -129,7 +261,7 @@ def recovery_windows(
 def classify_taxonomy(*, exit_reason: str, floor_source: str, recovery: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """Apply labels only where the 4h evidence is complete."""
     if exit_reason in {"TARGET", "TAKE_PROFIT"}:
-        return {"primary": "WIN_TARGET", "labels": [], "confidence": "HIGH"}
+        return {"primary": "GOOD_WIN", "labels": [], "confidence": "HIGH"}
     if exit_reason not in {"STOP", "HARD_STOP"}:
         return {"primary": "UNCLASSIFIED_EXIT", "labels": [], "confidence": "LOW"}
     four_hour = recovery.get("4h", {})
@@ -171,26 +303,35 @@ def _sample_matches(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
-def build_report(*, input_path: Path, database_path: Path) -> dict[str, Any]:
-    input_path = input_path.resolve()
+def build_report(*, database_path: Path) -> dict[str, Any]:
     database_path = database_path.resolve()
-    parity = json.loads(input_path.read_text(encoding="utf-8"))
-    decision_bars = {
-        entry.position_id: entry.decision_bar_timestamp for entry in load_real_entries(database_path.resolve())
-    }
+    sources = load_authoritative_closed_episodes(database_path)
     rows: list[dict[str, Any]] = []
     taxonomy_counts: Counter[str] = Counter()
     floor_counts: Counter[str] = Counter()
-    for source in parity.get("rows", []):
-        if source.get("status") != "OK":
+    incomplete_position_ids: list[str] = []
+    for source in sources:
+        if source["evidence_status"] != "COMPLETE":
+            incomplete_position_ids.append(str(source["position_id"]))
+            taxonomy = {"primary": "EXECUTION_FAILURE", "labels": [], "confidence": "LOW"}
+            taxonomy_counts[str(taxonomy["primary"])] += 1
+            rows.append(
+                {
+                    **source,
+                    "stop_floor": {"status": "INSUFFICIENT_EVIDENCE", "source": "UNKNOWN"},
+                    "excursions": {"status": "INSUFFICIENT_EVIDENCE"},
+                    "post_exit_recovery": {},
+                    "taxonomy": taxonomy,
+                }
+            )
             continue
         entry_price = decimal(source.get("entry_price"))
         quantity = decimal(source.get("quantity"))
-        runtime_stop = decimal(source.get("runtime_initial_stop"))
+        runtime_stop = decimal(source.get("initial_stop"))
         risk_per_unit = abs(entry_price - runtime_stop)
         entry_time = parse_datetime(source["entry_time"])
-        exit_time = parse_datetime(source["r3_actual_exchange"]["exit_time"])
-        decision_bar = decision_bars.get(source["position_id"])
+        exit_time = parse_datetime(source["exit_time"])
+        decision_bar = parse_datetime(source["decision_bar"]) if source.get("decision_bar") else None
         context = (
             build_entry_context(database_path, symbol=source["symbol"], decision_bar=decision_bar)
             if decision_bar is not None
@@ -226,13 +367,13 @@ def build_report(*, input_path: Path, database_path: Path) -> dict[str, Any]:
             exit_time=exit_time,
             bars=post_exit_bars,
         )
-        exit_reason = str(source["r3_actual_exchange"].get("exit_reasons", ["UNKNOWN"])[0])
+        exit_reason = str(source["exit_reason"])
         taxonomy = classify_taxonomy(
             exit_reason=exit_reason,
             floor_source=str(floor.get("source")),
             recovery=recovery,
         )
-        taxonomy_counts[taxonomy["primary"]] += 1
+        taxonomy_counts[str(taxonomy["primary"])] += 1
         floor_counts[str(floor.get("source"))] += 1
         rows.append(
             {
@@ -240,14 +381,20 @@ def build_report(*, input_path: Path, database_path: Path) -> dict[str, Any]:
                 "symbol": source["symbol"],
                 "direction": source["direction"],
                 "entry_time": source["entry_time"],
-                "exit_time": source["r3_actual_exchange"]["exit_time"],
+                "exit_time": source["exit_time"],
                 "entry_price": str(entry_price),
                 "quantity": str(quantity),
                 "exit_reason": exit_reason,
                 "decision_bar": decision_bar.isoformat() if decision_bar is not None else None,
-                "realized_net_pnl_usdt": source["r3_actual_exchange"].get("net_pnl_usdt"),
+                "candidate_key": source["candidate_key"],
+                "candidate_type": source["candidate_type"],
+                "realized_net_pnl_usdt": source["realized_net_pnl_usdt"],
+                "entry_fee_usdt": source["entry_fee_usdt"],
+                "exit_fee_usdt": source["exit_fee_usdt"],
+                "funding_usdt": source["funding_usdt"],
+                "slippage_usdt": source["slippage_usdt"],
                 "initial_stop": str(runtime_stop),
-                "initial_target": source.get("runtime_initial_target"),
+                "initial_target": source.get("initial_target"),
                 "stop_floor": floor,
                 "excursions": excursions,
                 "post_exit_recovery": recovery,
@@ -259,14 +406,15 @@ def build_report(*, input_path: Path, database_path: Path) -> dict[str, Any]:
         "status": "READ_ONLY",
         "holdout_accessed": False,
         "strategy_deployment": "BLOCKED",
-        "source_parity_audit": str(input_path.relative_to(ROOT)),
+        "cohort": "ALL_CLOSED_V2_MANAGED_AUTOMATIC_POSITIONS",
         "database": str(database_path.relative_to(ROOT)),
         "episode_count": len(rows),
+        "incomplete_position_ids": incomplete_position_ids,
         "taxonomy_counts": dict(sorted(taxonomy_counts.items())),
         "stop_floor_counts": dict(sorted(floor_counts.items())),
         "requested_sample_check": _sample_matches(rows),
         "limitations": [
-            "The current SQLite cohort is authoritative only for the rows present in the parity audit.",
+            "The cohort is derived from the read-only V2 execution facts, not a static parity audit.",
             "Recovery is classified only when 1m bars cover the full four-hour horizon.",
             "The 0.35% floor is evidence of geometry source, not evidence that widening it is superior.",
             "No replay variant was deployed or armed from this report.",
@@ -277,12 +425,11 @@ def build_report(*, input_path: Path, database_path: Path) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--markdown", type=Path, default=DEFAULT_MARKDOWN)
     args = parser.parse_args()
-    report = build_report(input_path=args.input, database_path=args.database)
+    report = build_report(database_path=args.database)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     lines = [
