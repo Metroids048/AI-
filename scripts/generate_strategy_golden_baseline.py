@@ -421,22 +421,24 @@ def _load_coverage_bounds(database_url: str, *, closed_through: datetime) -> lis
 
 
 def _active_strategy(source_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    from services.automated_trading.application.canonical_strategy_manifest import load_canonical_strategy_manifest
+
     manifest_path = source_root / ACTIVE_MANIFEST
     manifest_bytes = manifest_path.read_bytes()
-    manifest = json.loads(manifest_bytes)
-    candidate_id = str(manifest["candidate_id"])
+    manifest = load_canonical_strategy_manifest(manifest_path)
+    candidate_id = manifest.strategy_id
     candidate = get_candidate(candidate_id)
     config = candidate.get_config()
     rules = StrategyRules(**config)
     payload = {
         "manifest_path": ACTIVE_MANIFEST.as_posix(),
         "manifest_sha256": _sha256_bytes(manifest_bytes),
-        "manifest": manifest,
+        "manifest": json.loads(manifest_bytes),
         "candidate_id": candidate_id,
-        "candidate_version": candidate.version,
+        "candidate_version": manifest.strategy_version,
         "strategy_rules": rules.model_dump(mode="json"),
         "current_rules_hash": strategy_rules_hash(rules),
-        "manifest_rules_hash_matches_current_config": (str(manifest.get("rules_hash")) == strategy_rules_hash(rules)),
+        "manifest_rules_hash_matches_current_config": (manifest.rules_hash == strategy_rules_hash(rules)),
     }
     return payload, config
 
@@ -763,7 +765,7 @@ def generate_golden_baseline(
             "strategy_key": active_strategy["manifest"]["strategy_key"],
             "candidate_id": active_strategy["candidate_id"],
             "candidate_version": active_strategy["candidate_version"],
-            "eligible_symbols": active_strategy["manifest"].get("eligible_symbols", []),
+            "eligible_execution_symbols": active_strategy["manifest"].get("eligible_execution_symbols", []),
             "manifest_rules_hash_matches_current_config": active_strategy["manifest_rules_hash_matches_current_config"],
         },
         "execution_eligible": False,

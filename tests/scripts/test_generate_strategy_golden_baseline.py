@@ -299,11 +299,21 @@ def test_sparse_database_freezes_insufficient_baseline_without_reading_holdout_r
     (manifest_dir / "auto_paper_mature_templates.json").write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 4,
                 "strategy_key": "auto_paper_mature_templates",
-                "candidate_id": "trend_momentum_v1",
-                "rules_hash": "legacy-rules-hash",
-                "eligible_symbols": list(SYMBOLS),
+                "strategy_id": "trend_momentum_v1",
+                "strategy_version": "1.0.0",
+                "rules_hash": "legacy-rules-hash".ljust(64, "0"),
+                "commit_sha": "a" * 40,
+                "configured_execution_scope": list(SYMBOLS),
+                "eligible_execution_symbols": [],
+                "research_symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"],
+                "validation_evidence": {"conclusion": "STRATEGY_NOT_READY"},
+                "golden_behavior_ref": None,
+                "authorization_state": "PENDING",
+                "approval": {"approved_by": None, "approved_at": None, "rationale": None},
+                "config_snapshot_hash": None,
+                "effective_at": "2026-07-29T00:00:00+00:00",
             }
         ),
         encoding="utf-8",
@@ -352,11 +362,21 @@ def test_generation_does_not_invent_common_cutoff_when_required_series_is_missin
     (manifest_dir / "auto_paper_mature_templates.json").write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 4,
                 "strategy_key": "auto_paper_mature_templates",
-                "candidate_id": "trend_momentum_v1",
-                "rules_hash": "legacy-rules-hash",
-                "eligible_symbols": list(SYMBOLS),
+                "strategy_id": "trend_momentum_v1",
+                "strategy_version": "1.0.0",
+                "rules_hash": "legacy-rules-hash".ljust(64, "0"),
+                "commit_sha": "a" * 40,
+                "configured_execution_scope": list(SYMBOLS),
+                "eligible_execution_symbols": [],
+                "research_symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"],
+                "validation_evidence": {"conclusion": "STRATEGY_NOT_READY"},
+                "golden_behavior_ref": None,
+                "authorization_state": "PENDING",
+                "approval": {"approved_by": None, "approved_at": None, "rationale": None},
+                "config_snapshot_hash": None,
+                "effective_at": "2026-07-29T00:00:00+00:00",
             }
         ),
         encoding="utf-8",
