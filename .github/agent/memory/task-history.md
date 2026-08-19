@@ -1722,3 +1722,12 @@
 - 只读 forensics：30 episodes，30/30 stop floor，15 TARGET，8 DIRECTION_FAILURE，7 数据不足；指定 ETH/SOL 精确样本不在当前 cohort，未把假设写成事实。
 - 验证：Runtime 核心复验 57 passed；Ruff PASS；mypy 258 files PASS；前端 114 tests/build PASS；full pytest 1710 passed / 16 skipped / 1 pre-existing daily-review failure。
 - Gate：Runtime Deployment BLOCKED（BTC baseline 0.5346 与交易所空仓不匹配、无真实 ACTIVE closeout、Chrome tooling blocked）；Strategy Analysis READY；Strategy Deployment BLOCKED。
+
+## [TASK-2026-08-19-BOUNDED-STRATEGY-RESEARCH-NO-VALIDATED-EDGE]
+
+- 已用 append-only、结果前注册的试验登记替代无限候选迭代：最多 4 个假设家族、每家族 2 个变体、共 8 个；每条记录锁定假设、数据集划分、此前试验数、理据、精确变更和 Final Holdout 访问状态。
+- 权威 V2 lifecycle forensics 现从 immutable fill receipts 重建 gross PnL 和 commission。无法逐仓归属的 funding 明确为 unavailable 或 account-level ambiguous；仅在有持久 immutable reference price 时才报告 execution slippage。
+- 对 41 个已平 V2 episode 的归因中，direction failure 居首（8/41）；证据不支持加宽止损、E1 参数变体或按 symbol/side 特化。仅两个有证据的 Development 假设为 volatility-expansion regime selection 和 breakout-retest entry structure。
+- 两个 BTC/ETH Development replay 均失败：`volatility_expansion_v1` PF 0.9633、expectancy -0.000318、max drawdown 0.7044；`breakout_retest_v1` aggregate PF 1.0045，但 BTC PF 0.7485、expectancy -0.001717。成本观测仍不完整；未读取 Validation 和一次性 Final Holdout。
+- 结论为 `NO_VALIDATED_EDGE`，entry authority 有意保持 `NONE_PENDING_PRODUCTION_STRATEGY`。没有用参数钓鱼填满数字预算：剩余家族在锁定政策下均无可辩护证据。后续必须使用新的独立数据和新的 sealed registry，禁止复用该 Development 集优化。
+- 提交 `402140f` 已推送至 `origin/backup/2026-08-10-wip`。验证：Ruff PASS；mypy 262 source files PASS；full pytest 1769 passed / 7 skipped。
