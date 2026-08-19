@@ -13,8 +13,10 @@
 
 ## Active Research Scope
 
-- Markets: BTC/USDT, ETH/USDT, SOL/USDT perpetuals.
-- Scheduled lanes: evidence-gated directional research and local-only signal observation.
+- Canonical strategy truth: [`docs/evidence/active-manifests/auto_paper_mature_templates.json`](docs/evidence/active-manifests/auto_paper_mature_templates.json).
+- Configured automatic execution boundary: BTC/USDT, ETH/USDT only; an unapproved Manifest produces no Production entries.
+- Research coverage: BTC/USDT, ETH/USDT, SOL/USDT, XRP/USDT, BNB/USDT. Research coverage never grants execution permission.
+- Testnet Canary is an explicit execution-continuity tool, not a Production Strategy and not strategy-performance evidence.
 - Validation order: historical OOS replay -> Paper/Binance Simulation -> small-capital live only after renewed validation.
 - Mainnet remains disabled.
 

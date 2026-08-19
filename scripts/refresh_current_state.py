@@ -31,6 +31,8 @@ STATE_FILE = REPO_ROOT / "CURRENT_STATE.md"
 
 BEGIN_MARKER = "<!-- BEGIN GENERATED: pytest-verification -->"
 END_MARKER = "<!-- END GENERATED: pytest-verification -->"
+MANIFEST_BEGIN_MARKER = "<!-- BEGIN GENERATED: canonical-strategy-manifest -->"
+MANIFEST_END_MARKER = "<!-- END GENERATED: canonical-strategy-manifest -->"
 
 DEFAULT_PYTEST_ARGS = ("-q", "-m", "not integration")
 
@@ -97,11 +99,45 @@ def render_block(result: SuiteResult, *, now: datetime) -> str:
     )
 
 
-def splice(text: str, block: str) -> str:
+def render_canonical_strategy_block() -> str:
+    """Render strategy truth from the only active manifest source."""
+    from services.automated_trading.application.canonical_strategy_manifest import load_canonical_strategy_manifest
+
+    manifest = load_canonical_strategy_manifest(
+        REPO_ROOT / "docs" / "evidence" / "active-manifests" / "auto_paper_mature_templates.json"
+    )
+    return "\n".join(
+        [
+            MANIFEST_BEGIN_MARKER,
+            "## Canonical Strategy Runtime Truth",
+            "",
+            f"- Strategy: `{manifest.strategy_id}` / `{manifest.strategy_version}`",
+            f"- Rules Hash: `{manifest.rules_hash}`",
+            f"- Commit: `{manifest.commit_sha}`",
+            f"- Configured execution scope: {', '.join(manifest.configured_execution_scope)}",
+            "- Eligible execution symbols: "
+            + (", ".join(manifest.eligible_execution_symbols) if manifest.eligible_execution_symbols else "none"),
+            f"- Research scope: {', '.join(manifest.research_symbols)}",
+            f"- Authorization: `{manifest.authorization_state}`",
+            f"- Validation conclusion: `{manifest.validation_evidence.get('conclusion', 'UNKNOWN')}`",
+            "",
+            "This block is generated from the canonical strategy manifest; do not edit it by hand.",
+            MANIFEST_END_MARKER,
+        ]
+    )
+
+
+def splice(
+    text: str,
+    block: str,
+    *,
+    begin_marker: str = BEGIN_MARKER,
+    end_marker: str = END_MARKER,
+) -> str:
     """Replace an existing generated block, or append one if absent."""
 
     pattern = re.compile(
-        re.escape(BEGIN_MARKER) + r".*?" + re.escape(END_MARKER),
+        re.escape(begin_marker) + r".*?" + re.escape(end_marker),
         re.DOTALL,
     )
     if pattern.search(text):
@@ -132,7 +168,13 @@ def main() -> int:
         result = parse_junit(args.junit_xml)
 
     original = STATE_FILE.read_text(encoding="utf-8")
-    updated = splice(original, render_block(result, now=datetime.now(UTC)))
+    updated = splice(
+        original,
+        render_canonical_strategy_block(),
+        begin_marker=MANIFEST_BEGIN_MARKER,
+        end_marker=MANIFEST_END_MARKER,
+    )
+    updated = splice(updated, render_block(result, now=datetime.now(UTC)))
 
     if args.check:
         # Compare ignoring the timestamp line, which always moves.

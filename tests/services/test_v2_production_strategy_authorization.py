@@ -74,19 +74,29 @@ def approved_manifest(tmp_path, monkeypatch, candidate_rules) -> tuple[dict, dic
     snapshot = {"strategy_rules": candidate_rules, "execution_profile": {"strategy_lane": "directional"}}
     snapshot_hash = "sha256:immutable-active-snapshot"
     manifest = {
-        "schema_version": 3,
+        "schema_version": 4,
         "strategy_key": AUTO_PAPER_TECHNICAL_KEY,
+        "strategy_id": "trend_momentum_v2_enriched",
+        "strategy_version": "2.0.0",
         "rules_hash": strategy_rules_hash(rules),
-        "production_authorization": {
-            "state": "APPROVED",
-            "candidate_id": "trend_momentum_v2_enriched",
-            "candidate_version": "2.0.0",
-            "rules_hash": strategy_rules_hash(rules),
-            "config_snapshot_hash": snapshot_hash,
-            "eligible_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
-            "validation_evidence_ref": "artifacts/validation/approved-evidence.json",
-            "approval": {"approved_by": "operator@example", "approved_at": "2026-08-12T00:00:00+00:00"},
+        "commit_sha": "a" * 40,
+        "configured_execution_scope": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        "eligible_execution_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
+        "research_symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"],
+        "validation_evidence": {
+            "dataset_hash": "dataset-hash",
+            "report_ref": "artifacts/validation/approved-evidence.json",
+            "conclusion": "APPROVED",
         },
+        "golden_behavior_ref": "artifacts/golden/approved.json",
+        "authorization_state": "APPROVED",
+        "approval": {
+            "approved_by": "operator@example",
+            "approved_at": "2026-08-12T00:00:00+00:00",
+            "rationale": "test fixture",
+        },
+        "config_snapshot_hash": snapshot_hash,
+        "effective_at": "2026-08-12T00:00:00+00:00",
     }
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -110,13 +120,12 @@ def test_research_only_candidate_cannot_authorize_even_with_valid_hashes(approve
     from services.automated_trading.application import production_strategy
 
     manifest = json.loads(production_strategy._manifest_path().read_text(encoding="utf-8"))
-    manifest["production_authorization"]["candidate_id"] = "aggressive_multi_regime_v1"
-    manifest["production_authorization"]["candidate_version"] = "1.0.0"
+    manifest["strategy_id"] = "aggressive_multi_regime_v1"
+    manifest["strategy_version"] = "1.0.0"
     rules = get_candidate("aggressive_multi_regime_v1").get_config()
     strategy_rules = StrategyRules(**rules)
     snapshot["strategy_rules"] = rules
     manifest["rules_hash"] = strategy_rules_hash(strategy_rules)
-    manifest["production_authorization"]["rules_hash"] = strategy_rules_hash(strategy_rules)
     production_strategy._manifest_path().write_text(json.dumps(manifest), encoding="utf-8")
     authorization = resolve_production_authorization(
         snapshot_config=snapshot,
@@ -129,10 +138,10 @@ def test_research_only_candidate_cannot_authorize_even_with_valid_hashes(approve
 @pytest.mark.parametrize(
     ("mutation", "symbol"),
     [
-        (lambda manifest: manifest["production_authorization"].update({"rules_hash": "wrong"}), "BTC/USDT"),
-        (lambda manifest: manifest["production_authorization"].update({"eligible_symbols": ["BTC/USDT"]}), "BTC/USDT"),
-        (lambda manifest: manifest["production_authorization"].update({"config_snapshot_hash": "stale"}), "BTC/USDT"),
-        (lambda manifest: manifest["production_authorization"].update({"state": "PENDING"}), "BTC/USDT"),
+        (lambda manifest: manifest.update({"rules_hash": "wrong"}), "BTC/USDT"),
+        (lambda manifest: manifest.update({"eligible_execution_symbols": ["BTC/USDT"]}), "BTC/USDT"),
+        (lambda manifest: manifest.update({"config_snapshot_hash": "stale"}), "BTC/USDT"),
+        (lambda manifest: manifest.update({"authorization_state": "PENDING"}), "BTC/USDT"),
     ],
 )
 def test_invalid_production_authorization_fails_closed(approved_manifest, mutation, symbol) -> None:
@@ -153,7 +162,7 @@ def test_invalid_production_authorization_fails_closed(approved_manifest, mutati
 
 def test_approved_manifest_with_partial_scope_cannot_authorize_any_execution_symbol(approved_manifest) -> None:
     manifest, snapshot, snapshot_hash = approved_manifest
-    manifest["production_authorization"]["eligible_symbols"] = ["BTC/USDT", "ETH/USDT"]
+    manifest["eligible_execution_symbols"] = ["BTC/USDT"]
     from services.automated_trading.application import production_strategy
 
     production_strategy._manifest_path().write_text(json.dumps(manifest), encoding="utf-8")
@@ -173,7 +182,7 @@ def test_approved_manifest_with_partial_scope_cannot_authorize_any_execution_sym
 
 def test_full_scope_manifest_without_approval_cannot_authorize_any_execution_symbol(approved_manifest) -> None:
     manifest, snapshot, snapshot_hash = approved_manifest
-    manifest["production_authorization"]["state"] = "PENDING"
+    manifest["authorization_state"] = "PENDING"
     from services.automated_trading.application import production_strategy
 
     production_strategy._manifest_path().write_text(json.dumps(manifest), encoding="utf-8")

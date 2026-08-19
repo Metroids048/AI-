@@ -7,8 +7,8 @@ from services.strategy_library.candidates.registry import get_candidate, list_ca
 from shared.models import StrategyRules
 
 
-def test_auto_paper_research_scope_is_fixed_top3() -> None:
-    assert AUTO_PAPER_RESEARCH_SYMBOLS == ("BTC/USDT", "ETH/USDT", "SOL/USDT")
+def test_auto_paper_research_scope_is_fixed_five_symbol_research_universe() -> None:
+    assert AUTO_PAPER_RESEARCH_SYMBOLS == ("BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT")
 
 
 def test_evidence_candidates_have_explicit_role_specific_signal_sets() -> None:
@@ -119,28 +119,15 @@ def test_active_manifest_selects_validated_candidate_and_symbol_subset(tmp_path,
     packaged = json.loads(
         Path("docs/evidence/active-manifests/auto_paper_mature_templates.json").read_text(encoding="utf-8")
     )
-    expected_candidate = packaged["candidate_id"]
+    expected_candidate = packaged["strategy_id"]
     config = get_candidate(expected_candidate).get_config()
     rules = StrategyRules(**config)
-    manifest_dir = tmp_path / "auto_paper_mature_templates"
-    manifest_dir.mkdir()
-    (manifest_dir / "active-manifest.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "candidate_id": expected_candidate,
-                "rules_hash": strategy_rules_hash(rules),
-                "eligible_symbols": ["BTC/USDT", "ETH/USDT", "DOGE/USDT"],
-            }
-        ),
-        encoding="utf-8",
-    )
-
     resolved, symbols = resolve_auto_paper_technical_evidence()
 
     assert resolved["entry_rules"]["candidate_id"] == expected_candidate
-    # DOGE/USDT is outside AUTO_PAPER_RESEARCH_SYMBOLS and must be clamped away.
-    assert symbols == ("BTC/USDT", "ETH/USDT")
+    # A PENDING manifest has no eligible writer scope even though it defines
+    # the configured BTC/ETH execution boundary.
+    assert symbols == ()
     # The packaged manifest hash must match the packaged candidate config, or
     # bootstrap silently falls back to the disabled conservative rules.
     assert packaged["rules_hash"] == strategy_rules_hash(rules)

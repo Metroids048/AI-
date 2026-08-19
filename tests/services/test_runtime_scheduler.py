@@ -243,7 +243,7 @@ def test_active_startup_contract_rejects_canary_without_sampling_fallback() -> N
 
 
 def test_active_strategy_identity_requires_full_execution_scope_approval(monkeypatch) -> None:
-    """Five-symbol validation must never upgrade a narrower approval."""
+    """A one-symbol approval must never upgrade the BTC/ETH execution scope."""
     from services.automated_trading.application.production_strategy import ProductionAuthorization
     from services.execution import scheduler as scheduler_module
 
@@ -284,7 +284,7 @@ def test_active_strategy_identity_requires_full_execution_scope_approval(monkeyp
     monkeypatch.setattr(strategy_library, "PaperRunRepository", _PaperRunRepository)
     monkeypatch.setattr(strategy_library, "ConfigSnapshotRepository", _ConfigSnapshotRepository)
 
-    approved_symbols = {"BTC/USDT", "ETH/USDT"}
+    approved_symbols = {"BTC/USDT"}
     monkeypatch.setattr(
         "services.automated_trading.application.production_strategy.resolve_production_authorization",
         lambda *, snapshot_config, snapshot_hash, symbol: ProductionAuthorization(

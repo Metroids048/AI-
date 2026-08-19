@@ -7,7 +7,6 @@ into a V2 ``TradeCandidate``; execution remains owned by the existing V2 cycle.
 
 from __future__ import annotations
 
-import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -16,6 +15,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from services.automated_trading.application.canonical_strategy_manifest import (
+    ManifestValidationError,
+    load_canonical_strategy_manifest,
+)
 from services.automated_trading.domain.candidates import CandidateLane, TradeCandidate
 from services.automated_trading.domain.enums import V2CandidateType
 from services.execution.bootstrap import AUTO_PAPER_EXECUTION_SYMBOLS, AUTO_PAPER_TECHNICAL_KEY, CANONICAL_MANIFEST_ROOT
@@ -117,30 +120,29 @@ def resolve_production_authorization(
     bound to the same rules and snapshot can grant entry authority.
     """
     try:
-        manifest = json.loads(_manifest_path().read_text(encoding="utf-8"))
-        authorization = manifest.get("production_authorization")
-        if not isinstance(authorization, dict) or authorization.get("state") != "APPROVED":
+        manifest = load_canonical_strategy_manifest(_manifest_path())
+        if not manifest.is_approved:
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
-        candidate_id = str(authorization["candidate_id"])
+        candidate_id = manifest.strategy_id
         candidate = get_candidate(candidate_id)
         if candidate_id == "aggressive_multi_regime_v1" and (
             candidate.lifecycle_state != "APPROVED" or not candidate.execution_eligible
         ):
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
-        if str(authorization.get("candidate_version")) != candidate.version:
+        if manifest.strategy_version != candidate.version:
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
-        approved_symbols = {str(value) for value in authorization.get("eligible_symbols", [])}
+        approved_symbols = set(manifest.eligible_execution_symbols)
         if approved_symbols != set(AUTO_PAPER_EXECUTION_SYMBOLS) or symbol not in approved_symbols:
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
-        evidence_ref = authorization.get("validation_evidence_ref")
-        approval = authorization.get("approval")
-        if not isinstance(evidence_ref, str) or not evidence_ref.strip() or not isinstance(approval, dict):
+        evidence_ref = manifest.validation_evidence.get("report_ref")
+        approval = manifest.approval
+        if not isinstance(evidence_ref, str) or not evidence_ref.strip():
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
         approved_by = approval.get("approved_by")
         approved_at = approval.get("approved_at")
         if not isinstance(approved_by, str) or not approved_by or not isinstance(approved_at, str) or not approved_at:
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
-        if not snapshot_hash or str(authorization.get("config_snapshot_hash")) != snapshot_hash:
+        if not snapshot_hash or manifest.config_snapshot_hash != snapshot_hash:
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
         if not isinstance(snapshot_config, dict):
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
@@ -149,9 +151,7 @@ def resolve_production_authorization(
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
         rules = StrategyRules(**raw_rules)
         rules_hash = strategy_rules_hash(rules)
-        if rules_hash != str(authorization.get("rules_hash")):
-            return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
-        if rules_hash != str(manifest.get("rules_hash")):
+        if rules_hash != manifest.rules_hash:
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
         if str(rules.entry_rules.get("candidate_id")) != candidate_id:
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
@@ -165,7 +165,7 @@ def resolve_production_authorization(
             approval_identity=approved_by,
             approval_time=approved_at,
         )
-    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+    except (KeyError, OSError, TypeError, ValueError, ManifestValidationError):
         return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
 
 

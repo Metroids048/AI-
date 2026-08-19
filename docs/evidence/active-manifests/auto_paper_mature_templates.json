@@ -1,23 +1,28 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "strategy_key": "auto_paper_mature_templates",
-  "candidate_id": "trend_momentum_v2_enriched",
+  "strategy_id": "trend_momentum_v2_enriched",
+  "strategy_version": "2.0.0",
   "rules_hash": "1da72b9aaabb3b412f8c0cbbfb6c8658df1a0c773f0b80e7c39e6f92d24c5e78",
-  "eligible_symbols": [
-    "BTC/USDT",
-    "ETH/USDT"
-  ],
-  "computed_at": "2026-08-07T15:20:00.000000+00:00",
-  "report_path": null,
-  "change_rationale": "2026-08-07: switch from trend_momentum_v1 (single MACD entry, zero signals in 48h testnet run) to trend_momentum_v2_enriched (4 entry signals: macd, price_action, dow_trend, bollinger) to address signal scarcity while retaining 4h EMA+ADX trend filter.",
-  "production_authorization": {
-    "state": "PENDING",
-    "candidate_id": "trend_momentum_v2_enriched",
-    "candidate_version": "2.0.0",
-    "rules_hash": "1da72b9aaabb3b412f8c0cbbfb6c8658df1a0c773f0b80e7c39e6f92d24c5e78",
-    "config_snapshot_hash": null,
-    "eligible_symbols": ["BTC/USDT", "ETH/USDT"],
-    "validation_evidence_ref": null,
-    "approval": {"approved_by": null, "approved_at": null}
-  }
+  "commit_sha": "32f448875c0bf0512bcfa50181f6d6fbd4ff3ad3",
+  "configured_execution_scope": ["BTC/USDT", "ETH/USDT"],
+  "eligible_execution_symbols": [],
+  "research_symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"],
+  "validation_evidence": {
+    "dataset_hash": null,
+    "walk_forward_oos_report": null,
+    "cost_model_ref": null,
+    "report_ref": null,
+    "metrics": null,
+    "conclusion": "STRATEGY_NOT_READY"
+  },
+  "golden_behavior_ref": null,
+  "authorization_state": "PENDING",
+  "approval": {
+    "approved_by": null,
+    "approved_at": null,
+    "rationale": "No candidate has passed the unified OOS, cost, and behavioral promotion gates."
+  },
+  "config_snapshot_hash": null,
+  "effective_at": "2026-08-19T02:15:00+00:00"
 }

@@ -393,6 +393,16 @@ def test_runtime_snapshot_exposes_entry_paused_as_an_explicit_runtime_state(api_
         "promotion_eligible": False,
         "trading_state": "ENTRY_PAUSED",
     }
+    manifest = body["strategy_manifest"]
+    assert manifest["source"] == "CANONICAL_STRATEGY_MANIFEST_V4"
+    assert manifest["value"]["configured_execution_scope"] == ["BTC/USDT", "ETH/USDT"]
+    assert manifest["value"]["research_symbols"] == [
+        "BTC/USDT",
+        "ETH/USDT",
+        "SOL/USDT",
+        "XRP/USDT",
+        "BNB/USDT",
+    ]
 
 
 def test_runtime_decisions_reads_persisted_v2_canary_fact(api_client, db_session) -> None:

@@ -2,6 +2,21 @@
 
 Last updated: 2026-07-24 Asia/Shanghai
 
+<!-- BEGIN GENERATED: canonical-strategy-manifest -->
+## Canonical Strategy Runtime Truth
+
+- Strategy: `trend_momentum_v2_enriched` / `2.0.0`
+- Rules Hash: `1da72b9aaabb3b412f8c0cbbfb6c8658df1a0c773f0b80e7c39e6f92d24c5e78`
+- Commit: `32f448875c0bf0512bcfa50181f6d6fbd4ff3ad3`
+- Configured execution scope: BTC/USDT, ETH/USDT
+- Eligible execution symbols: none
+- Research scope: BTC/USDT, ETH/USDT, SOL/USDT, XRP/USDT, BNB/USDT
+- Authorization: `PENDING`
+- Validation conclusion: `STRATEGY_NOT_READY`
+
+This block is generated from the canonical strategy manifest; do not edit it by hand.
+<!-- END GENERATED: canonical-strategy-manifest -->
+
 ## Authority
 
 Current truth is resolved in this order: current code and tests, the active runtime database and scheduler state, this file, architecture/ADR documents, then archived incident material. Files under `docs/archive/` and `scripts/archive/` are historical evidence only and do not represent the current system state; AI collaborators must not treat their diagnostic conclusions as current facts.
@@ -10,10 +25,9 @@ Current truth is resolved in this order: current code and tests, the active runt
 
 - **Execution authority:** Binance USDT-M Testnet / Binance Simulation is the authoritative execution source for the automated directional lane. SQLite/Paper records are a post-execution projection and audit/recovery cache.
 - Automatic execution universe: exactly `BTC/USDT`, `ETH/USDT`. Research universes do not grant execution permission.
-- Production desktop path: `一键启动.cmd` -> `launch-paper-console.ps1` -> API-only service on 8016 + independent `RuntimeScheduler` -> `run_all_paper_runtime_cycles`.
-- **2026-07-31 engine phase correction:** runtime inspection found that the scheduler started before commit `672adfe` was still running the legacy jobs; the standard launcher now pins `v2_shadow` so the next restart cannot silently cut execution over to the sampling-only V2 lane.
-- In `v2_shadow`, legacy `auto_paper_mature_templates` remains the automated decision/writer path while Binance Testnet remains execution truth. V2 `testnet_sampling_v2` persists shadow cycle/decision terminals only and must not create execution intents, submit orders, or project fills.
-- `trend_momentum_v1` remains the committed active-manifest primary candidate, but the latest strategy-readiness baseline rejected the legacy portfolio against the promotion gates; do not describe it as validated profitability. Restore `v2_active` only after the V2 `PRODUCTION` lane has equivalent signal/Gatekeeper behavior and passes Tasks 15-17 in the final rebuild plan.
+- Production desktop path: `一键启动.cmd` -> `launch-paper-console.ps1` -> API + independent `RuntimeScheduler` -> `automated_trading_v2_cycle`.
+- The V2 execution chain is the only automatic writer. Legacy writers are disabled. `testnet_sampling_v2` is an explicit Testnet Canary continuity lane, never the active Production Strategy and never strategy-performance evidence.
+- The generated Canonical Strategy block above is the only current strategy/scope/authorization claim in this document. All older strategy performance narratives below are historical evidence, not runtime authority.
 - Directional lane: `auto_paper_mature_templates`. When the safe Testnet settings, exact-scope acceptance, OOS/config evidence, Gatekeeper, and runtime readiness checks pass, its mode is `binance_simulation_first`.
 - Exchange-first order lifecycle: strategy/Gatekeeper authorization -> Binance submit/ack/fill -> local order and position projection using exchange average fill price and filled quantity. Local `accepted` is not a fill.
 - Exchange-first close lifecycle: Binance ReduceOnly close/ack/fill -> local position reduction/closure and realized-PnL projection using the exchange exit fill.

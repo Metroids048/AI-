@@ -157,29 +157,23 @@ AUTO_PAPER_TECHNICAL_RULES: dict[str, Any] = {
 
 
 def resolve_auto_paper_technical_evidence() -> tuple[dict[str, Any], tuple[str, ...]]:
-    """Resolve an eligible candidate manifest without trusting stale or mismatched rules."""
+    """Resolve v4 canonical manifest rules without inventing a second scope."""
+    from services.automated_trading.application.canonical_strategy_manifest import load_canonical_strategy_manifest
     from services.execution.signal_edge_stats import strategy_rules_hash
     from services.strategy_library.candidates.registry import get_candidate
     from shared.models import StrategyRules
 
     manifest_path = CANONICAL_MANIFEST_ROOT / f"{AUTO_PAPER_TECHNICAL_KEY}.json"
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if int(manifest["schema_version"]) not in {2, 3}:
-            raise ValueError("unsupported manifest schema")
-        candidate_id = str(manifest["candidate_id"])
+        manifest = load_canonical_strategy_manifest(manifest_path)
+        if manifest.configured_execution_scope != AUTO_PAPER_EXECUTION_SYMBOLS:
+            raise ValueError("manifest configured execution scope does not match fixed execution universe")
+        candidate_id = manifest.strategy_id
         config = get_candidate(candidate_id).get_config()
         rules = StrategyRules(**config)
-        if strategy_rules_hash(rules) != manifest["rules_hash"]:
+        if strategy_rules_hash(rules) != manifest.rules_hash:
             raise ValueError("manifest rules hash mismatch")
-        eligible = tuple(
-            symbol
-            for symbol in AUTO_PAPER_RESEARCH_SYMBOLS
-            if symbol in {str(value) for value in manifest.get("eligible_symbols", [])}
-        )
-        if not eligible:
-            raise ValueError("manifest has no eligible research symbols")
-        return config, eligible
+        return config, manifest.eligible_execution_symbols
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         disabled_rules = json.loads(json.dumps(AUTO_PAPER_TECHNICAL_RULES))
         disabled_rules["entry_rules"]["manifest_entry_enabled"] = False

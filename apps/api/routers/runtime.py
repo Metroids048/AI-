@@ -17,6 +17,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.auth import websocket_token_is_valid
+from services.automated_trading.application.canonical_strategy_manifest import (
+    ManifestValidationError,
+    load_canonical_strategy_manifest,
+)
 from services.automated_trading.application.reconciliation_service import (
     DiscrepancyCode,
     LocalStateView,
@@ -38,6 +42,7 @@ from services.automated_trading.infrastructure.models import (
 )
 from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
 from services.database import get_db_session, get_session_factory
+from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY, CANONICAL_MANIFEST_ROOT
 from services.execution.gateway import configured_gateways
 from services.execution.runtime_state import load_external_scheduler_state
 from services.strategy_library import (
@@ -765,6 +770,32 @@ def _v2_repo(db: Session) -> AutomatedTradingRepository:
     return AutomatedTradingRepository(db)
 
 
+def _canonical_strategy_manifest_truth() -> dict:
+    """Expose the exact packaged strategy truth, never a scheduler inference."""
+    try:
+        manifest = load_canonical_strategy_manifest(CANONICAL_MANIFEST_ROOT / f"{AUTO_PAPER_TECHNICAL_KEY}.json")
+    except ManifestValidationError as exc:
+        return {"status": "unavailable", "error": str(exc), "value": None}
+    return {
+        "status": "available",
+        "error": None,
+        "value": {
+            "strategy_id": manifest.strategy_id,
+            "strategy_version": manifest.strategy_version,
+            "rules_hash": manifest.rules_hash,
+            "commit_sha": manifest.commit_sha,
+            "configured_execution_scope": list(manifest.configured_execution_scope),
+            "eligible_execution_symbols": list(manifest.eligible_execution_symbols),
+            "research_symbols": list(manifest.research_symbols),
+            "authorization_state": manifest.authorization_state,
+            "validation_evidence": manifest.validation_evidence,
+            "golden_behavior_ref": manifest.golden_behavior_ref,
+            "approval": manifest.approval,
+            "effective_at": manifest.effective_at,
+        },
+    }
+
+
 def _runtime_projection(db: Session, *, observed_at: datetime | None = None) -> dict:
     """Return one immutable server-side Runtime Truth projection.
 
@@ -875,6 +906,7 @@ def _runtime_projection(db: Session, *, observed_at: datetime | None = None) -> 
         "promotion_eligible": bool(scheduler.promotion_eligible),
         "trading_state": scheduler.trading_state or "ENTRY_PAUSED",
     }
+    strategy_manifest = _canonical_strategy_manifest_truth()
     projection = {
         "observed_at": observed.isoformat(),
         "projection_id": projection_id,
@@ -893,6 +925,7 @@ def _runtime_projection(db: Session, *, observed_at: datetime | None = None) -> 
             exchange_position_claim_refs=claim_refs,
         ),
         "entry_runtime": entry_runtime,
+        "strategy_manifest": strategy_manifest,
     }
     with _runtime_projection_lock:
         _runtime_projection_cache = (observed, projection)
@@ -1277,6 +1310,13 @@ def runtime_snapshot(db: Session = Depends(get_db_session)) -> dict:
             observed_at=scheduler.heartbeat_at,
             status="available" if scheduler.running else "unavailable",
             error=None if scheduler.running else scheduler.reason,
+        ),
+        "strategy_manifest": _datum(
+            value=projection["strategy_manifest"]["value"],
+            source="CANONICAL_STRATEGY_MANIFEST_V4",
+            observed_at=observed_at,
+            status=projection["strategy_manifest"]["status"],
+            error=projection["strategy_manifest"]["error"],
         ),
         "data_freshness": _datum(
             value={

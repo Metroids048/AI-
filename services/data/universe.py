@@ -6,18 +6,52 @@ import hashlib
 import json
 from collections.abc import Iterable, Mapping
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
+from services.automated_trading.application.canonical_strategy_manifest import (
+    ManifestValidationError,
+    load_canonical_strategy_manifest,
+)
 from shared.models import MarketUniverseItem, UniverseAsset
 
-AUTO_PAPER_RESEARCH_SYMBOLS: tuple[str, ...] = ("BTC/USDT", "ETH/USDT", "SOL/USDT")
-AUTO_SIMULATION_EXECUTION_SYMBOLS: tuple[str, ...] = (
+# Research coverage is intentionally broader than execution authority.  Only
+# the v4 canonical strategy manifest may promote a researched symbol into the
+# two-symbol automatic execution lane.
+AUTO_PAPER_RESEARCH_SYMBOLS: tuple[str, ...] = (
     "BTC/USDT",
     "ETH/USDT",
     "SOL/USDT",
     "XRP/USDT",
     "BNB/USDT",
 )
+# This is a Layer-1 safety ceiling, not an execution configuration.  The
+# configured automatic scope below is loaded from the active Manifest so no
+# scheduler, API, or bootstrap path owns a second mutable symbol list.
+_LAYER1_AUTOMATED_EXECUTION_CEILING = frozenset({"BTC/USDT", "ETH/USDT"})
+
+
+def _configured_automatic_execution_symbols() -> tuple[str, ...]:
+    manifest_path = (
+        Path(__file__).resolve().parents[2]
+        / "docs"
+        / "evidence"
+        / "active-manifests"
+        / ("auto_paper_mature_templates.json")
+    )
+    try:
+        scope = load_canonical_strategy_manifest(manifest_path).configured_execution_scope
+    except ManifestValidationError:
+        # An invalid packaged manifest may never silently fall back to a wider
+        # scope.  An empty scope lets exit/reconciliation services import while
+        # making new scheduled entries fail closed.
+        return ()
+    if not set(scope).issubset(_LAYER1_AUTOMATED_EXECUTION_CEILING):
+        return ()
+    return scope
+
+
+AUTO_SIMULATION_EXECUTION_SYMBOLS: tuple[str, ...] = _configured_automatic_execution_symbols()
 
 
 def execution_baseline_keys() -> frozenset[str]:

@@ -28,6 +28,8 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
   const scheduler = snapshot?.scheduler;
   const entryRuntime = snapshot?.entry_runtime;
   const entryRuntimeValue = entryRuntime?.value;
+  const strategyManifest = snapshot?.strategy_manifest;
+  const strategyManifestValue = strategyManifest?.value;
   const dataFreshness = snapshot?.data_freshness;
   const strategyEvidence = snapshot?.strategy_evidence;
   const schedulerValue = scheduler?.value ?? scheduler;
@@ -89,6 +91,15 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
           <p>Authority：{entryRuntimeValue?.entry_authority || "NONE"}</p>
           <p>策略：{entryRuntimeValue?.active_entry_strategy || "无"}</p>
           <p>Production：{entryRuntimeValue?.production_authorization_state || "PENDING"}</p>
+        </article>
+        <article>
+          <h3>当前自动策略</h3>
+          <strong>{strategyManifestValue?.strategy_id || "STRATEGY_NOT_READY"}</strong>
+          <p>版本：{strategyManifestValue?.strategy_version || "无"}</p>
+          <p>Rules Hash：{strategyManifestValue?.rules_hash?.slice(0, 12) || "无"}</p>
+          <p>执行范围：{(strategyManifestValue?.configured_execution_scope || []).join(" / ") || "无"}</p>
+          <p>研究范围：{(strategyManifestValue?.research_symbols || []).join(" / ") || "无"}</p>
+          <p>授权：{strategyManifestValue?.authorization_state || "UNKNOWN"}</p>
         </article>
         <article>
           <h3>自动平仓</h3>
