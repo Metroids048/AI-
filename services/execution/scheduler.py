@@ -817,6 +817,17 @@ class RuntimeScheduler:
 
     def _refresh_entry_authority_from_v2_cycle(self, cycle_result: dict[str, Any]) -> None:
         """Publish the authority actually resolved by the just-completed V2 cycle."""
+        # The persisted V2 runtime control is the kill switch.  A cycle may
+        # still report a strategy/canary authority for diagnostic purposes,
+        # but it may never turn a paused scheduler back into a writer.
+        if self.status.entry_enabled is False:
+            self.status.entry_authority = EntryAuthority.NONE.value
+            self.status.entry_authorized = False
+            self.status.entry_authority_reason = "runtime_entry_disabled"
+            self.status.active_entry_strategy = None
+            self.status.promotion_eligible = False
+            self.status.trading_state = "ENTRY_PAUSED"
+            return
         resolved = [
             item
             for item in cycle_result.get("results", [])

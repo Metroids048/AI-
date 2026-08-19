@@ -473,6 +473,23 @@ def test_degraded_reconciliation_is_persisted_and_executes_external_quarantine(m
     assert any(action.action_type is RecoveryActionType.QUARANTINE_EXTERNAL_POSITION for action in actions)
 
 
+def test_runtime_entry_pause_overrides_cycle_authority_in_funnel(monkeypatch) -> None:
+    """The persisted kill switch is the authoritative entry state for Runtime Truth."""
+    from services.automated_trading.application import cycle_service
+
+    adapter = build_adapter_with_successful_cycle()
+    monkeypatch.setattr(cycle_service, "_runtime_entry_enabled", lambda: False)
+
+    result = run_automated_trading_cycle(build_request(persist_facts=True), adapter)
+
+    assert result.entry_blocked_by_runtime_control is True
+    assert result.funnel_payload["execution_policy"] == "ENTRY_PAUSED"
+    assert result.funnel_payload["entry_authority"] == "NONE"
+    assert result.funnel_payload["entry_authorized"] is False
+    assert result.funnel_payload["entry_authority_reason"] == "runtime_entry_disabled"
+    assert result.funnel_payload["trading_state"] == "ENTRY_PAUSED"
+
+
 def test_failed_entry_never_projects_position() -> None:
     adapter = build_adapter_with_successful_cycle()
     from services.automated_trading.infrastructure.binance_adapter import BinanceAdapterUnavailable

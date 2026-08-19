@@ -701,6 +701,35 @@ async def test_v2_cycle_refreshes_runtime_truth_with_cycle_resolved_authority() 
 
 
 @pytest.mark.asyncio
+async def test_v2_cycle_cannot_override_persisted_entry_pause() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_enabled = False
+    scheduler.status.entry_authorized = False
+    scheduler.status.trading_state = "ENTRY_PAUSED"
+
+    await scheduler._run_once(
+        name="automated_trading_v2_cycle",
+        runner=lambda: {
+            "status": "completed",
+            "results": [
+                {
+                    "status": "completed",
+                    "entry_authority": "TESTNET_CANARY",
+                    "entry_authorized": True,
+                    "entry_authority_reason": "testnet_canary_enabled",
+                    "trading_state": "TRADING",
+                }
+            ],
+        },
+    )
+
+    assert scheduler.status.entry_authority == "NONE"
+    assert scheduler.status.entry_authorized is False
+    assert scheduler.status.entry_authority_reason == "runtime_entry_disabled"
+    assert scheduler.status.trading_state == "ENTRY_PAUSED"
+
+
+@pytest.mark.asyncio
 async def test_scheduler_respects_task_retry_after_before_next_cycle() -> None:
     calls = 0
 

@@ -561,6 +561,32 @@ def _append_funnel_stage(
         payload["reason_code"] = reason_code
 
 
+def _apply_runtime_entry_pause(result: CycleResult, *, entry_enabled: bool) -> None:
+    """Make the persisted entry kill switch authoritative in every funnel path."""
+    if entry_enabled:
+        return
+    result.entry_blocked_by_runtime_control = True
+    if not result.funnel_payload:
+        return
+    result.funnel_payload.update(
+        {
+            "execution_policy": "ENTRY_PAUSED",
+            "entry_authority": EntryAuthority.NONE.value,
+            "entry_authorized": False,
+            "entry_authority_reason": "runtime_entry_disabled",
+            "trading_state": "ENTRY_PAUSED",
+            "active_entry_strategy": None,
+            "promotion_eligible": False,
+        }
+    )
+    _append_funnel_stage(
+        result.funnel_payload,
+        stage="ENTRY_SUBMISSION_AUTHORIZED",
+        outcome="REJECTED",
+        reason_code=DecisionReasonCode.ENTRY_KILL_SWITCH_ACTIVE.value,
+    )
+
+
 def _record_trade_review_skip(request: CycleRequest, reason: str) -> None:
     from services.database import get_session_factory
     from services.strategy_library import LlmInvocationRepository
@@ -1761,6 +1787,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             max_total_exposure=Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_total_exposure"])),
         )
     result = CycleResult(cycle_id=request.cycle_id, symbol=request.symbol)
+    entry_enabled = True if not request.persist_facts else _runtime_entry_enabled()
 
     try:
         snapshot = request.authoritative_snapshot or adapter.fetch_authoritative_snapshot()
@@ -2063,6 +2090,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             "production_authorization_reason": request.production_authorization_reason,
             "sampling_decision": sampling.funnel.to_payload(),
         }
+        _apply_runtime_entry_pause(result, entry_enabled=entry_enabled)
         return result
 
     candidate = request.production_candidate
@@ -2101,6 +2129,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                 "promotion_eligible": False,
                 "production_authorization_reason": request.production_authorization_reason,
             }
+            _apply_runtime_entry_pause(result, entry_enabled=entry_enabled)
             return result
         if not _sampling_execution_allowed(request, candidate):
             raise RuntimeError("TESTNET_CANARY candidate bypassed its authority contract")
@@ -2121,6 +2150,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             "promotion_eligible": True,
             "production_authorization_reason": request.production_authorization_reason,
         }
+        _apply_runtime_entry_pause(result, entry_enabled=entry_enabled)
         return result
     elif (
         candidate is None
@@ -2145,6 +2175,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             "promotion_eligible": False,
             "production_authorization_reason": request.production_authorization_reason,
         }
+        _apply_runtime_entry_pause(result, entry_enabled=entry_enabled)
         return result
     assert candidate is not None
     canary_sampling = _is_testnet_canary_sampling(request, candidate)
@@ -2172,6 +2203,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         "candidate": serialize_trade_candidate(candidate),
         "sizing_contract": dict(request.sizing_diagnostics),
     }
+    _apply_runtime_entry_pause(result, entry_enabled=entry_enabled)
     if candidate.non_promotable and request.entry_authority is not EntryAuthority.TESTNET_CANARY:
         result.funnel_payload["execution_policy"] = "DECISION_TRACE_ONLY"
         return result
@@ -2199,8 +2231,6 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         )
         return result
 
-    entry_enabled = True if not request.persist_facts else _runtime_entry_enabled()
-    result.entry_blocked_by_runtime_control = request.persist_facts and not entry_enabled
     if recon.status is ReconciliationStatus.HEALTHY and not entry_blocked_local:
         _append_funnel_stage(
             result.funnel_payload,
