@@ -49,6 +49,7 @@ class ExitReason(StrEnum):
     STRATEGY_INVALIDATION = "STRATEGY_INVALIDATION"
     OPPOSITE_SIGNAL_CLOSE = "OPPOSITE_SIGNAL_CLOSE"
     PROTECTION_FAILURE_EMERGENCY = "PROTECTION_FAILURE_EMERGENCY"
+    CANARY_MARGIN_CEILING = "CANARY_MARGIN_CEILING"
     MANUAL_REDUCE_ONLY = "MANUAL_REDUCE_ONLY"
 
     @property
@@ -57,6 +58,7 @@ class ExitReason(StrEnum):
         return self in {
             ExitReason.HARD_STOP,
             ExitReason.PROTECTION_FAILURE_EMERGENCY,
+            ExitReason.CANARY_MARGIN_CEILING,
             ExitReason.STRATEGY_INVALIDATION,
         }
 

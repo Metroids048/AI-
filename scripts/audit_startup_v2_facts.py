@@ -38,7 +38,7 @@ def _row(item: Any, *fields: str) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for field in fields:
         value = getattr(item, field, None)
-        result[field] = value.isoformat() if hasattr(value, "isoformat") else value
+        result[field] = value.isoformat() if isinstance(value, datetime) else value
     return result
 
 
@@ -59,7 +59,6 @@ def audit(database_url: str) -> dict[str, Any]:
                 tuple(
                     session.scalars(
                         select(V2ExchangeOrder).where(
-                            V2ExchangeOrder.execution_mode == V2ExecutionMode.BINANCE_TESTNET.value,
                             V2ExchangeOrder.intent_id.in_(intent_ids),
                         )
                     )
@@ -71,7 +70,6 @@ def audit(database_url: str) -> dict[str, Any]:
                 tuple(
                     session.scalars(
                         select(V2ExchangeFill).where(
-                            V2ExchangeFill.execution_mode == V2ExecutionMode.BINANCE_TESTNET.value,
                             V2ExchangeFill.intent_id.in_(intent_ids),
                         )
                     )
@@ -94,6 +92,72 @@ def audit(database_url: str) -> dict[str, Any]:
                     )
                 )
             )
+            all_testnet_intents = tuple(
+                session.scalars(
+                    select(V2ExecutionIntent).where(
+                        V2ExecutionIntent.execution_mode == V2ExecutionMode.BINANCE_TESTNET.value,
+                    )
+                )
+            )
+            intent_by_id = {item.intent_id: item for item in all_testnet_intents}
+            order_by_intent = {
+                item.intent_id: item
+                for item in session.scalars(select(V2ExchangeOrder))
+                if item.intent_id in intent_by_id
+            }
+            position_by_intent = {item.intent_id: item for item in all_testnet_positions}
+            entry_fills = tuple(
+                item
+                for item in session.scalars(select(V2ExchangeFill).where(V2ExchangeFill.reduce_only.is_(False)))
+                if item.intent_id in intent_by_id
+            )
+            unprojected_fills_by_intent: dict[str, list[V2ExchangeFill]] = {}
+            for fill in entry_fills:
+                if fill.intent_id not in position_by_intent:
+                    unprojected_fills_by_intent.setdefault(fill.intent_id, []).append(fill)
+            lifecycle_gaps: list[dict[str, Any]] = []
+            for intent_id, persisted_fills in unprojected_fills_by_intent.items():
+                intent = intent_by_id[intent_id]
+                lifecycle_gaps.append(
+                    {
+                        "kind": "CONFIRMED_ENTRY_FILL_UNPROJECTED",
+                        "intent_id": intent.intent_id,
+                        "symbol": intent.symbol,
+                        "direction": intent.direction,
+                        "state": intent.state,
+                        "client_order_id": (
+                            order_by_intent[intent.intent_id].client_order_id
+                            if intent.intent_id in order_by_intent
+                            else None
+                        ),
+                        "entry_fills": [
+                            {
+                                "exchange_order_id": fill.exchange_order_id,
+                                "trade_id": fill.trade_id,
+                                "filled_quantity": str(fill.filled_quantity),
+                                "fill_price": str(fill.fill_price),
+                                "exchange_event_time": fill.exchange_event_time.isoformat(),
+                            }
+                            for fill in persisted_fills
+                        ],
+                    }
+                )
+            for position in all_testnet_positions:
+                if position.state != "QUARANTINED":
+                    continue
+                quarantined_intent = intent_by_id.get(position.intent_id)
+                if quarantined_intent is None:
+                    continue
+                lifecycle_gaps.append(
+                    {
+                        "kind": "QUARANTINED_ENTRY_LIFECYCLE",
+                        "intent_id": quarantined_intent.intent_id,
+                        "position_id": position.position_id,
+                        "symbol": quarantined_intent.symbol,
+                        "direction": quarantined_intent.direction,
+                        "state": quarantined_intent.state,
+                    }
+                )
             position_ids = {item.position_id for item in positions}
             protections = tuple(
                 session.scalars(
@@ -145,12 +209,14 @@ def audit(database_url: str) -> dict[str, Any]:
                     _row(item, "protection_id", "position_id", "stop_exchange_order_id", "tp_exchange_order_id")
                     for item in orphan_protections
                 ],
+                "lifecycle_gaps": lifecycle_gaps,
             }
             result["safe_for_manual_baseline_ack"] = not any(
                 (
                     result["unresolved_intents"],
                     result["open_managed_positions"],
                     result["orphan_active_protections"],
+                    result["lifecycle_gaps"],
                 )
             )
             try:

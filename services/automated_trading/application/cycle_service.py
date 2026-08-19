@@ -53,6 +53,7 @@ from services.automated_trading.application.fact_persistence import (
     persist_exit_result,
     persist_exit_submission_result,
     reconcile_closed_position_protections,
+    recover_confirmed_margin_guard_lifecycle,
 )
 from services.automated_trading.application.production_strategy import EntryAuthority
 from services.automated_trading.application.protection_service import (
@@ -1082,6 +1083,42 @@ def _project_confirmed_protection_exits(
         result.exit_submitted = True
         changed = True
     return changed
+
+
+def _recover_confirmed_margin_guard_lifecycle(
+    request: CycleRequest,
+    adapter,
+    *,
+    intent_id: str,
+    entry_result: EntryExecutionResult,
+    result: CycleResult,
+) -> bool:
+    """Close an immediately filled post-entry margin guard from exact receipts."""
+    guard_exchange_order_id = entry_result.guard_exchange_order_id
+    guard_client_order_id = entry_result.guard_client_order_id
+    if not guard_exchange_order_id or not guard_client_order_id:
+        return False
+    try:
+        guard_fills = adapter.fetch_fills(request.symbol, guard_exchange_order_id)
+    except Exception as exc:  # noqa: BLE001 - reconciliation keeps the unresolved fill fail-closed
+        result.record_error(f"margin-guard fill recovery deferred: {exc}")
+        return False
+    if not guard_fills:
+        result.record_error("margin-guard fill recovery deferred: guard order has no confirmed fills")
+        return False
+    try:
+        recover_confirmed_margin_guard_lifecycle(
+            intent_id=intent_id,
+            guard_exchange_order_id=guard_exchange_order_id,
+            guard_client_order_id=guard_client_order_id,
+            guard_fills=guard_fills,
+        )
+    except Exception as exc:  # noqa: BLE001 - retain fail-closed fact chain for manual recovery
+        result.record_error(f"margin-guard lifecycle recovery failed: {exc}")
+        return False
+    result.position_projected = True
+    result.exit_submitted = True
+    return True
 
 
 def _recover_confirmed_v2_entry_gap(
@@ -2517,6 +2554,42 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             "status": entry_result.status.value,
         },
     )
+
+    if entry_result.guard_exchange_order_id and entry_result.guard_client_order_id:
+        if request.persist_facts and _recover_confirmed_margin_guard_lifecycle(
+            request,
+            adapter,
+            intent_id=intent_id,
+            entry_result=entry_result,
+            result=result,
+        ):
+            _append_funnel_stage(
+                result.funnel_payload,
+                stage="EXCHANGE_FILLED",
+                outcome="PASSED",
+                reason_code="OK",
+                metrics={"exchange_order_id": entry_result.exchange_order_id},
+            )
+            _append_funnel_stage(
+                result.funnel_payload,
+                stage="POSITION_PROJECTED",
+                outcome="PASSED",
+                reason_code="OK",
+            )
+            _append_funnel_stage(
+                result.funnel_payload,
+                stage="EXIT_FILLED",
+                outcome="PASSED",
+                reason_code="CANARY_MARGIN_CEILING",
+                metrics={"exchange_order_id": entry_result.guard_exchange_order_id},
+            )
+            _append_funnel_stage(
+                result.funnel_payload,
+                stage="POSITION_CLOSED",
+                outcome="PASSED",
+                reason_code="CANARY_MARGIN_CEILING",
+            )
+        return result
 
     if not entry_result.position_projectable:
         return result

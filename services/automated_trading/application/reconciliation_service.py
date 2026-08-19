@@ -30,6 +30,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from services.automated_trading.domain.client_order_id import is_v2_client_order_id
+from services.automated_trading.domain.enums import V2PositionState
 
 if TYPE_CHECKING:
     from services.automated_trading.infrastructure.market_snapshot_provider import (
@@ -65,6 +66,8 @@ class DiscrepancyCode(StrEnum):
     PROTECTION_ORDER_MISSING_AT_EXCHANGE = "PROTECTION_ORDER_MISSING_AT_EXCHANGE"
     UNKNOWN_ORDER_PRESENT = "UNKNOWN_ORDER_PRESENT"
     ORPHAN_V2_CLIENT_ORDER_AT_EXCHANGE = "ORPHAN_V2_CLIENT_ORDER_AT_EXCHANGE"
+    CONFIRMED_ENTRY_FILL_UNPROJECTED = "CONFIRMED_ENTRY_FILL_UNPROJECTED"
+    QUARANTINED_ENTRY_LIFECYCLE = "QUARANTINED_ENTRY_LIFECYCLE"
     MANUAL_BASELINE_DRIFT = "MANUAL_BASELINE_DRIFT"
 
 
@@ -102,6 +105,8 @@ class LocalIntentView:
     symbol: str
     client_order_id: str
     state: str
+    has_confirmed_entry_fill: bool = False
+    has_quarantined_lifecycle: bool = False
 
 
 @dataclass(frozen=True)
@@ -245,6 +250,7 @@ def load_local_state_from_session(
         V2ExchangeFill,
         V2ExchangeOrder,
         V2ExecutionIntent,
+        V2ManagedPosition,
         V2ProtectionRecord,
     )
     from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
@@ -331,23 +337,54 @@ def load_local_state_from_session(
     all_orders = tuple(session.scalars(select(V2ExchangeOrder)))
     known_client_order_ids.update(order.client_order_id for order in all_orders)
     order_by_intent = {order.intent_id: order for order in all_orders}
-    pending_intents = tuple(
+    all_testnet_intents = tuple(
         session.scalars(
             select(V2ExecutionIntent).where(
                 V2ExecutionIntent.execution_mode == mode_value,
-                V2ExecutionIntent.state.in_(["EXCHANGE_SUBMITTING", "EXCHANGE_UNKNOWN", "EXCHANGE_ACKNOWLEDGED"]),
             )
         )
     )
+    position_states_by_intent = dict(
+        session.execute(
+            select(V2ManagedPosition.intent_id, V2ManagedPosition.state).where(
+                V2ManagedPosition.execution_mode == mode_value,
+            )
+        ).all()
+    )
+    projected_intent_ids = set(position_states_by_intent)
+    quarantined_intent_ids = {
+        intent_id
+        for intent_id, state in position_states_by_intent.items()
+        if state == V2PositionState.QUARANTINED.value
+    }
+    intents_with_confirmed_entry_fill = {
+        fill.intent_id
+        for fill in session.scalars(
+            select(V2ExchangeFill).where(
+                V2ExchangeFill.reduce_only.is_(False),
+            )
+        )
+    }
+    pending_states = {"EXCHANGE_SUBMITTING", "EXCHANGE_UNKNOWN", "EXCHANGE_ACKNOWLEDGED"}
     intents = tuple(
         LocalIntentView(
             intent_id=intent.intent_id,
             symbol=intent.symbol,
-            client_order_id=order_by_intent[intent.intent_id].client_order_id,
+            client_order_id=(
+                order_by_intent[intent.intent_id].client_order_id if intent.intent_id in order_by_intent else ""
+            ),
             state=intent.state,
+            has_confirmed_entry_fill=(
+                intent.intent_id in intents_with_confirmed_entry_fill and intent.intent_id not in projected_intent_ids
+            ),
+            has_quarantined_lifecycle=intent.intent_id in quarantined_intent_ids,
         )
-        for intent in pending_intents
-        if intent.intent_id in order_by_intent
+        for intent in all_testnet_intents
+        if (
+            intent.state in pending_states
+            or (intent.intent_id in intents_with_confirmed_entry_fill and intent.intent_id not in projected_intent_ids)
+            or intent.intent_id in quarantined_intent_ids
+        )
     )
     return (
         LocalStateView(
@@ -496,6 +533,40 @@ def reconcile(
 
     local_positions = local_state.positions
     matched_position_ids: set[str] = set()
+
+    # A fill receipt is stronger evidence than the current net-position count.
+    # In particular, a post-fill margin guard can make the exchange flat before
+    # the entry/exit lifecycle has been projected locally.  Do not let that
+    # historical gap disappear behind an otherwise empty snapshot.
+    for intent in local_state.intents:
+        if intent.has_confirmed_entry_fill:
+            discrepancies.append(
+                Discrepancy(
+                    code=DiscrepancyCode.CONFIRMED_ENTRY_FILL_UNPROJECTED,
+                    symbol=intent.symbol,
+                    detail=(
+                        f"intent {intent.intent_id} is {intent.state} but has a confirmed non-reduce-only "
+                        "entry fill and no managed-position lifecycle projection"
+                    ),
+                    exchange_ref=intent.intent_id,
+                )
+            )
+            entry_blocked.add(intent.symbol)
+            recovery_refs.append(intent.intent_id)
+        if intent.has_quarantined_lifecycle:
+            discrepancies.append(
+                Discrepancy(
+                    code=DiscrepancyCode.QUARANTINED_ENTRY_LIFECYCLE,
+                    symbol=intent.symbol,
+                    detail=(
+                        f"intent {intent.intent_id} has a QUARANTINED managed-position lifecycle; "
+                        "operator resolution is required before Entry can resume"
+                    ),
+                    exchange_ref=intent.intent_id,
+                )
+            )
+            entry_blocked.add(intent.symbol)
+            recovery_refs.append(intent.intent_id)
 
     # --- Exchange positions -> local claim ---
     for exch_pos in snapshot.positions:
@@ -709,6 +780,8 @@ _RECOVERY_CODES = frozenset(
         DiscrepancyCode.PROTECTION_ORDER_MISSING_AT_EXCHANGE,
         DiscrepancyCode.UNKNOWN_ORDER_PRESENT,
         DiscrepancyCode.ORPHAN_V2_CLIENT_ORDER_AT_EXCHANGE,
+        DiscrepancyCode.CONFIRMED_ENTRY_FILL_UNPROJECTED,
+        DiscrepancyCode.QUARANTINED_ENTRY_LIFECYCLE,
         DiscrepancyCode.LOCAL_POSITION_MISSING_AT_EXCHANGE,
     }
 )

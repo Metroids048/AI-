@@ -19,6 +19,7 @@ from services.automated_trading.application.cycle_service import (
     LocalStateLoadResult,
     _calculate_quantity,
     _project_confirmed_protection_exits,
+    _recover_confirmed_margin_guard_lifecycle,
     _recover_confirmed_v2_exit_gaps,
     _sampling_execution_allowed,
     run_automated_trading_cycle,
@@ -639,6 +640,39 @@ def test_cycle_persists_exit_identity_before_submit_and_ack_after_submit(
         result=mock_execute_exit.return_value,
     )
     assert result.exit_submitted
+
+
+@patch("services.automated_trading.application.cycle_service.recover_confirmed_margin_guard_lifecycle")
+def test_immediately_filled_margin_guard_is_rebuilt_before_cycle_returns(mock_recover) -> None:
+    """A guard fill must not leave an acknowledged entry invisible until a later restart."""
+    request = build_request(persist_facts=True, symbol="ETH/USDT")
+    result = CycleResult(cycle_id=request.cycle_id, symbol=request.symbol)
+    entry_result = SimpleNamespace(
+        guard_exchange_order_id="guard-order-1",
+        guard_client_order_id="A2X-guard-1",
+    )
+    adapter = MagicMock()
+    guard_fills = (_fill("guard-order-1"),)
+    adapter.fetch_fills.return_value = guard_fills
+
+    recovered = _recover_confirmed_margin_guard_lifecycle(
+        request,
+        adapter,
+        intent_id="intent-guard-1",
+        entry_result=entry_result,
+        result=result,
+    )
+
+    assert recovered is True
+    adapter.fetch_fills.assert_called_once_with("ETH/USDT", "guard-order-1")
+    mock_recover.assert_called_once_with(
+        intent_id="intent-guard-1",
+        guard_exchange_order_id="guard-order-1",
+        guard_client_order_id="A2X-guard-1",
+        guard_fills=guard_fills,
+    )
+    assert result.position_projected is True
+    assert result.exit_submitted is True
 
 
 def test_cycle_recovery_projects_exact_delayed_exit_fill_before_ghost_quarantine() -> None:

@@ -532,6 +532,7 @@ def test_query_order_by_client_id_finds_open_algo_order():
             "quantity": "0.001",
             "triggerPrice": "50000.0",
             "algoStatus": "NEW",
+            "reduceOnly": True,
         }
     ]
 
@@ -543,6 +544,7 @@ def test_query_order_by_client_id_finds_open_algo_order():
     assert receipt.client_order_id == "client_abc"
     assert receipt.order_type == "stop_market"
     assert receipt.quantity == Decimal("0.001")
+    assert receipt.reduce_only is True
     mock_client.fapiPrivateGetOpenAlgoOrders.assert_called_once_with({"symbol": "BTCUSDT"})
     mock_client.fetch_open_orders.assert_not_called()
 

@@ -331,6 +331,25 @@ def _plan_for_discrepancy(
             reason="exchange order without client order id cannot be attributed automatically",
         )
 
+    if code is DiscrepancyCode.CONFIRMED_ENTRY_FILL_UNPROJECTED:
+        return RecoveryAction(
+            action_type=RecoveryActionType.MANUAL_INTERVENTION_REQUIRED,
+            target_ref=discrepancy.exchange_ref or (discrepancy.symbol or "unknown"),
+            symbol=discrepancy.symbol,
+            reason=(
+                "confirmed entry fill has no managed position/exit projection; "
+                "retrieve the exact guard exit receipt before any lifecycle repair"
+            ),
+        )
+
+    if code is DiscrepancyCode.QUARANTINED_ENTRY_LIFECYCLE:
+        return RecoveryAction(
+            action_type=RecoveryActionType.MANUAL_INTERVENTION_REQUIRED,
+            target_ref=discrepancy.exchange_ref or (discrepancy.symbol or "unknown"),
+            symbol=discrepancy.symbol,
+            reason="quarantined managed-position lifecycle requires operator resolution before new Entry",
+        )
+
     if code in (DiscrepancyCode.QUANTITY_MISMATCH, DiscrepancyCode.DIRECTION_MISMATCH):
         return RecoveryAction(
             action_type=RecoveryActionType.MANUAL_INTERVENTION_REQUIRED,

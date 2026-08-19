@@ -27,6 +27,12 @@ from services.automated_trading.application.fact_persistence import (
     persist_exit_result,
     persist_exit_submission_result,
     reconcile_closed_position_protections,
+    recover_confirmed_margin_guard_lifecycle,
+)
+from services.automated_trading.application.reconciliation_service import (
+    ReconciliationStatus,
+    load_local_state_from_session,
+    reconcile,
 )
 from services.automated_trading.domain.enums import (
     V2CandidateType,
@@ -35,6 +41,7 @@ from services.automated_trading.domain.enums import (
     V2PositionState,
     V2ProtectionState,
 )
+from services.automated_trading.infrastructure.market_snapshot_provider import AuthoritativeAccountSnapshot
 from services.automated_trading.infrastructure.models import (
     Base,
     V2ExchangeFill,
@@ -220,6 +227,101 @@ def test_acknowledged_unfilled_order_is_durable_before_projection(fact_db) -> No
         session.close()
 
 
+def test_margin_guard_receipts_rebuild_a_closed_v2_lifecycle(fact_db) -> None:
+    """A filled Canary entry and its exact reduce-only guard become one CLOSED position."""
+    intent_id = "intent-margin-guard"
+    persist_entry_intent_before_submission(
+        cycle_id="cycle-margin-guard",
+        decision_id="decision-margin-guard",
+        intent_id=intent_id,
+        symbol="ETH/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 8, 19, 0, 0, tzinfo=UTC),
+        fencing_token="fence-margin-guard",
+        initial_risk_usdt=Decimal("1.00"),
+    )
+    persist_entry_submission_result(
+        intent_id=intent_id,
+        leverage=30,
+        result=EntryExecutionResult(
+            status=EntryExecutionStatus.REJECTED,
+            intent_state=V2IntentState.REJECTED,
+            client_order_id="A2E-margin-guard",
+            exchange_order_id="entry-order-margin-guard",
+            trade_ids=("entry-fill-margin-guard",),
+            requested_quantity=Decimal("5.308"),
+            filled_quantity=Decimal("5.308"),
+            average_fill_price=Decimal("1917.28995667"),
+            total_fee=Decimal("3.68"),
+            fill_timestamp=datetime(2026, 8, 19, 0, 1, tzinfo=UTC),
+            reason_code=DecisionReasonCode.RISK_LIMIT_EXCEEDED,
+            guard_exchange_order_id="guard-order-margin-guard",
+            guard_client_order_id="A2X-b62e947ac2d64bc430be-1",
+            detail="post-fill margin guard submitted",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="does not match the exact guard order"):
+        recover_confirmed_margin_guard_lifecycle(
+            intent_id=intent_id,
+            guard_exchange_order_id="guard-order-margin-guard",
+            guard_client_order_id="A2X-b62e947ac2d64bc430be-1",
+            guard_fills=(
+                SimpleNamespace(
+                    exchange_order_id="another-guard-order",
+                    trade_id="wrong-guard-fill",
+                    filled_quantity=Decimal("5.308"),
+                    fill_price=Decimal("1916.50758"),
+                    fee=Decimal("3.98"),
+                    fill_timestamp=datetime(2026, 8, 19, 0, 1, 4, tzinfo=UTC),
+                ),
+            ),
+        )
+
+    position_id = recover_confirmed_margin_guard_lifecycle(
+        intent_id=intent_id,
+        guard_exchange_order_id="guard-order-margin-guard",
+        guard_client_order_id="A2X-b62e947ac2d64bc430be-1",
+        guard_fills=(
+            SimpleNamespace(
+                exchange_order_id="guard-order-margin-guard",
+                trade_id="guard-fill-margin-guard",
+                filled_quantity=Decimal("5.308"),
+                fill_price=Decimal("1916.50758"),
+                fee=Decimal("3.98"),
+                fill_timestamp=datetime(2026, 8, 19, 0, 1, 4, tzinfo=UTC),
+            ),
+        ),
+    )
+
+    session: Session = fact_db()
+    try:
+        intent = session.get(V2ExecutionIntent, intent_id)
+        assert intent is not None
+        assert intent.state == V2IntentState.FILLED.value
+        position = session.get(V2ManagedPosition, position_id)
+        assert position is not None
+        assert position.state == V2PositionState.CLOSED.value
+        assert position.closed_at is not None
+        assert position.closed_at.replace(tzinfo=UTC) == datetime(2026, 8, 19, 0, 1, 4, tzinfo=UTC)
+        assert session.query(V2ExchangeFill).count() == 2
+        exit_order = session.scalar(
+            select(V2ExchangeOrder).where(V2ExchangeOrder.client_order_id == "A2X-b62e947ac2d64bc430be-1")
+        )
+        assert exit_order is not None
+        assert exit_order.exchange_order_id == "guard-order-margin-guard"
+        exit_intent = session.get(V2ExecutionIntent, exit_order.intent_id)
+        assert exit_intent is not None
+        assert exit_intent.candidate_key.endswith(":CANARY_MARGIN_CEILING")
+        local_state, _ = load_local_state_from_session(session, V2ExecutionMode.BINANCE_TESTNET)
+        assert all(item.intent_id != intent_id for item in local_state.intents)
+    finally:
+        session.close()
+
+
 def test_confirmed_delayed_fill_corrects_cancelled_intent(fact_db) -> None:
     persist_entry_intent_before_submission(
         cycle_id="cycle-delayed",
@@ -343,6 +445,124 @@ def test_replaying_confirmed_entry_fill_is_idempotent(fact_db) -> None:
         assert session.get(V2ManagedPosition, "pos-replay-fill") is not None
     finally:
         session.close()
+
+
+def test_filled_intent_without_position_projection_is_not_reconciliation_healthy(fact_db) -> None:
+    """A terminal FILLED intent is still a lifecycle gap until it has a position projection."""
+    entry = EntryExecutionResult(
+        status=EntryExecutionStatus.FILLED,
+        intent_state=V2IntentState.FILLED,
+        client_order_id="A2E-filled-without-position",
+        exchange_order_id="xo-filled-without-position",
+        trade_ids=("trade-filled-without-position",),
+        filled_quantity=Decimal("0.01"),
+        average_fill_price=Decimal("65000"),
+        total_fee=Decimal("0.01"),
+        fill_timestamp=datetime(2026, 8, 19, 2, 0, tzinfo=UTC),
+    )
+    persist_entry_and_protection(
+        cycle_id="cycle-filled-without-position",
+        decision_id="decision-filled-without-position",
+        intent_id="intent-filled-without-position",
+        symbol="BTC/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 8, 19, 1, 45, tzinfo=UTC),
+        fencing_token="fence-filled-without-position",
+        leverage=30,
+        entry_result=entry,
+        position_id="pos-filled-without-position",
+        protection_result=None,
+        stop_loss_price=None,
+        take_profit_price=None,
+        stop_client_order_id=None,
+        tp_client_order_id=None,
+        project_position=False,
+    )
+
+    session: Session = fact_db()
+    try:
+        local_state, claims = load_local_state_from_session(session, V2ExecutionMode.BINANCE_TESTNET)
+    finally:
+        session.close()
+
+    result = reconcile(
+        AuthoritativeAccountSnapshot(
+            balance=Decimal("10000"),
+            equity=Decimal("10000"),
+            positions=[],
+            pending_orders=[],
+            snapshot_timestamp=datetime(2026, 8, 19, 2, 1, tzinfo=UTC),
+        ),
+        local_state,
+        exchange_position_claim_refs=claims,
+    )
+
+    assert result.status is ReconciliationStatus.RECOVERY_REQUIRED
+    assert result.entry_allowed_globally is False
+    assert result.recovery_required_refs == ("intent-filled-without-position",)
+
+
+def test_quarantined_entry_lifecycle_is_not_reconciliation_healthy(fact_db) -> None:
+    """Quarantine retains the safety block; it is never evidence of a clean lifecycle."""
+    entry = EntryExecutionResult(
+        status=EntryExecutionStatus.FILLED,
+        intent_state=V2IntentState.FILLED,
+        client_order_id="A2E-quarantined-lifecycle",
+        exchange_order_id="xo-quarantined-lifecycle",
+        trade_ids=("trade-quarantined-lifecycle",),
+        filled_quantity=Decimal("0.01"),
+        average_fill_price=Decimal("65000"),
+        total_fee=Decimal("0.01"),
+        fill_timestamp=datetime(2026, 8, 19, 2, 5, tzinfo=UTC),
+    )
+    persist_entry_and_protection(
+        cycle_id="cycle-quarantined-lifecycle",
+        decision_id="decision-quarantined-lifecycle",
+        intent_id="intent-quarantined-lifecycle",
+        symbol="BTC/USDT",
+        direction="long",
+        candidate_key="testnet_sampling_v2",
+        candidate_type=V2CandidateType.SAMPLING,
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        decision_bar_timestamp=datetime(2026, 8, 19, 2, 0, tzinfo=UTC),
+        fencing_token="fence-quarantined-lifecycle",
+        leverage=30,
+        entry_result=entry,
+        position_id="pos-quarantined-lifecycle",
+        protection_result=None,
+        stop_loss_price=None,
+        take_profit_price=None,
+        stop_client_order_id=None,
+        tp_client_order_id=None,
+    )
+    session: Session = fact_db()
+    try:
+        position = session.get(V2ManagedPosition, "pos-quarantined-lifecycle")
+        assert position is not None
+        position.state = V2PositionState.QUARANTINED.value
+        session.commit()
+        local_state, claims = load_local_state_from_session(session, V2ExecutionMode.BINANCE_TESTNET)
+    finally:
+        session.close()
+
+    result = reconcile(
+        AuthoritativeAccountSnapshot(
+            balance=Decimal("10000"),
+            equity=Decimal("10000"),
+            positions=[],
+            pending_orders=[],
+            snapshot_timestamp=datetime(2026, 8, 19, 2, 6, tzinfo=UTC),
+        ),
+        local_state,
+        exchange_position_claim_refs=claims,
+    )
+
+    assert result.status is ReconciliationStatus.RECOVERY_REQUIRED
+    assert result.entry_allowed_globally is False
+    assert result.recovery_required_refs == ("intent-quarantined-lifecycle",)
 
 
 def test_order_status_recovery_is_projectable_without_trade_id() -> None:

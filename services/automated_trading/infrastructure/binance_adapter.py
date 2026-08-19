@@ -55,6 +55,13 @@ def _looks_like_binance_algo_order_id(exchange_order_id: str) -> bool:
     return exchange_order_id.isdigit() and len(exchange_order_id) >= 15
 
 
+def _exchange_bool(value: object) -> bool:
+    """Normalize Binance's boolean/string flag fields without truthy-string bugs."""
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes"}
+    return bool(value)
+
+
 @dataclass(frozen=True)
 class ExchangeOrderReceipt:
     """Immutable evidence of exchange order submission.
@@ -72,6 +79,7 @@ class ExchangeOrderReceipt:
     price: Decimal | None
     status: str  # "new" | "partially_filled" | "filled"
     acknowledged_at: datetime
+    reduce_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -380,6 +388,7 @@ class BinanceTestnetAdapter:
                 int(rows.get("updateTime") or rows.get("time") or 0) / 1000,
                 tz=UTC,
             ),
+            reduce_only=_exchange_bool(rows.get("reduceOnly", False)),
         )
 
     def query_order_by_client_id(self, symbol: str, client_order_id: str) -> ExchangeOrderReceipt | None:
@@ -420,6 +429,7 @@ class BinanceTestnetAdapter:
                     ),
                     status=str(order_data.get("algoStatus") or order_data.get("status") or "new").lower(),
                     acknowledged_at=datetime.now(UTC),
+                    reduce_only=_exchange_bool(order_data.get("reduceOnly", False)),
                 )
 
             # USDM conditional SL/TP orders are Binance algo orders and do not
@@ -447,6 +457,9 @@ class BinanceTestnetAdapter:
                         price=Decimal(str(order_data["price"])) if order_data.get("price") else None,
                         status=order_data["status"],
                         acknowledged_at=datetime.now(UTC),
+                        reduce_only=_exchange_bool(
+                            order_data.get("reduceOnly", (order_data.get("info") or {}).get("reduceOnly", False))
+                        ),
                     )
 
             # If not in open orders, check closed orders
@@ -463,6 +476,9 @@ class BinanceTestnetAdapter:
                         price=Decimal(str(order_data["price"])) if order_data.get("price") else None,
                         status=order_data["status"],
                         acknowledged_at=datetime.now(UTC),
+                        reduce_only=_exchange_bool(
+                            order_data.get("reduceOnly", (order_data.get("info") or {}).get("reduceOnly", False))
+                        ),
                     )
 
             return None  # Order not found

@@ -14,13 +14,14 @@ from typing import Any
 
 from sqlalchemy import select, text
 
-from services.automated_trading.application.entry_service import EntryExecutionStatus
+from services.automated_trading.application.entry_service import EntryExecutionResult, EntryExecutionStatus
 from services.automated_trading.application.exit_service import (
     ExitExecutionResult,
     ExitExecutionStatus,
     ExitReason,
 )
 from services.automated_trading.audit.forward_baseline import build_shadow_outcome
+from services.automated_trading.domain.client_order_id import exit_client_order_id
 from services.automated_trading.domain.enums import (
     V2CandidateType,
     V2ExecutionMode,
@@ -36,6 +37,7 @@ from services.automated_trading.domain.portfolio_risk import (
 from services.automated_trading.domain.receipts import ProtectionReceipt
 from services.automated_trading.infrastructure.models import (
     V2DecisionSnapshot,
+    V2ExchangeFill,
     V2ExchangeOrder,
     V2ExecutionCycle,
     V2ExecutionDecision,
@@ -45,6 +47,7 @@ from services.automated_trading.infrastructure.models import (
     V2RuntimeControl,
 )
 from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
+from services.automated_trading.observability.decision_funnel import DecisionReasonCode
 from services.database import get_session_factory
 
 logger = logging.getLogger(__name__)
@@ -530,6 +533,155 @@ def persist_entry_and_protection(
             position_id,
             list(entry_result.trade_ids),
         )
+
+
+def recover_confirmed_margin_guard_lifecycle(
+    *,
+    intent_id: str,
+    guard_exchange_order_id: str,
+    guard_client_order_id: str,
+    guard_fills: tuple[Any, ...],
+) -> str:
+    """Project a previously filled entry and its exact margin-guard exit.
+
+    The guard is a reduce-only exchange order submitted after a real entry fill
+    breaches the Canary margin ceiling.  It must not turn that fill into an
+    invisible rejection: this recovery writes the normal V2 entry, position,
+    exit, and CLOSED facts from immutable receipts only.  The routine performs
+    no exchange calls and is safe to retry after a completed recovery.
+    """
+    if not guard_exchange_order_id or not guard_client_order_id:
+        raise ValueError("margin-guard recovery requires exact exchange and client order ids")
+    if not guard_fills:
+        raise ValueError("margin-guard recovery requires confirmed reduce-only fill receipts")
+    if any(str(fill.exchange_order_id) != guard_exchange_order_id for fill in guard_fills):
+        raise ValueError("margin-guard fill receipt does not match the exact guard order")
+    if any(Decimal(str(fill.filled_quantity)) <= 0 for fill in guard_fills):
+        raise ValueError("margin-guard recovery requires positive filled quantities")
+
+    with get_session_factory()() as session:
+        intent = session.get(V2ExecutionIntent, intent_id)
+        if intent is None:
+            raise ValueError(f"margin-guard entry intent {intent_id!r} not found")
+        if intent.execution_mode != V2ExecutionMode.BINANCE_TESTNET.value:
+            raise ValueError("margin-guard recovery is permitted only for BINANCE_TESTNET facts")
+
+        expected_guard_client_id = exit_client_order_id(f"margin-guard:{intent_id}")
+        if guard_client_order_id != expected_guard_client_id:
+            raise ValueError("margin-guard client order id does not match the deterministic intent identity")
+
+        existing_position = session.scalar(select(V2ManagedPosition).where(V2ManagedPosition.intent_id == intent_id))
+        if existing_position is not None and existing_position.state == V2PositionState.CLOSED.value:
+            return existing_position.position_id
+        if existing_position is not None and existing_position.state != V2PositionState.POSITION_PROJECTED.value:
+            raise ValueError(
+                f"margin-guard position {existing_position.position_id!r} is {existing_position.state!r}; "
+                "cannot replay a different lifecycle"
+            )
+
+        order = session.scalar(select(V2ExchangeOrder).where(V2ExchangeOrder.intent_id == intent_id))
+        if order is None or not order.exchange_order_id:
+            raise ValueError("margin-guard recovery requires an acknowledged entry order")
+        entry_fills = tuple(
+            session.scalars(
+                select(V2ExchangeFill).where(
+                    V2ExchangeFill.intent_id == intent_id,
+                    V2ExchangeFill.exchange_order_record_id == order.order_record_id,
+                    V2ExchangeFill.reduce_only.is_(False),
+                )
+            )
+        )
+        if not entry_fills:
+            raise ValueError("margin-guard recovery requires persisted non-reduce-only entry fills")
+        cycle = session.get(V2ExecutionCycle, intent.cycle_id)
+        if cycle is None:
+            raise ValueError("margin-guard recovery requires the original V2 cycle")
+
+        entry_quantity = sum((Decimal(str(fill.filled_quantity)) for fill in entry_fills), Decimal("0"))
+        entry_notional = sum(
+            (Decimal(str(fill.filled_quantity)) * Decimal(str(fill.fill_price)) for fill in entry_fills),
+            Decimal("0"),
+        )
+        entry_fee = sum((Decimal(str(fill.commission or 0)) for fill in entry_fills), Decimal("0"))
+        entry_timestamp = max(fill.exchange_event_time for fill in entry_fills)
+        position_id = (
+            existing_position.position_id
+            if existing_position is not None
+            else str(uuid.uuid5(uuid.NAMESPACE_URL, f"automated-trading-v2:margin-guard:{intent_id}"))
+        )
+        entry_result = EntryExecutionResult(
+            status=EntryExecutionStatus.FILLED,
+            intent_state=V2IntentState.FILLED,
+            client_order_id=order.client_order_id,
+            reason_code=DecisionReasonCode.OK,
+            exchange_order_id=order.exchange_order_id,
+            trade_ids=tuple(str(fill.trade_id) for fill in entry_fills if fill.trade_id),
+            filled_quantity=entry_quantity,
+            average_fill_price=entry_notional / entry_quantity,
+            total_fee=entry_fee,
+            fill_timestamp=entry_timestamp,
+            detail="recovered from persisted entry receipts before exact margin-guard exit",
+            requested_quantity=Decimal(str(order.quantity)),
+        )
+
+    if existing_position is None:
+        persist_entry_and_protection(
+            cycle_id=intent.cycle_id,
+            decision_id=intent.decision_id,
+            intent_id=intent_id,
+            symbol=intent.symbol,
+            direction=intent.direction,
+            candidate_key=intent.candidate_key,
+            candidate_type=V2CandidateType(intent.candidate_type),
+            execution_mode=V2ExecutionMode(intent.execution_mode),
+            decision_bar_timestamp=intent.decision_bar_timestamp,
+            fencing_token=cycle.fencing_token,
+            leverage=int(order.leverage),
+            entry_result=entry_result,
+            position_id=position_id,
+            protection_result=None,
+            stop_loss_price=None,
+            take_profit_price=None,
+            stop_client_order_id=None,
+            tp_client_order_id=None,
+            initial_risk_usdt=(
+                Decimal(str(intent.initial_risk_usdt)) if intent.initial_risk_usdt is not None else None
+            ),
+        )
+
+    guard_quantity = sum((Decimal(str(fill.filled_quantity)) for fill in guard_fills), Decimal("0"))
+    if abs(guard_quantity - entry_quantity) > Decimal("0.00000001"):
+        raise ValueError(
+            f"margin-guard fill quantity {guard_quantity} does not exactly close entry quantity {entry_quantity}"
+        )
+    guard_notional = sum(
+        (Decimal(str(fill.filled_quantity)) * Decimal(str(fill.fill_price)) for fill in guard_fills),
+        Decimal("0"),
+    )
+    guard_fee = sum((Decimal(str(fill.fee)) for fill in guard_fills), Decimal("0"))
+    guard_timestamp = max(fill.fill_timestamp for fill in guard_fills)
+    exit_result = ExitExecutionResult(
+        status=ExitExecutionStatus.CLOSED,
+        position_state=V2PositionState.CLOSED,
+        client_order_id=guard_client_order_id,
+        exchange_order_id=guard_exchange_order_id,
+        trade_ids=tuple(str(fill.trade_id) for fill in guard_fills),
+        reduced_quantity=guard_quantity,
+        average_fill_price=guard_notional / guard_quantity,
+        total_fee=guard_fee,
+        remaining_quantity=Decimal("0"),
+        fill_timestamp=guard_timestamp,
+        detail="exact reduce-only CANARY_MARGIN_CEILING guard receipt",
+    )
+    persist_exit_result(
+        cycle_id=intent.cycle_id,
+        position_id=position_id,
+        execution_mode=V2ExecutionMode(intent.execution_mode),
+        reason=ExitReason.CANARY_MARGIN_CEILING,
+        result=exit_result,
+        fencing_token=cycle.fencing_token,
+    )
+    return position_id
 
 
 def persist_exit_intent_before_submission(

@@ -14,6 +14,7 @@ from decimal import Decimal
 
 from services.automated_trading.application.reconciliation_service import (
     DiscrepancyCode,
+    LocalIntentView,
     LocalPositionView,
     LocalStateView,
     ReconciliationStatus,
@@ -133,6 +134,36 @@ def test_empty_snapshot_with_empty_local_is_healthy():
     assert result.status is ReconciliationStatus.HEALTHY
     assert result.entry_allowed_globally is True
     assert result.discrepancies == ()
+
+
+def test_confirmed_entry_fill_without_position_projection_requires_recovery():
+    """A flat account is not healthy while an acknowledged V2 entry has a fill receipt.
+
+    This is the exact containment case for a margin-guard unwind: until the
+    guard exit receipt can close the lifecycle, reconciliation must keep Entry
+    fail-closed instead of treating matching zero position counts as healthy.
+    """
+    local = LocalStateView(
+        intents=(
+            LocalIntentView(
+                intent_id="intent-margin-guard",
+                symbol="ETH/USDT",
+                client_order_id="v2_entry_intent-margin-guard",
+                state="EXCHANGE_ACKNOWLEDGED",
+                has_confirmed_entry_fill=True,
+            ),
+        )
+    )
+
+    result = reconcile(_snapshot(), local, reconciled_at=NOW)
+
+    assert result.status is ReconciliationStatus.RECOVERY_REQUIRED
+    assert result.entry_allowed_globally is False
+    assert "ETH/USDT" in result.entry_blocked_symbols
+    assert DiscrepancyCode.CONFIRMED_ENTRY_FILL_UNPROJECTED in {
+        discrepancy.code for discrepancy in result.discrepancies
+    }
+    assert "intent-margin-guard" in result.recovery_required_refs
 
 
 def test_matched_position_with_protection_is_healthy():
