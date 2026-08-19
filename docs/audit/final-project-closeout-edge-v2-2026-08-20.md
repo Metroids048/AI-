@@ -107,8 +107,7 @@ production:
   authorization: PENDING
   entry_authority: NONE
 
-final_head: 4c6f716
-remote_head: 4c6f716
+closeout_content_commit: dd06d60
 ```
 
 ## Final Decision
