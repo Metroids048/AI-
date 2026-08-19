@@ -386,6 +386,7 @@ class RuntimeScheduler:
                 production_strategy_id=(strategy_id if production_authorized else None),
                 execution_mode=v2_activation.execution_mode.value,
                 operator_testnet_canary_enabled=sampling_enabled,
+                explicit_testnet_canary=False,
             )
             baseline_captured, baseline_value, baseline_source = _external_baseline_capture()
             errors = list(contract_errors)

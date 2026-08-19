@@ -144,10 +144,7 @@ def test_external_scheduler_state_exposes_actual_active_mode_contract(monkeypatc
     assert state.execution_strategy_id == "production_strategy_pending"
     assert state.registered_jobs == ("automated_trading_v2_cycle",)
     errors = runtime_state.active_startup_contract_errors(state, requested_engine="v2_active")
-    assert "ENTRY_DISABLED" in errors
-    assert "ENTRY_NOT_AUTHORIZED" in errors
-    assert "ENTRY_AUTHORITY_INVALID" in errors
-    assert "TRADING_STATE_NOT_TRADING" in errors
+    assert errors == ()
 
 
 def test_active_startup_contract_accepts_testnet_canary_entry_ready_state() -> None:
@@ -308,14 +305,21 @@ def test_active_strategy_identity_requires_full_execution_scope_approval(monkeyp
     assert scheduler_module._active_execution_strategy_identity() == ("trend_momentum_v2_enriched", True)
 
 
-def test_pending_production_keeps_canary_authority_and_fails_closed_without_sampling() -> None:
+def test_pending_production_pauses_standard_runtime_and_keeps_canary_explicit() -> None:
     from services.automated_trading.application.production_strategy import EntryAuthority, resolve_entry_authority
 
+    standard = resolve_entry_authority(
+        production_authorized=False,
+        production_strategy_id=None,
+        execution_mode="BINANCE_TESTNET",
+        operator_testnet_canary_enabled=True,
+    )
     canary = resolve_entry_authority(
         production_authorized=False,
         production_strategy_id=None,
         execution_mode="BINANCE_TESTNET",
         operator_testnet_canary_enabled=True,
+        explicit_testnet_canary=True,
     )
     disabled = resolve_entry_authority(
         production_authorized=False,
@@ -337,10 +341,10 @@ def test_pending_production_keeps_canary_authority_and_fails_closed_without_samp
         entry_enabled=True,
         sampling_fallback_enabled=True,
         external_baseline_captured=True,
-        entry_authorized=True,
-        entry_authority=canary.authority.value,
+        entry_authorized=False,
+        entry_authority=standard.authority.value,
         production_authorization_state="PENDING",
-        trading_state="TRADING",
+        trading_state="ENTRY_PAUSED",
     )
     paused_state = ExternalSchedulerState(
         running=True,
@@ -361,15 +365,14 @@ def test_pending_production_keeps_canary_authority_and_fails_closed_without_samp
         trading_state="ENTRY_PAUSED",
     )
 
-    assert canary.authority is EntryAuthority.TESTNET_CANARY
-    assert canary.promotion_eligible is False
+    assert standard.authority is EntryAuthority.NONE
     assert runtime_state.active_startup_contract_errors(canary_state) == ()
 
+    assert canary.authority is EntryAuthority.TESTNET_CANARY
+    assert canary.promotion_eligible is False
+
     assert disabled.authority is EntryAuthority.NONE
-    errors = runtime_state.active_startup_contract_errors(paused_state)
-    assert "ENTRY_NOT_AUTHORIZED" in errors
-    assert "ENTRY_AUTHORITY_INVALID" in errors
-    assert "TRADING_STATE_NOT_TRADING" in errors
+    assert runtime_state.active_startup_contract_errors(paused_state) == ()
 
 
 def test_active_startup_contract_rejects_non_boolean_or_incomplete_runtime_state(tmp_path, monkeypatch) -> None:

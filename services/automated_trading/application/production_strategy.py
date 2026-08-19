@@ -55,12 +55,14 @@ def resolve_entry_authority(
     production_strategy_id: str | None,
     execution_mode: str,
     operator_testnet_canary_enabled: bool,
+    explicit_testnet_canary: bool = False,
 ) -> EntryAuthorityResolution:
     """Resolve exactly one new-exposure writer without changing authorization.
 
     A pending production authorization never becomes approved here.  The
-    explicitly operator-enabled Canary is a Testnet-only continuity lane and
-    stays permanently non-promotable.
+    explicitly invoked Canary is a Testnet-only continuity lane and stays
+    permanently non-promotable.  The normal scheduler must never promote a
+    pending strategy into this writer merely because a toggle remains enabled.
     """
     if production_authorized:
         return EntryAuthorityResolution(
@@ -69,14 +71,20 @@ def resolve_entry_authority(
             production_strategy_id,
             True,
         )
-    if execution_mode == "BINANCE_TESTNET" and operator_testnet_canary_enabled:
+    if execution_mode == "BINANCE_TESTNET" and operator_testnet_canary_enabled and explicit_testnet_canary:
         return EntryAuthorityResolution(
             EntryAuthority.TESTNET_CANARY,
             "testnet_canary_enabled",
             "testnet_sampling_v2",
             False,
         )
-    reason = "operator_disabled" if execution_mode == "BINANCE_TESTNET" else "production_pending"
+    reason = (
+        "testnet_canary_requires_explicit_acceptance"
+        if execution_mode == "BINANCE_TESTNET" and operator_testnet_canary_enabled
+        else "operator_disabled"
+        if execution_mode == "BINANCE_TESTNET"
+        else "production_pending"
+    )
     return EntryAuthorityResolution(EntryAuthority.NONE, reason, None, False)
 
 

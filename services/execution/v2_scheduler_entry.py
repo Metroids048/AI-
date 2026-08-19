@@ -56,7 +56,7 @@ from services.strategy_library.proposal_pipeline import (
     run_proposal_pipeline,
 )
 from shared.config import settings
-from shared.models.risk import TESTNET_CANARY_RUNTIME_CONTRACT, TESTNET_CANARY_SYMBOLS
+from shared.models.risk import TESTNET_CANARY_RUNTIME_CONTRACT
 
 logger = logging.getLogger(__name__)
 
@@ -628,7 +628,7 @@ def execute_v2_automated_trading_cycles(
     timeframe_loader: Callable[[str, str], TimeframeView] | None = None,
     market_context_loader: MarketContextLoader | None = None,
 ) -> dict[str, Any]:
-    """Run one coordinated V2 cycle pass for the fixed five-symbol universe."""
+    """Run one coordinated V2 cycle pass for the Manifest execution scope."""
     payload = dict(request_payload or {})
     config = resolve_engine_activation(settings)
     if config.v2_activation is EngineActivation.DISABLED:
@@ -689,15 +689,18 @@ def execute_v2_automated_trading_cycles(
     build_adapter = adapter_factory or _default_adapter_factory
     load_timeframe = timeframe_loader or _load_v2_entry_timeframe
     load_market_context = market_context_loader or _load_v2_market_context
+    # The standard RuntimeScheduler never sets this flag.  It exists solely
+    # for the separately invoked, Testnet-only execution-continuity command.
+    canary_acceptance = bool(payload.get("canary_acceptance", False))
     symbols = list(payload.get("symbols") or AUTO_SIMULATION_EXECUTION_SYMBOLS)
     if config.execution_mode is V2ExecutionMode.BINANCE_TESTNET:
-        invalid_symbols = sorted(set(symbols) - set(TESTNET_CANARY_SYMBOLS))
+        invalid_symbols = sorted(set(symbols) - set(AUTO_SIMULATION_EXECUTION_SYMBOLS))
         if invalid_symbols:
             return {
                 "status": "error",
-                "error": "TESTNET_CANARY_SYMBOL_SCOPE_MISMATCH",
+                "error": "MANIFEST_EXECUTION_SYMBOL_SCOPE_MISMATCH",
                 "invalid_symbols": invalid_symbols,
-                "allowed_symbols": list(TESTNET_CANARY_SYMBOLS),
+                "allowed_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
             }
     timeframe = str(payload.get("timeframe") or V2_CYCLE_TIMEFRAME)
 
@@ -752,6 +755,7 @@ def execute_v2_automated_trading_cycles(
                 production_strategy_id=(production_candidate.strategy_id if production_candidate is not None else None),
                 execution_mode=config.execution_mode.value,
                 operator_testnet_canary_enabled=operator_settings.sampling_fallback_enabled,
+                explicit_testnet_canary=canary_acceptance,
             )
             operator_settings = apply_testnet_canary_runtime_contract(
                 operator_settings,

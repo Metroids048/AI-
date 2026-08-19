@@ -35,12 +35,19 @@ def test_entry_authority_prefers_approved_production_over_enabled_canary() -> No
     assert authority.promotion_eligible is True
 
 
-def test_pending_production_can_only_use_enabled_binance_testnet_canary() -> None:
+def test_pending_production_requires_explicit_testnet_canary_acceptance() -> None:
+    standard = resolve_entry_authority(
+        production_authorized=False,
+        production_strategy_id=None,
+        execution_mode="BINANCE_TESTNET",
+        operator_testnet_canary_enabled=True,
+    )
     canary = resolve_entry_authority(
         production_authorized=False,
         production_strategy_id=None,
         execution_mode="BINANCE_TESTNET",
         operator_testnet_canary_enabled=True,
+        explicit_testnet_canary=True,
     )
     disabled = resolve_entry_authority(
         production_authorized=False,
@@ -55,6 +62,8 @@ def test_pending_production_can_only_use_enabled_binance_testnet_canary() -> Non
         operator_testnet_canary_enabled=True,
     )
 
+    assert standard.authority is EntryAuthority.NONE
+    assert standard.reason == "testnet_canary_requires_explicit_acceptance"
     assert canary.authority is EntryAuthority.TESTNET_CANARY
     assert canary.promotion_eligible is False
     assert disabled.authority is EntryAuthority.NONE
