@@ -1,0 +1,22 @@
+{
+  "contract_version": "v2-transaction-freeze-1",
+  "baseline_sha": "df10d57d47228d673b8cf6c627819ce6633e95af",
+  "protected_paths": {
+    "services/automated_trading/application/cycle_service.py": "1ced0a82d78dae8f8f289772c11ff6dcb39230554fe4686166e1ec7ec8b7fe4f",
+    "services/automated_trading/application/decision_service.py": "cc4042eaa9dc458b414a65c8765079b1a6186707df3ceefc651f1d6113b0f717",
+    "services/automated_trading/application/entry_service.py": "c7a388fbef5df8075d2ecc7588def9352d71abb301127c5d83d222a2aaff68f4",
+    "services/automated_trading/application/exit_service.py": "fe5a636380dafd7db798310aed0b29d079b135d455b20f5f55fada033376d11c",
+    "services/automated_trading/application/fact_persistence.py": "d3de5ca6d4d289786a8138c36f669e4859c60ab79b76bb4259a80253f608bdb8",
+    "services/automated_trading/application/protection_service.py": "bbec69abcc0d56e6d2adc78aa86890a0e68949b3be9ced74ce6d062406e5f0af",
+    "services/automated_trading/application/reconciliation_service.py": "f403110b7c42e151baea0a60c5376784bfec3d176da149d71b817287e2f5f629",
+    "services/automated_trading/application/recovery_service.py": "e70fe240669110122f26174e6ddc84b48ea0a7e3bb8fdc6d6cb5588060460ab9",
+    "services/automated_trading/infrastructure/binance_adapter.py": "9fd3f8694fb19f728fe5fec248256a36dd5004ce7deb2dd8a4d47addf384c618",
+    "services/execution/scheduler.py": "dbf17a128acb083e3898bdaca4acc6fc9d3536bfe1dc7348055473eed203bb80",
+    "services/execution/v2_scheduler_entry.py": "1f3bfed0f37a4efe3f8152bcd99056b510cdc4e14e21dce7465cb1db6cd9bef3"
+  },
+  "approval": {
+    "required_environment": "V2_HOTPATH_FIX_APPROVED=1",
+    "required_identifier": "V2_HOTPATH_FIX_ID",
+    "failure_code": "V2_HOTPATH_CHANGE_REQUIRES_EXPLICIT_APPROVAL"
+  }
+}

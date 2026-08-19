@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  accountFromRuntimeSnapshot,
   deskOrdersFromAccount,
   deskOrdersFromRuntimeTruth,
   deskPositionsFromAccount,
@@ -8,6 +9,31 @@ import {
 } from "../pages/PaperConsole";
 
 describe("desk Binance sync mappers", () => {
+  it("keeps a stale exchange account snapshot visible without granting entry authority", () => {
+    const account = accountFromRuntimeSnapshot({
+      exchange: {
+        status: "stale",
+        observed_at: "2026-08-19T14:40:06Z",
+        value: {
+          account: {
+            wallet_balance: 6729.39,
+            available_balance: 6729.39,
+            unrealized_pnl: 0,
+            open_position_count: 0,
+          },
+        },
+      },
+    });
+
+    expect(account).toMatchObject({
+      connected: true,
+      status: "stale",
+      wallet_balance: 6729.39,
+      available_balance: 6729.39,
+    });
+    expect(account.warning).toMatch(/不会授予新开仓权限/);
+  });
+
   it("maps exchange positions for the Positions tab", () => {
     const rows = deskPositionsFromAccount({
       connected: true,

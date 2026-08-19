@@ -1187,7 +1187,12 @@ def build_no_trade_summary(
         summary_code = "EXCHANGE_UNAVAILABLE"
     elif not bool(data.get("fresh")) or not bool(data.get("exchange_info_ready")):
         summary_code = "MARKET_DATA_STALE"
-    elif reconciliation_status != "healthy" or reconciliation.get("blocked_symbols"):
+    elif (
+        reconciliation.get("blocked_symbols")
+        or reconciliation.get("entry_blocked")
+        or reconciliation.get("discrepancy_codes")
+        or reconciliation_status == "blocked"
+    ):
         summary_code = "RECONCILIATION_BLOCKED"
     elif trading_state == "ENTRY_PAUSED" or not entry_authorized:
         summary_code = "ENTRY_PAUSED"

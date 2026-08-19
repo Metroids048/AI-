@@ -62,6 +62,23 @@ def test_reconciliation_block_has_priority_over_entry_pause():
     assert result["reconciliation"]["blocked_symbols"] == ["BTC/USDT"]
 
 
+def test_stale_degraded_reconciliation_without_blockers_does_not_hide_entry_pause():
+    facts = _facts(
+        reconciliation={"status": "degraded", "blocked_symbols": [], "entry_blocked": False},
+        entry_runtime={
+            "trading_state": "ENTRY_PAUSED",
+            "entry_authority": "NONE",
+            "entry_authorized": False,
+            "reason": "NO_AUTHORIZED_PRODUCTION_STRATEGY",
+        },
+    )
+
+    result = build_no_trade_summary(**facts)
+
+    assert result["summary_code"] == "ENTRY_PAUSED"
+    assert result["entry_runtime"]["reason"] == "NO_AUTHORIZED_PRODUCTION_STRATEGY"
+
+
 def test_entry_paused_is_reported_when_system_facts_are_healthy():
     facts = _facts(
         entry_runtime={

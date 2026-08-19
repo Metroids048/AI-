@@ -47,13 +47,14 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
   const reconciliation = runtime.reconciliation;
   const protections = snapshot?.protections?.value ?? snapshot?.protections ?? [];
   const mismatchActive = mismatch?.status === "available" && mismatch?.value?.consistent === false;
-  const unavailable = exchange?.status !== "available";
+  const unavailable = exchange?.status === "unavailable" || !exchange?.value;
+  const stale = exchange?.status === "stale" && Boolean(exchange?.value);
   const exchangePositionCount =
-    positions?.exchange?.status === "available"
+    positions?.exchange?.status === "available" || positions?.exchange?.status === "stale"
       ? listCount(positions.exchange.value?.positions ?? positions.exchange.value)
       : null;
   const localPositionCount =
-    positions?.local?.status === "available"
+    positions?.local?.status === "available" || positions?.local?.status === "stale"
       ? listCount(positions.local.value?.positions ?? positions.local.value)
       : null;
 
@@ -75,6 +76,11 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
       {unavailable ? (
         <div className="truth-unavailable" role="status">
           交易所数据不可用：{exchange?.error || runtime.error || "未接通"}。不会用 0 或旧值代替。
+        </div>
+      ) : null}
+      {stale ? (
+        <div className="truth-stale" role="status">
+          交易所数据暂时陈旧，当前展示最后一次可信快照；不会用它授予新开仓权限。
         </div>
       ) : null}
       {entryRuntimeValue?.trading_state === "ENTRY_PAUSED" ? (
@@ -138,7 +144,7 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
         </article>
         <article>
           <h3>Binance Testnet</h3>
-          <strong>{exchange?.status === "available" ? "已接通" : "未接通"}</strong>
+          <strong>{exchange?.status === "available" ? "已接通" : stale ? "已接通（数据陈旧）" : "未接通"}</strong>
           <DatumMeta datum={exchange} />
         </article>
         <article>

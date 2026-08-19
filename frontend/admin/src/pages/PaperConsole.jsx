@@ -195,12 +195,15 @@ export function deskOrdersFromRuntimeTruth(runtimeSnapshot, account = null) {
 export function accountFromRuntimeSnapshot(snapshot) {
   const exchange = snapshot?.exchange;
   const account = exchange?.value?.account;
-  if (exchange?.status === "available" && account) {
+  if ((exchange?.status === "available" || exchange?.status === "stale") && account) {
     return {
       ...account,
       connected: true,
-      status: "available",
+      status: exchange.status,
       synced_at: exchange.observed_at,
+      warning: exchange.status === "stale"
+        ? "交易所探测暂时陈旧，当前展示最后一次可信账户快照；该快照不会授予新开仓权限。"
+        : account.warning,
       web_ui_url: "https://testnet.binancefuture.com/en/futures/BTCUSDT",
     };
   }

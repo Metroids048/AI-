@@ -46,6 +46,14 @@ repos:
   # with failing tests, and CI was the first thing to notice.
   - repo: local
     hooks:
+      - id: v2-transaction-contract
+        name: V2 transaction contract freeze
+        entry: python scripts/verify_v2_transaction_contract.py --staged
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
       # Runs the name-matched test subset when trading-critical code is staged.
       # Deliberately scoped to services/execution, services/validation,
       # services/strategy_library and apps/api/routers instead of the whole

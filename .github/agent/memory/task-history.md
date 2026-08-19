@@ -1747,3 +1747,16 @@
 - `scripts/run-research-smoke.py` 生成并持久化 `research-smoke-20260819-final`：native OOS 70/30、2 笔 OOS trade、Council `accept_for_next_gate`，但 `promotion_authorized=false`、Production `PENDING`。
 - 提交 `a4a7751` 已推送到 `origin/backup/2026-08-10-wip`；冻结 V2 execution/scheduler/Binance/migration/.env 相对 `aaf123f3...` 无差异。
 - 验证：full pytest `1777 passed, 5 skipped, 2 deselected`；Ruff PASS；mypy `272 source files` PASS；前端 `114 passed`、admin build PASS；launcher evidence `SUCCESS / STARTUP_READY`。这证明研究融合链可执行，不证明策略盈利或 Production promotion。
+# [TASK-2026-08-19-P0-RUNTIME] Runtime truth repair and V2 transaction freeze
+
+- Scope: stale account/reconciliation/UI truth, no-trade priority, V2 hot-path
+  freeze, one-click runtime verification.
+- Evidence: focused API tests `46 passed`; frontend suite `115 passed`; full
+  non-integration pytest `1780 passed, 5 skipped, 2 deselected`; Ruff and mypy
+  passed; admin build passed.
+- Runtime evidence: `logs/startup-result.json` reported `STARTUP_READY`; `/ops`
+  Playwright check showed Runtime Truth and `ENTRY_PAUSED`; snapshot polling was
+  approximately 30 seconds with no console errors.
+- Safety boundary: production authorization remains `PENDING`, entry authority
+  remains `NONE`, and the Testnet contract tool fail-closed without explicit
+  authorization/credentials.

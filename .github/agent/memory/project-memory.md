@@ -1,5 +1,25 @@
 # Project Memory
 
+## P0 Runtime Reliability and V2 freeze (2026-08-19)
+
+- VERIFIED: `df10d57d47228d673b8cf6c627819ce6633e95af` remains the local and remote
+  `backup/2026-08-10-wip` baseline.
+- VERIFIED: stale exchange account snapshots are still displayable in the admin
+  console, but are explicitly marked stale and never grant new-entry authority.
+- VERIFIED: no-trade summary no longer promotes a degraded reconciliation status
+  without blockers into `RECONCILIATION_BLOCKED`; `NO_AUTHORIZED_PRODUCTION_STRATEGY`
+  remains visible when reconciliation has no entry blockers.
+- VERIFIED: one-click launcher produced `SUCCESS / STARTUP_READY`, started the
+  isolated research worker, and preserved `ENTRY_PAUSED / NONE / PENDING`.
+- VERIFIED: `/ops` browser evidence showed Runtime Truth, entry pause explanation,
+  stale-data labeling, 30s polling, and no console errors.
+- VERIFIED: `contracts/v2_transaction_contract.json` and
+  `scripts/verify_v2_transaction_contract.py` freeze the V2 transaction hot path;
+  ordinary staged edits fail with `V2_HOTPATH_CHANGE_REQUIRES_EXPLICIT_APPROVAL`.
+- BLOCKED_BY_ENV: real Testnet contract execution was refused because
+  `V2_TESTNET_CONTRACT_ENABLED` and Binance credentials were not present; no real
+  order was attempted.
+
 ## Autonomous recovery loop closeout boundary (2026-08-19)
 
 - ACTIVE startup recovery is verified: launcher `STARTUP_READY`; scheduler is
