@@ -64,7 +64,10 @@ def test_orchestrator_enforces_bias_gate_and_never_authorizes() -> None:
     result = ResearchOrchestrator().run_pipeline(_spec(), [{"return": 0.01}], run_id="run-2")
     assert result["status"] == "failed"
     assert result["stage"] == "vectorbt_screen"
-    assert result["failure_reason"] == "VECTORBT_UNAVAILABLE"
+    assert result["failure_reason"] in {
+        "VECTORBT_UNAVAILABLE",
+        "ValueError: VECTORBT_CANONICAL_CLOSE_AND_SIGNAL_COLUMNS_REQUIRED",
+    }
 
 
 def test_freqtrade_result_marks_bias_checks_explicitly() -> None:

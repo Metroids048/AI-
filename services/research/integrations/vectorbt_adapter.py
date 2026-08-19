@@ -27,7 +27,12 @@ class VectorbtScreenAdapter:
         python_executable: str | None = None,
         runner: Runner = run_research_subprocess,
     ) -> None:
-        self.python_executable = python_executable or os.getenv("VECTORBT_PYTHON") or shutil.which("agent-python")
+        self.python_executable = (
+            python_executable
+            or os.getenv("VECTORBT_PYTHON")
+            or _isolated_vectorbt_python()
+            or shutil.which("agent-python")
+        )
         self.runner = runner
 
     def health(self) -> dict[str, Any]:
@@ -124,3 +129,8 @@ class VectorbtScreenAdapter:
 def _failure_reason(completed: Any) -> str:
     detail = (completed.stderr or completed.stdout or "").strip().splitlines()
     return detail[-1][:500] if detail else "VECTORBT_SUBPROCESS_FAILED"
+
+
+def _isolated_vectorbt_python() -> str | None:
+    candidate = _ROOT / ".local" / "research-engines" / "vectorbt" / "Scripts" / "python.exe"
+    return str(candidate) if candidate.is_file() else None
