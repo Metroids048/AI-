@@ -80,7 +80,17 @@ def approved_manifest(tmp_path, monkeypatch, candidate_rules) -> tuple[dict, dic
     from services.automated_trading.application import production_strategy
 
     rules = StrategyRules(**candidate_rules)
-    snapshot = {"strategy_rules": candidate_rules, "execution_profile": {"strategy_lane": "directional"}}
+    commit_sha = "a" * 40
+    snapshot = {
+        "strategy_rules": candidate_rules,
+        "execution_profile": {"strategy_lane": "directional"},
+        "canonical_strategy_manifest": {
+            "strategy_id": "trend_momentum_v2_enriched",
+            "strategy_version": "2.0.0",
+            "rules_hash": strategy_rules_hash(rules),
+            "commit_sha": commit_sha,
+        },
+    }
     snapshot_hash = "sha256:immutable-active-snapshot"
     manifest = {
         "schema_version": 4,
@@ -88,7 +98,7 @@ def approved_manifest(tmp_path, monkeypatch, candidate_rules) -> tuple[dict, dic
         "strategy_id": "trend_momentum_v2_enriched",
         "strategy_version": "2.0.0",
         "rules_hash": strategy_rules_hash(rules),
-        "commit_sha": "a" * 40,
+        "commit_sha": commit_sha,
         "configured_execution_scope": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
         "eligible_execution_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
         "research_symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"],
@@ -110,6 +120,7 @@ def approved_manifest(tmp_path, monkeypatch, candidate_rules) -> tuple[dict, dic
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     monkeypatch.setattr(production_strategy, "_manifest_path", lambda: manifest_path)
+    monkeypatch.setattr(production_strategy, "_current_commit_sha", lambda: commit_sha)
     return manifest, snapshot, snapshot_hash
 
 
@@ -222,6 +233,43 @@ def test_approved_authorization_binds_candidate_rules_snapshot_and_scope(approve
     assert authorization.candidate_id == "trend_momentum_v2_enriched"
     assert authorization.candidate_version == "2.0.0"
     assert authorization.validation_evidence_ref == "artifacts/validation/approved-evidence.json"
+
+
+def test_approved_authorization_fails_closed_when_deployed_commit_differs(approved_manifest, monkeypatch) -> None:
+    _manifest, snapshot, snapshot_hash = approved_manifest
+    from services.automated_trading.application import production_strategy
+
+    monkeypatch.setattr(production_strategy, "_current_commit_sha", lambda: "b" * 40)
+    authorization = resolve_production_authorization(
+        snapshot_config=snapshot,
+        snapshot_hash=snapshot_hash,
+        symbol="BTC/USDT",
+    )
+
+    assert authorization.authorized is False
+
+
+@pytest.mark.parametrize(
+    "binding_mutation",
+    [
+        {"commit_sha": "b" * 40},
+        {"rules_hash": "wrong"},
+        {"strategy_id": "operator_heuristic_v1"},
+    ],
+)
+def test_approved_authorization_fails_closed_on_manifest_snapshot_binding_mismatch(
+    approved_manifest, binding_mutation
+) -> None:
+    _manifest, snapshot, snapshot_hash = approved_manifest
+    snapshot["canonical_strategy_manifest"].update(binding_mutation)
+
+    authorization = resolve_production_authorization(
+        snapshot_config=snapshot,
+        snapshot_hash=snapshot_hash,
+        symbol="BTC/USDT",
+    )
+
+    assert authorization.authorized is False
 
 
 def test_approved_adapter_preserves_production_geometry_and_provenance(approved_manifest, monkeypatch) -> None:

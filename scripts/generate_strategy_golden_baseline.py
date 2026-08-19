@@ -535,13 +535,35 @@ def _metric_payload(metrics: ReplayMetrics) -> tuple[dict[str, Any], dict[str, A
     return payload, ci
 
 
+def _behavior_payload(
+    *,
+    terminal_reasons: Counter[str],
+    metrics: ReplayMetrics,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """Project replay output into the exact Gate 3 behavior contract."""
+    trades = [trade.as_dict() for trade in metrics.trades]
+    directions = Counter(str(trade["side"]).upper() for trade in trades)
+    decisions = sum(terminal_reasons.values())
+    return {
+        "unique_closed_bar_decisions": decisions,
+        "signals": metrics.signal_count,
+        "candidates": metrics.total_trades,
+        "reason_distribution": dict(sorted(terminal_reasons.items())),
+        "directions": dict(sorted(directions.items())),
+        "stop_geometry": dict(config["stoploss_rules"]),
+        "target_geometry": dict(config["takeprofit_rules"]),
+        "dry_run_intents": metrics.total_trades,
+    }
+
+
 def _run_legacy_replay(
     *,
     database_url: str,
     config: dict[str, Any],
     active_strategy: dict[str, Any],
     coverage: dict[str, Any],
-) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any], dict[str, Any]]:
     required_start = datetime.fromisoformat(coverage["required_history_start"])
     holdout_start = datetime.fromisoformat(coverage["final_holdout_start"])
     market_data = _load_replay_market_data(
@@ -594,7 +616,17 @@ def _run_legacy_replay(
             "funnel. Counts are frozen as-is and are not reconstructed from future logic."
         ),
     }
-    return metrics_payload, trades, funnel_counts, ci_payload
+    return (
+        metrics_payload,
+        trades,
+        funnel_counts,
+        ci_payload,
+        _behavior_payload(
+            terminal_reasons=terminal_reasons,
+            metrics=portfolio_metrics,
+            config=config,
+        ),
+    )
 
 
 def write_immutable_artifacts(destination: Path, artifacts: dict[str, bytes]) -> None:
@@ -699,7 +731,7 @@ def generate_golden_baseline(
     status = coverage["status"]
 
     if status == "SUFFICIENT":
-        metrics, trades, funnel_counts, current_ci = _run_legacy_replay(
+        metrics, trades, funnel_counts, current_ci, behavior = _run_legacy_replay(
             database_url=database_url,
             config=config,
             active_strategy=active_strategy,
@@ -724,6 +756,10 @@ def generate_golden_baseline(
             "reason": status,
             "method": "legacy_iid_percentile_bootstrap",
             "final_promotion_eligible": False,
+        }
+        behavior = {
+            "status": "UNAVAILABLE",
+            "reason": status,
         }
 
     costs = {
@@ -765,6 +801,9 @@ def generate_golden_baseline(
             "strategy_key": active_strategy["manifest"]["strategy_key"],
             "candidate_id": active_strategy["candidate_id"],
             "candidate_version": active_strategy["candidate_version"],
+            "rules_hash": active_strategy["manifest"]["rules_hash"],
+            "commit_sha": active_strategy["manifest"]["commit_sha"],
+            "manifest_sha256": active_strategy["manifest_sha256"],
             "eligible_execution_symbols": active_strategy["manifest"].get("eligible_execution_symbols", []),
             "manifest_rules_hash_matches_current_config": active_strategy["manifest_rules_hash_matches_current_config"],
         },
@@ -778,6 +817,7 @@ def generate_golden_baseline(
             "metrics.json",
             "current_ci.json",
             "funnel_counts.json",
+            "behavior.json",
             "trades.jsonl",
             "README.md",
         ],
@@ -813,6 +853,7 @@ def generate_golden_baseline(
             "metrics.json": _json_bytes(metrics),
             "current_ci.json": _json_bytes(current_ci),
             "funnel_counts.json": _json_bytes(funnel_counts),
+            "behavior.json": _json_bytes(behavior),
             "trades.jsonl": trades_bytes,
             "README.md": readme,
         },

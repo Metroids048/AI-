@@ -17,6 +17,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import select
+
 from services.automated_trading.application.cycle_service import CycleRequest, run_automated_trading_cycle
 from services.automated_trading.application.decision_service import BarView, TimeframeView
 from services.automated_trading.application.operator_profile import (
@@ -38,6 +40,7 @@ from services.automated_trading.audit.forward_baseline import (
     serialize_trade_candidate,
 )
 from services.automated_trading.domain.enums import V2ExecutionMode
+from services.automated_trading.infrastructure.models import V2ManagedPosition
 from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
 from services.automated_trading.infrastructure.runtime_lock import (
     EngineActivation,
@@ -85,6 +88,23 @@ def _default_adapter_factory(execution_mode: V2ExecutionMode) -> Any:
     from services.automated_trading.infrastructure.binance_adapter import BinanceTestnetAdapter
 
     return BinanceTestnetAdapter(execution_mode=execution_mode)
+
+
+def _managed_symbols_requiring_recovery(*, execution_mode: V2ExecutionMode) -> tuple[str, ...]:
+    """Return nonterminal V2 positions that still require exit/reconciliation.
+
+    This is deliberately separate from the Manifest entry universe.  A scope
+    reduction must never strand a previously confirmed managed position: it
+    receives recovery/exit cycles with EntryAuthority.NONE.
+    """
+    with get_session_factory()() as session:
+        rows = session.scalars(
+            select(V2ManagedPosition.symbol).where(
+                V2ManagedPosition.execution_mode == execution_mode.value,
+                V2ManagedPosition.state.not_in(("CLOSED", "QUARANTINED")),
+            )
+        )
+        return tuple(sorted({str(symbol) for symbol in rows}))
 
 
 def _load_v2_entry_timeframe(symbol: str, timeframe: str = V2_CYCLE_TIMEFRAME) -> TimeframeView:
@@ -628,7 +648,50 @@ def execute_v2_automated_trading_cycles(
     timeframe_loader: Callable[[str, str], TimeframeView] | None = None,
     market_context_loader: MarketContextLoader | None = None,
 ) -> dict[str, Any]:
-    """Run one coordinated V2 cycle pass for the Manifest execution scope."""
+    """Run the normal scheduler pass; request payloads can never arm Canary entry."""
+    return _execute_v2_automated_trading_cycles(
+        request_payload,
+        adapter_factory=adapter_factory,
+        timeframe_loader=timeframe_loader,
+        market_context_loader=market_context_loader,
+        canary_acceptance=False,
+        cycle_source="automated_trading_v2",
+    )
+
+
+def execute_explicit_testnet_canary_acceptance(
+    *,
+    symbols: list[str] | None = None,
+    adapter_factory: AdapterFactory | None = None,
+    timeframe_loader: Callable[[str, str], TimeframeView] | None = None,
+    market_context_loader: MarketContextLoader | None = None,
+) -> dict[str, Any]:
+    """Run the sole explicit, non-promotable Testnet Canary entrypoint.
+
+    This is intentionally a separate Python capability, rather than a
+    caller-supplied payload flag.  Celery/API scheduler callers use the public
+    normal entrypoint above and cannot convert their request into a Canary run.
+    """
+    return _execute_v2_automated_trading_cycles(
+        {"symbols": symbols or list(AUTO_SIMULATION_EXECUTION_SYMBOLS)},
+        adapter_factory=adapter_factory,
+        timeframe_loader=timeframe_loader,
+        market_context_loader=market_context_loader,
+        canary_acceptance=True,
+        cycle_source="explicit_testnet_canary_acceptance",
+    )
+
+
+def _execute_v2_automated_trading_cycles(
+    request_payload: dict[str, Any] | None = None,
+    *,
+    adapter_factory: AdapterFactory | None = None,
+    timeframe_loader: Callable[[str, str], TimeframeView] | None = None,
+    market_context_loader: MarketContextLoader | None = None,
+    canary_acceptance: bool,
+    cycle_source: str,
+) -> dict[str, Any]:
+    """Shared cycle implementation behind normal and dedicated Canary capabilities."""
     payload = dict(request_payload or {})
     config = resolve_engine_activation(settings)
     if config.v2_activation is EngineActivation.DISABLED:
@@ -673,7 +736,7 @@ def execute_v2_automated_trading_cycles(
     claim = coordinator.claim_cycle(
         job_name=lease_name,
         scheduled_for=bar_slot,
-        cycle_source="automated_trading_v2",
+        cycle_source=cycle_source,
         run_mode=config.execution_mode.value,
         fencing_token=fencing_token,
     )
@@ -689,12 +752,9 @@ def execute_v2_automated_trading_cycles(
     build_adapter = adapter_factory or _default_adapter_factory
     load_timeframe = timeframe_loader or _load_v2_entry_timeframe
     load_market_context = market_context_loader or _load_v2_market_context
-    # The standard RuntimeScheduler never sets this flag.  It exists solely
-    # for the separately invoked, Testnet-only execution-continuity command.
-    canary_acceptance = bool(payload.get("canary_acceptance", False))
-    symbols = list(payload.get("symbols") or AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    requested_symbols = list(payload.get("symbols") or AUTO_SIMULATION_EXECUTION_SYMBOLS)
     if config.execution_mode is V2ExecutionMode.BINANCE_TESTNET:
-        invalid_symbols = sorted(set(symbols) - set(AUTO_SIMULATION_EXECUTION_SYMBOLS))
+        invalid_symbols = sorted(set(requested_symbols) - set(AUTO_SIMULATION_EXECUTION_SYMBOLS))
         if invalid_symbols:
             return {
                 "status": "error",
@@ -702,6 +762,8 @@ def execute_v2_automated_trading_cycles(
                 "invalid_symbols": invalid_symbols,
                 "allowed_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
             }
+    recovery_symbols = _managed_symbols_requiring_recovery(execution_mode=config.execution_mode)
+    symbols = list(dict.fromkeys([*requested_symbols, *recovery_symbols]))
     timeframe = str(payload.get("timeframe") or V2_CYCLE_TIMEFRAME)
 
     symbol_results: list[dict[str, Any]] = []
@@ -730,33 +792,49 @@ def execute_v2_automated_trading_cycles(
                 task_failed = True
                 continue
 
-            try:
-                (
-                    production_candidate,
-                    production_authorized,
-                    production_reason,
-                    production_decision_reason,
-                    production_trace,
-                ) = _load_authorized_production_decision(
-                    settings=operator_settings,
-                    cycle_id=cycle_id,
-                    symbol=symbol,
-                    now=now,
-                )
-            except Exception as exc:  # noqa: BLE001
+            management_only = symbol not in AUTO_SIMULATION_EXECUTION_SYMBOLS
+            if management_only:
                 production_candidate = None
                 production_authorized = False
                 production_reason = NO_AUTHORIZED_PRODUCTION_STRATEGY
-                production_decision_reason = NO_AUTHORIZED_PRODUCTION_STRATEGY
-                production_trace = {"production_adapter_error": _safe_error_message(exc)}
+                production_decision_reason = "EXISTING_POSITION_MANAGEMENT_ONLY"
+                production_trace: dict[str, Any] = {"management_only": True}
+                entry_authority = resolve_entry_authority(
+                    production_authorized=False,
+                    production_strategy_id=None,
+                    execution_mode=config.execution_mode.value,
+                    operator_testnet_canary_enabled=False,
+                )
+            else:
+                try:
+                    (
+                        production_candidate,
+                        production_authorized,
+                        production_reason,
+                        production_decision_reason,
+                        production_trace,
+                    ) = _load_authorized_production_decision(
+                        settings=operator_settings,
+                        cycle_id=cycle_id,
+                        symbol=symbol,
+                        now=now,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    production_candidate = None
+                    production_authorized = False
+                    production_reason = NO_AUTHORIZED_PRODUCTION_STRATEGY
+                    production_decision_reason = NO_AUTHORIZED_PRODUCTION_STRATEGY
+                    production_trace = {"production_adapter_error": _safe_error_message(exc)}
 
-            entry_authority = resolve_entry_authority(
-                production_authorized=production_authorized,
-                production_strategy_id=(production_candidate.strategy_id if production_candidate is not None else None),
-                execution_mode=config.execution_mode.value,
-                operator_testnet_canary_enabled=operator_settings.sampling_fallback_enabled,
-                explicit_testnet_canary=canary_acceptance,
-            )
+                entry_authority = resolve_entry_authority(
+                    production_authorized=production_authorized,
+                    production_strategy_id=(
+                        production_candidate.strategy_id if production_candidate is not None else None
+                    ),
+                    execution_mode=config.execution_mode.value,
+                    operator_testnet_canary_enabled=operator_settings.sampling_fallback_enabled,
+                    explicit_testnet_canary=canary_acceptance,
+                )
             operator_settings = apply_testnet_canary_runtime_contract(
                 operator_settings,
                 symbol=symbol,

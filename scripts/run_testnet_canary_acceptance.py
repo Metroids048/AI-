@@ -12,7 +12,7 @@ import argparse
 import json
 
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
-from services.execution.v2_scheduler_entry import execute_v2_automated_trading_cycles
+from services.execution.v2_scheduler_entry import execute_explicit_testnet_canary_acceptance
 
 
 def main() -> int:
@@ -27,12 +27,8 @@ def main() -> int:
     if not args.confirm_testnet_canary:
         parser.error("--confirm-testnet-canary is required; standard runtime must not invoke the Canary")
 
-    result = execute_v2_automated_trading_cycles(
-        {
-            "canary_acceptance": True,
-            "symbols": args.symbol or list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
-            "cycle_source": "explicit_testnet_canary_acceptance",
-        }
+    result = execute_explicit_testnet_canary_acceptance(
+        symbols=args.symbol or list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
     )
     print(json.dumps(result, default=str, ensure_ascii=True))
     return 0 if result.get("status") not in {"error", "skipped"} else 1

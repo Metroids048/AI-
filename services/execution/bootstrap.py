@@ -181,6 +181,22 @@ def resolve_auto_paper_technical_evidence() -> tuple[dict[str, Any], tuple[str, 
         return disabled_rules, ()
 
 
+def resolve_auto_paper_manifest_binding() -> dict[str, str] | None:
+    """Return the immutable manifest identity that must travel with a snapshot."""
+    from services.automated_trading.application.canonical_strategy_manifest import load_canonical_strategy_manifest
+
+    try:
+        manifest = load_canonical_strategy_manifest(CANONICAL_MANIFEST_ROOT / f"{AUTO_PAPER_TECHNICAL_KEY}.json")
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        return None
+    return {
+        "strategy_id": manifest.strategy_id,
+        "strategy_version": manifest.strategy_version,
+        "rules_hash": manifest.rules_hash,
+        "commit_sha": manifest.commit_sha,
+    }
+
+
 # Medium-term swing trading preset: 1d direction + 4h entry, designed for lower
 # turnover and less competition with HFT algorithms. This is a NEW hypothesis
 # (not yet validated via historical replay) distinct from the short-term 4h/15m
@@ -717,6 +733,7 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
 
     risk_profile_id = bootstrap_medium_risk_profile()
     resolved_rules, _eligible_symbols = resolve_auto_paper_technical_evidence()
+    manifest_binding = resolve_auto_paper_manifest_binding()
     # candidate_symbols is the research-universe scope (always Top3 for monitoring).
     # The manifest's eligible_symbols are the per-symbol trading gate enforced at
     # signal time via active.json presence — not the paper-run scope definition.
@@ -751,6 +768,7 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
                 sync_session,
                 strategy_key=AUTO_PAPER_TECHNICAL_KEY,
                 promoted_rules=resolved_rules,
+                canonical_strategy_manifest=manifest_binding,
                 created_by="bootstrap-active-manifest-sync",
             )
         logger.info(

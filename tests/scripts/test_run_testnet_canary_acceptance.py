@@ -32,15 +32,11 @@ def test_canary_command_marks_cycle_as_explicit_and_non_default(monkeypatch, cap
     )
     monkeypatch.setattr(
         module,
-        "execute_v2_automated_trading_cycles",
-        lambda payload: captured.update(payload) or {"status": "completed"},
+        "execute_explicit_testnet_canary_acceptance",
+        lambda *, symbols: captured.update({"symbols": symbols}) or {"status": "completed"},
     )
 
     assert module.main() == 0
 
-    assert captured == {
-        "canary_acceptance": True,
-        "symbols": ["BTC/USDT"],
-        "cycle_source": "explicit_testnet_canary_acceptance",
-    }
+    assert captured == {"symbols": ["BTC/USDT"]}
     assert '"status": "completed"' in capsys.readouterr().out

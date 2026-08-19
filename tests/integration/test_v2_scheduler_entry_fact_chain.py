@@ -18,6 +18,7 @@ from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from services.automated_trading.application.decision_service import BarView, TimeframeView
+from services.automated_trading.application.production_strategy import EntryAuthority
 from services.automated_trading.domain.enums import V2ExecutionMode
 from services.automated_trading.infrastructure.models import (
     Base,
@@ -418,6 +419,49 @@ def test_v2_active_scheduler_persists_entry_fact_chain(v2_db, monkeypatch, caplo
         assert decisions[0].cycle_id == cycles[0].cycle_id
     finally:
         session.close()
+
+
+def test_generic_scheduler_payload_cannot_arm_testnet_canary(v2_db, monkeypatch) -> None:
+    """Only the dedicated acceptance capability may create a Canary writer."""
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.resolve_engine_activation",
+        lambda _settings: EngineActivationConfig(
+            v2_activation=EngineActivation.ACTIVE,
+            execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+            allow_legacy_writer=False,
+            warnings=[],
+        ),
+    )
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry._managed_symbols_requiring_recovery",
+        lambda **_kwargs: (),
+    )
+    captured_requests = []
+
+    def fake_cycle(request, _adapter):
+        captured_requests.append(request)
+        return SimpleNamespace(
+            funnel_payload={"terminal_stage": "NO_CANDIDATE", "reason_code": "test"},
+            reconciliation_status=SimpleNamespace(value="HEALTHY"),
+            entry_submitted=False,
+            errors=[],
+        )
+
+    monkeypatch.setattr("services.execution.v2_scheduler_entry.run_automated_trading_cycle", fake_cycle)
+
+    execute_v2_automated_trading_cycles(
+        {
+            "symbols": ["BTC/USDT"],
+            "canary_acceptance": True,
+            "interval_seconds": 60,
+            "scheduler_instance_id": "forged-canary-payload",
+        },
+        adapter_factory=_fake_adapter,
+        timeframe_loader=lambda _symbol, _tf: _bars(),
+    )
+
+    assert captured_requests
+    assert captured_requests[0].entry_authority is EntryAuthority.NONE
 
 
 def test_v2_scheduler_uses_operator_profile_after_next_cycle_activation(v2_db, monkeypatch) -> None:
