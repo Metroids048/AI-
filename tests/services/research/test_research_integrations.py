@@ -70,6 +70,20 @@ def test_orchestrator_enforces_bias_gate_and_never_authorizes() -> None:
     }
 
 
+def test_orchestrator_surfaces_freqtrade_subprocess_failure() -> None:
+    class FailingFreqtrade:
+        def validate(self, spec, rows, *, run_id, candidate=None):
+            return FreqtradeValidationAdapter(executable=None).validate(spec, rows, run_id=run_id, candidate=candidate)
+
+    result = ResearchOrchestrator(freqtrade=FailingFreqtrade()).run_pipeline(
+        _spec(),
+        [{"close": 100, "entry_signal": True, "exit_signal": False}],
+        run_id="run-freqtrade-failure",
+    )
+    assert result["stage"] == "freqtrade_validation"
+    assert result["failure_reason"] == "FREQTRADE_UNAVAILABLE"
+
+
 def test_freqtrade_result_marks_bias_checks_explicitly() -> None:
     result = FreqtradeValidationAdapter().validate(_spec(), [{"return": 0.01}], run_id="run-3")
     assert result.status == "failed"

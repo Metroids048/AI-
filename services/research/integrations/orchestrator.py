@@ -41,6 +41,14 @@ class ResearchOrchestrator:
             run_id=run_id,
             candidate=(vector_result.parameter_plateau.get("top_candidates") or [{}])[0],
         )
+        if freq_result.status != "completed":
+            return {
+                "status": "failed",
+                "stage": "freqtrade_validation",
+                "vectorbt": vector_result.model_dump(mode="json"),
+                "freqtrade": freq_result.model_dump(mode="json"),
+                "failure_reason": freq_result.failure_reason or "FREQTRADE_VALIDATION_FAILED",
+            }
         if freq_result.lookahead_status != "PASS" or freq_result.recursive_status != "PASS":
             return {
                 "status": "failed",
