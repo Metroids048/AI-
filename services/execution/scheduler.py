@@ -290,6 +290,7 @@ class RuntimeScheduler:
         social_poll_seconds: float = 300.0,
         risk_sweep_seconds: float = 60.0,
         edge_stats_refresh_seconds: float = 7 * 24 * 60 * 60,
+        volatility_risk_refresh_seconds: float = 7 * 24 * 60 * 60,
         daily_review_check_seconds: float = 60.0,
         market_review_seconds: float | None = None,
         paper_cycle_runner: Runner | None = None,
@@ -299,6 +300,7 @@ class RuntimeScheduler:
         social_poll_runner: Runner | None = None,
         risk_sweep_runner: Runner | None = None,
         edge_stats_refresh_runner: Runner | None = None,
+        volatility_risk_refresh_runner: Runner | None = None,
         notification_runner: Runner | None = None,
         market_review_runner: Runner | None = None,
         daily_review_runner: Callable[[str | None], Any] | None = None,
@@ -315,6 +317,7 @@ class RuntimeScheduler:
         self.social_poll_seconds = float(social_poll_seconds)
         self.risk_sweep_seconds = float(risk_sweep_seconds)
         self.edge_stats_refresh_seconds = float(edge_stats_refresh_seconds)
+        self.volatility_risk_refresh_seconds = float(volatility_risk_refresh_seconds)
         self.daily_review_check_seconds = float(daily_review_check_seconds)
         self.market_review_seconds = float(
             market_review_seconds if market_review_seconds is not None else settings.market_review_seconds
@@ -326,6 +329,7 @@ class RuntimeScheduler:
         self.social_poll_runner = social_poll_runner or _default_social_poll_runner
         self.risk_sweep_runner = risk_sweep_runner or _default_risk_sweep_runner
         self.edge_stats_refresh_runner = edge_stats_refresh_runner or _default_edge_stats_refresh_runner
+        self.volatility_risk_refresh_runner = volatility_risk_refresh_runner or _default_volatility_risk_refresh_runner
         self.notification_runner = notification_runner or _default_notification_runner
         self.market_review_runner = market_review_runner or _default_market_review_runner
         self.daily_review_runner = daily_review_runner or _default_daily_review_runner
@@ -537,6 +541,15 @@ class RuntimeScheduler:
                         name="refresh_signal_edge_stats",
                         interval_seconds=self.edge_stats_refresh_seconds,
                         runner=self.edge_stats_refresh_runner,
+                        affects_scheduler_health=False,
+                        run_immediately=False,
+                    )
+                ),
+                asyncio.create_task(
+                    self._run_periodic(
+                        name="refresh_volatility_asset_risk_tiers",
+                        interval_seconds=self.volatility_risk_refresh_seconds,
+                        runner=self.volatility_risk_refresh_runner,
                         affects_scheduler_health=False,
                         run_immediately=False,
                     )
@@ -1139,6 +1152,13 @@ def _default_edge_stats_refresh_runner() -> dict:
     from services.execution.tasks import refresh_signal_edge_stats
 
     return refresh_signal_edge_stats.run()
+
+
+def _default_volatility_risk_refresh_runner() -> dict:
+    """Refresh volatility tiers using the existing task without touching trading cycles."""
+    from services.execution.tasks import refresh_volatility_asset_risk_tiers
+
+    return refresh_volatility_asset_risk_tiers.run(lookback_days=30)
 
 
 def _default_notification_runner() -> dict:

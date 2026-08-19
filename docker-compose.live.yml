@@ -12,6 +12,26 @@ services:
       sh -c "pip install -e . &&
       celery -A apps.api.celery_app:celery_app worker --loglevel=info -Q default,backtest_queue,paper_queue"
 
+  celery_ops_worker:
+    image: python:3.11-slim
+    container_name: ai-quant-celery-ops-worker
+    working_dir: /app
+    command: >
+      sh -c "pip install -e . &&
+      celery -A apps.api.celery_app:celery_app worker --loglevel=info -Q ops_queue"
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      APP_ENV: live
+      RUNTIME_SCHEDULER_MODE: celery
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+
   celery_beat:
     environment:
       APP_ENV: live

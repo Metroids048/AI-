@@ -12,9 +12,9 @@ echo [2/3] Starting system. Database preparation may take about one minute.
 
 set "PWSH=C:\Program Files\PowerShell\7\pwsh.exe"
 if exist "%PWSH%" (
-  "%PWSH%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\launch-paper-console.ps1" -AutomatedTradingEngine v2_active -PreserveExternalTestnetBaseline
+  "%PWSH%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\launch-paper-console.ps1" -AutomatedTradingEngine v2_active -EnableNaturalTestnet -PreserveExternalTestnetBaseline
 ) else (
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\launch-paper-console.ps1" -AutomatedTradingEngine v2_active -PreserveExternalTestnetBaseline
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\launch-paper-console.ps1" -AutomatedTradingEngine v2_active -EnableNaturalTestnet -PreserveExternalTestnetBaseline
 )
 set "EXIT_CODE=%ERRORLEVEL%"
 

@@ -4,6 +4,8 @@ from pathlib import Path
 
 from scripts.compose_validate import build_compose_commands, validate_compose
 
+ROOT = Path(__file__).resolve().parents[2]
+
 
 def _project_tree(root: Path) -> None:
     for name in ("docker-compose.yml", "docker-compose.dev.yml", "docker-compose.test.yml"):
@@ -66,6 +68,15 @@ def test_validate_compose_requires_docker_when_requested(tmp_path) -> None:
 
     assert result.exit_code == 2
     assert result.status == "blocked"
+
+
+def test_paper_live_define_isolated_ops_queue_workers() -> None:
+    for name in ("docker-compose.paper.yml", "docker-compose.live.yml"):
+        source = (ROOT / name).read_text(encoding="utf-8")
+        assert "celery_ops_worker:" in source
+        assert "-Q ops_queue" in source
+        trading_worker = source.split("  celery_worker:", 1)[1].split("  celery_ops_worker:", 1)[0]
+        assert "ops_queue" not in trading_worker
 
 
 def test_validate_compose_rejects_env_example_as_runtime_env_file(tmp_path) -> None:
