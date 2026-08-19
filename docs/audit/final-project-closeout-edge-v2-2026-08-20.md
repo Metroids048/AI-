@@ -107,8 +107,8 @@ production:
   authorization: PENDING
   entry_authority: NONE
 
-final_head: 2e1768a
-remote_head: 2e1768a
+final_head: dd06d60
+remote_head: dd06d60
 ```
 
 ## Final Decision
