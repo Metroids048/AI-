@@ -1739,3 +1739,11 @@
 - V2 Forensics 只读重建 41 个已平自动受管 episode（部署状态 `BLOCKED`，未读 Holdout）。Funding 仍按事实标为 unknown/account-level ambiguous，slippage 只从 immutable reference 计算；没有从报告部署或武装任何策略。
 - 前端 Trading Console 已实测显示“暂无通过验证的生产策略”、`NO_AUTHORIZED_PRODUCTION_STRATEGY` 和“自动新开仓已暂停（非系统故障）”；BTC/ETH 显示“执行范围 / 新开仓暂停”，没有暗示 Canary 自动交易。
 - 行为包 identity/冻结合约及 deterministic V2 engineering E2E 已通过；但生成数据驱动 Golden Replay baseline 时得到 `DATA_COVERAGE_INSUFFICIENT`：要求的 42 个月窗口在本地数据中不完整（可用 15m/1h/4h 从 2025-07 起，1m/5m 更短且有缺口）。因此不得把 data-backed behavioral replay 误报为 PASS，也不得以补数据/重跑策略绕过 frozen-research boundary。
+
+## [TASK-2026-08-19-RESEARCH-FUSION-FINAL-ACCEPTANCE]
+
+- 固定 Freqtrade SHA `b3404c9d81422fed6a8fd83d3d296c37c7915327` 已通过隔离 research-only Python 环境运行；本地 market metadata provider 只提供交易对元数据，K 线全部来自 canonical dataset。
+- 同一 canonical dataset 已真实完成 Freqtrade `backtesting -> hyperopt -> lookahead-analysis -> recursive-analysis`；vectorbt 真实 subprocess 产出 4 个参数组合、plateau=4、neighbor_stability=1.0。
+- `scripts/run-research-smoke.py` 生成并持久化 `research-smoke-20260819-final`：native OOS 70/30、2 笔 OOS trade、Council `accept_for_next_gate`，但 `promotion_authorized=false`、Production `PENDING`。
+- 提交 `a4a7751` 已推送到 `origin/backup/2026-08-10-wip`；冻结 V2 execution/scheduler/Binance/migration/.env 相对 `aaf123f3...` 无差异。
+- 验证：full pytest `1777 passed, 5 skipped, 2 deselected`；Ruff PASS；mypy `272 source files` PASS；前端 `114 passed`、admin build PASS；launcher evidence `SUCCESS / STARTUP_READY`。这证明研究融合链可执行，不证明策略盈利或 Production promotion。
