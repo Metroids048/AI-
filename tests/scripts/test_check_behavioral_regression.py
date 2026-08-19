@@ -6,7 +6,7 @@ from pathlib import Path
 from scripts.check_behavioral_regression import check_behavioral_regression
 
 
-def _write_artifact(directory: Path, *, candidates: int = 22, commit_sha: str = "a" * 40) -> None:
+def _write_artifact(directory: Path, *, candidates: int = 22, package_hash: str = "p" * 64) -> None:
     directory.mkdir()
     (directory / "BASELINE_MANIFEST.json").write_text(
         json.dumps(
@@ -19,7 +19,10 @@ def _write_artifact(directory: Path, *, candidates: int = 22, commit_sha: str = 
                     "candidate_id": "trend_momentum_v2_enriched",
                     "candidate_version": "2.0.0",
                     "rules_hash": "r" * 64,
-                    "commit_sha": commit_sha,
+                    "strategy_code_hash": "c" * 64,
+                    "strategy_package_hash": package_hash,
+                    "strategy_source_commit": "a" * 40,
+                    "approval_commit": None,
                     "manifest_sha256": "manifest-hash",
                 },
             }
@@ -55,13 +58,13 @@ def test_behavioral_regression_command_fails_on_candidate_starvation(tmp_path: P
     assert result["differences"]["candidates"] == {"baseline": 22, "observed": 1}
 
 
-def test_behavioral_regression_command_fails_on_manifest_commit_change(tmp_path: Path) -> None:
+def test_behavioral_regression_command_fails_on_strategy_package_change(tmp_path: Path) -> None:
     baseline_dir = tmp_path / "baseline"
     observed_dir = tmp_path / "observed"
     _write_artifact(baseline_dir)
-    _write_artifact(observed_dir, commit_sha="b" * 40)
+    _write_artifact(observed_dir, package_hash="q" * 64)
 
     result = check_behavioral_regression(baseline_dir=baseline_dir, observed_dir=observed_dir)
 
     assert result["status"] == "BEHAVIOR_REGRESSION=FAIL"
-    assert result["differences"]["identity"]["commit_sha"] == {"baseline": "a" * 40, "observed": "b" * 40}
+    assert result["differences"]["identity"]["strategy_package_hash"] == {"baseline": "p" * 64, "observed": "q" * 64}

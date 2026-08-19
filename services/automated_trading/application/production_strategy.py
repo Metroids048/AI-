@@ -7,8 +7,6 @@ into a V2 ``TradeCandidate``; execution remains owned by the existing V2 cycle.
 
 from __future__ import annotations
 
-import os
-import subprocess
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -21,6 +19,7 @@ from services.automated_trading.application.canonical_strategy_manifest import (
     ManifestValidationError,
     load_canonical_strategy_manifest,
 )
+from services.automated_trading.application.strategy_package_identity import strategy_package_identity
 from services.automated_trading.domain.candidates import CandidateLane, TradeCandidate
 from services.automated_trading.domain.enums import V2CandidateType
 from services.execution.bootstrap import AUTO_PAPER_EXECUTION_SYMBOLS, AUTO_PAPER_TECHNICAL_KEY, CANONICAL_MANIFEST_ROOT
@@ -33,19 +32,6 @@ from services.strategy_library.v2_projection import project_single_target
 from shared.models import StrategyContract, StrategyRules
 
 NO_AUTHORIZED_PRODUCTION_STRATEGY = "NO_AUTHORIZED_PRODUCTION_STRATEGY"
-
-
-def _current_commit_sha() -> str | None:
-    """Return the exact deployed code revision, or fail closed when unknown."""
-    configured = os.getenv("STRATEGY_COMMIT") or os.getenv("GIT_COMMIT")
-    if configured:
-        return configured.strip()
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL, timeout=2
-        ).strip()
-    except (OSError, subprocess.SubprocessError):
-        return None
 
 
 class EntryAuthority(StrEnum):
@@ -170,13 +156,19 @@ def resolve_production_authorization(
         if not isinstance(snapshot_config, dict):
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
         snapshot_manifest = snapshot_config.get("canonical_strategy_manifest")
-        expected_manifest = {
+        runtime_identity = strategy_package_identity(
+            strategy_id=manifest.strategy_id,
+            strategy_version=manifest.strategy_version,
+            rules_hash=manifest.rules_hash,
+        )
+        manifest_identity = {
             "strategy_id": manifest.strategy_id,
             "strategy_version": manifest.strategy_version,
             "rules_hash": manifest.rules_hash,
-            "commit_sha": manifest.commit_sha,
+            "strategy_code_hash": manifest.strategy_code_hash,
+            "strategy_package_hash": manifest.strategy_package_hash,
         }
-        if snapshot_manifest != expected_manifest or _current_commit_sha() != manifest.commit_sha:
+        if snapshot_manifest != manifest_identity or runtime_identity.snapshot_binding() != manifest_identity:
             return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
         raw_rules = snapshot_config.get("strategy_rules")
         if not isinstance(raw_rules, dict):

@@ -113,7 +113,9 @@ def render_canonical_strategy_block() -> str:
             "",
             f"- Strategy: `{manifest.strategy_id}` / `{manifest.strategy_version}`",
             f"- Rules Hash: `{manifest.rules_hash}`",
-            f"- Commit: `{manifest.commit_sha}`",
+            f"- Strategy code hash: `{manifest.strategy_code_hash}`",
+            f"- Strategy package hash: `{manifest.strategy_package_hash}`",
+            f"- Strategy source commit (provenance): `{manifest.strategy_source_commit}`",
             f"- Configured execution scope: {', '.join(manifest.configured_execution_scope)}",
             "- Eligible execution symbols: "
             + (", ".join(manifest.eligible_execution_symbols) if manifest.eligible_execution_symbols else "none"),

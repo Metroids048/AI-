@@ -184,17 +184,25 @@ def resolve_auto_paper_technical_evidence() -> tuple[dict[str, Any], tuple[str, 
 def resolve_auto_paper_manifest_binding() -> dict[str, str] | None:
     """Return the immutable manifest identity that must travel with a snapshot."""
     from services.automated_trading.application.canonical_strategy_manifest import load_canonical_strategy_manifest
+    from services.automated_trading.application.strategy_package_identity import strategy_package_identity
 
     try:
         manifest = load_canonical_strategy_manifest(CANONICAL_MANIFEST_ROOT / f"{AUTO_PAPER_TECHNICAL_KEY}.json")
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
         return None
-    return {
+    declared = {
         "strategy_id": manifest.strategy_id,
         "strategy_version": manifest.strategy_version,
         "rules_hash": manifest.rules_hash,
-        "commit_sha": manifest.commit_sha,
+        "strategy_code_hash": manifest.strategy_code_hash,
+        "strategy_package_hash": manifest.strategy_package_hash,
     }
+    runtime = strategy_package_identity(
+        strategy_id=manifest.strategy_id,
+        strategy_version=manifest.strategy_version,
+        rules_hash=manifest.rules_hash,
+    )
+    return declared if runtime.snapshot_binding() == declared else None
 
 
 # Medium-term swing trading preset: 1d direction + 4h entry, designed for lower

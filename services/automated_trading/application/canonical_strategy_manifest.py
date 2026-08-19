@@ -35,7 +35,10 @@ class CanonicalStrategyManifest:
     strategy_id: str
     strategy_version: str
     rules_hash: str
-    commit_sha: str
+    strategy_code_hash: str
+    strategy_package_hash: str
+    strategy_source_commit: str
+    approval_commit: str | None
     configured_execution_scope: tuple[str, ...]
     eligible_execution_symbols: tuple[str, ...]
     research_symbols: tuple[str, ...]
@@ -65,7 +68,9 @@ def load_canonical_strategy_manifest(path: Path) -> CanonicalStrategyManifest:
         "strategy_id",
         "strategy_version",
         "rules_hash",
-        "commit_sha",
+        "strategy_code_hash",
+        "strategy_package_hash",
+        "strategy_source_commit",
         "effective_at",
     )
     for field in required_strings:
@@ -73,8 +78,14 @@ def load_canonical_strategy_manifest(path: Path) -> CanonicalStrategyManifest:
             raise ManifestValidationError(f"{field} is required")
     if len(str(raw["rules_hash"])) != 64:
         raise ManifestValidationError("rules_hash must be SHA-256")
-    if len(str(raw["commit_sha"])) != 40:
-        raise ManifestValidationError("commit_sha must be a full git SHA")
+    for field in ("rules_hash", "strategy_code_hash", "strategy_package_hash"):
+        if len(str(raw[field])) != 64:
+            raise ManifestValidationError(f"{field} must be SHA-256")
+    if len(str(raw["strategy_source_commit"])) != 40:
+        raise ManifestValidationError("strategy_source_commit must be a full git SHA")
+    approval_commit = raw.get("approval_commit")
+    if approval_commit is not None and (not isinstance(approval_commit, str) or len(approval_commit) != 40):
+        raise ManifestValidationError("approval_commit must be a full git SHA or null")
 
     configured = _symbols(raw.get("configured_execution_scope"), field="configured_execution_scope")
     eligible = (
@@ -99,6 +110,8 @@ def load_canonical_strategy_manifest(path: Path) -> CanonicalStrategyManifest:
             raise ManifestValidationError("APPROVED manifest requires approval identity and time")
         if not isinstance(raw.get("config_snapshot_hash"), str) or not raw["config_snapshot_hash"]:
             raise ManifestValidationError("APPROVED manifest requires config_snapshot_hash")
+        if approval_commit is None:
+            raise ManifestValidationError("APPROVED manifest requires approval_commit")
 
     golden = raw.get("golden_behavior_ref")
     if golden is not None and not isinstance(golden, str):
@@ -111,7 +124,10 @@ def load_canonical_strategy_manifest(path: Path) -> CanonicalStrategyManifest:
         strategy_id=str(raw["strategy_id"]),
         strategy_version=str(raw["strategy_version"]),
         rules_hash=str(raw["rules_hash"]),
-        commit_sha=str(raw["commit_sha"]),
+        strategy_code_hash=str(raw["strategy_code_hash"]),
+        strategy_package_hash=str(raw["strategy_package_hash"]),
+        strategy_source_commit=str(raw["strategy_source_commit"]),
+        approval_commit=approval_commit,
         configured_execution_scope=configured,
         eligible_execution_symbols=eligible,
         research_symbols=research,

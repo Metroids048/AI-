@@ -33,13 +33,12 @@ def _load_artifact(directory: Path) -> tuple[dict[str, Any], dict[str, Any]]:
         raise ValueError(f"active_strategy missing: {directory}")
     identity = {
         "data_hash": manifest.get("data_hash"),
-        "source_tree_hash": manifest.get("source_tree_hash"),
         "strategy_key": active.get("strategy_key"),
         "candidate_id": active.get("candidate_id"),
         "candidate_version": active.get("candidate_version"),
         "rules_hash": active.get("rules_hash"),
-        "commit_sha": active.get("commit_sha"),
-        "manifest_sha256": active.get("manifest_sha256"),
+        "strategy_code_hash": active.get("strategy_code_hash"),
+        "strategy_package_hash": active.get("strategy_package_hash"),
     }
     if any(not isinstance(value, str) or not value for value in identity.values()):
         raise ValueError(f"incomplete behavior identity: {directory}")

@@ -15,6 +15,7 @@ from services.automated_trading.application.production_strategy import (
     resolve_entry_authority,
     resolve_production_authorization,
 )
+from services.automated_trading.application.strategy_package_identity import strategy_package_identity
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY
 from services.execution.signal_edge_stats import strategy_rules_hash
@@ -80,16 +81,15 @@ def approved_manifest(tmp_path, monkeypatch, candidate_rules) -> tuple[dict, dic
     from services.automated_trading.application import production_strategy
 
     rules = StrategyRules(**candidate_rules)
-    commit_sha = "a" * 40
+    identity = strategy_package_identity(
+        strategy_id="trend_momentum_v2_enriched",
+        strategy_version="2.0.0",
+        rules_hash=strategy_rules_hash(rules),
+    )
     snapshot = {
         "strategy_rules": candidate_rules,
         "execution_profile": {"strategy_lane": "directional"},
-        "canonical_strategy_manifest": {
-            "strategy_id": "trend_momentum_v2_enriched",
-            "strategy_version": "2.0.0",
-            "rules_hash": strategy_rules_hash(rules),
-            "commit_sha": commit_sha,
-        },
+        "canonical_strategy_manifest": identity.snapshot_binding(),
     }
     snapshot_hash = "sha256:immutable-active-snapshot"
     manifest = {
@@ -98,7 +98,10 @@ def approved_manifest(tmp_path, monkeypatch, candidate_rules) -> tuple[dict, dic
         "strategy_id": "trend_momentum_v2_enriched",
         "strategy_version": "2.0.0",
         "rules_hash": strategy_rules_hash(rules),
-        "commit_sha": commit_sha,
+        "strategy_code_hash": identity.strategy_code_hash,
+        "strategy_package_hash": identity.strategy_package_hash,
+        "strategy_source_commit": "a" * 40,
+        "approval_commit": "b" * 40,
         "configured_execution_scope": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
         "eligible_execution_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
         "research_symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"],
@@ -120,7 +123,6 @@ def approved_manifest(tmp_path, monkeypatch, candidate_rules) -> tuple[dict, dic
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     monkeypatch.setattr(production_strategy, "_manifest_path", lambda: manifest_path)
-    monkeypatch.setattr(production_strategy, "_current_commit_sha", lambda: commit_sha)
     return manifest, snapshot, snapshot_hash
 
 
@@ -235,25 +237,27 @@ def test_approved_authorization_binds_candidate_rules_snapshot_and_scope(approve
     assert authorization.validation_evidence_ref == "artifacts/validation/approved-evidence.json"
 
 
-def test_approved_authorization_fails_closed_when_deployed_commit_differs(approved_manifest, monkeypatch) -> None:
+def test_approved_authorization_ignores_git_environment_overrides(approved_manifest, monkeypatch) -> None:
     _manifest, snapshot, snapshot_hash = approved_manifest
-    from services.automated_trading.application import production_strategy
 
-    monkeypatch.setattr(production_strategy, "_current_commit_sha", lambda: "b" * 40)
+    monkeypatch.setenv("STRATEGY_COMMIT", "f" * 40)
+    monkeypatch.setenv("GIT_COMMIT", "e" * 40)
     authorization = resolve_production_authorization(
         snapshot_config=snapshot,
         snapshot_hash=snapshot_hash,
         symbol="BTC/USDT",
     )
 
-    assert authorization.authorized is False
+    assert authorization.authorized is True
 
 
 @pytest.mark.parametrize(
     "binding_mutation",
     [
-        {"commit_sha": "b" * 40},
+        {"strategy_code_hash": "b" * 64},
+        {"strategy_package_hash": "c" * 64},
         {"rules_hash": "wrong"},
+        {"strategy_version": "2.0.1"},
         {"strategy_id": "operator_heuristic_v1"},
     ],
 )
@@ -270,6 +274,46 @@ def test_approved_authorization_fails_closed_on_manifest_snapshot_binding_mismat
     )
 
     assert authorization.authorized is False
+
+
+def test_approved_authorization_fails_closed_when_runtime_strategy_code_changes(approved_manifest, monkeypatch) -> None:
+    _manifest, snapshot, snapshot_hash = approved_manifest
+    from services.automated_trading.application import production_strategy
+    from services.automated_trading.application.strategy_package_identity import StrategyPackageIdentity
+
+    def changed_runtime_identity(**kwargs) -> StrategyPackageIdentity:
+        baseline = strategy_package_identity(**kwargs)
+        return StrategyPackageIdentity(
+            strategy_id=baseline.strategy_id,
+            strategy_version=baseline.strategy_version,
+            rules_hash=baseline.rules_hash,
+            strategy_code_hash="f" * 64,
+            strategy_package_hash="e" * 64,
+        )
+
+    monkeypatch.setattr(production_strategy, "strategy_package_identity", changed_runtime_identity)
+    authorization = resolve_production_authorization(
+        snapshot_config=snapshot,
+        snapshot_hash=snapshot_hash,
+        symbol="BTC/USDT",
+    )
+
+    assert authorization.authorized is False
+
+
+def test_approval_commit_is_provenance_not_an_authorization_equality(approved_manifest) -> None:
+    manifest, snapshot, snapshot_hash = approved_manifest
+    manifest["approval_commit"] = "c" * 40
+    from services.automated_trading.application import production_strategy
+
+    production_strategy._manifest_path().write_text(json.dumps(manifest), encoding="utf-8")
+    authorization = resolve_production_authorization(
+        snapshot_config=snapshot,
+        snapshot_hash=snapshot_hash,
+        symbol="BTC/USDT",
+    )
+
+    assert authorization.authorized is True
 
 
 def test_approved_adapter_preserves_production_geometry_and_provenance(approved_manifest, monkeypatch) -> None:
