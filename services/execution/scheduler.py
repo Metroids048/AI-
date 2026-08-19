@@ -20,7 +20,9 @@ from pathlib import Path
 from typing import Any
 
 from services.automated_trading.application.production_strategy import EntryAuthority, resolve_entry_authority
+from services.data.binance_clock import BinanceClockUnavailable, fetch_binance_server_time
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_baseline_keys
+from services.execution.natural_testnet_mode import natural_testnet_mode_requested
 from shared.config import settings
 
 from .runtime_state import write_external_scheduler_state
@@ -94,6 +96,7 @@ class RuntimeSchedulerStatus:
     promotion_eligible: bool = False
     trading_state: str = "ENTRY_PAUSED"
     startup_contract_errors: tuple[str, ...] = ()
+    natural_testnet_enabled: bool = False
 
     def model_dump(self) -> dict[str, Any]:
         return {
@@ -131,6 +134,7 @@ class RuntimeSchedulerStatus:
             "promotion_eligible": self.promotion_eligible,
             "trading_state": self.trading_state,
             "startup_contract_errors": self.startup_contract_errors,
+            "natural_testnet_enabled": self.natural_testnet_enabled,
         }
 
 
@@ -378,6 +382,7 @@ class RuntimeScheduler:
         self.status.active_entry_strategy = None
         self.status.promotion_eligible = False
         self.status.trading_state = "ENTRY_PAUSED"
+        self.status.natural_testnet_enabled = natural_testnet_mode_requested()
         if v2_activation.v2_activation.value == "ACTIVE":
             entry_enabled, sampling_enabled, contract_errors = _active_entry_authorization()
             strategy_id, production_authorized = _active_execution_strategy_identity()
@@ -386,7 +391,7 @@ class RuntimeScheduler:
                 production_strategy_id=(strategy_id if production_authorized else None),
                 execution_mode=v2_activation.execution_mode.value,
                 operator_testnet_canary_enabled=sampling_enabled,
-                explicit_testnet_canary=False,
+                explicit_testnet_canary=self.status.natural_testnet_enabled,
             )
             baseline_captured, baseline_value, baseline_source = _external_baseline_capture()
             errors = list(contract_errors)
@@ -660,6 +665,28 @@ class RuntimeScheduler:
         observed_at: datetime,
     ) -> Any:
         assert self.coordinator is not None
+        # V2 Testnet cycles must use one exchange-clock reference for the
+        # outer claim and the inner decision cycle.  Using the local clock
+        # here while v2_scheduler_entry.py reads Binance time creates two
+        # different slots and can strand the scheduler behind stale claims.
+        if name == "automated_trading_v2_cycle" and settings.binance_use_testnet:
+            try:
+                observed_at = await asyncio.to_thread(fetch_binance_server_time)
+            except BinanceClockUnavailable as exc:
+                result = {
+                    "status": "error",
+                    "error": "BINANCE_SERVER_TIME_UNAVAILABLE",
+                    "detail": str(exc),
+                }
+                self.status.failure_counts[name] = self.status.failure_counts.get(name, 0) + 1
+                self.status.last_results[name] = result
+                self.status.last_failure_at[name] = datetime.now(UTC)
+                self._scheduler_errors[name] = result["error"]
+                self.status.scheduler_error = "; ".join(
+                    f"{task_name}: {error}" for task_name, error in sorted(self._scheduler_errors.items())
+                )
+                self._publish_external_state()
+                return result
         lease_ttl = max(90.0, interval_seconds * 3)
         if not self.coordinator.acquire_or_renew_lease(
             lease_name=name,
@@ -705,6 +732,7 @@ class RuntimeScheduler:
             "scheduler_cycle_id": claim.scheduler_cycle_id,
             "lease_name": name,
             "fencing_token": fencing_token,
+            "observed_at": observed_at.astimezone(UTC).isoformat(),
         }
         # Runner 类型是 Callable[[], Any]；默认 runner 额外接受 provenance，直接绑定 metadata。
         if runner is _default_paper_cycle_runner:
@@ -911,6 +939,7 @@ class RuntimeScheduler:
                 "promotion_eligible": self.status.promotion_eligible,
                 "trading_state": self.status.trading_state,
                 "startup_contract_errors": list(self.status.startup_contract_errors),
+                "natural_testnet_enabled": self.status.natural_testnet_enabled,
             }
         )
 

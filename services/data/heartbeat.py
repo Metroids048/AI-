@@ -21,9 +21,10 @@ class MarketDataHeartbeatService:
         symbol: str,
         timeframe: str = "1m",
         max_delay_seconds: int | None = None,
+        reference_time: datetime | None = None,
     ) -> dict:
         max_delay = timedelta(seconds=max_delay_seconds or settings.market_data_stale_seconds)
-        now = datetime.now(UTC)
+        now = reference_time or datetime.now(UTC)
         freshness = self.data_repo.check_freshness(
             symbol=symbol,
             timeframe=timeframe,
@@ -78,9 +79,15 @@ class MarketDataHeartbeatService:
         symbols: list[str],
         timeframe: str = "1m",
         max_delay_seconds: int | None = None,
+        reference_time: datetime | None = None,
     ) -> dict:
         results = {
-            symbol: self.check_symbol(symbol=symbol, timeframe=timeframe, max_delay_seconds=max_delay_seconds)
+            symbol: self.check_symbol(
+                symbol=symbol,
+                timeframe=timeframe,
+                max_delay_seconds=max_delay_seconds,
+                reference_time=reference_time,
+            )
             for symbol in symbols
         }
         return {

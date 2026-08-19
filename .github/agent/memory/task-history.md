@@ -1762,3 +1762,79 @@
 - Safety boundary: production authorization remains `PENDING`, entry authority
   remains `NONE`, and the Testnet contract tool fail-closed without explicit
   authorization/credentials.
+
+## [TASK-2026-08-19-NATURAL-TESTNET-AUTHORITY-BRIDGE]
+
+- Implemented the bounded hot-path bridge under explicit process approval
+  `NATURAL_TESTNET_AUTHORITY_BRIDGE_20260820`: one resolver requires
+  `V2_NATURAL_E2E_ENABLED=true`, Binance Testnet, and live trading disabled.
+  Request payloads cannot arm Canary authority.
+- Synchronized `v2_scheduler_entry.py`, `scheduler.py`, and launcher mode truth;
+  Natural startup now publishes `TESTNET_CANARY / testnet_sampling_v2 /
+  promotion_eligible=false`, while the normal launcher publishes
+  `natural_testnet_enabled=false / NONE / ENTRY_PAUSED / Production=PENDING`.
+- Real launcher evidence: Natural `STARTUP_READY` and `TRADING` were observed;
+  normal mode was restored with `STARTUP_READY`, `entry_authority=NONE`,
+  `entry_authorized=false`, `entry_enabled=true`, and `ENTRY_PAUSED`.
+- Focused authority tests: `6 passed`; V2 service regression: `1278 passed`;
+  full pytest: `1786 passed, 7 skipped`; Ruff: `All checks passed!`; mypy is
+  blocked by the pre-existing duplicate module `check_positions.py` versus
+  `scripts/archive/2026-08-ops-checks/check_positions.py`.
+- Natural proof remains OPEN: `prove_real_binance_natural_order.py` created no
+  order and returned `No natural directional Binance Simulation fill...`.
+  The observed Natural scheduler cycles were authorized but hit existing
+  persisted `DUPLICATE_DECISION` bars / strategy-level no-signal outcomes;
+  no manual, acceptance, direct-cycle, or synthetic order was used. The V2
+  transaction contract baseline/hash was intentionally not updated because
+  the required real Natural fill evidence is absent.
+
+## [TASK-2026-08-19-DECISION-SCOPE-ENTRY-CONTROL]
+
+- 修复了两个窄根因：V2 `already_evaluated_bars` 现在按 `CandidateLane` 读取
+  已完成 Decision；Production 历史不会再阻塞 `TESTNET_SAMPLING`，同一
+  Sampling lane 的重复保护仍保留。普通/自然模式分别使用同一进程级 mode
+  truth，launcher 健康复用会校验 `natural_testnet_enabled`。
+- Entry Control 根因已确认是持久化
+  `STARTUP_SAFETY_STOP:STARTUP_FAILED`；launcher 现在只对白名单 safety-stop
+  reason 恢复 `entry_enabled`，不会覆盖 operator pause、projection recovery
+  或未知 incident。普通模式真实启动结果为
+  `entry_enabled=true / NONE / NO_AUTHORIZED_PRODUCTION_STRATEGY /
+  ENTRY_PAUSED / Production=PENDING`。
+- Natural 模式真实启动结果为
+  `entry_enabled=true / TESTNET_CANARY / testnet_sampling_v2 /
+  promotion_eligible=false / TRADING`。新闭合柱
+  `2026-08-18T18:30:00Z` 的 BTC、ETH、SOL、XRP、BNB 均实际到达
+  `ENTRY_SIGNAL_EVALUATED`，没有被 `DUPLICATE_DECISION` 截断；终端原因是
+  `MACD_DIRECTION_MISMATCH` 或 `MULTI_TIMEFRAME_DISAGREEMENT`。
+- 验证：定向测试 `27 passed`，RuntimeScheduler 相关测试 `5 passed, 21
+  deselected`，full pytest `1779 passed, 16 skipped, 2 warnings`，full Ruff
+  `All checks passed!`，PowerShell parser passed，`git diff --check` passed。
+  全仓 mypy 仍有 470 个既有测试类型错误，未涉及本次运行时代码根因。自然订单证明脚本仍为 OPEN：
+  `No natural directional Binance Simulation fill was verified...`，未创建
+  acceptance/manual 订单，因此未更新 transaction contract hash。
+
+## [TASK-2026-08-20-NATURAL-TESTNET-FINAL-CLOSEOUT]
+
+- Freshness fact verified from the live V2 database: BTC/ETH 15m bars reached
+  `2026-08-20T01:00:00Z`; the corresponding Natural Canary decisions reached
+  `ENTRY_SIGNAL_EVALUATED` and terminated on `MACD_DIRECTION_MISMATCH`, so the
+  earlier `2026-08-18T18:30:00Z` timestamp was historical evidence, not the
+  current market-data watermark.
+- The proof tool was corrected to inspect the V2 Active fact chain
+  (`v2_execution_intents` -> `v2_exchange_orders` -> `v2_exchange_fills`), while
+  retaining strict Testnet Canary, non-promotable sampling, and no-manual-order
+  filters. Focused regression: `31 passed`.
+- Real Natural proof: XRP/USDT entry intent `4dae50a6-7a54-4c0b-925d-f443198f487b`,
+  Binance entry order `3481239947`, trade `148671953`, filled quantity
+  `10176.5`, average fill `0.9982`, `acceptance_or_manual_order=false`.
+  Protection orders were `1000000172235239` and `1000000172235260`; natural
+  reduce-only stop order `3481336578`, trade `148717959`, filled quantity
+  `10176.5`, and local position `90c6f4a1-d361-43b9-b271-3ec8d8ca6178` is
+  `CLOSED`. Latest reconciliation is `HEALTHY` with exchange/local open
+  positions `0/0` and open orders `0/0`.
+- Ordinary active startup was restored and verified: `natural_testnet_enabled=false`,
+  `entry_enabled=true`, `entry_authority=NONE`, `entry_authorized=false`,
+  `trading_state=ENTRY_PAUSED`, `production_authorization_state=PENDING`.
+- Natural proof artifact: `artifacts/real-binance-natural-order-proof.json`.
+  Remote push and new V2 transaction baseline freeze remain pending until the
+  closeout commit is created and pushed.

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from services.automated_trading.application.decision_service import BarView, TimeframeView
 from services.automated_trading.application.production_strategy import EntryAuthority
+from services.automated_trading.domain.candidates import CandidateLane
 from services.automated_trading.domain.enums import V2ExecutionMode
 from services.automated_trading.infrastructure.models import (
     Base,
@@ -33,6 +34,7 @@ from services.execution import tasks as tasks_mod
 from services.execution import v2_scheduler_entry as v2_scheduler_entry_mod
 from services.execution.scheduler import SchedulerCoordinator
 from services.execution.v2_scheduler_entry import (
+    _load_already_evaluated_bars,
     _load_v2_entry_timeframe,
     _load_v2_market_context,
     execute_v2_automated_trading_cycles,
@@ -1010,6 +1012,14 @@ def test_scheduler_passes_previously_evaluated_closed_bar_to_cycle(v2_db, monkey
                 decision_terminal="ENTRY_SIGNAL_EVALUATED",
             )
         )
+        session.add(
+            V2ExecutionDecision(
+                decision_id="prior-decision",
+                cycle_id="prior-cycle",
+                terminal_reason="ENTRY_SIGNAL_EVALUATED",
+                payload={"lane": CandidateLane.PRODUCTION.value},
+            )
+        )
         session.commit()
     finally:
         session.close()
@@ -1057,7 +1067,81 @@ def test_scheduler_passes_previously_evaluated_closed_bar_to_cycle(v2_db, monkey
     assert prior_bar.timestamp in captured_requests[0].already_evaluated_bars
 
 
+def test_scheduler_duplicate_history_is_scoped_to_candidate_lane(v2_db) -> None:
+    prior_bar = _bars().last_closed
+    assert prior_bar is not None
+    session: Session = v2_db()
+    try:
+        session.add(
+            V2ExecutionCycle(
+                cycle_id="lane-prior-cycle",
+                symbol="BTC/USDT",
+                timeframe="15m",
+                bar_timestamp=prior_bar.timestamp,
+                execution_mode=V2ExecutionMode.BINANCE_TESTNET.value,
+                fencing_token="lane-prior-fence",
+                completed_at=datetime.now(UTC),
+                decision_terminal="RISK_APPROVED",
+            )
+        )
+        session.add(
+            V2ExecutionDecision(
+                decision_id="lane-prior-decision",
+                cycle_id="lane-prior-cycle",
+                terminal_reason="NO_AUTHORIZED_PRODUCTION_STRATEGY",
+                payload={"lane": CandidateLane.PRODUCTION.value},
+            )
+        )
+        sampling_bar = prior_bar.timestamp + timedelta(minutes=15)
+        session.add(
+            V2ExecutionCycle(
+                cycle_id="sampling-prior-cycle",
+                symbol="BTC/USDT",
+                timeframe="15m",
+                bar_timestamp=sampling_bar,
+                execution_mode=V2ExecutionMode.BINANCE_TESTNET.value,
+                fencing_token="sampling-prior-fence",
+                completed_at=datetime.now(UTC),
+                decision_terminal="ENTRY_SIGNAL_EVALUATED",
+            )
+        )
+        session.add(
+            V2ExecutionDecision(
+                decision_id="sampling-prior-decision",
+                cycle_id="sampling-prior-cycle",
+                terminal_reason="ENTRY_SIGNAL_EVALUATED",
+                payload={"lane": CandidateLane.TESTNET_SAMPLING.value},
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    production_bars = _load_already_evaluated_bars(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        lane=CandidateLane.PRODUCTION,
+    )
+    sampling_bars = _load_already_evaluated_bars(
+        symbol="BTC/USDT",
+        timeframe="15m",
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        lane=CandidateLane.TESTNET_SAMPLING,
+    )
+
+    assert prior_bar.timestamp in production_bars
+    assert prior_bar.timestamp not in sampling_bars
+    assert sampling_bar in sampling_bars
+
+
 def test_scheduler_global_writer_lease_blocks_overlapping_slots(v2_db, monkeypatch) -> None:
+    # Direct entry calls without RuntimeScheduler provenance still resolve a
+    # Testnet clock. Keep this unit test on the same reference as its holder.
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.fetch_binance_server_time",
+        lambda: datetime.now(UTC),
+    )
     monkeypatch.setattr(
         "services.execution.v2_scheduler_entry.resolve_engine_activation",
         lambda _settings: EngineActivationConfig(

@@ -39,16 +39,23 @@ from services.automated_trading.audit.forward_baseline import (
     build_shadow_records,
     serialize_trade_candidate,
 )
+from services.automated_trading.domain.candidates import CandidateLane
 from services.automated_trading.domain.enums import V2ExecutionMode
-from services.automated_trading.infrastructure.models import V2ManagedPosition
+from services.automated_trading.infrastructure.models import (
+    V2ExecutionCycle,
+    V2ExecutionDecision,
+    V2ManagedPosition,
+)
 from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
 from services.automated_trading.infrastructure.runtime_lock import (
     EngineActivation,
     EngineActivationConfig,
     resolve_engine_activation,
 )
+from services.data.binance_clock import BinanceClockUnavailable, fetch_binance_server_time
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.database import get_session_factory
+from services.execution.natural_testnet_mode import natural_testnet_mode_requested
 from services.execution.scheduler_coordination import SchedulerCoordinator
 from services.strategy_library.canonical import canonical_hash
 from services.strategy_library.context import TIMEFRAME_DELTAS, MarketContext, MarketContextBuilder
@@ -107,7 +114,12 @@ def _managed_symbols_requiring_recovery(*, execution_mode: V2ExecutionMode) -> t
         return tuple(sorted({str(symbol) for symbol in rows}))
 
 
-def _load_v2_entry_timeframe(symbol: str, timeframe: str = V2_CYCLE_TIMEFRAME) -> TimeframeView:
+def _load_v2_entry_timeframe(
+    symbol: str,
+    timeframe: str = V2_CYCLE_TIMEFRAME,
+    *,
+    observed_at: datetime | None = None,
+) -> TimeframeView:
     with get_session_factory()() as session:
         from services.data.binance import TIMEFRAME_TO_SECONDS
         from services.data.repository import DataRepository
@@ -116,7 +128,7 @@ def _load_v2_entry_timeframe(symbol: str, timeframe: str = V2_CYCLE_TIMEFRAME) -
     timeframe_seconds = TIMEFRAME_TO_SECONDS.get(timeframe)
     if timeframe_seconds is None:
         raise ValueError(f"Unsupported V2 decision timeframe: {timeframe}")
-    observed_at = datetime.now(UTC)
+    observed_at = observed_at or datetime.now(UTC)
 
     def closed_at(row) -> datetime:  # noqa: ANN001
         opened_at = row.timestamp
@@ -486,16 +498,18 @@ def _load_already_evaluated_bars(
     symbol: str,
     timeframe: str,
     execution_mode: V2ExecutionMode,
+    lane: CandidateLane,
 ) -> frozenset[datetime]:
-    """Return closed bars that already reached a persisted terminal decision."""
-    from sqlalchemy import select
-
-    from services.automated_trading.infrastructure.models import V2ExecutionCycle
-
+    """Return terminal decision bars scoped to the active candidate lane."""
     with get_session_factory()() as session:
-        timestamps = tuple(
-            session.scalars(
-                select(V2ExecutionCycle.bar_timestamp).where(
+        rows = tuple(
+            session.execute(
+                select(V2ExecutionCycle.bar_timestamp, V2ExecutionDecision.payload)
+                .join(
+                    V2ExecutionDecision,
+                    V2ExecutionDecision.cycle_id == V2ExecutionCycle.cycle_id,
+                )
+                .where(
                     V2ExecutionCycle.symbol == symbol,
                     V2ExecutionCycle.timeframe == timeframe,
                     V2ExecutionCycle.execution_mode == execution_mode.value,
@@ -505,7 +519,8 @@ def _load_already_evaluated_bars(
         )
     return frozenset(
         timestamp.replace(tzinfo=UTC) if timestamp.tzinfo is None else timestamp.astimezone(UTC)
-        for timestamp in timestamps
+        for timestamp, payload in rows
+        if isinstance(payload, Mapping) and str(payload.get("lane") or "") == lane.value
     )
 
 
@@ -648,14 +663,15 @@ def execute_v2_automated_trading_cycles(
     timeframe_loader: Callable[[str, str], TimeframeView] | None = None,
     market_context_loader: MarketContextLoader | None = None,
 ) -> dict[str, Any]:
-    """Run the normal scheduler pass; request payloads can never arm Canary entry."""
+    """Run the normal scheduler pass with trusted process-level mode only."""
+    natural_testnet = natural_testnet_mode_requested()
     return _execute_v2_automated_trading_cycles(
         request_payload,
         adapter_factory=adapter_factory,
         timeframe_loader=timeframe_loader,
         market_context_loader=market_context_loader,
-        canary_acceptance=False,
-        cycle_source="automated_trading_v2",
+        canary_acceptance=natural_testnet,
+        cycle_source=("natural_testnet_sampling" if natural_testnet else "automated_trading_v2"),
     )
 
 
@@ -703,7 +719,25 @@ def _execute_v2_automated_trading_cycles(
         payload.get("scheduler_instance_id"),
     )
 
-    now = datetime.now(UTC)
+    try:
+        raw_observed_at = str(payload.get("observed_at") or "").strip()
+        if raw_observed_at:
+            now = datetime.fromisoformat(raw_observed_at.replace("Z", "+00:00"))
+            now = now.replace(tzinfo=UTC) if now.tzinfo is None else now.astimezone(UTC)
+        else:
+            now = (
+                fetch_binance_server_time()
+                if config.execution_mode is V2ExecutionMode.BINANCE_TESTNET
+                else datetime.now(UTC)
+            )
+    except BinanceClockUnavailable as exc:
+        logger.error("V2 cycle blocked: %s", exc)
+        return {
+            "status": "error",
+            "error": "BINANCE_SERVER_TIME_UNAVAILABLE",
+            "detail": str(exc),
+            "execution_mode": config.execution_mode.value,
+        }
     interval_seconds = float(payload.get("interval_seconds") or settings.paper_runtime_cycle_seconds)
     bar_slot = _slot_start(now, interval_seconds)
     lease_name = f"automated_trading_v2:{config.execution_mode.value}:{int(bar_slot.timestamp())}"
@@ -733,24 +767,34 @@ def _execute_v2_automated_trading_cycles(
         coordinator.release_lease(lease_name=writer_lease_name)
         return {"status": "lease_lost", "lease_name": lease_name}
 
-    claim = coordinator.claim_cycle(
-        job_name=lease_name,
-        scheduled_for=bar_slot,
-        cycle_source=cycle_source,
-        run_mode=config.execution_mode.value,
-        fencing_token=fencing_token,
-    )
-    if not claim.claimed or claim.scheduler_cycle_id is None:
-        coordinator.release_lease(lease_name=lease_name)
-        coordinator.release_lease(lease_name=writer_lease_name)
-        return {
-            "status": "duplicate_slot_skipped",
-            "lease_name": lease_name,
-            "scheduled_for": bar_slot.isoformat(),
-        }
+    preclaimed_scheduler_cycle_id = str(payload.get("scheduler_cycle_id") or "").strip()
+    claim_owned_here = not bool(preclaimed_scheduler_cycle_id)
+    if claim_owned_here:
+        claim = coordinator.claim_cycle(
+            job_name=lease_name,
+            scheduled_for=bar_slot,
+            cycle_source=cycle_source,
+            run_mode=config.execution_mode.value,
+            fencing_token=fencing_token,
+        )
+        if not claim.claimed or claim.scheduler_cycle_id is None:
+            coordinator.release_lease(lease_name=lease_name)
+            coordinator.release_lease(lease_name=writer_lease_name)
+            return {
+                "status": "duplicate_slot_skipped",
+                "lease_name": lease_name,
+                "scheduled_for": bar_slot.isoformat(),
+            }
+        scheduler_cycle_id = claim.scheduler_cycle_id
+    else:
+        # RuntimeScheduler already claimed this slot before invoking the task.
+        # Re-claiming it here turns every normal cycle into duplicate_slot_skipped.
+        scheduler_cycle_id = preclaimed_scheduler_cycle_id
 
     build_adapter = adapter_factory or _default_adapter_factory
-    load_timeframe = timeframe_loader or _load_v2_entry_timeframe
+    load_timeframe = timeframe_loader or (
+        lambda symbol_name, tf: _load_v2_entry_timeframe(symbol_name, tf, observed_at=now)
+    )
     load_market_context = market_context_loader or _load_v2_market_context
     requested_symbols = list(payload.get("symbols") or AUTO_SIMULATION_EXECUTION_SYMBOLS)
     if config.execution_mode is V2ExecutionMode.BINANCE_TESTNET:
@@ -897,6 +941,11 @@ def _execute_v2_automated_trading_cycles(
                     symbol=symbol,
                     timeframe=timeframe,
                     execution_mode=config.execution_mode,
+                    lane=(
+                        CandidateLane.TESTNET_SAMPLING
+                        if entry_authority.authority is EntryAuthority.TESTNET_CANARY
+                        else CandidateLane.PRODUCTION
+                    ),
                 ),
                 persist_facts=config.v2_activation is EngineActivation.ACTIVE,
                 decision_id=decision_id,
@@ -1047,11 +1096,12 @@ def _execute_v2_automated_trading_cycles(
             )
             symbol_results.append(symbol_result)
     finally:
-        coordinator.finish_cycle(
-            claim.scheduler_cycle_id,
-            status="failed" if task_failed else "completed",
-            failure_reason="one_or_more_symbol_cycles_failed" if task_failed else None,
-        )
+        if claim_owned_here:
+            coordinator.finish_cycle(
+                scheduler_cycle_id,
+                status="failed" if task_failed else "completed",
+                failure_reason="one_or_more_symbol_cycles_failed" if task_failed else None,
+            )
         coordinator.release_lease(lease_name=lease_name)
         coordinator.release_lease(lease_name=writer_lease_name)
 
@@ -1072,7 +1122,7 @@ def _execute_v2_automated_trading_cycles(
                 context,
                 active_entry_timeframe=pending["entry_timeframe"],
                 scheduler_session_id=instance_id,
-                scheduler_cycle_id=claim.scheduler_cycle_id,
+                scheduler_cycle_id=scheduler_cycle_id,
                 cycle_id=cycle_id,
                 symbol=symbol,
                 bar_close_time=bar_timestamp,
@@ -1084,7 +1134,7 @@ def _execute_v2_automated_trading_cycles(
         except Exception as exc:  # noqa: BLE001
             research_shadow = _research_shadow_error_payload(
                 scheduler_session_id=instance_id,
-                scheduler_cycle_id=claim.scheduler_cycle_id,
+                scheduler_cycle_id=scheduler_cycle_id,
                 cycle_id=cycle_id,
                 symbol=symbol,
                 bar_close_time=bar_timestamp,
@@ -1119,7 +1169,7 @@ def _execute_v2_automated_trading_cycles(
         "execution_mode": config.execution_mode.value,
         "lease_name": lease_name,
         "writer_lease_name": writer_lease_name,
-        "scheduler_cycle_id": claim.scheduler_cycle_id,
+        "scheduler_cycle_id": scheduler_cycle_id,
         "symbols": symbols,
         "results": symbol_results,
     }

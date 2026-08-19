@@ -327,6 +327,10 @@ function Test-SchedulerHealthy {
     try {
         $state = Get-Content -LiteralPath $SchedulerStateFile -Raw | ConvertFrom-Json
         if (-not $state.running -or -not $state.heartbeat_at) { return $false }
+        $targetNaturalTestnet = [bool]$EnableNaturalTestnet
+        if ($null -eq $state.natural_testnet_enabled -or [bool]$state.natural_testnet_enabled -ne $targetNaturalTestnet) {
+            return $false
+        }
         $heartbeat = [datetimeoffset]::Parse($state.heartbeat_at)
         return ((([datetimeoffset]::UtcNow - $heartbeat).TotalSeconds) -le 120)
     }
@@ -456,31 +460,83 @@ function Test-ActiveTradingModeContract {
     return $LASTEXITCODE -eq 0
 }
 
+function Get-PersistedEntryControl {
+    $query = @'
+import json
+import sqlite3
+import sys
+
+try:
+    with sqlite3.connect(sys.argv[1]) as connection:
+        row = connection.execute(
+            "SELECT entry_enabled, reason FROM v2_runtime_controls WHERE scope = 'global'"
+        ).fetchone()
+    if row is None:
+        print("null")
+    else:
+        print(json.dumps({"entry_enabled": bool(row[0]), "reason": row[1]}))
+except Exception:
+    print("null")
+'@
+    try {
+        $raw = & $env:AGENT_PYTHON -c $query $DbPath 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $raw) { return $null }
+        $value = ($raw | Select-Object -Last 1).ToString().Trim() | ConvertFrom-Json
+        if ($null -eq $value) { return $null }
+        return $value
+    }
+    catch {
+        return $null
+    }
+}
+
 function Restore-EntryAfterStartupSafetyStop {
-    # A failed ACTIVE launch leaves the durable gate disabled as a safety stop.
-    # Re-arm it only for an explicit Testnet natural run after the persisted
-    # baseline/projection checks above have succeeded. A normal operator pause
-    # (or Shadow launch) is never overridden.
-    if ($AutomatedTradingEngine -ne "v2_active" -or -not $EnableNaturalTestnet -or -not $PreserveExternalTestnetBaseline) {
+    # A failed ACTIVE launch leaves the durable gate disabled as a launcher
+    # safety stop. Re-arm it after the persisted baseline/projection checks
+    # above have succeeded. A normal operator pause is never overridden:
+    # restoration requires the previous run to have ended with safety_stop=true.
+    if ($AutomatedTradingEngine -ne "v2_active" -or -not $PreserveExternalTestnetBaseline) {
         return
     }
-    if ($script:ProjectionRecoveryPending -or -not (Test-Path -LiteralPath $StartupResultPath)) {
+    if ($script:ProjectionRecoveryPending) {
+        return
+    }
+    $control = Get-PersistedEntryControl
+    $controlSafetyStop = $null -ne $control -and
+        -not [bool]$control.entry_enabled -and
+        ([string]$control.reason -like "STARTUP_SAFETY_STOP:*")
+    $previousSafetyStop = $false
+    if (Test-Path -LiteralPath $StartupResultPath) {
+        try {
+            $previous = Get-Content -LiteralPath $StartupResultPath -Raw | ConvertFrom-Json
+            $previousSafetyStop = $previous.status -eq "FAILED" -and
+                $previous.reason_code -eq "STARTUP_FAILED" -and
+                $previous.safety_stop -eq $true
+        }
+        catch {
+            Write-Step "startup recovery record could not be parsed; relying on persisted entry-control reason"
+        }
+    }
+    if (-not $previousSafetyStop -and -not $controlSafetyStop) {
         return
     }
     try {
-        $previous = Get-Content -LiteralPath $StartupResultPath -Raw | ConvertFrom-Json
-        if ($previous.status -ne "FAILED" -or $previous.reason_code -ne "STARTUP_FAILED" -or $previous.safety_stop -ne $true) {
-            return
+        $reason = if ($EnableNaturalTestnet) {
+            "AUTONOMOUS_TESTNET_STARTUP_RECOVERY"
         }
+        else {
+            "V2_STARTUP_SAFETY_STOP_RECOVERY"
+        }
+        $body = @{ reason = $reason } | ConvertTo-Json -Compress
+        $null = Invoke-WebRequest -Uri "http://127.0.0.1:$ApiPort/api/v2/automated-trading/controls/entry-enable" `
+            -Method Post -ContentType "application/json" -Body $body -UseBasicParsing -TimeoutSec 5 -Proxy $null
+        Write-Step "entry re-enabled after validated Testnet startup safety-stop recovery"
+        return $true
     }
     catch {
-        Write-Step "startup recovery gate could not parse the previous startup result; preserving entry lock"
-        return
+        Write-Step "entry safety-stop recovery failed; preserving entry lock ($($_.Exception.Message))"
+        return $false
     }
-    $body = @{ reason = "AUTONOMOUS_TESTNET_STARTUP_RECOVERY" } | ConvertTo-Json -Compress
-    $null = Invoke-WebRequest -Uri "http://127.0.0.1:$ApiPort/api/v2/automated-trading/controls/entry-enable" `
-        -Method Post -ContentType "application/json" -Body $body -UseBasicParsing -TimeoutSec 5 -Proxy $null
-    Write-Step "entry re-enabled after validated Testnet startup safety-stop recovery"
 }
 
 function Stop-ProjectApiProcesses {

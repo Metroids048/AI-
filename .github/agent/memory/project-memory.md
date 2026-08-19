@@ -42,6 +42,20 @@
   still pending. Do not treat this observation as a completed trading
   lifecycle and do not relax the sampling strategy to manufacture one.
 
+## Natural Testnet final proof (2026-08-20)
+
+- VERIFIED: V2 Active natural Testnet proof now reads the authoritative V2
+  intent/order/fill tables and captured XRP/USDT entry order `3481239947`,
+  trade `148671953`, quantity `10176.5`, average fill `0.9982`, with
+  `acceptance_or_manual_order=false`.
+- VERIFIED: the same natural lifecycle created protection orders
+  `1000000172235239`/`1000000172235260`, then a reduce-only stop order
+  `3481336578` / trade `148717959`; local position is `CLOSED` and latest
+  reconciliation is `HEALTHY` with exchange/local open positions `0/0`.
+- VERIFIED: ordinary active restart clears process Natural mode and restores
+  `entry_enabled=true`, `entry_authority=NONE`, `entry_authorized=false`,
+  `ENTRY_PAUSED`, and `Production=PENDING`.
+
 ## Testnet Canary runtime contract (2026-08-18)
 
 - The authoritative Binance Testnet Canary sampling contract is now the exact

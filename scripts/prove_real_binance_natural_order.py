@@ -74,6 +74,103 @@ def _fetch_exchange_order(gateway: BinanceUsdtPerpetualGateway, *, order_id: str
     return dict(payload or {})
 
 
+def _v2_natural_entries(session, *, since: datetime) -> list[dict[str, Any]]:  # noqa: ANN001
+    """Read V2 Active natural entry facts without treating them as legacy orders.
+
+    V2 Active persists exchange-first entries in its own intent/order/fill tables;
+    the legacy ``order_executions`` projection is not populated for this path.
+    Only an explicit Testnet Canary decision with a non-promotable sampling
+    candidate is eligible here.
+    """
+    from sqlalchemy import select
+
+    from services.automated_trading.infrastructure.models import (
+        V2ExchangeFill,
+        V2ExchangeOrder,
+        V2ExecutionDecision,
+        V2ExecutionIntent,
+    )
+
+    rows = session.execute(
+        select(V2ExecutionIntent, V2ExchangeOrder, V2ExecutionDecision, V2ExchangeFill)
+        .join(V2ExchangeOrder, V2ExchangeOrder.intent_id == V2ExecutionIntent.intent_id)
+        .join(V2ExecutionDecision, V2ExecutionDecision.decision_id == V2ExecutionIntent.decision_id)
+        .join(V2ExchangeFill, V2ExchangeFill.intent_id == V2ExecutionIntent.intent_id)
+        .where(
+            V2ExecutionIntent.execution_mode == "BINANCE_TESTNET",
+            V2ExecutionIntent.candidate_type == "SAMPLING",
+            V2ExecutionIntent.created_at >= _as_utc(since).replace(tzinfo=None),
+            V2ExchangeOrder.exchange_order_id.is_not(None),
+            V2ExchangeOrder.filled_quantity > 0,
+            V2ExchangeOrder.average_fill_price > 0,
+            V2ExchangeFill.reduce_only.is_(False),
+        )
+        .order_by(V2ExecutionIntent.created_at.asc())
+    ).all()
+    eligible: list[dict[str, Any]] = []
+    for intent, order, decision, fill in rows:
+        payload = dict(decision.payload or {})
+        candidate = payload.get("candidate") if isinstance(payload.get("candidate"), dict) else {}
+        if payload.get("entry_authority") != "TESTNET_CANARY":
+            continue
+        if payload.get("execution_policy") != "AUTHORIZED_TESTNET_CANARY":
+            continue
+        if candidate.get("lane") != "TESTNET_SAMPLING" or candidate.get("non_promotable") is not True:
+            continue
+        if candidate.get("strategy_id") != "testnet_sampling_v2":
+            continue
+        eligible.append(
+            {
+                "intent": intent,
+                "order": order,
+                "decision": decision,
+                "fill": fill,
+                "payload": payload,
+                "decision_variant": "primary",
+            }
+        )
+    return eligible
+
+
+def _v2_proof(
+    item: dict[str, Any], exchange_order: dict[str, Any], exchange_position: dict[str, Any] | None
+) -> dict[str, Any]:
+    intent = item["intent"]
+    order = item["order"]
+    fill = item["fill"]
+    payload = item["payload"]
+    status = str(exchange_order.get("status") or "").lower()
+    filled = float(exchange_order.get("filled") or order.filled_quantity or fill.filled_quantity or 0)
+    average = float(exchange_order.get("average") or order.average_fill_price or fill.fill_price or 0)
+    if status not in {"closed", "filled"} or filled <= 0 or average <= 0:
+        raise RuntimeError(f"V2 exchange order {order.exchange_order_id} is not a confirmed positive fill")
+    return {
+        "proof_type": "real_binance_simulation_natural_v2_order",
+        "verified_at": datetime.now(UTC).isoformat(),
+        "intent_id": intent.intent_id,
+        "cycle_id": intent.cycle_id,
+        "decision_id": intent.decision_id,
+        "symbol": intent.symbol,
+        "direction": intent.direction,
+        "order_origin": "runtime_scheduler",
+        "cycle_source": "natural_testnet_sampling",
+        "signal_candle_close_time": intent.decision_bar_timestamp,
+        "decision_variant": item["decision_variant"],
+        "candidate_id": (payload.get("candidate") or {}).get("candidate_id"),
+        "primary_rejection_reason": None,
+        "gateway_order_id": str(order.exchange_order_id),
+        "gateway_status_local": "filled",
+        "exchange_status": status,
+        "exchange_filled_quantity": filled,
+        "exchange_average_fill_price": average,
+        "exchange_order_timestamp": exchange_order.get("timestamp"),
+        "exchange_trade_id": str(fill.trade_id),
+        "exchange_position_currently_open": exchange_position is not None,
+        "exchange_position": exchange_position,
+        "acceptance_or_manual_order": False,
+    }
+
+
 def _matching_position(snapshot: dict[str, Any], *, symbol: str, direction: str) -> dict[str, Any] | None:
     wanted_side = "long" if direction == "long" else "short"
     for item in snapshot.get("open_positions", []) or []:
@@ -143,6 +240,33 @@ def main() -> int:
     session = get_session_factory(args.database_url)()
     try:
         while True:
+            for item in _v2_natural_entries(session, since=since):
+                order = item["order"]
+                exchange_order = _fetch_exchange_order(
+                    gateway,
+                    order_id=str(order.exchange_order_id),
+                    symbol=item["intent"].symbol,
+                )
+                snapshot = gateway.reconcile(live_run_id=f"proof:v2:{item['intent'].cycle_id}")
+                position = _matching_position(
+                    snapshot,
+                    symbol=item["intent"].symbol,
+                    direction=str(item["intent"].direction).lower(),
+                )
+                try:
+                    proof = _v2_proof(item, exchange_order, position)
+                except RuntimeError:
+                    continue
+                output = Path(args.output)
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text(json.dumps(proof, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+                print(
+                    json.dumps(
+                        {"status": "PASS", "proof": str(output), **proof}, ensure_ascii=False, indent=2, default=str
+                    )
+                )
+                return 0
+
             run_ids = _directional_run_ids(session)
             session.expire_all()
             orders = [

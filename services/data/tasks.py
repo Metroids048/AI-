@@ -9,6 +9,7 @@ from typing import Any
 from celery import shared_task
 
 from services.data.binance import BinanceBackfillService
+from services.data.binance_clock import BinanceClockUnavailable, fetch_binance_server_time
 from services.data.heartbeat import MarketDataHeartbeatService
 from services.data.macro_calendar import MacroCalendarService
 from services.data.news import NewsIngestionService
@@ -223,6 +224,21 @@ def market_data_heartbeat(symbols: list[str] | None = None, timeframe: str = "1m
         secondary_timeframe = secondary_candidates[_SECONDARY_TIMEFRAME_INDEX % len(secondary_candidates)]
         _SECONDARY_TIMEFRAME_INDEX += 1
         client = BinanceCcxtClient(usdm_base_url=resolve_usdm_public_rest_base())
+        # Real Binance clients must use the exchange clock for freshness.  The
+        # lightweight fake clients used by offline/unit tests have no USD-M
+        # exchange handle and intentionally retain the local test clock.
+        reference_time = datetime.now(UTC)
+        if getattr(client, "usdm_exchange", None) is not None:
+            try:
+                reference_time = fetch_binance_server_time()
+            except BinanceClockUnavailable as exc:
+                return {
+                    "status": "error",
+                    "error": "BINANCE_SERVER_TIME_UNAVAILABLE",
+                    "detail": str(exc),
+                    "checked_symbols": target_symbols,
+                    "timeframe": timeframe,
+                }
         failures: dict[str, dict[str, str | int]] = {}
         retry_after_seconds: int | None = None
         # Refresh bars before stale checks.  The 1m feed is refreshed every
@@ -234,6 +250,7 @@ def market_data_heartbeat(symbols: list[str] | None = None, timeframe: str = "1m
                 primary_timeframe=timeframe,
                 secondary_timeframe=secondary_timeframe,
                 decision_timeframe="15m" if symbol in AUTO_SIMULATION_EXECUTION_SYMBOLS else None,
+                now=reference_time,
             ):
                 try:
                     bars = client.fetch_recent_usdm_ohlcv(symbol=symbol, timeframe=tf, limit=60)
@@ -254,6 +271,7 @@ def market_data_heartbeat(symbols: list[str] | None = None, timeframe: str = "1m
         result = MarketDataHeartbeatService(data_repo=data_repo).check_symbols(
             symbols=target_symbols,
             timeframe=timeframe,
+            reference_time=reference_time,
         )
         if failures:
             result["refresh_failures"] = failures
