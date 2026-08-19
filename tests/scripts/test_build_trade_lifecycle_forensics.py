@@ -5,6 +5,7 @@ from pathlib import Path
 
 from scripts.build_trade_lifecycle_forensics import (
     classify_taxonomy,
+    cost_truth,
     excursion_metrics,
     load_authoritative_closed_episodes,
     recovery_windows,
@@ -84,6 +85,58 @@ def test_stop_continuing_against_entry_is_direction_failure() -> None:
     }
     result = classify_taxonomy(exit_reason="STOP", floor_source="ATR14_TERM", recovery=recovery)
     assert result["primary"] == "DIRECTION_FAILURE"
+
+
+def test_cost_truth_keeps_unattributable_funding_unknown_and_separates_execution_slippage() -> None:
+    result = cost_truth(
+        {
+            "direction": "long",
+            "quantity": "2",
+            "entry_price": "101",
+            "exit_price": "98",
+            "signal_reference_price": "100",
+            "initial_stop": "99",
+            "initial_target": "104",
+            "exit_reason": "HARD_STOP",
+            "entry_fee_usdt": "0.6",
+            "exit_fee_usdt": "0.4",
+            "funding_usdt": None,
+            "funding_status": "FUNDING_ACCOUNT_LEVEL_AMBIGUOUS",
+        }
+    )
+
+    assert result["gross_pnl_usdt"] == "-6"
+    assert result["commission_usdt"] == "1.0"
+    assert result["net_before_funding_usdt"] == "-7.0"
+    assert result["funding_status"] == "FUNDING_ACCOUNT_LEVEL_AMBIGUOUS"
+    assert result["net_pnl_usdt"] is None
+    assert result["net_pnl_status"] == "UNKNOWN_FUNDING"
+    assert result["entry_slippage_usdt"] == "2"
+    assert result["exit_slippage_usdt"] == "2"
+    assert result["slippage_usdt"] == "4"
+    assert result["slippage_status"] == "OBSERVED_EXECUTION_ONLY"
+
+
+def test_cost_truth_treats_a_short_target_fill_above_target_as_adverse_exit_slippage() -> None:
+    result = cost_truth(
+        {
+            "direction": "short",
+            "quantity": "2",
+            "entry_price": "100",
+            "exit_price": "97",
+            "signal_reference_price": "100",
+            "initial_stop": "102",
+            "initial_target": "96",
+            "exit_reason": "TAKE_PROFIT",
+            "entry_fee_usdt": "0",
+            "exit_fee_usdt": "0",
+            "funding_usdt": None,
+            "funding_status": "FUNDING_UNAVAILABLE",
+        }
+    )
+
+    assert result["entry_slippage_usdt"] == "0"
+    assert result["exit_slippage_usdt"] == "2"
 
 
 def test_authoritative_cohort_uses_v2_closed_auto_positions_not_static_parity_audit(tmp_path: Path) -> None:

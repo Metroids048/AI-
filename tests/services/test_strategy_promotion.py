@@ -9,6 +9,8 @@ import pytest
 from services.validation.strategy_promotion import (
     FinalHoldoutGuard,
     PromotionMetrics,
+    ResearchTrial,
+    ResearchTrialRegistry,
     TrialLedger,
     evaluate_promotion,
     stationary_cluster_bootstrap_lcb,
@@ -47,6 +49,27 @@ def test_optimizer_cannot_read_final_holdout() -> None:
     guard.assert_development_end(datetime(2026, 1, 29, tzinfo=UTC))
     with pytest.raises(ValueError, match="Final Holdout is sealed"):
         guard.assert_development_end(datetime(2026, 1, 29, 0, 1, tzinfo=UTC))
+
+
+def test_research_trial_registry_enforces_budget_and_immutable_definitions(tmp_path: Path) -> None:
+    registry = ResearchTrialRegistry(tmp_path / "research-trials.jsonl")
+    trial = ResearchTrial(
+        hypothesis_id="g5-h1",
+        hypothesis_family="REGIME_SELECTION",
+        exact_change="Expansion-only closed-bar candidate; no geometry change.",
+        economic_rationale="Expansion was the only positive observed regime slice.",
+        development_period="2023-01-29..2025-07-29",
+        validation_period="2025-07-29..2026-01-29",
+        final_holdout_accessed=False,
+        number_of_prior_trials=6,
+    )
+
+    registry.register(trial)
+    registry.register(trial)
+
+    assert registry.trial_count == 1
+    with pytest.raises(ValueError, match="immutable"):
+        registry.register(trial.model_copy(update={"exact_change": "a different change"}))
 
 
 @pytest.mark.parametrize(

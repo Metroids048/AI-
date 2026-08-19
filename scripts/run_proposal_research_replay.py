@@ -315,10 +315,11 @@ def _build_window_runs(
     candidate_ids: tuple[str, ...],
     evaluator_overrides: dict[str, CandidateEvaluator] | None = None,
     data_end: datetime = FINAL_HOLDOUT_START,
+    symbols: tuple[str, ...] = SYMBOLS,
 ) -> tuple[dict[str, Any], ...]:
     runs: list[dict[str, Any]] = []
     with sqlite3.connect(f"file:{database_path.resolve().as_posix()}?mode=ro", uri=True) as connection:
-        for symbol in SYMBOLS:
+        for symbol in symbols:
             funding = _load_funding_series(connection, symbol=symbol, end_at=data_end)
             cost_model = ReplayCostModel(
                 taker_fee_bps_per_side=Decimal(str(_configured_taker_fee_bps())),
@@ -427,6 +428,7 @@ def _result_for_candidate(
     ledger_strategy_id: str | None = None,
     ledger_parameters: dict[str, Any] | None = None,
     ledger_status: str = "phase1_observed_no_parameter_optimization",
+    symbols: tuple[str, ...] = SYMBOLS,
 ) -> dict[str, Any]:
     active_windows = windows or _walk_forward_windows()
     all_trades = tuple(
@@ -443,7 +445,7 @@ def _result_for_candidate(
     window_payload: dict[str, Any] = {}
     for window in active_windows:
         window_payload[window.window_id] = {"window": window.as_record(), "symbols": {}}
-        for symbol in SYMBOLS:
+        for symbol in symbols:
             matching = tuple(
                 run for run in window_runs if run["window"].window_id == window.window_id and run["symbol"] == symbol
             )
@@ -496,6 +498,7 @@ def main() -> int:
     parser.add_argument("--database", type=Path, default=Path(".strategy_refactor_history.db"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--candidate-ids", nargs="*", default=list(GENERATION_NEXT_CANDIDATE_IDS))
+    parser.add_argument("--symbols", nargs="*", choices=SYMBOLS, default=list(SYMBOLS))
     args = parser.parse_args()
     if args.output.exists():
         raise FileExistsError(f"refusing to overwrite research output: {args.output}")
@@ -507,12 +510,25 @@ def main() -> int:
     guard.assert_development_end(FINAL_HOLDOUT_START)
     windows = _walk_forward_windows()
     candidate_ids = tuple(args.candidate_ids)
+    symbols = tuple(args.symbols)
+    if not symbols:
+        raise ValueError("at least one research symbol is required")
     unknown = set(candidate_ids) - set(ALL_CANDIDATE_IDS)
     if unknown:
         raise ValueError(f"unknown candidate ids: {sorted(unknown)}")
-    window_runs = _build_window_runs(database_path=args.database, windows=windows, candidate_ids=candidate_ids)
+    window_runs = _build_window_runs(
+        database_path=args.database,
+        windows=windows,
+        candidate_ids=candidate_ids,
+        symbols=symbols,
+    )
     results = {
-        candidate_id: _result_for_candidate(candidate_id=candidate_id, window_runs=window_runs, ledger=ledger)
+        candidate_id: _result_for_candidate(
+            candidate_id=candidate_id,
+            window_runs=window_runs,
+            ledger=ledger,
+            symbols=symbols,
+        )
         for candidate_id in candidate_ids
     }
     with sqlite3.connect(f"file:{args.database.resolve().as_posix()}?mode=ro", uri=True) as connection:
@@ -525,7 +541,7 @@ def main() -> int:
         ).fetchone()[0]
     report = {
         "scope": {
-            "symbols": SYMBOLS,
+            "symbols": symbols,
             "development_start": DEVELOPMENT_START.isoformat(),
             "final_holdout_start": FINAL_HOLDOUT_START.isoformat(),
         },

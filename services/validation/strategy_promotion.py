@@ -55,6 +55,78 @@ class FinalHoldoutGuard:
             raise ValueError("Final Holdout is sealed and cannot be read during optimization")
 
 
+class ResearchTrial(PlatformModel):
+    """Immutable pre-result definition for one bounded strategy hypothesis."""
+
+    hypothesis_id: str
+    hypothesis_family: str
+    exact_change: str
+    economic_rationale: str
+    development_period: str
+    validation_period: str
+    final_holdout_accessed: bool = False
+    created_before_result: bool = True
+    number_of_prior_trials: int = Field(ge=0)
+
+
+class ResearchTrialRegistry:
+    """Append-only budget gate for strategy research, not parameter optimization."""
+
+    MAX_FAMILIES = 4
+    MAX_VARIANTS_PER_FAMILY = 2
+    MAX_TOTAL_VARIANTS = 8
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def read_all(self) -> list[ResearchTrial]:
+        if not self.path.exists():
+            return []
+        return [
+            ResearchTrial.model_validate_json(line)
+            for line in self.path.read_text(encoding="utf-8").splitlines()
+            if line
+        ]
+
+    @property
+    def trial_count(self) -> int:
+        return len(self.read_all())
+
+    def selection_bias_control(self) -> dict[str, Any]:
+        return {
+            "trial_count": self.trial_count,
+            "max_families": self.MAX_FAMILIES,
+            "max_variants_per_family": self.MAX_VARIANTS_PER_FAMILY,
+            "max_total_variants": self.MAX_TOTAL_VARIANTS,
+            "development_selection_only": True,
+            "bootstrap_expectancy_lcb_required": True,
+            "final_holdout_access": "LOCKED_UNTIL_DEVELOPMENT_AND_VALIDATION_PASS",
+        }
+
+    def register(self, trial: ResearchTrial) -> None:
+        if not trial.created_before_result:
+            raise ValueError("research trial must be registered before any result exists")
+        if trial.final_holdout_accessed:
+            raise ValueError("final holdout cannot be accessed when registering a hypothesis")
+        existing = self.read_all()
+        same_id = next((item for item in existing if item.hypothesis_id == trial.hypothesis_id), None)
+        if same_id is not None:
+            if same_id.model_dump(mode="json") != trial.model_dump(mode="json"):
+                raise ValueError("research trial definition is immutable")
+            return
+        families = {item.hypothesis_family for item in existing}
+        family_trials = sum(item.hypothesis_family == trial.hypothesis_family for item in existing)
+        if trial.hypothesis_family not in families and len(families) >= self.MAX_FAMILIES:
+            raise ValueError("research family budget exhausted")
+        if family_trials >= self.MAX_VARIANTS_PER_FAMILY:
+            raise ValueError("research variant budget exhausted for family")
+        if len(existing) >= self.MAX_TOTAL_VARIANTS:
+            raise ValueError("total research variant budget exhausted")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a", encoding="utf-8", newline="\n") as stream:
+            stream.write(trial.model_dump_json() + "\n")
+
+
 class TrialLedger:
     """Append-only JSONL ledger that retains successful and failed parameter trials."""
 

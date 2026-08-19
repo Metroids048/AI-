@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE = ROOT / ".local_paper_console.db"
 DEFAULT_OUTPUT = ROOT / ".local/trade-lifecycle-forensics.json"
 DEFAULT_MARKDOWN = ROOT / ".local/trade-lifecycle-forensics.md"
+DEFAULT_ACCOUNT_INCOME = ROOT / "docs/audits/2026-08-16-testnet-history/raw/binance_income.jsonl"
 RECOVERY_WINDOWS = {
     "15m": timedelta(minutes=15),
     "30m": timedelta(minutes=30),
@@ -44,6 +45,199 @@ def decimal(value: Any) -> Decimal:
 def parse_datetime(value: Any) -> datetime:
     parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def _adverse_price_delta(*, side: str, actual: Decimal, intended: Decimal) -> Decimal:
+    """Return adverse execution movement only; market direction is not slippage."""
+    return max(Decimal("0"), actual - intended) if side == "long" else max(Decimal("0"), intended - actual)
+
+
+def cost_truth(source: dict[str, Any]) -> dict[str, Any]:
+    """Build explicit cost facts without treating unknown funding as zero.
+
+    ``gross_pnl_usdt`` is reconstructed solely from exchange fill prices.  The
+    slippage fields are diagnostic comparisons to immutable strategy/protection
+    references; they are not subtracted again from gross PnL.
+    """
+    required = ("entry_price", "exit_price", "quantity")
+    if any(source.get(field) is None for field in required):
+        return {
+            "gross_pnl_usdt": None,
+            "commission_usdt": None,
+            "net_before_funding_usdt": None,
+            "funding_usdt": None,
+            "funding_status": "FUNDING_UNKNOWN_INCOMPLETE_EXECUTION_RECEIPT",
+            "entry_slippage_usdt": None,
+            "exit_slippage_usdt": None,
+            "slippage_usdt": None,
+            "slippage_status": "SLIPPAGE_UNKNOWN_INCOMPLETE_EXECUTION_RECEIPT",
+            "net_pnl_usdt": None,
+            "net_pnl_status": "UNKNOWN_INCOMPLETE_EXECUTION_RECEIPT",
+            "cost_r": None,
+            "cost_r_status": "UNKNOWN_INCOMPLETE_EXECUTION_RECEIPT",
+        }
+
+    side = str(source["direction"])
+    entry = decimal(source["entry_price"])
+    exit_price = decimal(source["exit_price"])
+    quantity = decimal(source["quantity"])
+    gross = (exit_price - entry) * quantity if side == "long" else (entry - exit_price) * quantity
+    commission = decimal(source.get("entry_fee_usdt")) + decimal(source.get("exit_fee_usdt"))
+    net_before_funding = gross - commission
+    funding_status = str(source.get("funding_status") or "FUNDING_UNAVAILABLE")
+    funding_raw = source.get("funding_usdt")
+    funding = (
+        decimal(funding_raw) if funding_raw is not None and funding_status == "FUNDING_POSITION_ATTRIBUTED" else None
+    )
+
+    entry_slippage: Decimal | None = None
+    signal_reference = source.get("signal_reference_price")
+    if signal_reference is not None:
+        entry_slippage = _adverse_price_delta(side=side, actual=entry, intended=decimal(signal_reference)) * quantity
+
+    exit_slippage: Decimal | None = None
+    exit_reason = str(source.get("exit_reason") or "")
+    intended_exit = None
+    if exit_reason in {"STOP", "HARD_STOP"}:
+        intended_exit = source.get("initial_stop")
+    elif exit_reason in {"TARGET", "TAKE_PROFIT"}:
+        intended_exit = source.get("initial_target")
+    if intended_exit is not None:
+        exit_slippage = (
+            _adverse_price_delta(
+                side="short" if side == "long" else "long",
+                actual=exit_price,
+                intended=decimal(intended_exit),
+            )
+            * quantity
+        )
+
+    slippage = entry_slippage + exit_slippage if entry_slippage is not None and exit_slippage is not None else None
+    slippage_status = (
+        "OBSERVED_EXECUTION_ONLY" if slippage is not None else "SLIPPAGE_UNAVAILABLE_MISSING_IMMUTABLE_REFERENCE"
+    )
+    risk = (
+        abs(entry - decimal(source.get("initial_stop"))) * quantity if source.get("initial_stop") is not None else None
+    )
+    total_cost = commission + funding + slippage if funding is not None and slippage is not None else None
+    return {
+        "gross_pnl_usdt": str(gross),
+        "commission_usdt": str(commission),
+        "net_before_funding_usdt": str(net_before_funding),
+        "funding_usdt": str(funding) if funding is not None else None,
+        "funding_status": funding_status,
+        "entry_slippage_usdt": str(entry_slippage) if entry_slippage is not None else None,
+        "exit_slippage_usdt": str(exit_slippage) if exit_slippage is not None else None,
+        "slippage_usdt": str(slippage) if slippage is not None else None,
+        "slippage_status": slippage_status,
+        "net_pnl_usdt": str(net_before_funding + funding) if funding is not None else None,
+        "net_pnl_status": "COMPLETE" if funding is not None else "UNKNOWN_FUNDING",
+        "cost_r": str(total_cost / risk) if total_cost is not None and risk is not None and risk > 0 else None,
+        "cost_r_status": "COMPLETE"
+        if total_cost is not None and risk is not None and risk > 0
+        else "UNKNOWN_COST_COMPONENT",
+    }
+
+
+def _signal_reference_from_payload(payload: Any) -> str | None:
+    """Return one unambiguous persisted signal reference, never a guessed price."""
+    try:
+        parsed = json.loads(payload) if isinstance(payload, str) else payload
+    except json.JSONDecodeError:
+        return None
+    values: set[str] = set()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if key == "signal_reference_price" and nested not in (None, ""):
+                    values.add(str(nested))
+                else:
+                    visit(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                visit(nested)
+
+    visit(parsed)
+    return next(iter(values)) if len(values) == 1 else None
+
+
+def load_signal_reference_prices(database_path: Path) -> dict[str, str]:
+    """Read only retained V2 decision evidence; older rows may legitimately lack it."""
+    uri = f"file:{database_path.resolve().as_posix()}?mode=ro"
+    with sqlite3.connect(uri, uri=True) as connection:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'v2_execution_decisions'"
+        ).fetchone()
+        if exists is None:
+            return {}
+        rows = connection.execute(
+            """
+            SELECT mp.position_id, decision.payload
+            FROM v2_managed_positions AS mp
+            JOIN v2_execution_intents AS intent ON intent.intent_id = mp.intent_id
+            JOIN v2_execution_decisions AS decision ON decision.decision_id = intent.decision_id
+            WHERE mp.state = 'CLOSED'
+            """
+        ).fetchall()
+    return {
+        str(position_id): reference
+        for position_id, payload in rows
+        if (reference := _signal_reference_from_payload(payload)) is not None
+    }
+
+
+def _canonical_income_symbol(value: Any) -> str:
+    symbol = str(value or "")
+    return f"{symbol[:-4]}/USDT" if symbol.endswith("USDT") and "/" not in symbol else symbol
+
+
+def load_account_funding_events(path: Path) -> list[dict[str, Any]]:
+    """Load Binance account-level funding facts without claiming position attribution."""
+    if not path.is_file():
+        return []
+    events: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        raw = json.loads(line)
+        if raw.get("incomeType") != "FUNDING_FEE":
+            continue
+        try:
+            event_time = datetime.fromtimestamp(int(str(raw["time"])) / 1000, tz=UTC)
+        except (KeyError, TypeError, ValueError):
+            continue
+        events.append(
+            {
+                "symbol": _canonical_income_symbol(raw.get("symbol")),
+                "event_time": event_time,
+                "income_usdt": str(raw.get("income")),
+            }
+        )
+    return events
+
+
+def funding_evidence(source: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Expose account income as ambiguous until Binance supplies a position key."""
+    if source.get("entry_time") is None or source.get("exit_time") is None:
+        return {"funding_usdt": None, "funding_status": "FUNDING_UNAVAILABLE_INCOMPLETE_EXECUTION_RECEIPT"}
+    start = parse_datetime(source["entry_time"])
+    end = parse_datetime(source["exit_time"])
+    matches = [event for event in events if event["symbol"] == source["symbol"] and start < event["event_time"] <= end]
+    if matches:
+        return {
+            "funding_usdt": None,
+            "funding_status": "FUNDING_ACCOUNT_LEVEL_AMBIGUOUS",
+            "funding_event_count": len(matches),
+            "funding_account_level_sum_usdt": str(
+                sum((decimal(event["income_usdt"]) for event in matches), Decimal("0"))
+            ),
+        }
+    return {
+        "funding_usdt": None,
+        "funding_status": "FUNDING_UNAVAILABLE",
+        "funding_event_count": 0,
+    }
 
 
 def load_authoritative_closed_episodes(database_path: Path) -> list[dict[str, Any]]:
@@ -303,14 +497,22 @@ def _sample_matches(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
-def build_report(*, database_path: Path) -> dict[str, Any]:
+def build_report(*, database_path: Path, funding_income_path: Path = DEFAULT_ACCOUNT_INCOME) -> dict[str, Any]:
     database_path = database_path.resolve()
     sources = load_authoritative_closed_episodes(database_path)
+    signal_references = load_signal_reference_prices(database_path)
+    funding_events = load_account_funding_events(funding_income_path)
     rows: list[dict[str, Any]] = []
     taxonomy_counts: Counter[str] = Counter()
     floor_counts: Counter[str] = Counter()
     incomplete_position_ids: list[str] = []
     for source in sources:
+        source = {
+            **source,
+            "signal_reference_price": signal_references.get(str(source["position_id"])),
+            **funding_evidence(source, funding_events),
+        }
+        costs = cost_truth(source)
         if source["evidence_status"] != "COMPLETE":
             incomplete_position_ids.append(str(source["position_id"]))
             taxonomy = {"primary": "EXECUTION_FAILURE", "labels": [], "confidence": "LOW"}
@@ -318,6 +520,7 @@ def build_report(*, database_path: Path) -> dict[str, Any]:
             rows.append(
                 {
                     **source,
+                    "cost_truth": costs,
                     "stop_floor": {"status": "INSUFFICIENT_EVIDENCE", "source": "UNKNOWN"},
                     "excursions": {"status": "INSUFFICIENT_EVIDENCE"},
                     "post_exit_recovery": {},
@@ -391,18 +594,18 @@ def build_report(*, database_path: Path) -> dict[str, Any]:
                 "realized_net_pnl_usdt": source["realized_net_pnl_usdt"],
                 "entry_fee_usdt": source["entry_fee_usdt"],
                 "exit_fee_usdt": source["exit_fee_usdt"],
-                "funding_usdt": source["funding_usdt"],
-                "slippage_usdt": source["slippage_usdt"],
+                "signal_reference_price": source["signal_reference_price"],
                 "initial_stop": str(runtime_stop),
                 "initial_target": source.get("initial_target"),
                 "stop_floor": floor,
                 "excursions": excursions,
                 "post_exit_recovery": recovery,
                 "taxonomy": taxonomy,
+                "cost_truth": costs,
             }
         )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "READ_ONLY",
         "holdout_accessed": False,
         "strategy_deployment": "BLOCKED",
@@ -418,6 +621,8 @@ def build_report(*, database_path: Path) -> dict[str, Any]:
             "Recovery is classified only when 1m bars cover the full four-hour horizon.",
             "The 0.35% floor is evidence of geometry source, not evidence that widening it is superior.",
             "No replay variant was deployed or armed from this report.",
+            "Funding is UNKNOWN unless Binance returns a position-keyed receipt; account-level income is not silently allocated.",
+            "Execution slippage is measured only from immutable signal/protection references and never includes signal-to-fill market movement by assumption.",
         ],
         "episodes": rows,
     }
@@ -428,8 +633,9 @@ def main() -> int:
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--markdown", type=Path, default=DEFAULT_MARKDOWN)
+    parser.add_argument("--funding-income", type=Path, default=DEFAULT_ACCOUNT_INCOME)
     args = parser.parse_args()
-    report = build_report(database_path=args.database)
+    report = build_report(database_path=args.database, funding_income_path=args.funding_income)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     lines = [
