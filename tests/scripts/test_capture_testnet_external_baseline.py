@@ -104,6 +104,34 @@ def test_empty_baseline_can_be_persisted(tmp_path, monkeypatch) -> None:
     assert capture.require_persisted_external_baseline(path=baseline_path) == {}
 
 
+def test_empty_legacy_scope_baseline_is_migrated_only_after_fresh_flat_capture(tmp_path, monkeypatch) -> None:
+    """Shrinking the manifest scope must not require an unsafe manual rewrite."""
+    capture = _load_capture_script()
+    baseline_path = tmp_path / ".local" / "testnet-external-baseline.json"
+    baseline_path.parent.mkdir()
+    legacy_scope = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"]
+    baseline_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "execution_mode": "BINANCE_TESTNET",
+                "captured_symbols": legacy_scope,
+                "source": "binance_testnet_authoritative_snapshot",
+                "positions": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(capture, "capture_baseline", lambda: {})
+
+    assert capture.require_persisted_external_baseline(path=baseline_path) == {}
+
+    migrated = json.loads(baseline_path.read_text(encoding="utf-8"))
+    assert migrated["captured_symbols"] == ["BTC/USDT", "ETH/USDT"]
+    assert migrated["last_acknowledgement"]["status"] == "SCOPE_MIGRATED_EMPTY_BASELINE"
+    assert migrated["last_acknowledgement"]["previous_symbols"] == legacy_scope
+
+
 def test_missing_baseline_fails_closed_even_at_zero_exposure(tmp_path, monkeypatch) -> None:
     """Zero observed exposure must not be mistaken for a persisted capture."""
     capture = _load_capture_script()
@@ -127,14 +155,11 @@ def test_persisted_baseline_still_rejects_invalid_shapes(tmp_path) -> None:
         "SOL/USDT:flat",
         "SOLUSDT:long",
         "SOL/USDT:long;DROP TABLE positions",
+        "SOL/USDT:long",
+        "XRP/USDT:short",
     ):
         with pytest.raises(RuntimeError, match="EXTERNAL_BASELINE_INVALID_KEY"):
             capture.persist_external_baseline({invalid_key: "1"}, path=baseline_path)
-    capture.persist_external_baseline({"SOL/USDT:long": "1", "XRP/USDT:short": "2"}, path=baseline_path)
-    assert capture.load_persisted_external_baseline(path=baseline_path) == {
-        "SOL/USDT:long": "1",
-        "XRP/USDT:short": "2",
-    }
 
 
 @pytest.mark.parametrize("quantity", ("0", "-1"))

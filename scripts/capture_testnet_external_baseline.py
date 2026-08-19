@@ -19,6 +19,7 @@ BASELINE_MATCHED = "BASELINE_MATCHED"
 MANUAL_BASELINE_DRIFT = "MANUAL_BASELINE_DRIFT"
 BASELINE_ACK_REQUIRED = "MANUAL_BASELINE_ACK_REQUIRED"
 BASELINE_REFRESHED = "BASELINE_REFRESHED"
+SCOPE_MIGRATED_EMPTY_BASELINE = "SCOPE_MIGRATED_EMPTY_BASELINE"
 
 
 def _baseline_path() -> Path:
@@ -140,6 +141,46 @@ def load_persisted_external_baseline(*, path: Path | None = None) -> dict[str, s
     return _validated_positions(payload.get("positions"))
 
 
+def _migrate_empty_legacy_scope_baseline(*, source: Path, observed: dict[str, str]) -> dict[str, str] | None:
+    """Rebind an empty historical baseline after an execution-scope reduction.
+
+    This is deliberately narrower than a general baseline refresh: it needs a
+    fresh authoritative flat capture and never carries an old external
+    position into the new scope.  The file audit retains the prior symbols.
+    """
+    if observed:
+        return None
+    try:
+        payload = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    prior_symbols = payload.get("captured_symbols")
+    if (
+        payload.get("schema_version") != 1
+        or payload.get("execution_mode") != "BINANCE_TESTNET"
+        or payload.get("source") != "binance_testnet_authoritative_snapshot"
+        or payload.get("positions") != {}
+        or not isinstance(prior_symbols, list)
+        or any(not isinstance(symbol, str) for symbol in prior_symbols)
+    ):
+        return None
+    prior_scope = tuple(prior_symbols)
+    current_scope = AUTO_SIMULATION_EXECUTION_SYMBOLS
+    if prior_scope == current_scope or not set(current_scope).issubset(prior_scope):
+        return None
+    audit = {
+        "status": SCOPE_MIGRATED_EMPTY_BASELINE,
+        "previous_symbols": list(prior_scope),
+        "new_symbols": list(current_scope),
+        "reason": "Fresh authoritative capture is flat; rebind empty Testnet baseline to canonical manifest scope.",
+        "captured_at": datetime.now(UTC).isoformat(),
+    }
+    persist_external_baseline({}, path=source, audit=audit)
+    return {}
+
+
 def require_persisted_external_baseline(
     *,
     path: Path | None = None,
@@ -151,6 +192,9 @@ def require_persisted_external_baseline(
     try:
         persisted = load_persisted_external_baseline(path=source)
     except RuntimeError as exc:
+        migrated = _migrate_empty_legacy_scope_baseline(source=source, observed=observed)
+        if migrated is not None:
+            return migrated
         if observed:
             raise RuntimeError(
                 f"EXTERNAL_BASELINE_NOT_PERSISTED: observed unmanaged exposure {json.dumps(observed, sort_keys=True)}"
