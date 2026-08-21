@@ -2,7 +2,8 @@
 
 ## AUTO TRADING LIVENESS RECOVERY 收口（2026-08-21）
 
-- Verified Code Commit / Transaction Freeze Baseline：`ceaf46b2e7cfd3166303b897ad2bff66e9a1574b`。
+- Verified Code Commit / Transaction Freeze Baseline：`ceaf46b2e7cfd3166303b897ad2bff66e9a1574b`；
+  contract/docs Commit B=`539e65e`，pre-commit enforcement Commit C=`3f1ad1c`。
 - Runtime observed `2026-08-21T17:20Z`：`ACTIVE/BINANCE_TESTNET/TESTNET_CANARY`，
   BTC/ETH execution scope，V2 critical task alive，latest cycle `CANDLE_CLOSED`，
   reconciliation `HEALTHY`，scheduler error `null`。
