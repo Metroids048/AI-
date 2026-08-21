@@ -627,9 +627,9 @@ function Ensure-Runtime {
         $env:AUTOMATED_TRADING_ENGINE = $AutomatedTradingEngine
     }
     if ($EnableNaturalTestnet) {
-        # This explicit, non-default switch is retained only for historical
-        # Testnet engineering acceptance. Normal V2 startup manages and
-        # reconciles existing exposure with EntryAuthority.NONE.
+        # The one-click wrapper intentionally passes this switch for the
+        # continuous Binance Testnet Canary lane. Direct PowerShell callers
+        # still default to shadow/management-only unless they opt in.
         $env:V2_NATURAL_E2E_ENABLED = "true"
     }
     else {

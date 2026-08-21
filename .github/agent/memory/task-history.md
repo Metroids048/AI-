@@ -1,5 +1,16 @@
 # Task History
 
+## 2026-08-21 Runtime / Review audit separation
+
+- User authorized implementation to address the current-head audit findings
+  while preserving automatic Testnet opening.
+- Changed Review Layer scope accounting, launcher comments/docs, and added a
+  read-only incident classification probe. No entry/exit, risk, leverage,
+  stop/TP, exchange credential, or production-authorization code changed.
+- Evidence: targeted pytest `72 passed, 1 skipped`; Ruff and mypy passed;
+  pre-commit passed; live SQLite probe showed one active managed position and
+  one active intent, with unresolved incidents classified as historical-only.
+
 ### [TASK-AUTONOMOUS-RECOVERY-LOOP-2026-08-19] ACTIVE startup recovery and bounded natural observation
 - **Date**: 2026-08-19
 - **Type**: Runtime startup recovery / Testnet natural lifecycle evidence
@@ -1871,3 +1882,18 @@
 - Final decision: `PROJECT_CLOSEOUT: NO_VALIDATED_EDGE`. Production remains
   `PENDING`; entry authority remains `NONE`; no new trial or strategy family
   was added.
+
+## [TASK-2026-08-21-REVIEW-INCIDENT-SCOPE-CLOSEOUT]
+
+- Review reports now count only canonical automatic execution symbols
+  (`BTC/USDT`, `ETH/USDT`) for closed-position counts, per-symbol PnL, total PnL,
+  and worst-performer ranking. `SOL/USDT`, `XRP/USDT`, and `BNB/USDT` remain
+  visible as research-only observations.
+- `scripts/audit_runtime_incidents.py` is read-only and now resolves current
+  pre-fill intents directly from `v2_execution_intents`; filled historical
+  intents do not inflate current exposure. The live local snapshot reported
+  `0` active positions, `0` active pre-fill intents, and `1098` unresolved
+  incidents classified as historical evidence only (`1096` manual intervention,
+  `2` protection recovery failures).
+- No execution hot-path file, risk parameter, leverage, stop/take-profit rule,
+  promotion gate, exchange credential, or launcher entry parameter was changed.

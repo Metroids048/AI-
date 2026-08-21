@@ -1,5 +1,21 @@
 # Project Memory
 
+## Runtime / Review scope closeout (2026-08-21)
+
+- VERIFIED: the one-click wrapper intentionally starts `v2_active` with
+  `TESTNET_CANARY`; direct `launch-paper-console.ps1` calls retain `v2_shadow`
+  unless `-EnableNaturalTestnet` is passed. This is a contract clarification,
+  not a trading-path change.
+- VERIFIED: ReviewService now derives automatic performance scope from the
+  canonical active manifest (`BTC/USDT`, `ETH/USDT`) and labels SOL/XRP/BNB as
+  research-only, preventing out-of-scope Canary history from contaminating
+  execution PnL or worst-performer ranking.
+- VERIFIED: `scripts/audit_runtime_incidents.py` is read-only and classifies
+  unresolved incidents by current managed exposure versus historical evidence;
+  it never mutates the immutable incident status column. Current-intent
+  detection reads only pre-fill intent states, so closed `FILLED` history does
+  not appear as active exposure.
+
 ## P0 Runtime Reliability and V2 freeze (2026-08-19)
 
 - VERIFIED: `df10d57d47228d673b8cf6c627819ce6633e95af` remains the local and remote
