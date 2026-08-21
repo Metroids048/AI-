@@ -1,5 +1,19 @@
 # Project Memory
 
+## AUTO TRADING LIVENESS RECOVERY 收口（2026-08-21）
+
+- Verified Code Commit / Transaction Freeze Baseline：`ceaf46b2e7cfd3166303b897ad2bff66e9a1574b`。
+- Runtime observed `2026-08-21T17:20Z`：`ACTIVE/BINANCE_TESTNET/TESTNET_CANARY`，
+  BTC/ETH execution scope，V2 critical task alive，latest cycle `CANDLE_CLOSED`，
+  reconciliation `HEALTHY`，scheduler error `null`。
+- Liveness failure semantics：`entry_enabled=false` + durable
+  `LIVENESS_RECOVERY_HOLD:*`，但 management/reconciliation/protection/reduce-only 链继续；
+  只有系统创建的 hold 可自动解除，manual pause 不可被覆盖；3 次连续恢复失败为
+  `AUTO_RECOVERY_EXHAUSTED`。
+- 已有自然 ETH 生命周期证据仍有效：order `16767783498` entry，order `16767804479`
+  reduce-only exit，最终 `CLOSED`，交易所/本地开放仓位 `0/0`。
+- 策略 identity 与授权保持 `PENDING` / 空 eligible scope；本轮没有策略或风控数值变更。
+
 ## AUTO TRADING LIVENESS RECOVERY（2026-08-21）
 
 - VERIFIED: `一键启动.cmd` 实测返回 `SUCCESS / STARTUP_READY`，状态为

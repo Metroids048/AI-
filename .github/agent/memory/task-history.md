@@ -1,5 +1,17 @@
 # Task History
 
+## [TASK-2026-08-21-LIVENESS-RECOVERY-FINALIZE]
+
+- Commit A `ceaf46b2e7cfd3166303b897ad2bff66e9a1574b` 完成 Scheduler V2 liveness、
+  durable entry hold、management-only recovery、5/15/30s backoff 与 worker process recycle。
+- Added tests for unsafe crash continuity, manual-vs-system hold clearing, dynamic state path,
+  stalled critical task detection and current-HEAD transaction drift.
+- Transaction contract baseline now points to Commit A protected-path hashes；Commit B 只包含
+  contract/verifier/tests/docs。未修改策略规则、准入门槛、杠杆、仓位、费用、SL/TP 或 Production authorization。
+- Runtime evidence used for this closeout: ACTIVE Testnet Canary, BTC/ETH critical cycle alive,
+  latest closed-bar reconciliation healthy；existing natural ETH lifecycle ended CLOSED with
+  exchange/local open positions `0/0`。
+
 ## [TASK-2026-08-21-AUTO-TRADING-LIVENESS-RECOVERY]
 
 - Scope: 仅修复 Scheduler/V2 critical liveness、supervisor、launcher 健康契约、

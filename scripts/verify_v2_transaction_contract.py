@@ -13,6 +13,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = REPO_ROOT / "contracts" / "v2_transaction_contract.json"
 FAILURE_CODE = "V2_HOTPATH_CHANGE_REQUIRES_EXPLICIT_APPROVAL"
+HEAD_DRIFT_FAILURE_CODE = "V2_HOTPATH_CURRENT_HEAD_DRIFT"
 
 
 def load_contract() -> dict:
@@ -54,6 +55,25 @@ def baseline_hashes_match(contract: dict) -> list[str]:
     return failures
 
 
+def current_head_hashes_match(contract: dict) -> list[str]:
+    """Ensure the checked-out HEAD still matches the frozen protected paths."""
+    failures: list[str] = []
+    for path, expected in contract["protected_paths"].items():
+        completed = subprocess.run(
+            ["git", "show", f"HEAD:{path}"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            failures.append(f"{path}: missing from current HEAD")
+            continue
+        actual = hashlib.sha256(completed.stdout).hexdigest()
+        if actual != expected:
+            failures.append(f"{path}: frozen {expected}, current HEAD {actual}")
+    return failures
+
+
 def _explicit_hotpath_approval() -> bool:
     return os.environ.get("V2_HOTPATH_FIX_APPROVED") == "1" and bool(os.environ.get("V2_HOTPATH_FIX_ID", "").strip())
 
@@ -62,6 +82,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--staged", action="store_true", help="check staged paths before commit")
     parser.add_argument("--verify-baseline", action="store_true", help="verify hashes stored in the contract")
+    parser.add_argument("--verify-head", action="store_true", help="verify protected paths in current HEAD")
     args = parser.parse_args()
     contract = load_contract()
 
@@ -72,6 +93,20 @@ def main() -> int:
                 print(f"FAIL: {failure}", file=sys.stderr)
             return 1
         print(f"PASS: V2 transaction baseline {contract['baseline_sha']} hashes match")
+
+    if args.verify_head:
+        failures = current_head_hashes_match(contract)
+        if failures and not _explicit_hotpath_approval():
+            print(HEAD_DRIFT_FAILURE_CODE, file=sys.stderr)
+            for failure in failures:
+                print(f"FAIL: {failure}", file=sys.stderr)
+            return 1
+        if failures:
+            print(
+                f"PASS: explicit hotpath approval {os.environ['V2_HOTPATH_FIX_ID'].strip()} covers current HEAD drift"
+            )
+        else:
+            print("PASS: current HEAD protected paths match transaction baseline")
 
     if args.staged:
         touched = protected_staged_paths(staged_paths(), contract["protected_paths"])
