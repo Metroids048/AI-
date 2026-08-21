@@ -1,5 +1,25 @@
 # Project Memory
 
+## AUTO TRADING LIVENESS RECOVERY（2026-08-21）
+
+- VERIFIED: `一键启动.cmd` 实测返回 `SUCCESS / STARTUP_READY`，状态为
+  `ACTIVE/BINANCE_TESTNET/TESTNET_CANARY`，入口已启用且已授权，对账为 `HEALTHY`。
+- VERIFIED: `RuntimeScheduler` 现在发布 per-job `critical_jobs`；
+  `automated_trading_v2_cycle` 由 supervisor 管理，异常退出按 5s/15s/30s backoff，
+  恢复前检查 active execution intent、`EXCHANGE_UNKNOWN` 和最新 reconciliation，
+  不安全时保持 `ENTRY_PAUSED`，正常 shutdown 不重启。
+- VERIFIED: 2026-08-21 15:15 与 15:30 UTC BTC/ETH 新闭合柱均生成 V2 decision；
+  终止原因分别为 `MACD_DIRECTION_MISMATCH` / `MULTI_TIMEFRAME_DISAGREEMENT`，
+  当前无自然 candidate/intent/order/fill，不把无信号写成停滞。
+- VERIFIED: 当前交易所/本地受管开放持仓 `1/1`（ETH long `4.242`），活动 pre-fill
+  intent `0`，最新 reconciliation `HEALTHY`（2026-08-21 15:50 UTC），开放保护单 `2`。
+- VERIFIED: 本次重启后的自然 Canary entry 为 intent
+  `62437d5d-9c3a-46ce-a698-351595e816eb`、Binance order `16767783498`、filled
+  `4.242`，stop/TP `1000000175947313` / `1000000175947327`；未强制触发退出。
+- VERIFIED: strategy manifest identity 已按当前 canonical inventory 重冻结；
+  `PENDING`/空 eligible scope 未改变，未修改策略参数或 Promotion Gate。
+
+
 ## Runtime / Review scope closeout (2026-08-21)
 
 - VERIFIED: the one-click wrapper intentionally starts `v2_active` with
@@ -1208,6 +1228,23 @@
   short `0.5346`, current exchange snapshot empty). The persistent baseline was
   not overwritten; local services were restored in Shadow mode. Runtime Closeout
   and strategy optimization remain BLOCKED pending operator baseline resolution.
+
+## AUTO TRADING LIVENESS RECOVERY (2026-08-21)
+
+- One-click `v2_active + TESTNET_CANARY` startup returned `SUCCESS / STARTUP_READY`;
+  scheduler was `ACTIVE / BINANCE_TESTNET`, `entry_enabled=true`,
+  `entry_authorized=true`, `startup_contract_errors=[]`.
+- The V2 critical-task supervisor and launcher liveness checks were verified across
+  two post-restart BTC/ETH closed-bar cycles at `15:59` and `16:14 UTC`; both
+  produced decisions with `reconciliation_status=HEALTHY` and zero consecutive
+  critical-task failures.
+- Natural ETH Canary lifecycle is complete: entry order `16767783498` with fills
+  `316464161/316464162`, protection `1000000175947313/1000000175947327`, then
+  reduce-only exit `16767804479` / trade `316470607`; local position is `CLOSED`
+  and latest exchange/local open positions are `0/0` with `HEALTHY` reconciliation.
+- Strategy package remains `authorization_state=PENDING` with empty eligible
+  execution symbols; no strategy, risk, leverage, stop/TP, fee, or promotion
+  threshold was changed.
 # Runtime Truth + trade lifecycle closeout (2026-08-19)
 
 - Manual baseline now has explicit lifecycle/acknowledgement states and symbol-scoped drift blocking. No rebaseline or live order was performed; current persisted BTC short `0.5346` remains intentionally unchanged while Binance is flat.

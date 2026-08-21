@@ -1225,6 +1225,8 @@ def build_no_trade_summary(
             "last_auto_cycle_at": (
                 _iso_datetime(last_auto_cycle_at) if isinstance(last_auto_cycle_at, datetime) else last_auto_cycle_at
             ),
+            "critical_jobs": scheduler.get("critical_jobs") or {},
+            "scheduler_error": scheduler.get("scheduler_error"),
         },
         "exchange": {"status": exchange_status},
         "data": {
@@ -1395,6 +1397,8 @@ def runtime_no_trade_summary(
             "running": scheduler.running,
             "heartbeat_at": scheduler.heartbeat_at,
             "last_auto_cycle_at": scheduler.last_auto_cycle_at,
+            "scheduler_error": scheduler.scheduler_error,
+            "critical_jobs": scheduler.critical_jobs,
         },
         exchange=exchange,
         data={"fresh": scheduler.data_fresh, "exchange_info_ready": scheduler.exchange_info_ready},

@@ -1,5 +1,24 @@
 # Task History
 
+## [TASK-2026-08-21-AUTO-TRADING-LIVENESS-RECOVERY]
+
+- Scope: 仅修复 Scheduler/V2 critical liveness、supervisor、launcher 健康契约、
+  strategy package identity 漂移和当前状态文档；没有策略优化或风控数值变更。
+- Implementation: `services/execution/scheduler.py` 增加 per-job liveness 与 V2
+  supervisor；`services/execution/runtime_state.py` 增加 25 分钟 watchdog；
+  `scripts/launch-paper-console.ps1` 健康检查要求 critical task alive、无未恢复失败、
+  decision stream 未 stalled；`/no-trade-summary` 暴露 critical job 状态。
+- Identity: manifest code/package hash 与当前 inventory 对齐，source commit 更新为
+  当前 HEAD；`authorization_state=PENDING`、`eligible_execution_symbols=[]` 保持原值。
+- Runtime evidence: 一键启动 `SUCCESS / STARTUP_READY`；Natural Canary 为
+  `ACTIVE/BINANCE_TESTNET/TESTNET_CANARY`；15:15 与 15:30 UTC BTC/ETH 新 decision
+  连续前进；随后自然 ETH entry intent `62437d5d-9c3a-46ce-a698-351595e816eb` 取得
+  Binance order `16767783498`、filled `4.242`，并生成 stop/TP 保护，15:50 UTC
+  reconciliation `HEALTHY`，交易所/本地开放持仓 `1/1`。
+- Remaining gate: 本轮尚未观察到自然 reduce-only exit -> fill -> CLOSED；不强制平仓，
+  不把 acceptance/manual 订单当作自然退出证据。
+
+
 ## 2026-08-21 Runtime / Review audit separation
 
 - User authorized implementation to address the current-head audit findings
@@ -1897,3 +1916,22 @@
   `2` protection recovery failures).
 - No execution hot-path file, risk parameter, leverage, stop/take-profit rule,
   promotion gate, exchange credential, or launcher entry parameter was changed.
+
+## [TASK-2026-08-21-AUTO-TRADING-LIVENESS-RECOVERY]
+
+- Implemented per-job liveness state, 25-minute V2 watchdog, critical-task
+  supervisor with 5s/15s/30s backoff, shutdown cancellation handling, and
+  fail-closed recovery preflight for active intents, `EXCHANGE_UNKNOWN`, and
+  reconciliation health. Launcher health now requires the V2 task to be
+  registered/alive and the ACTIVE Testnet Canary contract to be valid.
+- Identity manifest was re-frozen from the declared strategy inventory while
+  keeping `authorization_state=PENDING`, `eligible_execution_symbols=[]`, and
+  `NO_VALIDATED_EDGE`.
+- Evidence: startup `STARTUP_READY`; two post-restart BTC/ETH decision cycles at
+  `15:59` and `16:14 UTC`; natural ETH entry order `16767783498` and natural
+  reduce-only exit `16767804479`; final local/exchange positions `0/0`,
+  reconciliation `HEALTHY`.
+- Verification: `ruff check .` -> `All checks passed!`; `mypy` -> `Success: no
+  issues found in 274 source files`; full pytest -> `1800 passed, 7 skipped,
+  7 warnings`; focused scheduler/identity tests -> `36 passed`; `git diff --check`
+  passed. No strategy optimization or trading parameter changes were made.

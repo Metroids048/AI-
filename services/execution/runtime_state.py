@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+V2_CYCLE_WATCHDOG_SECONDS = 25 * 60
+
 
 def _state_path() -> Path:
     configured = os.getenv("LOCAL_SCHEDULER_STATE_PATH")
@@ -53,6 +55,8 @@ class ExternalSchedulerState:
     promotion_eligible: bool | None = None
     trading_state: str | None = None
     startup_contract_errors: tuple[str, ...] = ()
+    scheduler_started_at: datetime | None = None
+    critical_jobs: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -161,7 +165,46 @@ def load_external_scheduler_state(
         promotion_eligible=(raw.get("promotion_eligible") if isinstance(raw.get("promotion_eligible"), bool) else None),
         trading_state=raw.get("trading_state") if isinstance(raw.get("trading_state"), str) else None,
         startup_contract_errors=startup_contract_errors,
+        scheduler_started_at=_parse_datetime(raw.get("started_at")),
+        critical_jobs={
+            str(name): dict(value)
+            for name, value in (raw.get("critical_jobs") or {}).items()
+            if isinstance(name, str) and isinstance(value, dict)
+        },
     )
+
+
+def critical_task_liveness_errors(
+    state: ExternalSchedulerState,
+    *,
+    now: datetime | None = None,
+    watchdog_seconds: int = V2_CYCLE_WATCHDOG_SECONDS,
+) -> tuple[str, ...]:
+    """Return fail-closed liveness errors for the authoritative V2 cycle."""
+    # Older state files remain readable for diagnostics.  The live scheduler
+    # always publishes this map; launcher health rejects a missing map before
+    # accepting STARTUP_READY.
+    if not state.critical_jobs:
+        return ()
+    job = state.critical_jobs.get("automated_trading_v2_cycle")
+    if not isinstance(job, dict) or job.get("registered") is not True:
+        return ("V2_CRITICAL_TASK_NOT_REGISTERED",)
+    errors: list[str] = []
+    if job.get("task_alive") is not True:
+        errors.append("V2_CRITICAL_TASK_NOT_ALIVE")
+    if job.get("currently_running") is True and job.get("last_exception"):
+        errors.append("V2_CRITICAL_TASK_FAILURE_UNRECOVERED")
+    if job.get("last_exception") and int(job.get("consecutive_failures") or 0) > 0:
+        errors.append("V2_CRITICAL_TASK_FAILURE_UNRECOVERED")
+    completed = _parse_datetime(job.get("last_completed_at"))
+    reference = now or datetime.now(UTC)
+    started = state.scheduler_started_at or state.heartbeat_at
+    if completed is None:
+        if started is not None and (reference - started).total_seconds() > watchdog_seconds:
+            errors.append("V2_DECISION_STREAM_STALLED")
+    elif (reference - completed).total_seconds() > watchdog_seconds:
+        errors.append("V2_DECISION_STREAM_STALLED")
+    return tuple(dict.fromkeys(errors))
 
 
 def active_startup_contract_errors(
@@ -192,6 +235,7 @@ def active_startup_contract_errors(
         errors.append("EXECUTION_SCOPE_INCOMPLETE")
     if "automated_trading_v2_cycle" not in state.registered_jobs:
         errors.append("V2_CYCLE_NOT_REGISTERED")
+    errors.extend(error for error in critical_task_liveness_errors(state) if error not in errors)
     if any(job in state.registered_jobs for job in ("paper_runtime_cycle", "paper_observation_cycle")):
         errors.append("LEGACY_JOB_REGISTERED")
     if state.legacy_writer_enabled is not False:

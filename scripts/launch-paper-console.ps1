@@ -331,6 +331,28 @@ function Test-SchedulerHealthy {
         if ($null -eq $state.natural_testnet_enabled -or [bool]$state.natural_testnet_enabled -ne $targetNaturalTestnet) {
             return $false
         }
+        if (-not ($state.registered_jobs -contains "automated_trading_v2_cycle")) { return $false }
+        $critical = $state.critical_jobs.automated_trading_v2_cycle
+        if ($null -eq $critical -or -not [bool]$critical.registered -or -not [bool]$critical.task_alive) {
+            return $false
+        }
+        if ($state.scheduler_error) { return $false }
+        $criticalFailures = if ($null -eq $critical.consecutive_failures) { 0 } else { [int]$critical.consecutive_failures }
+        if ($critical.last_exception -and ($criticalFailures -gt 0)) {
+            return $false
+        }
+        if ($critical.last_completed_at) {
+            $lastCompleted = [datetimeoffset]::Parse($critical.last_completed_at)
+            if ((([datetimeoffset]::UtcNow - $lastCompleted).TotalSeconds) -gt 1500) { return $false }
+        }
+        if ($EnableNaturalTestnet) {
+            if ([string]$state.execution_mode -ne "BINANCE_TESTNET") { return $false }
+            if ([string]$state.entry_authority -ne "TESTNET_CANARY") { return $false }
+            if (-not [bool]$state.entry_authorized) { return $false }
+            if (-not [bool]$state.entry_enabled) { return $false }
+            if ([string]$state.trading_state -ne "TRADING") { return $false }
+            if ($state.startup_contract_errors -and $state.startup_contract_errors.Count -gt 0) { return $false }
+        }
         $heartbeat = [datetimeoffset]::Parse($state.heartbeat_at)
         return ((([datetimeoffset]::UtcNow - $heartbeat).TotalSeconds) -le 120)
     }

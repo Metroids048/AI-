@@ -10,6 +10,7 @@ from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.execution import runtime_state
 from services.execution.runtime_state import (
     ExternalSchedulerState,
+    critical_task_liveness_errors,
     load_external_scheduler_state,
     write_external_scheduler_state,
 )
@@ -769,3 +770,89 @@ async def test_core_task_failure_remains_visible_until_that_task_recovers() -> N
     assert scheduler.status.scheduler_error is None
     assert "paper_runtime_cycle" in scheduler.status.last_success_at
     assert "paper_runtime_cycle" in scheduler.status.last_failure_at
+
+
+def test_critical_task_liveness_errors_detect_dead_or_stalled_v2_job() -> None:
+    now = datetime.now(UTC)
+    state = ExternalSchedulerState(
+        running=True,
+        heartbeat_at=now,
+        scheduler_started_at=now - timedelta(minutes=30),
+        registered_jobs=("automated_trading_v2_cycle",),
+        critical_jobs={
+            "automated_trading_v2_cycle": {
+                "registered": True,
+                "task_alive": False,
+                "last_completed_at": (now - timedelta(minutes=26)).isoformat(),
+                "consecutive_failures": 1,
+                "last_exception": "boom",
+            }
+        },
+    )
+
+    errors = critical_task_liveness_errors(state, now=now)
+
+    assert "V2_CRITICAL_TASK_NOT_ALIVE" in errors
+    assert "V2_CRITICAL_TASK_FAILURE_UNRECOVERED" in errors
+    assert "V2_DECISION_STREAM_STALLED" in errors
+
+
+@pytest.mark.asyncio
+async def test_critical_supervisor_restarts_unexpected_exit_with_backoff() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler._stop_event = asyncio.Event()
+    scheduler._critical_task_backoffs = (0.001,)
+    calls = 0
+
+    async def factory() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("cycle task crashed")
+        scheduler._stop_event.set()
+
+    await scheduler._supervise_critical_task(name="automated_trading_v2_cycle", factory=factory)
+
+    assert calls == 2
+    job = scheduler.status.critical_jobs["automated_trading_v2_cycle"]
+    assert job.consecutive_failures == 1
+    assert job.last_exception == "cycle task crashed"
+
+
+@pytest.mark.asyncio
+async def test_critical_supervisor_does_not_restart_during_shutdown() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler._stop_event = asyncio.Event()
+    calls = 0
+
+    async def factory() -> None:
+        nonlocal calls
+        calls += 1
+        scheduler._stop_event.set()
+
+    await scheduler._supervise_critical_task(name="automated_trading_v2_cycle", factory=factory)
+
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_critical_supervisor_blocks_restart_on_unknown_exchange_state() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler._stop_event = asyncio.Event()
+    scheduler.status.last_results["automated_trading_v2_cycle"] = {
+        "status": "partial_failure",
+        "results": [{"reconciliation_status": "EXCHANGE_UNKNOWN"}],
+    }
+    calls = 0
+
+    async def factory() -> None:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("cycle task crashed")
+
+    await scheduler._supervise_critical_task(name="automated_trading_v2_cycle", factory=factory)
+
+    assert calls == 1
+    assert scheduler.status.entry_authorized is False
+    assert scheduler.status.entry_authority == "NONE"
+    assert scheduler.status.trading_state == "ENTRY_PAUSED"

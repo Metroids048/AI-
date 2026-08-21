@@ -30,6 +30,25 @@ from .scheduler_coordination import SchedulerCoordinator
 
 Runner = Callable[[], Any]
 
+V2_CYCLE_WATCHDOG_SECONDS = 25 * 60
+V2_CRITICAL_JOB = "automated_trading_v2_cycle"
+
+
+@dataclass
+class CriticalJobLiveness:
+    """Process-local evidence that a critical periodic task is still advancing."""
+
+    registered: bool = False
+    task_alive: bool = False
+    last_started_at: datetime | None = None
+    last_completed_at: datetime | None = None
+    last_success_at: datetime | None = None
+    last_failure_at: datetime | None = None
+    consecutive_failures: int = 0
+    last_exception: str | None = None
+    currently_running: bool = False
+    current_cycle_id: str | None = None
+
 
 def _aligned_run_delay_seconds(
     *,
@@ -97,6 +116,7 @@ class RuntimeSchedulerStatus:
     trading_state: str = "ENTRY_PAUSED"
     startup_contract_errors: tuple[str, ...] = ()
     natural_testnet_enabled: bool = False
+    critical_jobs: dict[str, CriticalJobLiveness] = field(default_factory=dict)
 
     def model_dump(self) -> dict[str, Any]:
         return {
@@ -135,6 +155,21 @@ class RuntimeSchedulerStatus:
             "trading_state": self.trading_state,
             "startup_contract_errors": self.startup_contract_errors,
             "natural_testnet_enabled": self.natural_testnet_enabled,
+            "critical_jobs": {
+                name: {
+                    "registered": job.registered,
+                    "task_alive": job.task_alive,
+                    "last_started_at": job.last_started_at,
+                    "last_completed_at": job.last_completed_at,
+                    "last_success_at": job.last_success_at,
+                    "last_failure_at": job.last_failure_at,
+                    "consecutive_failures": job.consecutive_failures,
+                    "last_exception": job.last_exception,
+                    "currently_running": job.currently_running,
+                    "current_cycle_id": job.current_cycle_id,
+                }
+                for name, job in self.critical_jobs.items()
+            },
         }
 
 
@@ -345,6 +380,8 @@ class RuntimeScheduler:
         self._last_daily_review_date: date | None = None
         self._next_cycle_at: datetime | None = None
         self._scheduler_errors: dict[str, str] = {}
+        self._critical_tasks: dict[str, asyncio.Task] = {}
+        self._critical_task_backoffs = (5.0, 15.0, 30.0)
 
     def start(self) -> None:
         if self.status.running:
@@ -370,6 +407,9 @@ class RuntimeScheduler:
         self.status.execution_mode = v2_activation.execution_mode.value
         self.status.execution_strategy_id = "production_strategy_pending"
         self.status.registered_jobs = tuple(sorted(scheduled_jobs))
+        self.status.critical_jobs = {
+            V2_CRITICAL_JOB: CriticalJobLiveness(registered=V2_CRITICAL_JOB in scheduled_jobs)
+        }
         self.status.legacy_writer_enabled = v2_activation.allow_legacy_writer
         self.status.startup_contract_errors = ()
         self.status.entry_enabled = None
@@ -477,15 +517,18 @@ class RuntimeScheduler:
         if "automated_trading_v2_cycle" in scheduled_jobs:
             self._tasks.append(
                 asyncio.create_task(
-                    self._run_periodic(
-                        name="automated_trading_v2_cycle",
-                        interval_seconds=self.paper_cycle_seconds,
-                        runner=_default_v2_automated_trading_runner,
-                        records_auto_cycle=True,
-                        run_immediately=False,
-                        coordinated=True,
-                        align_to_interval=True,
-                        interval_offset_seconds=self.paper_cycle_offset_seconds,
+                    self._supervise_critical_task(
+                        name=V2_CRITICAL_JOB,
+                        factory=lambda: self._run_periodic(
+                            name=V2_CRITICAL_JOB,
+                            interval_seconds=self.paper_cycle_seconds,
+                            runner=_default_v2_automated_trading_runner,
+                            records_auto_cycle=True,
+                            run_immediately=False,
+                            coordinated=True,
+                            align_to_interval=True,
+                            interval_offset_seconds=self.paper_cycle_offset_seconds,
+                        ),
                     )
                 )
             )
@@ -614,59 +657,197 @@ class RuntimeScheduler:
         interval_offset_seconds: float = 0.0,
     ) -> None:
         assert self._stop_event is not None
-        if not run_immediately:
-            initial_wait = (
-                _aligned_run_delay_seconds(
-                    now=datetime.now(UTC),
-                    interval_seconds=interval_seconds,
-                    offset_seconds=interval_offset_seconds,
+        critical = self.status.critical_jobs.get(name)
+        if critical is not None:
+            critical.task_alive = True
+        try:
+            if not run_immediately:
+                initial_wait = (
+                    _aligned_run_delay_seconds(
+                        now=datetime.now(UTC),
+                        interval_seconds=interval_seconds,
+                        offset_seconds=interval_offset_seconds,
+                    )
+                    if align_to_interval
+                    else max(interval_seconds, 0.01)
                 )
-                if align_to_interval
-                else max(interval_seconds, 0.01)
-            )
-            with suppress(TimeoutError):
-                await asyncio.wait_for(self._stop_event.wait(), timeout=initial_wait)
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=initial_wait)
+            while not self._stop_event.is_set():
+                started = datetime.now(UTC)
+                if critical is not None:
+                    critical.last_started_at = started
+                    critical.currently_running = True
+                if records_auto_cycle:
+                    self._next_cycle_at = started
+                    self.status.next_cycle_eta_seconds = 0
+                result = (
+                    await self._run_coordinated_once(
+                        name=name,
+                        interval_seconds=interval_seconds,
+                        runner=runner,
+                        affects_scheduler_health=affects_scheduler_health,
+                        observed_at=started,
+                    )
+                    if coordinated
+                    else await self._run_once(
+                        name=name,
+                        runner=runner,
+                        affects_scheduler_health=affects_scheduler_health,
+                    )
+                )
+                if critical is not None:
+                    critical.currently_running = False
+                    critical.last_completed_at = datetime.now(UTC)
+                    if isinstance(result, dict) and result.get("status") in {"error", "partial_failure"}:
+                        critical.consecutive_failures += 1
+                        critical.last_failure_at = critical.last_completed_at
+                        critical.last_exception = str(result.get("error") or "cycle_partial_failure")
+                    else:
+                        critical.consecutive_failures = 0
+                        critical.last_success_at = critical.last_completed_at
+                        critical.last_exception = None
+                    if isinstance(result, dict):
+                        critical.current_cycle_id = (
+                            str(result.get("scheduler_cycle_id")) if result.get("scheduler_cycle_id") else None
+                        )
+                non_execution_statuses = {"standby_not_leader", "duplicate_slot_skipped"}
+                cycle_executed = not (isinstance(result, dict) and result.get("status") in non_execution_statuses)
+                if records_auto_cycle and cycle_executed:
+                    self.status.last_auto_cycle_at = datetime.now(UTC)
+                    self._next_cycle_at = self.status.last_auto_cycle_at
+                retry_after_seconds = float(result.get("retry_after_seconds", 0)) if isinstance(result, dict) else 0.0
+                scheduled_wait = (
+                    _aligned_run_delay_seconds(
+                        now=datetime.now(UTC),
+                        interval_seconds=interval_seconds,
+                        offset_seconds=interval_offset_seconds,
+                    )
+                    if align_to_interval
+                    else interval_seconds
+                )
+                wait_seconds = max(scheduled_wait, retry_after_seconds, 0.01)
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=wait_seconds)
+                if records_auto_cycle and self._next_cycle_at is not None:
+                    elapsed = (datetime.now(UTC) - self._next_cycle_at).total_seconds()
+                    self.status.next_cycle_eta_seconds = max(0, int(interval_seconds - elapsed))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if critical is not None:
+                critical.task_alive = False
+                critical.currently_running = False
+                critical.last_failure_at = datetime.now(UTC)
+                critical.consecutive_failures += 1
+                critical.last_exception = str(exc)
+            raise
+        finally:
+            if critical is not None and self._stop_event.is_set():
+                critical.task_alive = False
+                critical.currently_running = False
+
+    async def _supervise_critical_task(self, *, name: str, factory: Callable[[], Any]) -> None:
+        """Keep the V2 periodic task alive without restarting through ambiguity."""
+        assert self._stop_event is not None
+        backoff_index = 0
         while not self._stop_event.is_set():
-            started = datetime.now(UTC)
-            if records_auto_cycle:
-                self._next_cycle_at = started
-                self.status.next_cycle_eta_seconds = 0
-            result = (
-                await self._run_coordinated_once(
-                    name=name,
-                    interval_seconds=interval_seconds,
-                    runner=runner,
-                    affects_scheduler_health=affects_scheduler_health,
-                    observed_at=started,
-                )
-                if coordinated
-                else await self._run_once(
-                    name=name,
-                    runner=runner,
-                    affects_scheduler_health=affects_scheduler_health,
-                )
+            current_task = asyncio.current_task()
+            assert current_task is not None
+            self._critical_tasks[name] = current_task
+            job = self.status.critical_jobs.setdefault(name, CriticalJobLiveness())
+            job.registered = True
+            job.task_alive = True
+            try:
+                await factory()
+                if self._stop_event.is_set():
+                    return
+                error = "critical task exited unexpectedly"
+            except asyncio.CancelledError:
+                if self._stop_event.is_set():
+                    return
+                raise
+            except Exception as exc:  # noqa: BLE001
+                error = str(exc)
+            job.task_alive = False
+            job.currently_running = False
+            job.last_failure_at = datetime.now(UTC)
+            job.consecutive_failures += 1
+            job.last_exception = error
+            self._scheduler_errors[name] = error
+            self.status.scheduler_error = "; ".join(
+                f"{task_name}: {message}" for task_name, message in sorted(self._scheduler_errors.items())
             )
-            non_execution_statuses = {"standby_not_leader", "duplicate_slot_skipped"}
-            cycle_executed = not (isinstance(result, dict) and result.get("status") in non_execution_statuses)
-            if records_auto_cycle and cycle_executed:
-                self.status.last_auto_cycle_at = datetime.now(UTC)
-                self._next_cycle_at = self.status.last_auto_cycle_at
-            retry_after_seconds = float(result.get("retry_after_seconds", 0)) if isinstance(result, dict) else 0.0
-            scheduled_wait = (
-                _aligned_run_delay_seconds(
-                    now=datetime.now(UTC),
-                    interval_seconds=interval_seconds,
-                    offset_seconds=interval_offset_seconds,
-                )
-                if align_to_interval
-                else interval_seconds
-            )
-            wait_seconds = max(scheduled_wait, retry_after_seconds, 0.01)
+            self._publish_external_state()
+            recovery = await asyncio.to_thread(self._safe_v2_recovery_check)
+            if not recovery.get("safe_to_restart"):
+                self.status.entry_authorized = False
+                self.status.entry_authority = EntryAuthority.NONE.value
+                self.status.entry_authority_reason = str(recovery.get("reason") or "v2_recovery_blocked")
+                self.status.trading_state = "ENTRY_PAUSED"
+                self._publish_external_state()
+                return
+            delay = self._critical_task_backoffs[min(backoff_index, len(self._critical_task_backoffs) - 1)]
+            backoff_index += 1
             with suppress(TimeoutError):
-                await asyncio.wait_for(self._stop_event.wait(), timeout=wait_seconds)
-            if records_auto_cycle and self._next_cycle_at is not None:
-                elapsed = (datetime.now(UTC) - self._next_cycle_at).total_seconds()
-                self.status.next_cycle_eta_seconds = max(0, int(interval_seconds - elapsed))
+                await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
+
+    def _safe_v2_recovery_check(self) -> dict[str, Any]:
+        """Fail closed on known ambiguous V2 outcomes before a task restart."""
+        last = self.status.last_results.get(V2_CRITICAL_JOB)
+        if not isinstance(last, dict):
+            result = {"safe_to_restart": True, "reason": "no_completed_cycle"}
+        else:
+            result = {"safe_to_restart": True, "reason": "reconciliation_preflight_clean"}
+            for item in last.get("results", []):
+                if not isinstance(item, dict):
+                    continue
+                reconciliation = str(item.get("reconciliation_status") or "").upper()
+                if reconciliation not in {"", "HEALTHY"}:
+                    return {"safe_to_restart": False, "reason": f"reconciliation_{reconciliation}"}
+                error_text = str(item.get("error") or "")
+                if "UNKNOWN" in error_text.upper():
+                    return {"safe_to_restart": False, "reason": "EXCHANGE_UNKNOWN"}
+
+        # The live scheduler has a coordinator and therefore a database-backed
+        # preflight.  Unit tests without a coordinator retain the deterministic
+        # in-memory check above.
+        if self.coordinator is None:
+            return result
+        try:
+            from sqlalchemy import select
+
+            from services.automated_trading.infrastructure.models import (
+                V2ExecutionIntent,
+                V2ReconciliationSnapshot,
+            )
+            from services.database import get_session_factory
+
+            with get_session_factory()() as session:
+                unresolved = session.scalars(
+                    select(V2ExecutionIntent.state).where(
+                        V2ExecutionIntent.execution_mode == "BINANCE_TESTNET",
+                        V2ExecutionIntent.state.in_(
+                            ("INTENT_CREATED", "EXCHANGE_SUBMITTING", "EXCHANGE_UNKNOWN", "EXCHANGE_ACKNOWLEDGED")
+                        ),
+                    )
+                ).all()
+                if unresolved:
+                    return {"safe_to_restart": False, "reason": "ACTIVE_EXECUTION_INTENT_REQUIRES_RECONCILIATION"}
+                latest_reconciliation = session.scalars(
+                    select(V2ReconciliationSnapshot)
+                    .where(V2ReconciliationSnapshot.execution_mode == "BINANCE_TESTNET")
+                    .order_by(V2ReconciliationSnapshot.captured_at.desc())
+                    .limit(1)
+                ).first()
+                if latest_reconciliation is not None and latest_reconciliation.status != "HEALTHY":
+                    return {
+                        "safe_to_restart": False,
+                        "reason": f"reconciliation_{latest_reconciliation.status}",
+                    }
+        except Exception as exc:  # noqa: BLE001
+            return {"safe_to_restart": False, "reason": f"recovery_preflight_unavailable:{exc}"}
+        return result
 
     async def _run_coordinated_once(
         self,
@@ -915,6 +1096,7 @@ class RuntimeScheduler:
             {
                 "running": self.status.running,
                 "heartbeat_at": datetime.now(UTC).isoformat(),
+                "started_at": self.status.started_at.isoformat() if self.status.started_at else None,
                 "top20_coverage_count": len(checked_symbols),
                 "execution_coverage_count": len(execution_symbols),
                 "execution_symbols": execution_symbols,
@@ -953,6 +1135,21 @@ class RuntimeScheduler:
                 "trading_state": self.status.trading_state,
                 "startup_contract_errors": list(self.status.startup_contract_errors),
                 "natural_testnet_enabled": self.status.natural_testnet_enabled,
+                "critical_jobs": {
+                    name: {
+                        "registered": job.registered,
+                        "task_alive": job.task_alive,
+                        "last_started_at": job.last_started_at,
+                        "last_completed_at": job.last_completed_at,
+                        "last_success_at": job.last_success_at,
+                        "last_failure_at": job.last_failure_at,
+                        "consecutive_failures": job.consecutive_failures,
+                        "last_exception": job.last_exception,
+                        "currently_running": job.currently_running,
+                        "current_cycle_id": job.current_cycle_id,
+                    }
+                    for name, job in self.status.critical_jobs.items()
+                },
             }
         )
 
