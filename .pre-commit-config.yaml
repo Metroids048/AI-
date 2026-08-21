@@ -48,7 +48,7 @@ repos:
     hooks:
       - id: v2-transaction-contract
         name: V2 transaction contract freeze
-        entry: python scripts/verify_v2_transaction_contract.py --staged
+        entry: python scripts/verify_v2_transaction_contract.py --verify-baseline --verify-head --staged
         language: system
         pass_filenames: false
         always_run: true
