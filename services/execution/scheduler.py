@@ -32,6 +32,18 @@ Runner = Callable[[], Any]
 
 V2_CYCLE_WATCHDOG_SECONDS = 25 * 60
 V2_CRITICAL_JOB = "automated_trading_v2_cycle"
+LIVENESS_RECOVERY_HOLD_PREFIX = "LIVENESS_RECOVERY_HOLD:"
+MAX_INPROCESS_RECOVERY_ATTEMPTS = 3
+
+RECOVERY_HEALTHY = "HEALTHY"
+RECOVERY_CRASH_DETECTED = "CRASH_DETECTED"
+RECOVERY_ENTRY_HOLD = "ENTRY_HOLD"
+RECOVERY_MANAGEMENT = "MANAGEMENT_RECOVERY"
+RECOVERY_RESTARTING = "RESTARTING"
+RECOVERY_VERIFYING = "VERIFYING"
+RECOVERY_RECOVERED = "RECOVERED"
+RECOVERY_BLOCKED = "RECOVERY_BLOCKED"
+RECOVERY_EXHAUSTED = "AUTO_RECOVERY_EXHAUSTED"
 
 
 @dataclass
@@ -48,6 +60,18 @@ class CriticalJobLiveness:
     last_exception: str | None = None
     currently_running: bool = False
     current_cycle_id: str | None = None
+
+
+@dataclass
+class RecoveryLiveness:
+    """Durable-entry-hold state while management/reconciliation continues."""
+
+    state: str = RECOVERY_HEALTHY
+    reason: str | None = None
+    attempt: int = 0
+    entry_hold: bool = False
+    worker_restart_count: int = 0
+    last_recovery_at: datetime | None = None
 
 
 def _aligned_run_delay_seconds(
@@ -117,6 +141,7 @@ class RuntimeSchedulerStatus:
     startup_contract_errors: tuple[str, ...] = ()
     natural_testnet_enabled: bool = False
     critical_jobs: dict[str, CriticalJobLiveness] = field(default_factory=dict)
+    recovery: RecoveryLiveness = field(default_factory=RecoveryLiveness)
 
     def model_dump(self) -> dict[str, Any]:
         return {
@@ -169,6 +194,14 @@ class RuntimeSchedulerStatus:
                     "current_cycle_id": job.current_cycle_id,
                 }
                 for name, job in self.critical_jobs.items()
+            },
+            "recovery": {
+                "state": self.recovery.state,
+                "reason": self.recovery.reason,
+                "attempt": self.recovery.attempt,
+                "entry_hold": self.recovery.entry_hold,
+                "worker_restart_count": self.recovery.worker_restart_count,
+                "last_recovery_at": self.recovery.last_recovery_at,
             },
         }
 
@@ -272,6 +305,53 @@ def _active_entry_authorization() -> tuple[bool, bool, tuple[str, ...]]:
             return entry_enabled, sampling_enabled, ()
     except Exception:  # noqa: BLE001
         return False, False, ("ENTRY_CONTRACT_STATE_UNAVAILABLE",)
+
+
+def _runtime_entry_control_reason() -> str | None:
+    from services.automated_trading.infrastructure.models import V2RuntimeControl
+    from services.database import get_session_factory
+
+    try:
+        with get_session_factory()() as session:
+            control = session.get(V2RuntimeControl, "global")
+            return str(control.reason) if control is not None and control.reason else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _persist_runtime_entry_control(*, entry_enabled: bool, reason: str) -> bool:
+    """Persist the shared V2 entry kill switch without touching management rights."""
+    from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
+    from services.database import get_session_factory
+
+    try:
+        with get_session_factory()() as session:
+            repository = AutomatedTradingRepository(session)
+            control = repository.get_runtime_control("global")
+            if bool(control.entry_enabled) == entry_enabled and control.reason == reason:
+                return True
+            repository.set_runtime_control(
+                scope="global",
+                entry_enabled=entry_enabled,
+                reason=reason,
+                updated_by="liveness-supervisor",
+                expected_version=int(control.version),
+            )
+            repository.commit()
+        return True
+    except Exception:  # noqa: BLE001 - fail closed if the durable control is unavailable
+        return False
+
+
+def persist_liveness_recovery_hold(reason: str) -> bool:
+    """Public helper for the process supervisor to disable only new entries."""
+    normalized = str(reason or "unknown").strip()
+    hold_reason = (
+        normalized
+        if normalized.startswith(LIVENESS_RECOVERY_HOLD_PREFIX)
+        else f"{LIVENESS_RECOVERY_HOLD_PREFIX}{normalized}"
+    )
+    return _persist_runtime_entry_control(entry_enabled=False, reason=hold_reason)
 
 
 def _active_execution_strategy_identity() -> tuple[str, bool]:
@@ -383,6 +463,93 @@ class RuntimeScheduler:
         self._critical_tasks: dict[str, asyncio.Task] = {}
         self._critical_task_backoffs = (5.0, 15.0, 30.0)
 
+    def _set_recovery_hold(self, reason: str) -> None:
+        """Freeze new exposure durably while leaving the V2 management loop alive."""
+        normalized = str(reason or "unknown").strip()
+        hold_reason = (
+            normalized
+            if normalized.startswith(LIVENESS_RECOVERY_HOLD_PREFIX)
+            else f"{LIVENESS_RECOVERY_HOLD_PREFIX}{normalized}"
+        )
+        persisted = _persist_runtime_entry_control(entry_enabled=False, reason=hold_reason)
+        recovery = self.status.recovery
+        recovery.state = RECOVERY_ENTRY_HOLD if persisted else RECOVERY_BLOCKED
+        recovery.reason = hold_reason if persisted else f"{hold_reason}:PERSIST_FAILED"
+        recovery.entry_hold = True
+        recovery.last_recovery_at = datetime.now(UTC)
+        self.status.entry_enabled = False
+        self.status.entry_authorized = False
+        self.status.entry_authority = EntryAuthority.NONE.value
+        self.status.entry_authority_reason = recovery.reason
+        self.status.active_entry_strategy = None
+        self.status.promotion_eligible = False
+        self.status.trading_state = "ENTRY_PAUSED"
+        self._publish_external_state()
+
+    def _maybe_clear_recovery_hold(self, cycle_result: object) -> bool:
+        """Clear only a supervisor-created hold after a fresh healthy V2 cycle."""
+        recovery = self.status.recovery
+        if not recovery.entry_hold or recovery.state not in {
+            RECOVERY_ENTRY_HOLD,
+            RECOVERY_MANAGEMENT,
+            RECOVERY_VERIFYING,
+        }:
+            return False
+        if not isinstance(cycle_result, dict) or cycle_result.get("status") != "completed":
+            return False
+        results = cycle_result.get("results")
+        if (
+            not isinstance(results, list)
+            or not results
+            or any(
+                not isinstance(item, dict) or str(item.get("reconciliation_status") or "").upper() != "HEALTHY"
+                for item in results
+            )
+        ):
+            return False
+        preflight = self._safe_v2_recovery_check()
+        if not preflight.get("safe_to_restart"):
+            recovery.state = RECOVERY_MANAGEMENT
+            recovery.reason = str(preflight.get("reason") or recovery.reason or "recovery_pending")
+            self._publish_external_state()
+            return False
+        control_reason = _runtime_entry_control_reason()
+        if not str(control_reason or "").startswith(LIVENESS_RECOVERY_HOLD_PREFIX):
+            # A manual/operator pause owns the switch and must never be overridden.
+            recovery.entry_hold = False
+            recovery.state = RECOVERY_HEALTHY
+            recovery.reason = str(control_reason or "operator_control")
+            self._publish_external_state()
+            return False
+        if not _persist_runtime_entry_control(entry_enabled=True, reason="LIVENESS_RECOVERY_RECOVERED"):
+            recovery.state = RECOVERY_MANAGEMENT
+            recovery.reason = "hold_clear_failed"
+            self._publish_external_state()
+            return False
+        recovery.state = RECOVERY_RECOVERED
+        recovery.reason = "LIVENESS_RECOVERY_RECOVERED"
+        recovery.entry_hold = False
+        recovery.attempt = 0
+        recovery.last_recovery_at = datetime.now(UTC)
+        self.status.entry_enabled = True
+        authority = resolve_entry_authority(
+            production_authorized=self.status.production_authorization_state == "APPROVED",
+            production_strategy_id=(
+                self.status.execution_strategy_id if self.status.production_authorization_state == "APPROVED" else None
+            ),
+            execution_mode=self.status.execution_mode or "",
+            operator_testnet_canary_enabled=bool(self.status.sampling_fallback_enabled),
+            explicit_testnet_canary=self.status.natural_testnet_enabled,
+        )
+        self.status.entry_authorized = authority.authority is not EntryAuthority.NONE
+        self.status.entry_authority = authority.authority.value
+        self.status.entry_authority_reason = authority.reason
+        self.status.active_entry_strategy = authority.active_strategy_id
+        self.status.promotion_eligible = authority.promotion_eligible
+        self.status.trading_state = "TRADING" if self.status.entry_authorized else "ENTRY_PAUSED"
+        self._publish_external_state()
+        return True
+
     def start(self) -> None:
         if self.status.running:
             return
@@ -407,9 +574,7 @@ class RuntimeScheduler:
         self.status.execution_mode = v2_activation.execution_mode.value
         self.status.execution_strategy_id = "production_strategy_pending"
         self.status.registered_jobs = tuple(sorted(scheduled_jobs))
-        self.status.critical_jobs = {
-            V2_CRITICAL_JOB: CriticalJobLiveness(registered=V2_CRITICAL_JOB in scheduled_jobs)
-        }
+        self.status.critical_jobs = {V2_CRITICAL_JOB: CriticalJobLiveness(registered=V2_CRITICAL_JOB in scheduled_jobs)}
         self.status.legacy_writer_enabled = v2_activation.allow_legacy_writer
         self.status.startup_contract_errors = ()
         self.status.entry_enabled = None
@@ -429,6 +594,8 @@ class RuntimeScheduler:
         self.status.natural_testnet_enabled = natural_testnet_mode_requested()
         if v2_activation.v2_activation.value == "ACTIVE":
             entry_enabled, sampling_enabled, contract_errors = _active_entry_authorization()
+            control_reason = _runtime_entry_control_reason()
+            recovery_hold_active = str(control_reason or "").startswith(LIVENESS_RECOVERY_HOLD_PREFIX)
             strategy_id, production_authorized = _active_execution_strategy_identity()
             authority = resolve_entry_authority(
                 production_authorized=production_authorized,
@@ -437,6 +604,15 @@ class RuntimeScheduler:
                 operator_testnet_canary_enabled=sampling_enabled,
                 explicit_testnet_canary=self.status.natural_testnet_enabled,
             )
+            if recovery_hold_active:
+                entry_enabled = False
+                authority = resolve_entry_authority(
+                    production_authorized=False,
+                    production_strategy_id=None,
+                    execution_mode=v2_activation.execution_mode.value,
+                    operator_testnet_canary_enabled=False,
+                    explicit_testnet_canary=False,
+                )
             baseline_captured, baseline_value, baseline_source = _external_baseline_capture()
             errors = list(contract_errors)
             if v2_activation.execution_mode.value != "BINANCE_TESTNET":
@@ -448,6 +624,11 @@ class RuntimeScheduler:
             if not baseline_captured:
                 errors.append("EXTERNAL_BASELINE_NOT_CAPTURED")
             self.status.entry_enabled = entry_enabled
+            if recovery_hold_active:
+                self.status.recovery.state = RECOVERY_ENTRY_HOLD
+                self.status.recovery.reason = control_reason
+                self.status.recovery.entry_hold = True
+                self.status.recovery.worker_restart_count = int(os.getenv("V2_WORKER_RESTART_COUNT", "0") or 0)
             self.status.execution_strategy_id = strategy_id
             self.status.sampling_fallback_enabled = sampling_enabled
             self.status.external_baseline_captured = baseline_captured
@@ -711,6 +892,15 @@ class RuntimeScheduler:
                         critical.current_cycle_id = (
                             str(result.get("scheduler_cycle_id")) if result.get("scheduler_cycle_id") else None
                         )
+                    if name == V2_CRITICAL_JOB:
+                        if self.status.recovery.entry_hold:
+                            self.status.recovery.state = RECOVERY_MANAGEMENT
+                            self._maybe_clear_recovery_hold(result)
+                        elif isinstance(result, dict) and result.get("status") == "completed":
+                            if self.status.recovery.state in {RECOVERY_VERIFYING, RECOVERY_RESTARTING}:
+                                self.status.recovery.state = RECOVERY_HEALTHY
+                                self.status.recovery.reason = None
+                                self.status.recovery.attempt = 0
                 non_execution_statuses = {"standby_not_leader", "duplicate_slot_skipped"}
                 cycle_executed = not (isinstance(result, dict) and result.get("status") in non_execution_statuses)
                 if records_auto_cycle and cycle_executed:
@@ -778,19 +968,39 @@ class RuntimeScheduler:
             self.status.scheduler_error = "; ".join(
                 f"{task_name}: {message}" for task_name, message in sorted(self._scheduler_errors.items())
             )
-            self._publish_external_state()
-            recovery = await asyncio.to_thread(self._safe_v2_recovery_check)
-            if not recovery.get("safe_to_restart"):
-                self.status.entry_authorized = False
-                self.status.entry_authority = EntryAuthority.NONE.value
-                self.status.entry_authority_reason = str(recovery.get("reason") or "v2_recovery_blocked")
-                self.status.trading_state = "ENTRY_PAUSED"
+            self.status.recovery.attempt += 1
+            self.status.recovery.state = RECOVERY_CRASH_DETECTED
+            self.status.recovery.reason = error
+            self.status.recovery.last_recovery_at = datetime.now(UTC)
+            if self.status.recovery.attempt >= MAX_INPROCESS_RECOVERY_ATTEMPTS:
+                self._set_recovery_hold(f"{error}:AUTO_RECOVERY_EXHAUSTED")
+                self.status.recovery.state = RECOVERY_EXHAUSTED
+                self.status.recovery.reason = error
                 self._publish_external_state()
                 return
+            self._publish_external_state()
+            recovery = await asyncio.to_thread(self._safe_v2_recovery_check)
+            management_only_recovery = False
+            if not recovery.get("safe_to_restart"):
+                reason = str(recovery.get("reason") or "v2_recovery_blocked")
+                self._set_recovery_hold(reason)
+                # Do not stop the scheduler: the next V2 cycle remains a
+                # management/reconciliation-only pass until the hold clears.
+                management_only_recovery = True
+                self.status.recovery.state = RECOVERY_MANAGEMENT
+                self.status.recovery.reason = reason
+                self._publish_external_state()
+            else:
+                self.status.recovery.state = RECOVERY_RESTARTING
             delay = self._critical_task_backoffs[min(backoff_index, len(self._critical_task_backoffs) - 1)]
             backoff_index += 1
             with suppress(TimeoutError):
                 await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
+            # A normal stop can wake the backoff wait. Preserve the recovery
+            # state for shutdown/inspection instead of reporting verification
+            # that never actually ran.
+            if not self._stop_event.is_set() and not management_only_recovery:
+                self.status.recovery.state = RECOVERY_VERIFYING
 
     def _safe_v2_recovery_check(self) -> dict[str, Any]:
         """Fail closed on known ambiguous V2 outcomes before a task restart."""
@@ -1149,6 +1359,14 @@ class RuntimeScheduler:
                         "current_cycle_id": job.current_cycle_id,
                     }
                     for name, job in self.status.critical_jobs.items()
+                },
+                "recovery": {
+                    "state": self.status.recovery.state,
+                    "reason": self.status.recovery.reason,
+                    "attempt": self.status.recovery.attempt,
+                    "entry_hold": self.status.recovery.entry_hold,
+                    "worker_restart_count": self.status.recovery.worker_restart_count,
+                    "last_recovery_at": self.status.recovery.last_recovery_at,
                 },
             }
         )

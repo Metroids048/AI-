@@ -1227,6 +1227,7 @@ def build_no_trade_summary(
             ),
             "critical_jobs": scheduler.get("critical_jobs") or {},
             "scheduler_error": scheduler.get("scheduler_error"),
+            "recovery": scheduler.get("recovery") or {},
         },
         "exchange": {"status": exchange_status},
         "data": {
@@ -1399,6 +1400,7 @@ def runtime_no_trade_summary(
             "last_auto_cycle_at": scheduler.last_auto_cycle_at,
             "scheduler_error": scheduler.scheduler_error,
             "critical_jobs": scheduler.critical_jobs,
+            "recovery": scheduler.recovery,
         },
         exchange=exchange,
         data={"fresh": scheduler.data_fresh, "exchange_info_ready": scheduler.exchange_info_ready},

@@ -57,6 +57,7 @@ class ExternalSchedulerState:
     startup_contract_errors: tuple[str, ...] = ()
     scheduler_started_at: datetime | None = None
     critical_jobs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    recovery: dict[str, Any] = field(default_factory=dict)
 
 
 def _parse_datetime(value: object) -> datetime | None:
@@ -171,6 +172,7 @@ def load_external_scheduler_state(
             for name, value in (raw.get("critical_jobs") or {}).items()
             if isinstance(name, str) and isinstance(value, dict)
         },
+        recovery=dict(raw.get("recovery") or {}) if isinstance(raw.get("recovery"), dict) else {},
     )
 
 
@@ -186,6 +188,9 @@ def critical_task_liveness_errors(
     # accepting STARTUP_READY.
     if not state.critical_jobs:
         return ()
+    recovery_state = str(state.recovery.get("state") or "")
+    if recovery_state == "AUTO_RECOVERY_EXHAUSTED":
+        return ("V2_AUTO_RECOVERY_EXHAUSTED",)
     job = state.critical_jobs.get("automated_trading_v2_cycle")
     if not isinstance(job, dict) or job.get("registered") is not True:
         return ("V2_CRITICAL_TASK_NOT_REGISTERED",)

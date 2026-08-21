@@ -15,6 +15,7 @@ from services.execution.runtime_state import (
     write_external_scheduler_state,
 )
 from services.execution.scheduler import (
+    LIVENESS_RECOVERY_HOLD_PREFIX,
     RuntimeScheduler,
     _aligned_run_delay_seconds,
     _default_exchange_info_refresh_runner,
@@ -836,13 +837,15 @@ async def test_critical_supervisor_does_not_restart_during_shutdown() -> None:
 
 
 @pytest.mark.asyncio
-async def test_critical_supervisor_blocks_restart_on_unknown_exchange_state() -> None:
+async def test_critical_supervisor_keeps_management_loop_after_unknown_exchange_state(monkeypatch) -> None:
     scheduler = RuntimeScheduler()
     scheduler._stop_event = asyncio.Event()
-    scheduler.status.last_results["automated_trading_v2_cycle"] = {
-        "status": "partial_failure",
-        "results": [{"reconciliation_status": "EXCHANGE_UNKNOWN"}],
-    }
+    monkeypatch.setattr(
+        scheduler,
+        "_safe_v2_recovery_check",
+        lambda: {"safe_to_restart": False, "reason": "EXCHANGE_UNKNOWN"},
+    )
+    monkeypatch.setattr("services.execution.scheduler._persist_runtime_entry_control", lambda **_: True)
     calls = 0
 
     async def factory() -> None:
@@ -850,9 +853,57 @@ async def test_critical_supervisor_blocks_restart_on_unknown_exchange_state() ->
         calls += 1
         raise RuntimeError("cycle task crashed")
 
-    await scheduler._supervise_critical_task(name="automated_trading_v2_cycle", factory=factory)
+    async def management_factory() -> None:
+        nonlocal calls
+        calls += 1
+        scheduler._stop_event.set()
 
-    assert calls == 1
+    factories = iter((factory, management_factory))
+    await scheduler._supervise_critical_task(
+        name="automated_trading_v2_cycle",
+        factory=lambda: next(factories)(),
+    )
+
+    assert calls == 2
+    assert scheduler.status.recovery.entry_hold is True
+    assert scheduler.status.recovery.state == "MANAGEMENT_RECOVERY"
     assert scheduler.status.entry_authorized is False
     assert scheduler.status.entry_authority == "NONE"
+    assert scheduler.status.entry_authority_reason == f"{LIVENESS_RECOVERY_HOLD_PREFIX}EXCHANGE_UNKNOWN"
     assert scheduler.status.trading_state == "ENTRY_PAUSED"
+
+
+def test_recovery_hold_clears_only_for_system_owned_reason(monkeypatch) -> None:
+    scheduler = RuntimeScheduler()
+    scheduler.status.recovery.entry_hold = True
+    scheduler.status.recovery.state = "MANAGEMENT_RECOVERY"
+    scheduler.status.last_results["automated_trading_v2_cycle"] = {
+        "status": "completed",
+        "results": [{"reconciliation_status": "HEALTHY"}],
+    }
+    monkeypatch.setattr(scheduler, "_safe_v2_recovery_check", lambda: {"safe_to_restart": True})
+    monkeypatch.setattr("services.execution.scheduler._runtime_entry_control_reason", lambda: "ENTRY_PAUSED:user")
+
+    assert scheduler._maybe_clear_recovery_hold(scheduler.status.last_results["automated_trading_v2_cycle"]) is False
+    assert scheduler.status.recovery.entry_hold is False
+
+
+def test_recovery_hold_auto_clears_after_authoritative_healthy_cycle(monkeypatch) -> None:
+    scheduler = RuntimeScheduler()
+    scheduler.status.recovery.entry_hold = True
+    scheduler.status.recovery.state = "MANAGEMENT_RECOVERY"
+    monkeypatch.setattr(
+        "services.execution.scheduler._runtime_entry_control_reason",
+        lambda: f"{LIVENESS_RECOVERY_HOLD_PREFIX}EXCHANGE_UNKNOWN",
+    )
+    monkeypatch.setattr("services.execution.scheduler._persist_runtime_entry_control", lambda **_: True)
+    monkeypatch.setattr(scheduler, "_safe_v2_recovery_check", lambda: {"safe_to_restart": True})
+
+    result = {
+        "status": "completed",
+        "results": [{"reconciliation_status": "HEALTHY"}],
+    }
+
+    assert scheduler._maybe_clear_recovery_hold(result) is True
+    assert scheduler.status.recovery.entry_hold is False
+    assert scheduler.status.recovery.state == "RECOVERED"

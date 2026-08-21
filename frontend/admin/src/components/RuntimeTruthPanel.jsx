@@ -40,6 +40,7 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
   const dataFreshness = snapshot?.data_freshness;
   const strategyEvidence = snapshot?.strategy_evidence;
   const schedulerValue = scheduler?.value ?? scheduler;
+  const recovery = schedulerValue?.recovery ?? {};
   const dataFreshnessValue = dataFreshness?.value ?? schedulerValue;
   const strategyEvidenceValue = strategyEvidence?.value;
   const positions = runtime.positions;
@@ -88,6 +89,13 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
           <strong>自动新开仓：暂停</strong>
           <p>{entryPauseExplanation(entryRuntimeValue.entry_authority_reason)}</p>
           <p>调度、已有仓位保护、恢复与 reduce-only 平仓仍正常运行。</p>
+        </div>
+      ) : null}
+      {recovery.entry_hold ? (
+        <div className="truth-stale" role="status">
+          <strong>自动交易正在恢复</strong>
+          <p>新开仓：暂时暂停；已有仓位：继续管理、对账、保护与 reduce-only 平仓。</p>
+          <p>恢复状态：{recovery.state || "MANAGEMENT_RECOVERY"} · 原因：{recovery.reason || "未记录"}</p>
         </div>
       ) : null}
       {entryRuntimeValue?.entry_authority === "TESTNET_CANARY" ? (
@@ -207,6 +215,7 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
           <h3>Scheduler</h3>
           <strong>{scheduler?.status === "available" ? "运行中" : "离线"}</strong>
           <p>{scheduler?.error || "心跳正常"}</p>
+          <p>恢复：{recovery.state || "HEALTHY"}</p>
           <DatumMeta datum={scheduler} />
         </article>
         <article>

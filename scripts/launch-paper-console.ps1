@@ -336,6 +336,9 @@ function Test-SchedulerHealthy {
         if ($null -eq $critical -or -not [bool]$critical.registered -or -not [bool]$critical.task_alive) {
             return $false
         }
+        $recovery = $state.recovery
+        if ($recovery -and [bool]$recovery.entry_hold) { return $false }
+        if ($recovery -and [string]$recovery.state -eq "AUTO_RECOVERY_EXHAUSTED") { return $false }
         if ($state.scheduler_error) { return $false }
         $criticalFailures = if ($null -eq $critical.consecutive_failures) { 0 } else { [int]$critical.consecutive_failures }
         if ($critical.last_exception -and ($criticalFailures -gt 0)) {
@@ -414,7 +417,7 @@ function Complete-ProjectionRecovery {
             Reset-LogFile $SchedulerErrorLog
             $schedulerScript = Join-Path $PSScriptRoot "run-local-paper-scheduler.py"
             $schedulerProcess = Start-Process -FilePath $env:AGENT_PYTHON `
-                -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl, "--engine", $AutomatedTradingEngine) `
+                -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl, "--engine", $AutomatedTradingEngine, "--supervisor") `
                 -WorkingDirectory $Root `
                 -WindowStyle Hidden `
                 -RedirectStandardOutput $SchedulerLog `
@@ -442,7 +445,7 @@ function Complete-ProjectionRecovery {
             Reset-LogFile $SchedulerLog
             Reset-LogFile $SchedulerErrorLog
             $schedulerProcess = Start-Process -FilePath $env:AGENT_PYTHON `
-                -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl, "--engine", $AutomatedTradingEngine) `
+                -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl, "--engine", $AutomatedTradingEngine, "--supervisor") `
                 -WorkingDirectory $Root `
                 -WindowStyle Hidden `
                 -RedirectStandardOutput $SchedulerLog `
@@ -791,7 +794,7 @@ if ($apiReady -and $frontendReady -and (Test-ProjectListener $ApiPort) -and (Tes
         Reset-LogFile $SchedulerErrorLog
         $schedulerScript = Join-Path $PSScriptRoot "run-local-paper-scheduler.py"
         $schedulerProcess = Start-Process -FilePath $env:AGENT_PYTHON `
-            -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl, "--engine", $AutomatedTradingEngine) `
+            -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl, "--engine", $AutomatedTradingEngine, "--supervisor") `
             -WorkingDirectory $Root `
             -WindowStyle Hidden `
             -RedirectStandardOutput $SchedulerLog `
@@ -860,7 +863,7 @@ Reset-LogFile $SchedulerLog
 Reset-LogFile $SchedulerErrorLog
 $schedulerScript = Join-Path $PSScriptRoot "run-local-paper-scheduler.py"
 $schedulerProcess = Start-Process -FilePath $env:AGENT_PYTHON `
-    -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl, "--engine", $AutomatedTradingEngine) `
+    -ArgumentList @($schedulerScript, "--database-url", $SqliteUrl, "--engine", $AutomatedTradingEngine, "--supervisor") `
     -WorkingDirectory $Root `
     -WindowStyle Hidden `
     -RedirectStandardOutput $SchedulerLog `
