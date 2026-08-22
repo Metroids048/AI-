@@ -1,5 +1,21 @@
 # Project Memory
 
+# Repository consolidation / F-101 / F-102 (2026-08-22)
+
+- VERIFIED: commit `bd1ca6e` wires the latest persisted `market_extras.funding_rate`
+  into the V2 R2 cost gate as Decimal bps; missing funding is explicit
+  `FUNDING_RATE_UNAVAILABLE` and blocks Production while Canary remains diagnostic.
+- VERIFIED: F-101/F-102 focused coverage is green; the full non-integration suite is
+  `1802 passed, 14 skipped, 2 deselected, 2 warnings` after the change.
+- VERIFIED: `main` was fast-forwarded from `c469c83` to `bd1ca6e`; remote cleanup left
+  only `origin/main`. Dependabot vulnerability alerts are enabled and automatic
+  Dependabot security updates are disabled; `.github/dependabot.yml` is deleted.
+- OBSERVED: after restarting the active Testnet runtime with the new code, the natural
+  cycle completed with `HEALTHY` reconciliation but both BTC/ETH terminals were
+  `CANDLE_CLOSED` without a candidate, so no real-cycle `r2_cost_gate.funding_R` field
+  was emitted in this observation window. Do not substitute a unit-test value for that
+  missing runtime evidence.
+
 ## AUTO TRADING LIVENESS RECOVERY 收口（2026-08-21）
 
 - Verified Code Commit / Transaction Freeze Baseline：`ceaf46b2e7cfd3166303b897ad2bff66e9a1574b`；

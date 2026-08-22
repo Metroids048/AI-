@@ -1948,3 +1948,16 @@
   issues found in 274 source files`; full pytest -> `1800 passed, 7 skipped,
   7 warnings`; focused scheduler/identity tests -> `36 passed`; `git diff --check`
   passed. No strategy optimization or trading parameter changes were made.
+# 2026-08-22 — Final repository consolidation / F-101 / F-102
+
+- Implemented the minimal funding-cost wiring at the V2 scheduler boundary and added
+  fail-closed Production coverage plus four-condition Canary contract tests.
+- Consolidated current-state documentation to remove stale HEAD snapshots and documented
+  the actual 5s/15s bounded restart behavior.
+- Fast-forwarded `main` to `bd1ca6e`, deleted the backup and all remaining remote Dependabot
+  branches, removed `.github/dependabot.yml`, enabled vulnerability alerts, and disabled
+  Dependabot security updates.
+- Full non-integration verification after the code change: `1802 passed, 14 skipped,
+  2 deselected, 2 warnings`; Ruff and configured mypy passed. A restarted natural Testnet
+  cycle was healthy but had no candidate, so runtime `r2_cost_gate.funding_R` evidence
+  remains pending rather than being inferred from tests.
