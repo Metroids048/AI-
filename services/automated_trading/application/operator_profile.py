@@ -185,6 +185,7 @@ def apply_testnet_canary_runtime_contract(
         risk_per_trade=contract_risk,
         max_leverage=contract_leverage,
         max_margin_fraction=contract_margin,
+        order_notional_usdt=_decimal(TESTNET_CANARY_RUNTIME_CONTRACT["max_notional_usdt"]),
         max_position_fraction=contract_exposure,
         max_open_positions=int(TESTNET_CANARY_RUNTIME_CONTRACT["max_open_positions"]),
         max_total_exposure=_decimal(TESTNET_CANARY_RUNTIME_CONTRACT["max_total_exposure"]),

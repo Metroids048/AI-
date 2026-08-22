@@ -16,6 +16,7 @@ import subprocess
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from enum import StrEnum
 from functools import partial
 from pathlib import Path
@@ -366,8 +367,117 @@ def _load_technical_market_data(database: Path, *, end_at: datetime) -> MarketDa
     return dict(market_data)
 
 
+def _load_funding_points(
+    database: Path, *, end_at: datetime
+) -> dict[str, tuple[tuple[datetime, Decimal], ...]]:
+    """Load point-in-time funding observations for the technical replay lane."""
+
+    points: dict[str, list[tuple[datetime, Decimal]]] = defaultdict(list)
+    with sqlite3.connect(f"file:{database.resolve().as_posix()}?mode=ro", uri=True) as connection:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "market_extras" not in tables:
+            return {}
+        rows = connection.execute(
+            """
+            SELECT time, symbol, funding_rate
+            FROM market_extras
+            WHERE symbol IN ('BTC/USDT', 'ETH/USDT')
+              AND time <= ?
+              AND funding_rate IS NOT NULL
+            ORDER BY symbol, time
+            """,
+            (end_at.replace(tzinfo=None).isoformat(sep=" "),),
+        ).fetchall()
+    for raw_time, symbol, raw_rate in rows:
+        parsed = datetime.fromisoformat(str(raw_time).replace("Z", "+00:00"))
+        timestamp = parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+        points[str(symbol)].append((timestamp, Decimal(str(raw_rate))))
+    return {symbol: tuple(values) for symbol, values in points.items()}
+
+
+def _apply_funding_cost(
+    trade: dict[str, Any], funding_points: tuple[tuple[datetime, Decimal], ...]
+) -> tuple[dict[str, Any], bool]:
+    """Apply signed point-in-time funding without changing the replay geometry."""
+
+    opened_at = datetime.fromisoformat(str(trade["opened_at"]).replace("Z", "+00:00"))
+    closed_at = datetime.fromisoformat(str(trade["closed_at"]).replace("Z", "+00:00"))
+    if opened_at.tzinfo is None:
+        opened_at = opened_at.replace(tzinfo=UTC)
+    if closed_at.tzinfo is None:
+        closed_at = closed_at.replace(tzinfo=UTC)
+    if not funding_points or not any(observed_at <= opened_at for observed_at, _ in funding_points):
+        return {**trade, "funding_cost": None, "funding_evidence": "MISSING"}, False
+    side_sign = Decimal("1") if str(trade.get("side")) == "long" else Decimal("-1")
+    filled_fraction = Decimal(str(trade.get("quantity_fraction") or "1"))
+    funding_cost = sum(
+        (
+            rate * side_sign * filled_fraction
+            for observed_at, rate in funding_points
+            if opened_at < observed_at <= closed_at
+        ),
+        Decimal("0"),
+    )
+    enriched = dict(trade)
+    enriched["net_return_before_funding"] = float(trade.get("net_return", 0.0))
+    enriched["funding_cost"] = float(funding_cost)
+    enriched["net_return"] = float(Decimal(str(trade.get("net_return", 0.0))) - funding_cost)
+    enriched["funding_evidence"] = "POINT_IN_TIME_OBSERVED"
+    return enriched, True
+
+
+def _replay_trade_metrics(trades: list[dict[str, Any]], *, raw_metrics: Any | None = None) -> dict[str, Any]:
+    """Recompute post-funding metrics while retaining raw replay diagnostics."""
+
+    returns = [float(item.get("net_return", 0.0)) for item in trades]
+    wins = [value for value in returns if value > 0]
+    losses = abs(sum(value for value in returns if value < 0))
+    equity = 1.0
+    peak = equity
+    max_drawdown = 0.0
+    for value in returns:
+        equity += value
+        peak = max(peak, equity)
+        if peak > 0:
+            max_drawdown = max(max_drawdown, (peak - equity) / peak)
+    payload = {
+        "total_trades": len(trades),
+        "net_return": sum(returns),
+        "net_expectancy": sum(returns) / len(returns) if returns else 0.0,
+        "profit_factor": sum(wins) / losses if losses else (float("inf") if wins else 0.0),
+        "max_drawdown": max_drawdown,
+        "funding_rate_available": bool(trades) and all(item.get("funding_evidence") == "POINT_IN_TIME_OBSERVED" for item in trades),
+        "promotion_observations_complete": False,
+        "slippage_observed": False,
+        "trade_attribution_complete": bool(trades),
+        "trades": trades,
+    }
+    if raw_metrics is not None:
+        payload.update(
+            {
+                "signal_count": raw_metrics.signal_count,
+                "win_rate": raw_metrics.win_rate,
+                "average_win": raw_metrics.average_win,
+                "average_loss": raw_metrics.average_loss,
+                "average_r": raw_metrics.average_r,
+                "average_hold_hours": raw_metrics.average_hold_hours,
+                "gross_return": raw_metrics.gross_return,
+                "total_fee_bps": raw_metrics.total_fee_bps,
+                "total_slippage_bps": raw_metrics.total_slippage_bps,
+                "cost_share_of_gross_profit": raw_metrics.cost_share_of_gross_profit,
+                "data_issues": raw_metrics.data_issues,
+            }
+        )
+    return payload
+
+
 def _technical_candidate_result(
-    *, database: Path, candidate_id: str, windows: tuple[proposal_research.ProposalWalkForwardWindow, ...]
+    *,
+    database: Path,
+    candidate_id: str,
+    windows: tuple[proposal_research.ProposalWalkForwardWindow, ...],
+    market_data: MarketData | None = None,
+    funding_points: dict[str, tuple[tuple[datetime, Decimal], ...]] | None = None,
 ) -> dict[str, Any]:
     candidate = get_candidate(candidate_id)
     strategy = StrategyContract(
@@ -380,10 +490,12 @@ def _technical_candidate_result(
         rules=StrategyRules(**candidate.get_config()),
     )
     service = TechnicalStrategyValidationService(warmup_bars=80, walk_forward_windows=3, max_workers=1)
-    data = _load_technical_market_data(database, end_at=max(window.oos_end for window in windows))
+    replay_end = max(window.oos_end for window in windows)
+    data = market_data if market_data is not None else _load_technical_market_data(database, end_at=replay_end)
+    observed_funding = funding_points if funding_points is not None else _load_funding_points(database, end_at=replay_end)
     window_payload: dict[str, Any] = {}
     all_trades: list[dict[str, Any]] = []
-    symbol_payload: dict[str, Any] = {}
+    symbol_trades: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for window in windows:
         symbols_payload: dict[str, Any] = {}
         for symbol in ("BTC/USDT", "ETH/USDT"):
@@ -393,36 +505,16 @@ def _technical_candidate_result(
                 start_at=window.oos_start,
                 end_at=window.oos_end,
             )
-            trades = [trade.as_dict() for trade in metrics.trades]
+            trades = []
+            for trade in metrics.trades:
+                enriched, _ = _apply_funding_cost(trade.as_dict(), observed_funding.get(symbol, ()))
+                trades.append(enriched)
             all_trades.extend(trades)
-            symbols_payload[symbol] = {
-                "total_trades": metrics.total_trades,
-                "net_expectancy": metrics.net_expectancy,
-                "net_return": metrics.net_return,
-                "profit_factor": metrics.profit_factor,
-                "max_drawdown": metrics.max_drawdown,
-                "funding_rate_available": False,
-                "promotion_observations_complete": False,
-                "slippage_observed": bool(metrics.total_slippage_bps),
-                "trade_attribution_complete": bool(metrics.trades),
-                "trades": trades,
-            }
-            symbol_payload[symbol] = symbols_payload[symbol]
+            symbol_trades[symbol].extend(trades)
+            symbols_payload[symbol] = _replay_trade_metrics(trades, raw_metrics=metrics)
         window_payload[window.window_id] = {"window": window.as_record(), "symbols": symbols_payload}
-    total_trades = len(all_trades)
-    net_return = sum(float(item.get("net_return", 0.0)) for item in all_trades)
-    winners = sum(float(item.get("net_return", 0.0)) for item in all_trades if float(item.get("net_return", 0.0)) > 0)
-    losers = abs(sum(float(item.get("net_return", 0.0)) for item in all_trades if float(item.get("net_return", 0.0)) < 0))
-    per_symbol = {
-        symbol: {
-            "total_trades": sum(int(window["symbols"][symbol]["total_trades"]) for window in window_payload.values()),
-            "profit_factor": min(
-                (float(window["symbols"][symbol]["profit_factor"]) for window in window_payload.values()),
-                default=0.0,
-            ),
-        }
-        for symbol in ("BTC/USDT", "ETH/USDT")
-    }
+    symbol_payload = {symbol: _replay_trade_metrics(trades) for symbol, trades in symbol_trades.items()}
+    portfolio = _replay_trade_metrics(all_trades)
     return {
         "candidate_id": candidate_id,
         "candidate_metadata": {
@@ -434,22 +526,18 @@ def _technical_candidate_result(
             "timeframe": candidate.timeframe,
             "replay_engine": "TechnicalStrategyValidationService",
         },
-        "symbols": {symbol: {**payload, **per_symbol[symbol]} for symbol, payload in symbol_payload.items()},
-        "portfolio": {
-            "total_trades": total_trades,
-            "net_return": net_return,
-            "net_expectancy": net_return / total_trades if total_trades else 0.0,
-            "profit_factor": winners / losers if losers else (float("inf") if winners else 0.0),
-            "max_drawdown": max(
-                (float(window["symbols"][symbol]["max_drawdown"]) for window in window_payload.values() for symbol in ("BTC/USDT", "ETH/USDT")),
-                default=0.0,
-            ),
-            "funding_rate_available": False,
-            "promotion_observations_complete": False,
-        },
+        "symbols": symbol_payload,
+        "portfolio": portfolio,
         "trades": all_trades,
         "walk_forward_oos": window_payload,
-        "funding_treatment": "not_available_for_technical_replay",
+        "funding_treatment": "point_in_time_market_extras",
+        "cost_evidence": {
+            "funding": "POINT_IN_TIME_OBSERVED" if portfolio["funding_rate_available"] else "MISSING",
+            "commission": "CONFIGURED_BINANCE_TAKER_BPS",
+            "slippage": "CONFIGURED_REPLAY_BPS",
+            "slippage_observed": False,
+            "promotion_observations_complete": False,
+        },
     }
 
 
@@ -733,13 +821,14 @@ def _promotion_metrics(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _candidate_passes(metrics: dict[str, Any]) -> bool:
+    """Cheap screening gate; expensive promotion evidence is intentionally absent."""
+
     return (
         metrics["trades"] >= 50
         and metrics["net_expectancy"] > 0
         and metrics["net_return"] > 0
         and metrics["profit_factor"] > 1
         and metrics["positive_windows"] >= 2
-        and metrics["funding_observed"]
     )
 
 
@@ -775,12 +864,10 @@ def _span_metrics(result: dict[str, Any], window_ids: set[str]) -> dict[str, Any
 
 
 def _research_passes(metrics: dict[str, Any]) -> bool:
+    """Validation gate after screening; still before holdout/expensive checks."""
+
     return (
-        metrics["trades"] >= 50
-        and metrics["net_expectancy"] > 0
-        and metrics["net_return"] > 0
-        and metrics["profit_factor"] > 1
-        and metrics["positive_windows"] >= 2
+        _candidate_passes(metrics)
         and metrics["funding_observed"]
     )
 
@@ -1125,8 +1212,22 @@ def run_generation_zero(
         else ()
     )
 
-    results: dict[str, Any] = {}
+    partial_path = output / "GENERATION_0_PARTIAL.json"
+    partial = _json_read(partial_path) if partial_path.is_file() else {}
+    results: dict[str, Any] = dict(partial.get("results", {}))
+    inventory_by_id = {item.candidate_id: item for item in discover_candidate_inventory()}
+    pending_controls = tuple(candidate_id for candidate_id in control_ids if candidate_id not in results)
+    technical_data = (
+        _load_technical_market_data(database, end_at=max(window.oos_end for window in windows))
+        if pending_controls
+        else {}
+    )
+    funding_points = (
+        _load_funding_points(database, end_at=max(window.oos_end for window in windows)) if pending_controls else {}
+    )
     for candidate_id in candidate_ids:
+        if candidate_id in results:
+            continue
         if candidate_id in proposal_ids:
             result = proposal_research._result_for_candidate(
                 candidate_id=candidate_id,
@@ -1138,7 +1239,13 @@ def run_generation_zero(
                 ledger_status="generation_0_research_observed",
             )
         elif candidate_id in control_ids:
-            result = _technical_candidate_result(database=database, candidate_id=candidate_id, windows=windows)
+            result = _technical_candidate_result(
+                database=database,
+                candidate_id=candidate_id,
+                windows=windows,
+                market_data=technical_data,
+                funding_points=funding_points,
+            )
             ledger.record(
                 trial_id=f"g0:{candidate_id}",
                 strategy_id=candidate_id,
@@ -1151,9 +1258,7 @@ def run_generation_zero(
         result["master_metrics"] = metrics
         result["generation"] = 0
         result["cost_stress"] = _observed_cost_stress(result.get("trades", []))
-        result["candidate_metadata"] = result.get("candidate_metadata") or asdict(
-            next(item for item in discover_candidate_inventory() if item.candidate_id == candidate_id)
-        )
+        result["candidate_metadata"] = result.get("candidate_metadata") or asdict(inventory_by_id[candidate_id])
         results[candidate_id] = result
         if candidate_id in proposal_ids:
             ledger.record(
@@ -1162,6 +1267,16 @@ def run_generation_zero(
                 parameters={"generation": 0, "variant": "baseline", "metrics": metrics},
                 status="passed_g0_gate" if _candidate_passes(metrics) else "failed_g0_gate",
             )
+        _json_write(
+            partial_path,
+            {
+                "generation": 0,
+                "candidate_ids": candidate_ids,
+                "completed_candidate_ids": sorted(results),
+                "windows": [window.as_record() for window in windows],
+                "results": results,
+            },
+        )
     return {
         "generation": 0,
         "candidate_ids": candidate_ids,
@@ -1186,9 +1301,11 @@ def _recovery_metrics_for_result(
         if symbol in {"BTC/USDT", "ETH/USDT"}
     }
     trades = result.get("trades", [])
-    slippage_observed = bool(trades) and all(
-        "slippage_bps" in trade or "fees_and_impact_bps" in trade for trade in trades
-    )
+    cost_evidence = result.get("cost_evidence", {})
+    if "slippage_observed" in cost_evidence:
+        slippage_observed = bool(cost_evidence["slippage_observed"])
+    else:
+        slippage_observed = bool(portfolio.get("slippage_observed", False))
     return ProfitabilityRecoveryMetrics(
         total_trades=int(portfolio.get("total_trades", portfolio.get("trades", 0))),
         per_symbol_trades=per_symbol_trades,
@@ -1450,25 +1567,23 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
     }
     _json_write(output / "BOUNDED_GENERATIONS.json", bounded)
 
-    champion_candidates: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+    finalist_candidates: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
     for result in g1_validation_candidates:
         variant = result["variant"]
         research_metrics = result["master_metrics"]
         validation_metrics = g1_validation.get(variant["variant_id"], {})
         merged = _merge_selection_metrics(research_metrics, validation_metrics)
-        recovery = evaluate_profitability_recovery(_recovery_metrics_for_result(result))
-        if _research_passes(research_metrics) and _research_passes(validation_metrics) and recovery.eligible:
-            champion_candidates.append((variant["variant_id"], merged, variant))
+        if _research_passes(research_metrics) and _research_passes(validation_metrics):
+            finalist_candidates.append((variant["variant_id"], merged, variant))
     for result in generation_two["results"].values():
         variant = result["variant"]
         metrics = result["master_metrics"]
         validation_metrics = g2_validation.get(variant["variant_id"], {})
         merged = _merge_selection_metrics(metrics, validation_metrics)
-        recovery = evaluate_profitability_recovery(_recovery_metrics_for_result(result))
-        if _research_passes(metrics) and _research_passes(validation_metrics) and recovery.eligible:
-            champion_candidates.append((variant["variant_id"], merged, variant))
+        if _research_passes(metrics) and _research_passes(validation_metrics):
+            finalist_candidates.append((variant["variant_id"], merged, variant))
 
-    if not champion_candidates:
+    if not finalist_candidates:
         best: tuple[str | None, dict[str, Any]] = max(
             list(generation_zero["results"].items())
             + list(generation_one["results"].items())
@@ -1534,7 +1649,7 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
         return no_alpha_report
 
     champion_id, champion_metrics, champion_variant = max(
-        champion_candidates, key=lambda item: item[1]["net_expectancy"]
+        finalist_candidates, key=lambda item: item[1]["net_expectancy"]
     )
     champion_base = str(champion_variant["parent_candidate"])
     champion_spec = VariantSpec(**champion_variant)

@@ -1,7 +1,7 @@
-"""Testnet Canary 30x / 5%-margin sizing contracts (S-001 through S-010).
+"""Testnet Canary tiny diagnostic sizing contracts (S-001 through S-010).
 
-Verifies that the 5%-margin / 50x leverage configuration:
-- Produces at most 5% equity margin, i.e. 250% equity notional
+Verifies that the isolated Canary contract:
+- Produces no more than the fixed 50 USDT diagnostic notional
 - Only affects the Testnet profile, not production defaults
 - Does not bypass entry gates or signal conditions
 - Preserves external-position protection
@@ -26,11 +26,12 @@ from services.automated_trading.infrastructure.market_snapshot_provider import (
     AuthoritativeAccountSnapshot,
 )
 
-# Operator-authorized Testnet values (2026-08-12).
-E010_RISK_PER_TRADE = Decimal("0.10")
-E010_MAX_MARGIN_FRACTION = Decimal("0.05")
-E010_MAX_POSITION_FRACTION = E010_MAX_MARGIN_FRACTION * Decimal("30")
+# Operator-authorized Canary values (2026-08-22).
+E010_RISK_PER_TRADE = Decimal("0.01")
+E010_MAX_MARGIN_FRACTION = Decimal("0.005")
+E010_MAX_POSITION_FRACTION = Decimal("0.01")
 E010_MAX_LEVERAGE = 30
+E010_MAX_NOTIONAL = Decimal("50")
 
 # Reference market geometry (BTC/USDT typical)
 REFERENCE_PRICE = Decimal("63700")
@@ -91,61 +92,48 @@ class TestE010AggressiveSizing:
     """S-001 .. S-008 for the E-010 Testnet aggressive profile."""
 
     def test_s001_target_notional_tracks_equity(self):
-        """S-001: notional is 5% margin x 30 leverage and moves with equity."""
+        """S-001: diagnostic notional is capped independently of equity."""
         for equity in (Decimal("5000"), Decimal("7300"), Decimal("10000")):
             result = _notional(equity)
-            expected = equity * E010_MAX_POSITION_FRACTION
-            assert result == expected, f"equity={equity}: got {result}, expected {expected}"
+            assert result == E010_MAX_NOTIONAL, f"equity={equity}: got {result}"
 
     def test_s002_five_percent_of_equity_resolves_to_about_365_margin(self):
-        """S-002: ~7300 USDT equity gives ~365 USDT margin and 10,950 USDT notional."""
+        """S-002: normal account equity still resolves to the tiny cap."""
         result = _notional(Decimal("7300"))
-
-        assert Decimal("10700") <= result <= Decimal("11200"), f"notional={result}, expected ~10950"
-        assert result == Decimal("7300") * E010_MAX_POSITION_FRACTION
+        assert result == E010_MAX_NOTIONAL
 
     def test_s003_requested_leverage_is_50(self):
         """S-003: requested leverage is 30."""
         assert _make_request().max_leverage == 30
 
     def test_s004_five_percent_is_margin_not_notional(self):
-        """S-004: 5% is margin; 30x turns it into 150% equity notional."""
+        """S-004: leverage cannot expand the diagnostic notional."""
         equity = Decimal("7300")
         result = _notional(equity)
-
-        correct = equity * E010_MAX_MARGIN_FRACTION * E010_MAX_LEVERAGE  # 18250
-        wrong = equity * E010_MAX_MARGIN_FRACTION  # 365
-
-        assert result == correct, f"notional={result}, expected {correct}"
-        assert result > wrong * 10, f"notional={result} looks like a 5% notional cap ({wrong})"
-        assert result / E010_MAX_LEVERAGE == equity * E010_MAX_MARGIN_FRACTION
+        assert result == E010_MAX_NOTIONAL
 
     def test_s005_leverage_scales_the_margin_budget_notional(self):
-        """S-005: preserving 5% margin means 30x is larger than 20x."""
+        """S-005: leverage changes do not bypass the diagnostic cap."""
         equity = Decimal("7300")
 
         at_20x = _notional(equity, max_leverage=20)
         at_30x = _notional(equity, max_leverage=30)
 
-        assert at_20x == equity * E010_MAX_MARGIN_FRACTION * Decimal("20")
-        assert at_30x == equity * E010_MAX_MARGIN_FRACTION * Decimal("30")
+        assert at_20x == E010_MAX_NOTIONAL
+        assert at_30x == E010_MAX_NOTIONAL
 
     def test_s006_margin_budget_ceiling_binds_before_risk_budget(self):
-        """S-006: the 5% margin ceiling is a real ceiling, not a nominal setting.
-
-        risk_per_trade / stop_fraction alone would ask for far more than the 5%
-        equity here; the cap must clamp it.
-        """
+        """S-006: risk-based sizing cannot exceed the fixed diagnostic cap."""
         equity = Decimal("7300")
 
         stop_fraction = STOP_DISTANCE / REFERENCE_PRICE
         uncapped_risk_notional = (equity * E010_RISK_PER_TRADE) / stop_fraction
         result = _notional(equity)
 
-        assert uncapped_risk_notional > equity * E010_MAX_POSITION_FRACTION, (
+        assert uncapped_risk_notional > E010_MAX_NOTIONAL, (
             "test geometry is wrong: risk sizing must exceed the cap for this to prove clamping"
         )
-        assert result == equity * E010_MAX_POSITION_FRACTION
+        assert result == E010_MAX_NOTIONAL
 
     def test_s007_production_defaults_are_untouched(self):
         """S-007: shared Testnet runtime defaults match the approved settings."""
@@ -159,17 +147,14 @@ class TestE010AggressiveSizing:
         assert PAPER_RUNTIME_LIMITS["risk_per_trade"] == 0.10
 
     def test_s008_explicit_operator_notional_still_obeys_ceilings(self):
-        """S-008: a pinned order_notional_usdt cannot escape the margin ceiling."""
+        """S-008: a pinned notional cannot escape the diagnostic cap."""
         equity = Decimal("7300")
-        ceiling = equity * E010_MAX_POSITION_FRACTION
-
-        # Operator pins something far above the 5% cap.
+        # Operator pins something far above the Canary cap.
         result = _notional(equity, order_notional_usdt=Decimal("18250"))
-
-        assert result == ceiling, f"pinned notional escaped the ceiling: {result} > {ceiling}"
+        assert result == E010_MAX_NOTIONAL
 
     def test_s009_existing_mark_notional_consumes_canary_total_exposure(self):
-        """Grandfathered positions remain untouched but leave no room above 7.50x."""
+        """Grandfathered positions remain untouched and consume Canary budget."""
         from services.automated_trading.infrastructure.market_snapshot_provider import ExchangePositionSnapshot
 
         positions = [
@@ -186,7 +171,7 @@ class TestE010AggressiveSizing:
         ]
         result = _notional(Decimal("10000"), positions=positions)
 
-        assert result == Decimal("15000")
+        assert result == Decimal("0")
         full = _notional(
             Decimal("10000"),
             positions=positions
@@ -315,11 +300,12 @@ class TestE010ProfileResolution:
                 entry_authority="TESTNET_CANARY",
             )
             assert settings.max_leverage == 30, symbol
-            assert settings.max_margin_fraction == Decimal("0.05"), symbol
-            assert settings.max_position_fraction == Decimal("1.50"), symbol
-            assert settings.max_open_positions == 5, symbol
-            assert settings.max_total_exposure == Decimal("7.50"), symbol
-            assert settings.risk_per_trade == Decimal("0.10"), symbol
+            assert settings.max_margin_fraction == Decimal("0.005"), symbol
+            assert settings.order_notional_usdt == E010_MAX_NOTIONAL, symbol
+            assert settings.max_position_fraction == Decimal("0.01"), symbol
+            assert settings.max_open_positions == 1, symbol
+            assert settings.max_total_exposure == Decimal("0.01"), symbol
+            assert settings.risk_per_trade == Decimal("0.01"), symbol
             assert settings.canary_contract_applied is True
 
     def test_absent_profile_falls_back_to_conservative_defaults(self):
@@ -341,11 +327,9 @@ class TestE010ProfileResolution:
         actual_quantity = round_quantity_to_step(notional / REFERENCE_PRICE, Decimal("0.001"))
         actual_margin = actual_quantity * REFERENCE_PRICE / Decimal(E010_MAX_LEVERAGE)
 
-        assert notional == Decimal("15000")
+        assert notional == E010_MAX_NOTIONAL
         assert actual_margin <= equity * E010_MAX_MARGIN_FRACTION
-        assert (equity * E010_MAX_MARGIN_FRACTION - actual_margin) < (
-            REFERENCE_PRICE * Decimal("0.001") / Decimal(E010_MAX_LEVERAGE)
-        )
+        assert actual_margin <= E010_MAX_NOTIONAL / Decimal(E010_MAX_LEVERAGE)
 
     def test_e003_is_diagnostic_for_canary_but_blocking_for_production(self):
         profile = {

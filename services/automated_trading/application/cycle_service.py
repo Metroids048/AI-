@@ -785,23 +785,40 @@ def _calculate_quantity(
     """
     equity = max(snapshot.equity, Decimal("1"))
     exposure_ceiling = equity * request.max_position_fraction
-    total_exposure_ceiling = equity * request.max_total_exposure
     margin_budget_ceiling = equity * request.max_margin_fraction * Decimal(request.max_leverage)
     margin_ceiling = equity * Decimal(request.max_leverage)
 
     if _is_testnet_canary_sampling(request, candidate):
-        # Canary sizing targets the configured margin directly. Risk sizing still
-        # runs below for diagnostics and is never allowed to silently shrink this
-        # sampling order. Existing exchange positions are grandfathered, but their
-        # authoritative mark-price notional consumes the aggregate 7.50x budget;
-        # quantity step rounding can only reduce the final margin.
+        # Canary sizing is a tiny connectivity probe.  The explicit diagnostic
+        # notional cap wins over the legacy margin-derived target; exchange
+        # market rules still perform the final min-notional and step-size checks.
+        canary_exposure_ceiling = equity * Decimal(
+            str(TESTNET_CANARY_RUNTIME_CONTRACT["max_symbol_exposure"])
+        )
+        canary_total_exposure_ceiling = equity * Decimal(
+            str(TESTNET_CANARY_RUNTIME_CONTRACT["max_total_exposure"])
+        )
+        canary_margin_budget_ceiling = equity * Decimal(
+            str(TESTNET_CANARY_RUNTIME_CONTRACT["max_margin_fraction"])
+        ) * Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_leverage"]))
+        canary_margin_ceiling = equity * Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_leverage"]))
         committed_notional = sum(
             (abs(position.quantity) * position.mark_price for position in snapshot.positions),
             Decimal("0"),
         )
-        remaining_total_exposure = max(total_exposure_ceiling - committed_notional, Decimal("0"))
-        target_notional = equity * request.max_margin_fraction * Decimal(request.max_leverage)
-        return min(target_notional, exposure_ceiling, remaining_total_exposure, margin_budget_ceiling, margin_ceiling)
+        remaining_total_exposure = max(canary_total_exposure_ceiling - committed_notional, Decimal("0"))
+        diagnostic_cap = Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_notional_usdt"]))
+        target_notional = min(
+            request.order_notional_usdt or (equity * request.max_margin_fraction * Decimal(request.max_leverage)),
+            diagnostic_cap,
+        )
+        return min(
+            target_notional,
+            canary_exposure_ceiling,
+            remaining_total_exposure,
+            canary_margin_budget_ceiling,
+            canary_margin_ceiling,
+        )
 
     if request.order_notional_usdt is not None:
         return min(request.order_notional_usdt, exposure_ceiling, margin_budget_ceiling, margin_ceiling)
@@ -1789,7 +1806,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             risk_per_trade=Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["risk_per_trade"])),
             max_leverage=int(TESTNET_CANARY_RUNTIME_CONTRACT["max_leverage"]),
             max_margin_fraction=Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_margin_fraction"])),
-            order_notional_usdt=None,
+            order_notional_usdt=Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_notional_usdt"])),
             max_position_fraction=Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_symbol_exposure"])),
             max_open_positions=int(TESTNET_CANARY_RUNTIME_CONTRACT["max_open_positions"]),
             max_total_exposure=Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_total_exposure"])),

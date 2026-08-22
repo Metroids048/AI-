@@ -1,5 +1,20 @@
 # Project Memory
 
+## Profitability Recovery P0 gate/resume/tiny-canary repair (2026-08-22)
+
+- VERIFIED: technical replay now reads point-in-time funding observations from
+  `market_extras`; missing observations are labeled `MISSING`, while configured replay
+  slippage is explicitly not treated as observed execution slippage.
+- VERIFIED: screening no longer calls the final recovery gate. Finalist selection uses the
+  pre-holdout research/validation gate; Final Holdout/Freqtrade/vectorbt/1m/bootstrap checks
+  run only after a finalist is selected and remain blocking for promotion.
+- VERIFIED: Generation 0 writes `GENERATION_0_PARTIAL.json` after each candidate and reuses
+  the technical OHLCV/funding cache. Canary sizing is contract-enforced at 50 USDT maximum,
+  one position, and 0.01 exposure; production/PAPER limits are unchanged.
+- VERIFIED: Master Loop/Canary focused regression 32 passed, full `pytest -q` 1825 passed/16 skipped/2 warnings, Ruff and
+  touched-file mypy passed. No APPROVED Champion or natural Production lifecycle evidence
+  was created; profitability and execution acceptance remain blocked/pending.
+
 ## Profitability Recovery Loop closeout (2026-08-22)
 
 - Upgraded `scripts/run_alpha_champion_master_loop.py` to a bounded dual-lane recovery loop:
@@ -11,10 +26,9 @@
   1m fidelity, Freqtrade/vectorbt evidence, funding/slippage attribution and bootstrap LCB).
 - Added observed-cost multiplier scenarios `1.0x/1.25x/1.5x/2.0x`; Canary scheduler contracts
   enforce at most one open position without changing fixed risk values or the V2 hot path.
-- Evidence boundary: focused tests 108 passed; full pytest 1821 passed, 16 skipped, 2 warnings;
-  Ruff passed; touched-file mypy passed. Full-repo mypy still reports 171 pre-existing errors
-  in scripts/archive and related legacy files. No Production manifest or natural Production
-  Binance order evidence was created; no profitability recovery claim is valid.
+- Evidence boundary for the pre-P0 implementation snapshot: focused tests 108 passed; full
+  pytest 1821 passed, 16 skipped, 2 warnings. This was superseded by the P0 repair entry
+  above; no Production manifest or natural Production Binance order evidence was created.
 
 # Repository consolidation / F-101 / F-102 (2026-08-22)
 

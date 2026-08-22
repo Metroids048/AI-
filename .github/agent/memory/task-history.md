@@ -1983,3 +1983,11 @@
   artifacts in a temporary output directory, then was stopped before the long replay completed.
   No APPROVED manifest and no Production Binance natural order/fill/protection/exit/reconciliation
   evidence exists. Final status therefore remains blocked/pending, not complete.
+# [TASK-2026-08-22-PROFITABILITY-RECOVERY-P0]
+
+- 修复既有双车道 Master Loop 的四个窄阻塞：technical replay point-in-time funding/cost
+  evidence、Screening/Promotion 分层、Generation 0 checkpoint/cache、Canary tiny sizing。
+- 未修改 Binance adapter/Scheduler 热路径、Production/PAPER 风控参数、策略规则、SL/TP
+  或交易品种。Canary 合同例外固定 50 USDT、单持仓、0.01 exposure。
+- 验证：`ruff check .` PASS；touched-file mypy PASS；全仓 `pytest -q` 为 1825 passed、
+  16 skipped、2 warnings；仍无 APPROVED Manifest 或自然 Production 生命周期证据。

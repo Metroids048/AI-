@@ -1,17 +1,29 @@
 from __future__ import annotations
 
+import json
 import sqlite3
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
+from scripts import run_proposal_research_replay as proposal_research
 from scripts.run_alpha_champion_master_loop import (
     PROPOSAL_CANDIDATES,
+    CandidateInventoryRecord,
     TerminalStatus,
+    _apply_funding_cost,
+    _candidate_passes,
     _generation_one_specs,
     _generation_two_specs,
+    _recovery_metrics_for_result,
+    _research_passes,
     audit_market_data,
     bounded_search_plan,
     build_dual_gate_report,
     discover_candidate_inventory,
+    run_generation_zero,
     run_master_loop,
     tournament_candidate_ids,
 )
@@ -62,6 +74,141 @@ def test_dual_gate_report_never_claims_final_acceptance_from_one_gate() -> None:
     )
 
     assert report["overall_status"] == "PENDING"
+
+
+def test_technical_funding_replay_is_point_in_time_and_explicit_when_missing() -> None:
+    opened = datetime(2026, 1, 1, tzinfo=UTC)
+    closed = datetime(2026, 1, 1, 12, tzinfo=UTC)
+    trade = {
+        "opened_at": opened.isoformat(),
+        "closed_at": closed.isoformat(),
+        "side": "long",
+        "net_return": 0.01,
+        "quantity_fraction": 1.0,
+    }
+
+    enriched, observed = _apply_funding_cost(
+        trade,
+        ((datetime(2025, 12, 31, 16, tzinfo=UTC), Decimal("0.002")),
+         (datetime(2026, 1, 1, 8, tzinfo=UTC), Decimal("0.001"))),
+    )
+    assert observed is True
+    assert enriched["funding_evidence"] == "POINT_IN_TIME_OBSERVED"
+    assert enriched["funding_cost"] == pytest.approx(0.001)
+    assert enriched["net_return"] == pytest.approx(0.009)
+
+    missing, observed = _apply_funding_cost(trade, ())
+    assert observed is False
+    assert missing["funding_evidence"] == "MISSING"
+    assert missing["funding_cost"] is None
+
+
+def test_screening_gate_does_not_require_final_evidence_but_research_gate_requires_funding() -> None:
+    screening = {
+        "trades": 80,
+        "net_expectancy": 0.01,
+        "net_return": 0.8,
+        "profit_factor": 1.3,
+        "positive_windows": 5,
+        "funding_observed": False,
+    }
+    assert _candidate_passes(screening) is True
+    assert _research_passes(screening) is False
+    screening["funding_observed"] = True
+    assert _research_passes(screening) is True
+
+
+def test_technical_cost_evidence_does_not_promote_configured_slippage_to_observed() -> None:
+    result = {
+        "portfolio": {
+            "total_trades": 80,
+            "net_return": 0.8,
+            "net_expectancy": 0.01,
+            "profit_factor": 1.3,
+            "funding_rate_available": True,
+        },
+        "symbols": {
+            "BTC/USDT": {"total_trades": 40, "profit_factor": 1.2},
+            "ETH/USDT": {"total_trades": 40, "profit_factor": 1.2},
+        },
+        "trades": [{"slippage_bps": 5, "net_return": 0.01}],
+        "cost_evidence": {"slippage_observed": False},
+    }
+    metrics = _recovery_metrics_for_result(result)
+    assert metrics.funding_observed is True
+    assert metrics.slippage_observed is False
+
+
+def test_generation_zero_checkpoint_skips_completed_candidate_and_reuses_cache(tmp_path: Path, monkeypatch) -> None:
+    database = tmp_path / "market.db"
+    _database(database)
+    output = tmp_path / "master"
+    window = proposal_research.ProposalWalkForwardWindow(
+        window_id="w0",
+        train_start=datetime(2025, 1, 1, tzinfo=UTC),
+        train_end=datetime(2025, 6, 1, tzinfo=UTC),
+        purge_start=datetime(2025, 6, 1, tzinfo=UTC),
+        purge_end=datetime(2025, 6, 2, tzinfo=UTC),
+        oos_start=datetime(2025, 6, 2, tzinfo=UTC),
+        oos_end=datetime(2025, 7, 1, tzinfo=UTC),
+        embargo_start=datetime(2025, 7, 1, tzinfo=UTC),
+        embargo_end=datetime(2025, 7, 2, tzinfo=UTC),
+    )
+    record = CandidateInventoryRecord(
+        candidate_id="operator_heuristic_v1",
+        version="test",
+        family="operator",
+        registered=True,
+        evaluator_path="test",
+        canonical_replay_reachable=True,
+        research_only=True,
+        execution_eligible=False,
+        symbols=("BTC/USDT", "ETH/USDT"),
+        timeframe="15m",
+        entry_contract="test",
+    )
+    calls = {"replay": 0, "market": 0, "funding": 0}
+
+    def fake_replay(**kwargs):
+        calls["replay"] += 1
+        return {
+            "candidate_id": "operator_heuristic_v1",
+            "portfolio": {
+                "total_trades": 0,
+                "net_return": 0.0,
+                "net_expectancy": 0.0,
+                "profit_factor": 0.0,
+                "funding_rate_available": False,
+            },
+            "symbols": {},
+            "trades": [],
+            "walk_forward_oos": {},
+        }
+
+    module = __import__("scripts.run_alpha_champion_master_loop", fromlist=["run_generation_zero"])
+    monkeypatch.setattr(module, "discover_candidate_inventory", lambda: (record,))
+    monkeypatch.setattr(module, "_technical_candidate_result", fake_replay)
+    original_market = module._load_technical_market_data
+    original_funding = module._load_funding_points
+
+    def cached_market(*args, **kwargs):
+        calls["market"] += 1
+        return original_market(*args, **kwargs)
+
+    def cached_funding(*args, **kwargs):
+        calls["funding"] += 1
+        return original_funding(*args, **kwargs)
+
+    monkeypatch.setattr(module, "_load_technical_market_data", cached_market)
+    monkeypatch.setattr(module, "_load_funding_points", cached_funding)
+
+    run_generation_zero(database, output, ("operator_heuristic_v1",), windows=(window,))
+    assert calls == {"replay": 1, "market": 1, "funding": 1}
+    partial = json.loads((output / "GENERATION_0_PARTIAL.json").read_text(encoding="utf-8"))
+    assert partial["completed_candidate_ids"] == ["operator_heuristic_v1"]
+
+    run_generation_zero(database, output, ("operator_heuristic_v1",), windows=(window,))
+    assert calls == {"replay": 1, "market": 1, "funding": 1}
 
 
 def test_bounded_search_plan_cannot_expand_generation_budget() -> None:

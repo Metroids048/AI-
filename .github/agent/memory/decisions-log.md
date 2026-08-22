@@ -791,3 +791,13 @@
 - The original BTC position/protections disappeared between the initial 09:53 UTC
   snapshot and the 10:05 UTC pre-acceptance snapshot. This is recorded as external
   runtime drift; no attempt was made to recreate unknown historical order IDs.
+# Decision: P0 recovery loop repairs remain narrow (2026-08-22)
+
+- Technical candidates receive point-in-time funding evidence from the canonical market
+  extras table; missing funding/slippage evidence remains a visible promotion blocker.
+- Screening and final promotion are separate stages. Expensive holdout/fidelity/Freqtrade/
+  vectorbt checks are not required to rank finalists, but remain mandatory for promotion.
+- Canary is a non-promotable diagnostic lane with a hard 50 USDT notional cap, one position,
+  and 0.01 exposure; Production/PAPER sizing and Binance hot-path semantics are unchanged.
+- Generation 0 is resumable per candidate through `GENERATION_0_PARTIAL.json`; no long replay
+  result is accepted as profitability or Production evidence without natural proof.

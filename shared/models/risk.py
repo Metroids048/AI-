@@ -27,22 +27,24 @@ TESTNET_CANARY_SYMBOLS: tuple[str, ...] = (
 )
 
 # One explicit sizing contract for the Binance Testnet Canary sampling lane.
-# The derived exposure values are kept as constants so every runtime consumer and
-# its contract tests use the same arithmetic rather than copied magic numbers.
+# Canary is a connectivity probe, not a portfolio sampler: the fixed notional cap
+# is deliberately tiny and the exchange market-rules snapshot remains the final
+# legality check for min-notional, step-size and tick-size constraints.
 TESTNET_CANARY_RUNTIME_CONTRACT: dict[str, Any] = {
     "execution_mode": "BINANCE_TESTNET",
     "entry_authority": "TESTNET_CANARY",
     "candidate_lane": "TESTNET_SAMPLING",
     "strategy_id": "testnet_sampling_v2",
     "symbols": TESTNET_CANARY_SYMBOLS,
-    "risk_per_trade": 0.10,
+    "risk_per_trade": 0.01,
     "max_leverage": 30,
-    "target_margin_fraction": 0.05,
-    "max_margin_fraction": 0.05,
-    "target_notional_fraction": 1.50,
-    "max_symbol_exposure": 1.50,
-    "max_open_positions": 5,
-    "max_total_exposure": 7.50,
+    "target_margin_fraction": 0.005,
+    "max_margin_fraction": 0.005,
+    "target_notional_fraction": 0.01,
+    "max_symbol_exposure": 0.01,
+    "max_open_positions": 1,
+    "max_total_exposure": 0.01,
+    "max_notional_usdt": 50.0,
 }
 
 PAPER_RUNTIME_LIMITS: dict[str, int | float] = {
