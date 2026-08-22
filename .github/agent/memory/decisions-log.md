@@ -1,5 +1,17 @@
 # Decisions Log
 
+## ADR-2026-08-22: Profitability Recovery is a separate gate from execution health
+
+- Decision: Keep V2 Scheduler/Binance/Protection/Reconciliation semantics frozen; put the
+  recovery work in the Master Loop, Promotion evidence, cost stress reporting and explicit
+  Production/Canary authority boundaries.
+- Decision: `testnet_sampling_v2` remains non-promotable Canary evidence only. Without an
+  APPROVED Champion Manifest + ConfigSnapshot + validation evidence, new Production Entry is
+  denied while existing positions may still be protected, exited and reconciled.
+- Consequence: A healthy Canary execution chain cannot make `PROFITABILITY_RECOVERY` pass,
+  and a research Champion cannot make `EXECUTION_CHAIN` pass without natural Production fill,
+  protection, reduce-only exit and reconciliation evidence.
+
 ## ADR-078: Treat Canary authority as the execution-strategy authorization boundary
 
 - Date: 2026-08-19

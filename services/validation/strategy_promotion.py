@@ -44,6 +44,80 @@ class PromotionResult(PlatformModel):
     failed_requirements: tuple[str, ...]
 
 
+class ProfitabilityRecoveryMetrics(PlatformModel):
+    """Evidence required before a research Champion may enter Production review."""
+
+    total_trades: int = Field(default=0, ge=0)
+    per_symbol_trades: dict[str, int] = Field(default_factory=dict)
+    net_return: float = 0.0
+    net_expectancy: float = 0.0
+    profit_factor: float = 0.0
+    per_symbol_profit_factor: dict[str, float] = Field(default_factory=dict)
+    positive_windows: int = Field(default=0, ge=0)
+    total_windows: int = Field(default=8, ge=1)
+    max_drawdown: float = 0.0
+    final_holdout_net_expectancy: float = 0.0
+    cost_stress_1_5x_net_expectancy: float = 0.0
+    cost_stress_1_5x_profit_factor: float = 0.0
+    one_minute_net_expectancy: float = 0.0
+    freqtrade_lookahead_passed: bool = False
+    freqtrade_recursive_passed: bool = False
+    vectorbt_neighborhood_passed: bool = False
+    promotion_observations_complete: bool = False
+    funding_observed: bool = False
+    slippage_observed: bool = False
+    trade_attribution_complete: bool = False
+    expectancy_lcb: float = 0.0
+
+
+def evaluate_profitability_recovery(metrics: ProfitabilityRecoveryMetrics) -> PromotionResult:
+    """Apply the stricter dual-lane profitability recovery promotion gate."""
+
+    failures: list[str] = []
+    if metrics.total_trades < 80:
+        failures.append("portfolio_trades_below_80")
+    for symbol in ("BTC/USDT", "ETH/USDT"):
+        if metrics.per_symbol_trades.get(symbol, 0) < 30:
+            failures.append(f"symbol_trades_below_30:{symbol}")
+        if metrics.per_symbol_profit_factor.get(symbol, 0.0) < 1.0:
+            failures.append(f"symbol_profit_factor_below_1:{symbol}")
+    if metrics.net_expectancy <= 0:
+        failures.append("net_expectancy_not_positive")
+    if metrics.net_return <= 0:
+        failures.append("net_return_not_positive")
+    if metrics.profit_factor < 1.20:
+        failures.append("profit_factor_below_1_20")
+    if metrics.positive_windows < (metrics.total_windows + 1) // 2:
+        failures.append("positive_windows_below_majority")
+    if metrics.final_holdout_net_expectancy <= 0:
+        failures.append("final_holdout_expectancy_not_positive")
+    if metrics.max_drawdown > 0.20:
+        failures.append("max_drawdown_exceeds_20_percent")
+    if metrics.cost_stress_1_5x_net_expectancy <= 0:
+        failures.append("cost_stress_1_5x_expectancy_not_positive")
+    if metrics.cost_stress_1_5x_profit_factor <= 1.0:
+        failures.append("cost_stress_1_5x_profit_factor_not_above_1")
+    if metrics.one_minute_net_expectancy <= 0:
+        failures.append("one_minute_fidelity_not_positive")
+    if not metrics.freqtrade_lookahead_passed:
+        failures.append("freqtrade_lookahead_analysis_failed")
+    if not metrics.freqtrade_recursive_passed:
+        failures.append("freqtrade_recursive_analysis_failed")
+    if not metrics.vectorbt_neighborhood_passed:
+        failures.append("vectorbt_neighborhood_not_stable")
+    if not metrics.promotion_observations_complete:
+        failures.append("promotion_observations_incomplete")
+    if not metrics.funding_observed:
+        failures.append("funding_observations_missing")
+    if not metrics.slippage_observed:
+        failures.append("slippage_observations_missing")
+    if not metrics.trade_attribution_complete:
+        failures.append("trade_attribution_incomplete")
+    if metrics.expectancy_lcb <= 0:
+        failures.append("expectancy_lcb_not_positive")
+    return PromotionResult(eligible=not failures, failed_requirements=tuple(failures))
+
+
 class FinalHoldoutGuard:
     """Prevent parameter selection from reading the frozen Final Holdout window."""
 

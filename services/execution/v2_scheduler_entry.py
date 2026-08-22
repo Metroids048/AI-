@@ -1011,7 +1011,7 @@ def _execute_v2_automated_trading_cycles(
                 order_notional_usdt=operator_settings.order_notional_usdt,
                 max_position_fraction=operator_settings.max_position_fraction,
                 max_open_positions=(
-                    operator_settings.max_open_positions if operator_settings.canary_contract_applied else None
+                    1 if entry_authority.authority is EntryAuthority.TESTNET_CANARY else None
                 ),
                 max_total_exposure=operator_settings.max_total_exposure,
                 # Volatility SHOCK is diagnostic in the exact Canary sampling lane;
@@ -1050,7 +1050,11 @@ def _execute_v2_automated_trading_cycles(
                     "effective_leverage": operator_settings.max_leverage,
                     "effective_margin_fraction": str(operator_settings.max_margin_fraction),
                     "effective_position_fraction": str(operator_settings.max_position_fraction),
-                    "effective_max_open_positions": operator_settings.max_open_positions,
+                    "effective_max_open_positions": (
+                        1
+                        if entry_authority.authority is EntryAuthority.TESTNET_CANARY
+                        else operator_settings.max_open_positions
+                    ),
                     "effective_max_total_exposure": str(operator_settings.max_total_exposure),
                     "tier_recommended_leverage": operator_settings.tier_recommended_leverage,
                     "tier_would_reduce": operator_settings.tier_would_reduce,

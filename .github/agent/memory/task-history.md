@@ -1966,3 +1966,20 @@
 - Red tests cover funding direction, raw/effective funnel evidence, fresh/stale/missing/future timestamps, Production fail-closed, and Canary diagnostic semantics.
 - Focused V2 tests: 43 passed. Full non-integration suite: 1809 passed, 14 skipped, 2 deselected.
 - Commit A: `d0a0d3c0d999b67d5b8cef68617f268373f094d4`.
+# [TASK-2026-08-22-PROFITABILITY-RECOVERY-LOOP]
+
+- Implemented the bounded dual-lane `Profitability Recovery Loop` around the existing
+  `run_alpha_champion_master_loop.py`; no new execution engine, symbols, credentials,
+  leverage, sizing, stop/take-profit or mainnet behavior was introduced.
+- Registry controls and research proposals now share one tournament; Canary sampling is
+  excluded from Champion/Production promotion. Strict recovery gates and observed-cost
+  multiplier output are wired, and the scheduler caps Canary to one open position.
+- Added pending `CHAMPION_PROPOSAL.json` generation and explicit `EXECUTION_CHAIN` /
+  `PROFITABILITY_RECOVERY` reporting. Approval is never synthesized by the loop.
+- Verification: focused tests 108 passed; full pytest 1821 passed, 16 skipped, 2 warnings;
+  `ruff check .` passed; touched-file mypy passed; `git diff --check` passed. Full-repo mypy
+  remains blocked by 171 pre-existing errors in legacy scripts/archive files.
+- Runtime evidence: the real Master Loop produced baseline/inventory/data/split/bounded-plan
+  artifacts in a temporary output directory, then was stopped before the long replay completed.
+  No APPROVED manifest and no Production Binance natural order/fill/protection/exit/reconciliation
+  evidence exists. Final status therefore remains blocked/pending, not complete.

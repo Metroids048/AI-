@@ -1,5 +1,21 @@
 # Project Memory
 
+## Profitability Recovery Loop closeout (2026-08-22)
+
+- Upgraded `scripts/run_alpha_champion_master_loop.py` to a bounded dual-lane recovery loop:
+  Registry controls and proposal candidates compete together, `testnet_sampling_v2` is
+  Canary-only, `MAX_GENERATION=2` remains enforced, and final evidence emits a pending
+  `CHAMPION_PROPOSAL.json` plus separate execution/profitability gates.
+- Added strict `ProfitabilityRecoveryMetrics` promotion checks (80 portfolio trades, 30 per
+  symbol, PF/expectancy/MaxDD, 5/8 windows, independent holdout, 1.5x observed-cost stress,
+  1m fidelity, Freqtrade/vectorbt evidence, funding/slippage attribution and bootstrap LCB).
+- Added observed-cost multiplier scenarios `1.0x/1.25x/1.5x/2.0x`; Canary scheduler contracts
+  enforce at most one open position without changing fixed risk values or the V2 hot path.
+- Evidence boundary: focused tests 108 passed; full pytest 1821 passed, 16 skipped, 2 warnings;
+  Ruff passed; touched-file mypy passed. Full-repo mypy still reports 171 pre-existing errors
+  in scripts/archive and related legacy files. No Production manifest or natural Production
+  Binance order evidence was created; no profitability recovery claim is valid.
+
 # Repository consolidation / F-101 / F-102 (2026-08-22)
 
 - VERIFIED: commit `bd1ca6e` wires the latest persisted `market_extras.funding_rate`

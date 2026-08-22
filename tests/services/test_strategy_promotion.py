@@ -8,10 +8,12 @@ import pytest
 
 from services.validation.strategy_promotion import (
     FinalHoldoutGuard,
+    ProfitabilityRecoveryMetrics,
     PromotionMetrics,
     ResearchTrial,
     ResearchTrialRegistry,
     TrialLedger,
+    evaluate_profitability_recovery,
     evaluate_promotion,
     stationary_cluster_bootstrap_lcb,
 )
@@ -99,6 +101,62 @@ def test_promotion_gate_rejects_each_joint_requirement(field: str, value: float,
     ).model_copy(update={field: value})
 
     result = evaluate_promotion(metrics)
+
+    assert result.eligible is False
+    assert reason in result.failed_requirements
+
+
+def _recovery_metrics(**overrides: object) -> ProfitabilityRecoveryMetrics:
+    payload: dict[str, object] = {
+        "total_trades": 80,
+        "per_symbol_trades": {"BTC/USDT": 40, "ETH/USDT": 40},
+        "net_return": 0.12,
+        "net_expectancy": 0.0015,
+        "profit_factor": 1.35,
+        "per_symbol_profit_factor": {"BTC/USDT": 1.20, "ETH/USDT": 1.10},
+        "positive_windows": 5,
+        "total_windows": 8,
+        "max_drawdown": 0.18,
+        "final_holdout_net_expectancy": 0.001,
+        "cost_stress_1_5x_net_expectancy": 0.0005,
+        "cost_stress_1_5x_profit_factor": 1.05,
+        "one_minute_net_expectancy": 0.0004,
+        "freqtrade_lookahead_passed": True,
+        "freqtrade_recursive_passed": True,
+        "vectorbt_neighborhood_passed": True,
+        "promotion_observations_complete": True,
+        "funding_observed": True,
+        "slippage_observed": True,
+        "trade_attribution_complete": True,
+        "expectancy_lcb": 0.0001,
+    }
+    payload.update(overrides)
+    return ProfitabilityRecoveryMetrics.model_validate(payload)
+
+
+def test_profitability_recovery_gate_accepts_complete_evidence() -> None:
+    result = evaluate_profitability_recovery(_recovery_metrics())
+
+    assert result.eligible is True
+    assert result.failed_requirements == ()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    [
+        ("total_trades", 79, "portfolio_trades_below_80"),
+        ("per_symbol_trades", {"BTC/USDT": 29, "ETH/USDT": 50}, "symbol_trades_below_30:BTC/USDT"),
+        ("profit_factor", 1.19, "profit_factor_below_1_20"),
+        ("max_drawdown", 0.21, "max_drawdown_exceeds_20_percent"),
+        ("cost_stress_1_5x_net_expectancy", 0.0, "cost_stress_1_5x_expectancy_not_positive"),
+        ("one_minute_net_expectancy", -0.001, "one_minute_fidelity_not_positive"),
+        ("vectorbt_neighborhood_passed", False, "vectorbt_neighborhood_not_stable"),
+    ],
+)
+def test_profitability_recovery_gate_rejects_each_hard_requirement(
+    field: str, value: object, reason: str
+) -> None:
+    result = evaluate_profitability_recovery(_recovery_metrics(**{field: value}))
 
     assert result.eligible is False
     assert reason in result.failed_requirements

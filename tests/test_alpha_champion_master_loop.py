@@ -10,8 +10,10 @@ from scripts.run_alpha_champion_master_loop import (
     _generation_two_specs,
     audit_market_data,
     bounded_search_plan,
+    build_dual_gate_report,
     discover_candidate_inventory,
     run_master_loop,
+    tournament_candidate_ids,
 )
 
 
@@ -42,6 +44,24 @@ def test_all_proposal_candidates_are_registered_and_reachable() -> None:
     assert all(records[candidate_id].registered for candidate_id in PROPOSAL_CANDIDATES)
     assert all(records[candidate_id].canonical_replay_reachable for candidate_id in PROPOSAL_CANDIDATES)
     assert all(not records[candidate_id].execution_eligible for candidate_id in PROPOSAL_CANDIDATES)
+
+
+def test_tournament_includes_registry_controls_but_excludes_canary() -> None:
+    candidate_ids = tournament_candidate_ids(discover_candidate_inventory())
+
+    assert "trend_momentum_v1" in candidate_ids
+    assert "trend_breakout_v1" in candidate_ids
+    assert "operator_heuristic_v2_relaxed" in candidate_ids
+    assert "testnet_sampling_v2" not in candidate_ids
+
+
+def test_dual_gate_report_never_claims_final_acceptance_from_one_gate() -> None:
+    report = build_dual_gate_report(
+        execution_chain={"status": "PASS", "evidence": ["natural-proof"]},
+        profitability_recovery={"status": "BLOCKED", "evidence": ["no-champion"]},
+    )
+
+    assert report["overall_status"] == "PENDING"
 
 
 def test_bounded_search_plan_cannot_expand_generation_budget() -> None:

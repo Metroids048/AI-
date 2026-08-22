@@ -13,6 +13,7 @@ import hashlib
 import json
 import sqlite3
 import subprocess
+from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -54,7 +55,13 @@ from services.strategy_library.candidates.volatility_expansion_v1 import (
     evaluate_volatility_expansion,
 )
 from services.strategy_library.proposal_pipeline import RESEARCH_CANDIDATE_VERSIONS, CandidateEvaluator
-from services.validation.strategy_promotion import TrialLedger
+from services.validation.strategy_promotion import (
+    ProfitabilityRecoveryMetrics,
+    TrialLedger,
+    evaluate_profitability_recovery,
+)
+from services.validation.technical_replay import MarketData, TechnicalStrategyValidationService
+from shared.models import OHLCVBar, StrategyContract, StrategyRules, Timeframe
 
 
 class MasterStage(StrEnum):
@@ -96,6 +103,8 @@ CONTROL_CANDIDATES = frozenset(
         "pandas_ta_broad_screen_v1",
     }
 )
+CANARY_CANDIDATES = frozenset({"testnet_sampling_v2"})
+TOURNAMENT_CONTROL_CANDIDATES = CONTROL_CANDIDATES - CANARY_CANDIDATES
 PROPOSAL_CANDIDATES = frozenset(RESEARCH_CANDIDATE_VERSIONS)
 ALL_INVENTORY_IDS = tuple(sorted(CONTROL_CANDIDATES | PROPOSAL_CANDIDATES | set(list_candidates())))
 FINAL_HOLDOUT_START = datetime(2026, 1, 29, tzinfo=UTC)
@@ -278,6 +287,170 @@ def discover_candidate_inventory() -> tuple[CandidateInventoryRecord, ...]:
             )
         )
     return tuple(records)
+
+
+def tournament_candidate_ids(inventory: tuple[CandidateInventoryRecord, ...]) -> tuple[str, ...]:
+    """Return every reachable registry candidate eligible for research competition.
+
+    Canary controls are deliberately excluded: they remain execution-health
+    probes and cannot enter Champion ranking or promotion evidence.
+    """
+
+    return tuple(
+        sorted(
+            item.candidate_id
+            for item in inventory
+            if item.registered
+            and item.canonical_replay_reachable
+            and item.candidate_id not in CANARY_CANDIDATES
+        )
+    )
+
+
+def build_dual_gate_report(
+    *, execution_chain: dict[str, Any], profitability_recovery: dict[str, Any]
+) -> dict[str, Any]:
+    """Combine the two independent acceptance gates without conflating them."""
+
+    execution_status = str(execution_chain.get("status", "BLOCKED")).upper()
+    profitability_status = str(profitability_recovery.get("status", "BLOCKED")).upper()
+    if execution_status == "PASS" and profitability_status == "PASS":
+        overall = "FINAL_ACCEPTANCE_PASS"
+    elif execution_status == "BLOCKED":
+        overall = "BLOCKED"
+    else:
+        overall = "PENDING"
+    return {
+        "execution_chain": execution_chain,
+        "profitability_recovery": profitability_recovery,
+        "overall_status": overall,
+    }
+
+
+def blocked_dual_gate(reason: str) -> dict[str, Any]:
+    """Return an explicit two-gate blocked state for incomplete evidence."""
+
+    return build_dual_gate_report(
+        execution_chain={"status": "BLOCKED", "evidence": [reason]},
+        profitability_recovery={"status": "BLOCKED", "evidence": [reason]},
+    )
+
+
+def _load_technical_market_data(database: Path, *, end_at: datetime) -> MarketData:
+    market_data: MarketData = defaultdict(dict)
+    with sqlite3.connect(f"file:{database.resolve().as_posix()}?mode=ro", uri=True) as connection:
+        rows = connection.execute(
+            """
+            SELECT time, symbol, timeframe, open, high, low, close, volume
+            FROM ohlcv_bars
+            WHERE symbol IN ('BTC/USDT', 'ETH/USDT') AND time < ?
+            ORDER BY symbol, timeframe, time
+            """,
+            (end_at.replace(tzinfo=None).isoformat(sep=" "),),
+        ).fetchall()
+    for raw_time, symbol, timeframe, opened, high, low, close, volume in rows:
+        parsed = datetime.fromisoformat(str(raw_time).replace("Z", "+00:00"))
+        timestamp = parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+        market_data[str(symbol)].setdefault(str(timeframe), []).append(
+            OHLCVBar(
+                symbol=str(symbol),
+                timeframe=Timeframe(str(timeframe)),
+                time=timestamp,
+                open=opened,
+                high=high,
+                low=low,
+                close=close,
+                volume=volume,
+            )
+        )
+    return dict(market_data)
+
+
+def _technical_candidate_result(
+    *, database: Path, candidate_id: str, windows: tuple[proposal_research.ProposalWalkForwardWindow, ...]
+) -> dict[str, Any]:
+    candidate = get_candidate(candidate_id)
+    strategy = StrategyContract(
+        strategy_id=f"master:{candidate_id}",
+        strategy_key=f"master:{candidate_id}",
+        source=candidate.source,
+        core_thesis=candidate.hypothesis,
+        symbol_scope=["BTC/USDT", "ETH/USDT"],
+        timeframe=Timeframe.M15,
+        rules=StrategyRules(**candidate.get_config()),
+    )
+    service = TechnicalStrategyValidationService(warmup_bars=80, walk_forward_windows=3, max_workers=1)
+    data = _load_technical_market_data(database, end_at=max(window.oos_end for window in windows))
+    window_payload: dict[str, Any] = {}
+    all_trades: list[dict[str, Any]] = []
+    symbol_payload: dict[str, Any] = {}
+    for window in windows:
+        symbols_payload: dict[str, Any] = {}
+        for symbol in ("BTC/USDT", "ETH/USDT"):
+            metrics = service.replay(
+                strategy=strategy,
+                market_data={symbol: data.get(symbol, {})},
+                start_at=window.oos_start,
+                end_at=window.oos_end,
+            )
+            trades = [trade.as_dict() for trade in metrics.trades]
+            all_trades.extend(trades)
+            symbols_payload[symbol] = {
+                "total_trades": metrics.total_trades,
+                "net_expectancy": metrics.net_expectancy,
+                "net_return": metrics.net_return,
+                "profit_factor": metrics.profit_factor,
+                "max_drawdown": metrics.max_drawdown,
+                "funding_rate_available": False,
+                "promotion_observations_complete": False,
+                "slippage_observed": bool(metrics.total_slippage_bps),
+                "trade_attribution_complete": bool(metrics.trades),
+                "trades": trades,
+            }
+            symbol_payload[symbol] = symbols_payload[symbol]
+        window_payload[window.window_id] = {"window": window.as_record(), "symbols": symbols_payload}
+    total_trades = len(all_trades)
+    net_return = sum(float(item.get("net_return", 0.0)) for item in all_trades)
+    winners = sum(float(item.get("net_return", 0.0)) for item in all_trades if float(item.get("net_return", 0.0)) > 0)
+    losers = abs(sum(float(item.get("net_return", 0.0)) for item in all_trades if float(item.get("net_return", 0.0)) < 0))
+    per_symbol = {
+        symbol: {
+            "total_trades": sum(int(window["symbols"][symbol]["total_trades"]) for window in window_payload.values()),
+            "profit_factor": min(
+                (float(window["symbols"][symbol]["profit_factor"]) for window in window_payload.values()),
+                default=0.0,
+            ),
+        }
+        for symbol in ("BTC/USDT", "ETH/USDT")
+    }
+    return {
+        "candidate_id": candidate_id,
+        "candidate_metadata": {
+            "source": candidate.source,
+            "version": candidate.version,
+            "research_only": candidate.lifecycle_state == "RESEARCH_ONLY",
+            "execution_eligible": candidate.execution_eligible,
+            "symbols": candidate.market.split(","),
+            "timeframe": candidate.timeframe,
+            "replay_engine": "TechnicalStrategyValidationService",
+        },
+        "symbols": {symbol: {**payload, **per_symbol[symbol]} for symbol, payload in symbol_payload.items()},
+        "portfolio": {
+            "total_trades": total_trades,
+            "net_return": net_return,
+            "net_expectancy": net_return / total_trades if total_trades else 0.0,
+            "profit_factor": winners / losers if losers else (float("inf") if winners else 0.0),
+            "max_drawdown": max(
+                (float(window["symbols"][symbol]["max_drawdown"]) for window in window_payload.values() for symbol in ("BTC/USDT", "ETH/USDT")),
+                default=0.0,
+            ),
+            "funding_rate_available": False,
+            "promotion_observations_complete": False,
+        },
+        "trades": all_trades,
+        "walk_forward_oos": window_payload,
+        "funding_treatment": "not_available_for_technical_replay",
+    }
 
 
 def audit_market_data(database: Path) -> dict[str, Any]:
@@ -939,39 +1112,135 @@ def run_generation_zero(
 
     windows = windows or proposal_research._walk_forward_windows()
     ledger = TrialLedger(output / "trial-ledger.jsonl")
-    runs = proposal_research._build_window_runs(
-        database_path=database,
-        windows=windows,
-        candidate_ids=candidate_ids,
-        data_end=data_end,
+    proposal_ids = tuple(candidate_id for candidate_id in candidate_ids if candidate_id in PROPOSAL_CANDIDATES)
+    control_ids = tuple(candidate_id for candidate_id in candidate_ids if candidate_id in TOURNAMENT_CONTROL_CANDIDATES)
+    runs = (
+        proposal_research._build_window_runs(
+            database_path=database,
+            windows=windows,
+            candidate_ids=proposal_ids,
+            data_end=data_end,
+        )
+        if proposal_ids
+        else ()
     )
+
     results: dict[str, Any] = {}
     for candidate_id in candidate_ids:
-        result = proposal_research._result_for_candidate(
-            candidate_id=candidate_id,
-            window_runs=runs,
-            ledger=ledger,
-            windows=windows,
-            ledger_strategy_id=f"{candidate_id}:research",
-            ledger_parameters={"evaluation_stage": "research", "generation": 0, "variant": "baseline"},
-            ledger_status="generation_0_research_observed",
-        )
+        if candidate_id in proposal_ids:
+            result = proposal_research._result_for_candidate(
+                candidate_id=candidate_id,
+                window_runs=runs,
+                ledger=ledger,
+                windows=windows,
+                ledger_strategy_id=f"{candidate_id}:research",
+                ledger_parameters={"evaluation_stage": "research", "generation": 0, "variant": "baseline"},
+                ledger_status="generation_0_research_observed",
+            )
+        elif candidate_id in control_ids:
+            result = _technical_candidate_result(database=database, candidate_id=candidate_id, windows=windows)
+            ledger.record(
+                trial_id=f"g0:{candidate_id}",
+                strategy_id=candidate_id,
+                parameters={"generation": 0, "variant": "baseline", "metrics": result.get("portfolio", {})},
+                status="observed_technical_control",
+            )
+        else:
+            continue
         metrics = _promotion_metrics(result)
         result["master_metrics"] = metrics
         result["generation"] = 0
-        results[candidate_id] = result
-        ledger.record(
-            trial_id=f"g0:{candidate_id}",
-            strategy_id=candidate_id,
-            parameters={"generation": 0, "variant": "baseline", "metrics": metrics},
-            status="passed_g0_gate" if _candidate_passes(metrics) else "failed_g0_gate",
+        result["cost_stress"] = _observed_cost_stress(result.get("trades", []))
+        result["candidate_metadata"] = result.get("candidate_metadata") or asdict(
+            next(item for item in discover_candidate_inventory() if item.candidate_id == candidate_id)
         )
+        results[candidate_id] = result
+        if candidate_id in proposal_ids:
+            ledger.record(
+                trial_id=f"g0:{candidate_id}",
+                strategy_id=candidate_id,
+                parameters={"generation": 0, "variant": "baseline", "metrics": metrics},
+                status="passed_g0_gate" if _candidate_passes(metrics) else "failed_g0_gate",
+            )
     return {
         "generation": 0,
         "candidate_ids": candidate_ids,
         "results": results,
         "windows": [window.as_record() for window in windows],
     }
+
+
+def _recovery_metrics_for_result(
+    result: dict[str, Any], *, final_holdout: dict[str, Any] | None = None
+) -> ProfitabilityRecoveryMetrics:
+    portfolio = result.get("portfolio", {})
+    symbols = result.get("symbols", {})
+    per_symbol_trades = {
+        symbol: int(payload.get("total_trades", 0))
+        for symbol, payload in symbols.items()
+        if symbol in {"BTC/USDT", "ETH/USDT"}
+    }
+    per_symbol_pf = {
+        symbol: float(payload.get("profit_factor", 0.0))
+        for symbol, payload in symbols.items()
+        if symbol in {"BTC/USDT", "ETH/USDT"}
+    }
+    trades = result.get("trades", [])
+    slippage_observed = bool(trades) and all(
+        "slippage_bps" in trade or "fees_and_impact_bps" in trade for trade in trades
+    )
+    return ProfitabilityRecoveryMetrics(
+        total_trades=int(portfolio.get("total_trades", portfolio.get("trades", 0))),
+        per_symbol_trades=per_symbol_trades,
+        net_return=float(portfolio.get("net_return", 0.0)),
+        net_expectancy=float(portfolio.get("net_expectancy", 0.0)),
+        profit_factor=float(portfolio.get("profit_factor", 0.0)),
+        per_symbol_profit_factor=per_symbol_pf,
+        positive_windows=sum(
+            1
+            for window in result.get("walk_forward_oos", {}).values()
+            if sum(float(item.get("net_expectancy", 0.0)) for item in window.get("symbols", {}).values()) > 0
+        ),
+        # Promotion is defined against the eight-window walk-forward contract;
+        # a shorter replay cannot silently lower the majority threshold.
+        total_windows=8,
+        max_drawdown=float(portfolio.get("max_drawdown", 0.0)),
+        final_holdout_net_expectancy=float((final_holdout or {}).get("net_expectancy", 0.0)),
+        cost_stress_1_5x_net_expectancy=float(result.get("cost_stress", {}).get("1.5x", {}).get("net_expectancy", 0.0)),
+        cost_stress_1_5x_profit_factor=float(result.get("cost_stress", {}).get("1.5x", {}).get("profit_factor", 0.0)),
+        one_minute_net_expectancy=float(result.get("one_minute_fidelity", {}).get("net_expectancy", 0.0)),
+        freqtrade_lookahead_passed=bool(result.get("freqtrade", {}).get("lookahead_analysis_passed", False)),
+        freqtrade_recursive_passed=bool(result.get("freqtrade", {}).get("recursive_analysis_passed", False)),
+        vectorbt_neighborhood_passed=bool(result.get("vectorbt", {}).get("neighborhood_stable", False)),
+        promotion_observations_complete=bool(portfolio.get("promotion_observations_complete", False)),
+        funding_observed=bool(portfolio.get("funding_rate_available", False)),
+        slippage_observed=slippage_observed,
+        trade_attribution_complete=bool(trades),
+        expectancy_lcb=float(result.get("expectancy_lcb", 0.0)),
+    )
+
+
+def _observed_cost_stress(trades: list[dict[str, Any]]) -> dict[str, dict[str, float | int | None]]:
+    """Derive cost multipliers from each trade's observed gross/net delta."""
+
+    scenarios: dict[str, dict[str, float | int | None]] = {}
+    for multiplier in (1.0, 1.25, 1.5, 2.0):
+        returns: list[float] = []
+        for trade in trades:
+            if "gross_return" not in trade or "net_return" not in trade:
+                continue
+            gross = float(trade["gross_return"])
+            net = float(trade["net_return"])
+            returns.append(gross - (gross - net) * multiplier)
+        wins = [value for value in returns if value > 0]
+        losses = abs(sum(value for value in returns if value < 0))
+        scenarios[f"{multiplier:g}x"] = {
+            "trades": len(returns),
+            "net_return": sum(returns),
+            "net_expectancy": sum(returns) / len(returns) if returns else 0.0,
+            "profit_factor": sum(wins) / losses if losses else None,
+        }
+    return scenarios
 
 
 def bounded_search_plan(inventory: tuple[CandidateInventoryRecord, ...]) -> dict[str, Any]:
@@ -1019,6 +1288,7 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
             "status": TerminalStatus.BLOCKED_BASELINE.value,
             "reason": "resume_head_does_not_match_baseline",
             "baseline": baseline,
+            "dual_gate": blocked_dual_gate("resume_baseline_mismatch"),
         }
         _json_write(output / "FINAL_REPORT.json", final)
         return final
@@ -1035,6 +1305,7 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
             "status": TerminalStatus.BLOCKED_BASELINE.value,
             "reason": "candidate_path_unreachable",
             "candidates": unreachable,
+            "dual_gate": blocked_dual_gate("candidate_path_unreachable"),
         }
         _json_write(output / "FINAL_REPORT.json", final)
         return final
@@ -1042,7 +1313,11 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
     data_audit = audit_market_data(database)
     _json_write(output / "DATA_INTEGRITY.json", data_audit)
     if not data_audit["passed"]:
-        final = {"status": TerminalStatus.BLOCKED_DATA_INTEGRITY.value, "data_integrity": data_audit}
+        final = {
+            "status": TerminalStatus.BLOCKED_DATA_INTEGRITY.value,
+            "data_integrity": data_audit,
+            "dual_gate": blocked_dual_gate("data_integrity_failed"),
+        }
         _json_write(output / "FINAL_REPORT.json", final)
         return final
 
@@ -1054,6 +1329,7 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
             "status": TerminalStatus.BLOCKED_DATA_INTEGRITY.value,
             "reason": str(exc),
             "data_integrity": data_audit,
+            "dual_gate": blocked_dual_gate("split_plan_unavailable"),
         }
         _json_write(output / "FINAL_REPORT.json", final)
         return final
@@ -1061,17 +1337,12 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
     plan = bounded_search_plan(inventory)
     plan["split"] = split.as_record()
     _json_write(output / "BOUNDED_SEARCH_PLAN.json", plan)
-    candidate_ids = tuple(
-        sorted(
-            item.candidate_id
-            for item in inventory
-            if item.canonical_replay_reachable and item.candidate_id in PROPOSAL_CANDIDATES
-        )
-    )
+    candidate_ids = tournament_candidate_ids(inventory)
     if not candidate_ids:
         final = {
             "status": TerminalStatus.NO_PROMOTABLE_ALPHA_AFTER_BOUNDED_SEARCH.value,
-            "reason": "no_research_candidates",
+            "reason": "no_tournament_candidates",
+            "dual_gate": blocked_dual_gate("no_tournament_candidates"),
         }
         _json_write(output / "FINAL_REPORT.json", final)
         return final
@@ -1185,14 +1456,16 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
         research_metrics = result["master_metrics"]
         validation_metrics = g1_validation.get(variant["variant_id"], {})
         merged = _merge_selection_metrics(research_metrics, validation_metrics)
-        if _research_passes(research_metrics) and _research_passes(validation_metrics):
+        recovery = evaluate_profitability_recovery(_recovery_metrics_for_result(result))
+        if _research_passes(research_metrics) and _research_passes(validation_metrics) and recovery.eligible:
             champion_candidates.append((variant["variant_id"], merged, variant))
     for result in generation_two["results"].values():
         variant = result["variant"]
         metrics = result["master_metrics"]
         validation_metrics = g2_validation.get(variant["variant_id"], {})
         merged = _merge_selection_metrics(metrics, validation_metrics)
-        if _research_passes(metrics) and _research_passes(validation_metrics):
+        recovery = evaluate_profitability_recovery(_recovery_metrics_for_result(result))
+        if _research_passes(metrics) and _research_passes(validation_metrics) and recovery.eligible:
             champion_candidates.append((variant["variant_id"], merged, variant))
 
     if not champion_candidates:
@@ -1218,6 +1491,34 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
             "bounded_generations": bounded,
             "promotion_attempted": False,
         }
+        best_result = (
+            generation_zero["results"].get(best[0])
+            or generation_one["results"].get(best[0])
+            or generation_two["results"].get(best[0])
+            or {}
+        )
+        recovery_result = evaluate_profitability_recovery(_recovery_metrics_for_result(best_result))
+        _json_write(
+            output / "CHAMPION_PROPOSAL.json",
+            {
+                "status": "PENDING_OPERATOR_APPROVAL",
+                "candidate_id": best[0],
+                "metrics": best[1].get("master_metrics", {}),
+                "profitability_recovery": {
+                    "eligible": recovery_result.eligible,
+                    "failed_requirements": list(recovery_result.failed_requirements),
+                },
+                "canary_candidate_ids": sorted(CANARY_CANDIDATES),
+                "production_authority": "NOT_GRANTED",
+            },
+        )
+        no_alpha_report["dual_gate"] = build_dual_gate_report(
+            execution_chain={"status": "BLOCKED", "evidence": ["no_production_fill_evidence"]},
+            profitability_recovery={
+                "status": "PASS" if recovery_result.eligible else "BLOCKED",
+                "evidence": list(recovery_result.failed_requirements),
+            },
+        )
         _json_write(output / "FINAL_REPORT.json", no_alpha_report)
         write_checkpoint(
             output,
@@ -1245,20 +1546,56 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
         variant=champion_spec,
     )
     final_metrics = final_audit["master_metrics"]
-    if not _research_passes(final_metrics):
+    final_recovery = evaluate_profitability_recovery(
+        _recovery_metrics_for_result(final_audit, final_holdout=final_metrics)
+    )
+    if not _research_passes(final_metrics) or not final_recovery.eligible:
         no_final_audit_report: dict[str, Any] = {
             "status": TerminalStatus.NO_PROMOTABLE_ALPHA_AFTER_BOUNDED_SEARCH.value,
             "reason": "final_audit_failed_after_entry_and_validation_freeze",
             "champion_candidate": champion_id,
             "champion_variant": champion_variant,
             "final_audit": final_audit,
+            "profitability_recovery": {
+                "eligible": final_recovery.eligible,
+                "failed_requirements": list(final_recovery.failed_requirements),
+            },
             "bounded_generations": bounded,
+            "dual_gate": build_dual_gate_report(
+                execution_chain={"status": "BLOCKED", "evidence": ["production_forward_not_verified"]},
+                profitability_recovery={
+                    "status": "PASS" if final_recovery.eligible else "BLOCKED",
+                    "evidence": list(final_recovery.failed_requirements),
+                },
+            ),
         }
         _json_write(output / "FINAL_REPORT.json", no_final_audit_report)
         return no_final_audit_report
 
     candidate = get_candidate(champion_base)
     eligible_symbols = [symbol for symbol in candidate.market.split(",") if symbol in {"BTC/USDT", "ETH/USDT"}]
+    # A passing research candidate is still only a proposal.  Keep operator
+    # approval and Production authority separate from the natural Testnet gate.
+    _json_write(
+        output / "CHAMPION_PROPOSAL.json",
+        {
+            "status": "PENDING_OPERATOR_APPROVAL",
+            "candidate_id": champion_base,
+            "variant_id": champion_id,
+            "version": candidate.version,
+            "eligible_symbols": eligible_symbols,
+            "metrics": champion_metrics,
+            "final_audit": "FINAL_AUDIT.json",
+            "profitability_recovery": {
+                "eligible": final_recovery.eligible,
+                "failed_requirements": list(final_recovery.failed_requirements),
+            },
+            "canary_candidate_ids": sorted(CANARY_CANDIDATES),
+            "production_authority": "NOT_GRANTED",
+            "approved_manifest": None,
+            "config_snapshot": None,
+        },
+    )
     blocked_report: dict[str, Any] = {
         "status": TerminalStatus.BLOCKED_EXTERNAL_NATURAL_MARKET.value,
         "reason": "research_passed_but_natural_testnet_acceptance_requires_existing_scheduler_cycle",
@@ -1288,6 +1625,22 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
             "pending_acceptance_stage": MasterStage.S14_BINANCE_TESTNET_NATURAL_VALIDATION.value,
         },
     }
+    blocked_report["dual_gate"] = build_dual_gate_report(
+        execution_chain={
+            "status": "BLOCKED",
+            "evidence": [
+                "production_natural_entry_fill_not_verified",
+                "protection_reduce_only_reconciliation_not_verified_for_production",
+            ],
+        },
+        profitability_recovery={
+            "status": "PASS",
+            "evidence": [
+                "champion_candidate_passed_oos_validation_holdout_and_cost_gates",
+                "final_holdout_results_accessed_once_after_selection_freeze",
+            ],
+        },
+    )
     _json_write(output / "FINAL_REPORT.json", blocked_report)
     write_checkpoint(
         output,
