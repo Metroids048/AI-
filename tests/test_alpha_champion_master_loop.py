@@ -15,10 +15,14 @@ from scripts.run_alpha_champion_master_loop import (
     TerminalStatus,
     _apply_funding_cost,
     _candidate_passes,
+    _expensive_validation_pending,
     _generation_one_specs,
     _generation_two_specs,
+    _merge_research_validation_result,
     _recovery_metrics_for_result,
     _research_passes,
+    _run_base_validation,
+    _run_expensive_validations,
     audit_market_data,
     bounded_search_plan,
     build_dual_gate_report,
@@ -89,8 +93,10 @@ def test_technical_funding_replay_is_point_in_time_and_explicit_when_missing() -
 
     enriched, observed = _apply_funding_cost(
         trade,
-        ((datetime(2025, 12, 31, 16, tzinfo=UTC), Decimal("0.002")),
-         (datetime(2026, 1, 1, 8, tzinfo=UTC), Decimal("0.001"))),
+        (
+            (datetime(2025, 12, 31, 16, tzinfo=UTC), Decimal("0.002")),
+            (datetime(2026, 1, 1, 8, tzinfo=UTC), Decimal("0.001")),
+        ),
     )
     assert observed is True
     assert enriched["funding_evidence"] == "POINT_IN_TIME_OBSERVED"
@@ -204,11 +210,139 @@ def test_generation_zero_checkpoint_skips_completed_candidate_and_reuses_cache(t
 
     run_generation_zero(database, output, ("operator_heuristic_v1",), windows=(window,))
     assert calls == {"replay": 1, "market": 1, "funding": 1}
+
     partial = json.loads((output / "GENERATION_0_PARTIAL.json").read_text(encoding="utf-8"))
     assert partial["completed_candidate_ids"] == ["operator_heuristic_v1"]
 
     run_generation_zero(database, output, ("operator_heuristic_v1",), windows=(window,))
     assert calls == {"replay": 1, "market": 1, "funding": 1}
+
+
+def test_generation_zero_resume_builds_only_pending_proposals(tmp_path: Path, monkeypatch) -> None:
+    output = tmp_path / "master"
+    database = tmp_path / "market.db"
+    calls: list[tuple[str, ...]] = []
+    window = proposal_research.ProposalWalkForwardWindow(
+        window_id="w0",
+        train_start=datetime(2025, 1, 1, tzinfo=UTC),
+        train_end=datetime(2025, 6, 1, tzinfo=UTC),
+        purge_start=datetime(2025, 6, 1, tzinfo=UTC),
+        purge_end=datetime(2025, 6, 2, tzinfo=UTC),
+        oos_start=datetime(2025, 6, 2, tzinfo=UTC),
+        oos_end=datetime(2025, 7, 1, tzinfo=UTC),
+        embargo_start=datetime(2025, 7, 1, tzinfo=UTC),
+        embargo_end=datetime(2025, 7, 2, tzinfo=UTC),
+    )
+    completed = {
+        "candidate_id": "proposal_a",
+        "portfolio": {"total_trades": 1, "net_return": 1.0, "net_expectancy": 1.0, "profit_factor": 2.0},
+        "symbols": {},
+        "trades": [],
+        "walk_forward_oos": {},
+    }
+    (output / "GENERATION_0_PARTIAL.json").parent.mkdir(parents=True)
+    (output / "GENERATION_0_PARTIAL.json").write_text(
+        json.dumps({"results": {"proposal_a": completed}}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        module := __import__("scripts.run_alpha_champion_master_loop", fromlist=["run_generation_zero"]),
+        "PROPOSAL_CANDIDATES",
+        frozenset({"proposal_a", "proposal_b"}),
+    )
+    monkeypatch.setattr(module, "TOURNAMENT_CONTROL_CANDIDATES", frozenset())
+    records = tuple(
+        CandidateInventoryRecord(
+            candidate_id=item,
+            version="test",
+            family="test",
+            registered=True,
+            evaluator_path="proposal",
+            canonical_replay_reachable=True,
+            research_only=True,
+            execution_eligible=False,
+            symbols=("BTC/USDT", "ETH/USDT"),
+            timeframe="15m",
+            entry_contract="proposal",
+        )
+        for item in ("proposal_a", "proposal_b")
+    )
+    monkeypatch.setattr(module, "discover_candidate_inventory", lambda: records)
+
+    def build(**kwargs):
+        calls.append(tuple(kwargs["candidate_ids"]))
+        return ()
+
+    monkeypatch.setattr(proposal_research, "_build_window_runs", build)
+    monkeypatch.setattr(
+        proposal_research,
+        "_result_for_candidate",
+        lambda **kwargs: completed | {"candidate_id": kwargs["candidate_id"]},
+    )
+    result = module.run_generation_zero(database, output, ("proposal_a", "proposal_b"), windows=(window,), resume=True)
+    assert calls == [("proposal_b",)]
+    assert set(result["results"]) == {"proposal_a", "proposal_b"}
+
+
+def test_validation_dispatches_technical_controls_to_technical_replay(tmp_path: Path, monkeypatch) -> None:
+    module = __import__("scripts.run_alpha_champion_master_loop", fromlist=["_run_base_validation"])
+    window = proposal_research.ProposalWalkForwardWindow(
+        window_id="validation",
+        train_start=datetime(2025, 1, 1, tzinfo=UTC),
+        train_end=datetime(2025, 6, 1, tzinfo=UTC),
+        purge_start=datetime(2025, 6, 1, tzinfo=UTC),
+        purge_end=datetime(2025, 6, 2, tzinfo=UTC),
+        oos_start=datetime(2025, 6, 2, tzinfo=UTC),
+        oos_end=datetime(2025, 7, 1, tzinfo=UTC),
+        embargo_start=datetime(2025, 7, 1, tzinfo=UTC),
+        embargo_end=datetime(2025, 7, 2, tzinfo=UTC),
+    )
+    monkeypatch.setattr(module, "TOURNAMENT_CONTROL_CANDIDATES", frozenset({"trend_momentum_v1"}))
+    monkeypatch.setattr(
+        module,
+        "_technical_candidate_result",
+        lambda **kwargs: {
+            "portfolio": {"total_trades": 80, "net_return": 1.0, "net_expectancy": 0.01, "profit_factor": 1.5},
+            "walk_forward_oos": {},
+        },
+    )
+    monkeypatch.setattr(
+        proposal_research, "_build_window_runs", lambda **kwargs: (_ for _ in ()).throw(AssertionError())
+    )
+    result = _run_base_validation(
+        database=tmp_path / "missing.db",
+        output=tmp_path,
+        candidate_id="trend_momentum_v1",
+        windows=(window,),
+        data_end=window.oos_end,
+    )
+    assert result["evaluation_stage"] == "validation"
+
+
+def test_finalist_evidence_merges_oos_and_records_expensive_validation(tmp_path: Path) -> None:
+    research = {
+        "portfolio": {"total_trades": 2},
+        "symbols": {},
+        "trades": [
+            {"symbol": "BTC/USDT", "gross_return": 0.02, "net_return": 0.01},
+        ],
+        "walk_forward_oos": {"research_1": {"symbols": {}}},
+    }
+    validation = {
+        "portfolio": {"total_trades": 2},
+        "symbols": {},
+        "trades": [
+            {"symbol": "ETH/USDT", "gross_return": 0.01, "net_return": 0.005},
+        ],
+        "walk_forward_oos": {"validation": {"symbols": {}}},
+    }
+    merged = _merge_research_validation_result(research, validation)
+    evidence = _run_expensive_validations(candidate_id="candidate", result=merged, output=tmp_path)
+    metrics = _recovery_metrics_for_result(merged, final_holdout={"net_expectancy": 0.001}, expensive_evidence=evidence)
+    assert metrics.total_trades == 2
+    assert set(merged["walk_forward_oos"]) == {"research_1", "validation"}
+    assert evidence["bootstrap"]["status"] == "COMPLETED"
+    assert (tmp_path / "EXPENSIVE_VALIDATION_candidate.json").is_file()
+    assert _expensive_validation_pending(evidence) is True
 
 
 def test_bounded_search_plan_cannot_expand_generation_budget() -> None:

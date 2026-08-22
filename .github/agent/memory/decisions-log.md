@@ -801,3 +801,15 @@
   and 0.01 exposure; Production/PAPER sizing and Binance hot-path semantics are unchanged.
 - Generation 0 is resumable per candidate through `GENERATION_0_PARTIAL.json`; no long replay
   result is accepted as profitability or Production evidence without natural proof.
+
+# Decision: P0-B wiring before long replay (2026-08-22)
+
+- Keep Research and Validation evaluator semantics identical per candidate lane.
+- Include sealed Generation-0 baselines in finalist selection; do not privilege only
+  generated variants.
+- Run finalist-only evidence orchestration after selection freeze and persist every
+  `COMPLETED`, `NOT_RUN`, or `UNAVAILABLE` status; absent evidence never becomes PASS.
+- Merge Research + Validation OOS metrics before applying the final recovery gate;
+  Final Holdout remains independent and read once.
+- Do not start the formal long replay until this wiring is reviewed. Execution hot path,
+  production sizing, strategy geometry, and Canary contract remain unchanged.

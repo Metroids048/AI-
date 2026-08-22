@@ -1,8 +1,8 @@
 {
   "contract_version": "v2-transaction-freeze-1",
-  "baseline_sha": "d0a0d3c0d999b67d5b8cef68617f268373f094d4",
+  "baseline_sha": "5394737ba274ec305be3481fd2a84d5a1e6df5f5",
   "protected_paths": {
-    "services/automated_trading/application/cycle_service.py": "f6ea0c70c7c856118c2500094827d0b870b770c79934cada69b11f5cf7902956",
+    "services/automated_trading/application/cycle_service.py": "ffc1d06c999d919bf76477ecf16a2e52263c5b081043868c7dd8ba130a616681",
     "services/automated_trading/application/decision_service.py": "cc4042eaa9dc458b414a65c8765079b1a6186707df3ceefc651f1d6113b0f717",
     "services/automated_trading/application/entry_service.py": "c7a388fbef5df8075d2ecc7588def9352d71abb301127c5d83d222a2aaff68f4",
     "services/automated_trading/application/exit_service.py": "fe5a636380dafd7db798310aed0b29d079b135d455b20f5f55fada033376d11c",
@@ -12,7 +12,7 @@
     "services/automated_trading/application/recovery_service.py": "e70fe240669110122f26174e6ddc84b48ea0a7e3bb8fdc6d6cb5588060460ab9",
     "services/automated_trading/infrastructure/binance_adapter.py": "9fd3f8694fb19f728fe5fec248256a36dd5004ce7deb2dd8a4d47addf384c618",
     "services/execution/scheduler.py": "954fe0851967fbde7bedf2053ec2d6198d480a62a071b4fe2e150ac95e22fa88",
-    "services/execution/v2_scheduler_entry.py": "f77b986f419959266d7ae170508dcb39c2511b41808540899656592b2e1635e7"
+    "services/execution/v2_scheduler_entry.py": "ace7eb092f445dcad2d90394887c391d5d8b4a245553a563c3ab9ebab42e7885"
   },
   "approval": {
     "required_environment": "V2_HOTPATH_FIX_APPROVED=1",

@@ -1991,3 +1991,17 @@
   或交易品种。Canary 合同例外固定 50 USDT、单持仓、0.01 exposure。
 - 验证：`ruff check .` PASS；touched-file mypy PASS；全仓 `pytest -q` 为 1825 passed、
   16 skipped、2 warnings；仍无 APPROVED Manifest 或自然 Production 生命周期证据。
+
+# [TASK-2026-08-22-PROFITABILITY-RECOVERY-P0-B]
+
+- 修复五个接线阻塞：technical Research/Validation evaluator dispatch、Generation-0
+  baseline finalist path、Research+Validation 合并后的 Final Promotion 输入、
+  finalist evidence artifact 编排、Generation-0 pending-only resume，以及
+  `FINAL_AUDIT.json` 实际落盘。
+- 同时统一本轮成本压力输出 key 为 `1.0x/1.25x/1.5x/2.0x`，并修复空损失场景
+  `profit_factor=null` 进入恢复模型时的转换错误。
+- focused recovery tests：`17 passed`；Ruff：`All checks passed!`；mypy：`Success:
+  no issues found in 274 source files`。
+- Full pytest initially used the wrong `python` interpreter and showed async-plugin
+  failures. The declared environment `py -3 -m pytest -q` passed with
+  `1828 passed, 16 skipped, 2 warnings`. Formal long replay remains paused until push.

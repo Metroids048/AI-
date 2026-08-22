@@ -1307,6 +1307,23 @@
 - Strategy package remains `authorization_state=PENDING` with empty eligible
   execution symbols; no strategy, risk, leverage, stop/TP, fee, or promotion
   threshold was changed.
+
+## PROFITABILITY RECOVERY P0-B (2026-08-22)
+
+- Technical controls now use `TechnicalStrategyValidationService` for both Research
+  and Validation; proposal candidates continue through the canonical proposal replay.
+- Generation 0 baseline records can enter the same finalist path as later variants;
+  Final Audit dispatches technical controls through the technical evaluator and writes
+  `FINAL_AUDIT.json` before strict recovery evaluation.
+- Final recovery metrics merge frozen Research + Validation trades/windows; Final
+  Holdout contributes only independent holdout expectancy. Finalist-only evidence is
+  persisted under `EXPENSIVE_VALIDATION_*.json`; unavailable candidate-specific engines
+  remain explicit blockers rather than implicit passes.
+- Generation 0 resume computes pending proposal IDs before calling the expensive
+  proposal builder. Cost-stress keys are canonical `1.0x`, `1.25x`, `1.5x`, `2.0x`.
+- Focused recovery tests pass (`17 passed`). The declared `py -3` environment now
+  reports `1828 passed, 16 skipped, 2 warnings`; no long replay or natural Production
+  evidence was run.
 # Runtime Truth + trade lifecycle closeout (2026-08-19)
 
 - Manual baseline now has explicit lifecycle/acknowledgement states and symbol-scoped drift blocking. No rebaseline or live order was performed; current persisted BTC short `0.5346` remains intentionally unchanged while Binance is flat.

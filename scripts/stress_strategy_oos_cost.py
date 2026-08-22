@@ -86,7 +86,11 @@ def stress_observed_cost_multipliers(
             for multiplier in cost_multipliers:
                 if multiplier <= 0:
                     raise ValueError("cost multipliers must be positive")
-                key = f"{multiplier:.1f}x"
+                key = (
+                    f"{multiplier:.1f}x"
+                    if multiplier == multiplier.to_integral()
+                    else f"{multiplier:.2f}".rstrip("0").rstrip(".") + "x"
+                )
                 returns_by_multiplier.setdefault(key, []).append(gross - observed_cost * multiplier)
         for key, returns in returns_by_multiplier.items():
             scenarios[key] = _metrics(returns)
@@ -94,7 +98,10 @@ def stress_observed_cost_multipliers(
     output = {
         "source": str(report_path),
         "cost_basis": "observed_trade_cost_return",
-        "cost_multipliers": [f"{value:.1f}x" for value in cost_multipliers],
+        "cost_multipliers": [
+            (f"{value:.1f}x" if value == value.to_integral() else f"{value:.2f}".rstrip("0").rstrip(".") + "x")
+            for value in cost_multipliers
+        ],
         "scenarios": results,
         "missing_cost_evidence": missing,
     }

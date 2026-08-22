@@ -60,6 +60,7 @@ from services.validation.strategy_promotion import (
     ProfitabilityRecoveryMetrics,
     TrialLedger,
     evaluate_profitability_recovery,
+    stationary_cluster_bootstrap_lcb,
 )
 from services.validation.technical_replay import MarketData, TechnicalStrategyValidationService
 from shared.models import OHLCVBar, StrategyContract, StrategyRules, Timeframe
@@ -90,6 +91,7 @@ class TerminalStatus(StrEnum):
     BLOCKED_DATA_INTEGRITY = "BLOCKED_DATA_INTEGRITY"
     BLOCKED_EXCHANGE_EXTERNAL = "BLOCKED_EXCHANGE_EXTERNAL"
     BLOCKED_EXTERNAL_NATURAL_MARKET = "BLOCKED_EXTERNAL_NATURAL_MARKET"
+    FINALIST_FROZEN_PENDING_EXPENSIVE_VALIDATION = "FINALIST_FROZEN_PENDING_EXPENSIVE_VALIDATION"
     NO_PROMOTABLE_ALPHA_AFTER_BOUNDED_SEARCH = "NO_PROMOTABLE_ALPHA_AFTER_BOUNDED_SEARCH"
 
 
@@ -301,9 +303,7 @@ def tournament_candidate_ids(inventory: tuple[CandidateInventoryRecord, ...]) ->
         sorted(
             item.candidate_id
             for item in inventory
-            if item.registered
-            and item.canonical_replay_reachable
-            and item.candidate_id not in CANARY_CANDIDATES
+            if item.registered and item.canonical_replay_reachable and item.candidate_id not in CANARY_CANDIDATES
         )
     )
 
@@ -367,9 +367,7 @@ def _load_technical_market_data(database: Path, *, end_at: datetime) -> MarketDa
     return dict(market_data)
 
 
-def _load_funding_points(
-    database: Path, *, end_at: datetime
-) -> dict[str, tuple[tuple[datetime, Decimal], ...]]:
+def _load_funding_points(database: Path, *, end_at: datetime) -> dict[str, tuple[tuple[datetime, Decimal], ...]]:
     """Load point-in-time funding observations for the technical replay lane."""
 
     points: dict[str, list[tuple[datetime, Decimal]]] = defaultdict(list)
@@ -446,7 +444,8 @@ def _replay_trade_metrics(trades: list[dict[str, Any]], *, raw_metrics: Any | No
         "net_expectancy": sum(returns) / len(returns) if returns else 0.0,
         "profit_factor": sum(wins) / losses if losses else (float("inf") if wins else 0.0),
         "max_drawdown": max_drawdown,
-        "funding_rate_available": bool(trades) and all(item.get("funding_evidence") == "POINT_IN_TIME_OBSERVED" for item in trades),
+        "funding_rate_available": bool(trades)
+        and all(item.get("funding_evidence") == "POINT_IN_TIME_OBSERVED" for item in trades),
         "promotion_observations_complete": False,
         "slippage_observed": False,
         "trade_attribution_complete": bool(trades),
@@ -492,7 +491,9 @@ def _technical_candidate_result(
     service = TechnicalStrategyValidationService(warmup_bars=80, walk_forward_windows=3, max_workers=1)
     replay_end = max(window.oos_end for window in windows)
     data = market_data if market_data is not None else _load_technical_market_data(database, end_at=replay_end)
-    observed_funding = funding_points if funding_points is not None else _load_funding_points(database, end_at=replay_end)
+    observed_funding = (
+        funding_points if funding_points is not None else _load_funding_points(database, end_at=replay_end)
+    )
     window_payload: dict[str, Any] = {}
     all_trades: list[dict[str, Any]] = []
     symbol_trades: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -866,10 +867,7 @@ def _span_metrics(result: dict[str, Any], window_ids: set[str]) -> dict[str, Any
 def _research_passes(metrics: dict[str, Any]) -> bool:
     """Validation gate after screening; still before holdout/expensive checks."""
 
-    return (
-        _candidate_passes(metrics)
-        and metrics["funding_observed"]
-    )
+    return _candidate_passes(metrics) and metrics["funding_observed"]
 
 
 def _merge_selection_metrics(research: dict[str, Any], validation: dict[str, Any]) -> dict[str, Any]:
@@ -1083,7 +1081,20 @@ def _run_base_validation(
     candidate_id: str,
     windows: tuple[proposal_research.ProposalWalkForwardWindow, ...],
     data_end: datetime,
+    market_data: MarketData | None = None,
+    funding_points: dict[str, tuple[tuple[datetime, Decimal], ...]] | None = None,
 ) -> dict[str, Any]:
+    if candidate_id in TOURNAMENT_CONTROL_CANDIDATES:
+        result = _technical_candidate_result(
+            database=database,
+            candidate_id=candidate_id,
+            windows=windows,
+            market_data=market_data,
+            funding_points=funding_points,
+        )
+        result["evaluation_stage"] = "validation"
+        result["master_metrics"] = _promotion_metrics(result)
+        return result
     ledger = TrialLedger(output / "trial-ledger.jsonl")
     runs = proposal_research._build_window_runs(
         database_path=database,
@@ -1165,6 +1176,17 @@ def run_final_audit(
         embargo_start=final_end,
         embargo_end=final_end,
     )
+    if candidate_id in TOURNAMENT_CONTROL_CANDIDATES:
+        result = _technical_candidate_result(
+            database=database,
+            candidate_id=candidate_id,
+            windows=(window,),
+        )
+        result["evaluation_stage"] = "final_audit"
+        result["final_holdout_results_accessed"] = True
+        result["master_metrics"] = _promotion_metrics(result)
+        return result
+
     ledger = TrialLedger(output / "final-audit-ledger.jsonl")
     runs = proposal_research._build_window_runs(
         database_path=database,
@@ -1194,36 +1216,37 @@ def run_generation_zero(
     *,
     windows: tuple[proposal_research.ProposalWalkForwardWindow, ...] | None = None,
     data_end: datetime = FINAL_HOLDOUT_START,
+    resume: bool = False,
 ) -> dict[str, Any]:
     """Run the existing canonical proposal replay once for the fixed baseline."""
 
     windows = windows or proposal_research._walk_forward_windows()
-    ledger = TrialLedger(output / "trial-ledger.jsonl")
     proposal_ids = tuple(candidate_id for candidate_id in candidate_ids if candidate_id in PROPOSAL_CANDIDATES)
     control_ids = tuple(candidate_id for candidate_id in candidate_ids if candidate_id in TOURNAMENT_CONTROL_CANDIDATES)
+    partial_path = output / "GENERATION_0_PARTIAL.json"
+    partial = _json_read(partial_path) if partial_path.is_file() else {}
+    results: dict[str, Any] = dict(partial.get("results", {}))
+    pending_proposal_ids = tuple(candidate_id for candidate_id in proposal_ids if candidate_id not in results)
+    pending_control_ids = tuple(candidate_id for candidate_id in control_ids if candidate_id not in results)
+    ledger = TrialLedger(output / "trial-ledger.jsonl")
     runs = (
         proposal_research._build_window_runs(
             database_path=database,
             windows=windows,
-            candidate_ids=proposal_ids,
+            candidate_ids=pending_proposal_ids,
             data_end=data_end,
         )
-        if proposal_ids
+        if pending_proposal_ids
         else ()
     )
-
-    partial_path = output / "GENERATION_0_PARTIAL.json"
-    partial = _json_read(partial_path) if partial_path.is_file() else {}
-    results: dict[str, Any] = dict(partial.get("results", {}))
     inventory_by_id = {item.candidate_id: item for item in discover_candidate_inventory()}
-    pending_controls = tuple(candidate_id for candidate_id in control_ids if candidate_id not in results)
     technical_data = (
         _load_technical_market_data(database, end_at=max(window.oos_end for window in windows))
-        if pending_controls
+        if pending_control_ids
         else {}
     )
     funding_points = (
-        _load_funding_points(database, end_at=max(window.oos_end for window in windows)) if pending_controls else {}
+        _load_funding_points(database, end_at=max(window.oos_end for window in windows)) if pending_control_ids else {}
     )
     for candidate_id in candidate_ids:
         if candidate_id in results:
@@ -1286,7 +1309,10 @@ def run_generation_zero(
 
 
 def _recovery_metrics_for_result(
-    result: dict[str, Any], *, final_holdout: dict[str, Any] | None = None
+    result: dict[str, Any],
+    *,
+    final_holdout: dict[str, Any] | None = None,
+    expensive_evidence: dict[str, Any] | None = None,
 ) -> ProfitabilityRecoveryMetrics:
     portfolio = result.get("portfolio", {})
     symbols = result.get("symbols", {})
@@ -1306,6 +1332,10 @@ def _recovery_metrics_for_result(
         slippage_observed = bool(cost_evidence["slippage_observed"])
     else:
         slippage_observed = bool(portfolio.get("slippage_observed", False))
+    evidence = expensive_evidence or result.get("expensive_validation", {})
+    one_minute = evidence.get("one_minute_fidelity", {})
+    freqtrade = evidence.get("freqtrade", {})
+    vectorbt = evidence.get("vectorbt", {})
     return ProfitabilityRecoveryMetrics(
         total_trades=int(portfolio.get("total_trades", portfolio.get("trades", 0))),
         per_symbol_trades=per_symbol_trades,
@@ -1324,16 +1354,112 @@ def _recovery_metrics_for_result(
         max_drawdown=float(portfolio.get("max_drawdown", 0.0)),
         final_holdout_net_expectancy=float((final_holdout or {}).get("net_expectancy", 0.0)),
         cost_stress_1_5x_net_expectancy=float(result.get("cost_stress", {}).get("1.5x", {}).get("net_expectancy", 0.0)),
-        cost_stress_1_5x_profit_factor=float(result.get("cost_stress", {}).get("1.5x", {}).get("profit_factor", 0.0)),
-        one_minute_net_expectancy=float(result.get("one_minute_fidelity", {}).get("net_expectancy", 0.0)),
-        freqtrade_lookahead_passed=bool(result.get("freqtrade", {}).get("lookahead_analysis_passed", False)),
-        freqtrade_recursive_passed=bool(result.get("freqtrade", {}).get("recursive_analysis_passed", False)),
-        vectorbt_neighborhood_passed=bool(result.get("vectorbt", {}).get("neighborhood_stable", False)),
+        cost_stress_1_5x_profit_factor=float(result.get("cost_stress", {}).get("1.5x", {}).get("profit_factor") or 0.0),
+        one_minute_net_expectancy=float(one_minute.get("net_expectancy", 0.0)),
+        freqtrade_lookahead_passed=bool(freqtrade.get("lookahead_analysis_passed", False)),
+        freqtrade_recursive_passed=bool(freqtrade.get("recursive_analysis_passed", False)),
+        vectorbt_neighborhood_passed=bool(vectorbt.get("neighborhood_stable", False)),
         promotion_observations_complete=bool(portfolio.get("promotion_observations_complete", False)),
         funding_observed=bool(portfolio.get("funding_rate_available", False)),
         slippage_observed=slippage_observed,
         trade_attribution_complete=bool(trades),
-        expectancy_lcb=float(result.get("expectancy_lcb", 0.0)),
+        expectancy_lcb=float(evidence.get("expectancy_lcb", result.get("expectancy_lcb", 0.0))),
+    )
+
+
+def _merge_research_validation_result(
+    research_result: dict[str, Any], validation_result: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Freeze research and validation evidence into one post-cost selection record."""
+
+    if not validation_result:
+        return dict(research_result)
+    merged = dict(research_result)
+    research_trades = list(research_result.get("trades", []))
+    validation_trades = list(validation_result.get("trades", []))
+    merged_trades = research_trades + validation_trades
+    merged["trades"] = merged_trades
+    merged["portfolio"] = _replay_trade_metrics(merged_trades)
+    research_portfolio = research_result.get("portfolio", {})
+    validation_portfolio = validation_result.get("portfolio", {})
+    merged["portfolio"]["funding_rate_available"] = bool(
+        research_portfolio.get("funding_rate_available", False)
+        and validation_portfolio.get("funding_rate_available", False)
+    )
+    merged["portfolio"]["promotion_observations_complete"] = bool(
+        research_portfolio.get("promotion_observations_complete", False)
+        and validation_portfolio.get("promotion_observations_complete", False)
+    )
+    merged["portfolio"]["slippage_observed"] = bool(
+        research_portfolio.get("slippage_observed", False) and validation_portfolio.get("slippage_observed", False)
+    )
+    merged["symbols"] = {}
+    for symbol in ("BTC/USDT", "ETH/USDT"):
+        symbol_trades = [trade for trade in merged_trades if trade.get("symbol") == symbol]
+        merged["symbols"][symbol] = _replay_trade_metrics(symbol_trades)
+    merged["walk_forward_oos"] = {
+        **research_result.get("walk_forward_oos", {}),
+        **validation_result.get("walk_forward_oos", {}),
+    }
+    merged["cost_stress"] = _observed_cost_stress(merged_trades)
+    merged["validation_result"] = validation_result
+    merged["master_metrics"] = _promotion_metrics(merged)
+    return merged
+
+
+def _run_expensive_validations(*, candidate_id: str, result: dict[str, Any], output: Path) -> dict[str, Any]:
+    """Run or explicitly account for finalist-only expensive evidence.
+
+    Candidate-specific 1m/Freqtrade/vectorbt adapters require sealed research
+    inputs that are not present in every registry entry.  We persist an
+    explicit NOT_RUN/UNAVAILABLE record instead of treating absent fields as a
+    pass.  Bootstrap LCB is computed from the frozen finalist trades when
+    enough observations exist.
+    """
+
+    returns = tuple(Decimal(str(item.get("net_return", 0.0))) for item in result.get("trades", []))
+    if returns:
+        bootstrap = stationary_cluster_bootstrap_lcb((returns,), n_resamples=200, seed=17)
+        expectancy_lcb = bootstrap.expectancy_lcb
+        bootstrap_evidence: dict[str, Any] = {
+            "status": "COMPLETED",
+            "method": bootstrap.method,
+            "sample_size": bootstrap.sample_size,
+            "expectancy_lcb": expectancy_lcb,
+        }
+    else:
+        expectancy_lcb = 0.0
+        bootstrap_evidence = {"status": "UNAVAILABLE", "reason": "no_finalist_trades"}
+    evidence = {
+        "candidate_id": candidate_id,
+        "one_minute_fidelity": {
+            "status": "NOT_RUN",
+            "reason": "candidate_specific_1m_fidelity_adapter_not_configured",
+            "net_expectancy": 0.0,
+        },
+        "freqtrade": {
+            "status": "NOT_RUN",
+            "reason": "candidate_specific_freqtrade_spec_not_configured",
+            "lookahead_analysis_passed": False,
+            "recursive_analysis_passed": False,
+        },
+        "vectorbt": {
+            "status": "NOT_RUN",
+            "reason": "candidate_specific_vectorbt_spec_not_configured",
+            "neighborhood_stable": False,
+        },
+        "bootstrap": bootstrap_evidence,
+        "expectancy_lcb": expectancy_lcb,
+    }
+    safe_id = candidate_id.replace("/", "_").replace(":", "_")
+    _json_write(output / f"EXPENSIVE_VALIDATION_{safe_id}.json", evidence)
+    return evidence
+
+
+def _expensive_validation_pending(evidence: dict[str, Any]) -> bool:
+    return any(
+        str(evidence.get(engine, {}).get("status", "NOT_RUN")).upper() in {"NOT_RUN", "UNAVAILABLE"}
+        for engine in ("one_minute_fidelity", "freqtrade", "vectorbt")
     )
 
 
@@ -1351,7 +1477,8 @@ def _observed_cost_stress(trades: list[dict[str, Any]]) -> dict[str, dict[str, f
             returns.append(gross - (gross - net) * multiplier)
         wins = [value for value in returns if value > 0]
         losses = abs(sum(value for value in returns if value < 0))
-        scenarios[f"{multiplier:g}x"] = {
+        key = f"{multiplier:.1f}x" if multiplier.is_integer() else f"{multiplier:.2f}".rstrip("0").rstrip(".") + "x"
+        scenarios[key] = {
             "trades": len(returns),
             "net_return": sum(returns),
             "net_expectancy": sum(returns) / len(returns) if returns else 0.0,
@@ -1412,12 +1539,8 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
 
     inventory = discover_candidate_inventory()
     _json_write(output / "CANDIDATE_INVENTORY.json", [asdict(item) for item in inventory])
-    unreachable = [
-        item.candidate_id
-        for item in inventory
-        if item.registered and item.candidate_id in PROPOSAL_CANDIDATES and not item.canonical_replay_reachable
-    ]
-    if unreachable:
+    unreachable = [item.candidate_id for item in inventory if item.registered and not item.canonical_replay_reachable]
+    if unreachable and database.is_file():
         final = {
             "status": TerminalStatus.BLOCKED_BASELINE.value,
             "reason": "candidate_path_unreachable",
@@ -1474,6 +1597,7 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
             candidate_ids,
             windows=research_windows,
             data_end=split.research_end,
+            resume=resume,
         )
     )
     _json_write(output / "GENERATION_0.json", generation_zero)
@@ -1488,6 +1612,15 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
         if _research_passes(result["master_metrics"])
     ]
     validation_windows = _validation_windows(split)
+    validation_controls = tuple(
+        candidate_id for candidate_id in g0_research_qualified if candidate_id in TOURNAMENT_CONTROL_CANDIDATES
+    )
+    validation_market_data = (
+        _load_technical_market_data(database, end_at=split.validation_end) if validation_controls else None
+    )
+    validation_funding_points = (
+        _load_funding_points(database, end_at=split.validation_end) if validation_controls else None
+    )
     validation_results = {
         candidate_id: _run_base_validation(
             database=database,
@@ -1495,6 +1628,8 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
             candidate_id=candidate_id,
             windows=validation_windows,
             data_end=split.validation_end,
+            market_data=validation_market_data,
+            funding_points=validation_funding_points,
         )
         for candidate_id in g0_research_qualified
     }
@@ -1523,6 +1658,7 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
         result for result in g1_ranked if _research_passes(result["master_metrics"])
     ] or g1_ranked[:2]
     g1_validation: dict[str, Any] = {}
+    g1_validation_results: dict[str, Any] = {}
     for result in g1_validation_candidates:
         spec = VariantSpec(**result["variant"])
         validated = _run_variant(
@@ -1534,6 +1670,7 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
             ledger=TrialLedger(output / "trial-ledger.jsonl"),
             ledger_label="validation",
         )
+        g1_validation_results[spec.variant_id] = validated
         g1_validation[spec.variant_id] = validated["master_metrics"]
     _json_write(output / "GENERATION_1_VALIDATION.json", g1_validation)
 
@@ -1546,6 +1683,7 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
     )
     _json_write(output / "GENERATION_2.json", generation_two)
     g2_validation: dict[str, Any] = {}
+    g2_validation_results: dict[str, Any] = {}
     for result in generation_two["results"].values():
         spec = VariantSpec(**result["variant"])
         validated = _run_variant(
@@ -1557,6 +1695,7 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
             ledger=TrialLedger(output / "trial-ledger.jsonl"),
             ledger_label="validation",
         )
+        g2_validation_results[spec.variant_id] = validated
         g2_validation[spec.variant_id] = validated["master_metrics"]
     _json_write(output / "GENERATION_2_VALIDATION.json", g2_validation)
 
@@ -1568,6 +1707,32 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
     _json_write(output / "BOUNDED_GENERATIONS.json", bounded)
 
     finalist_candidates: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+    for candidate_id in g0_research_qualified:
+        research_result = generation_zero["results"].get(candidate_id)
+        validation_result = validation_results.get(candidate_id)
+        if not research_result or not validation_result:
+            continue
+        research_metrics = research_result["master_metrics"]
+        validation_metrics = validation_result["master_metrics"]
+        if not (_research_passes(research_metrics) and _research_passes(validation_metrics)):
+            continue
+        candidate = get_candidate(candidate_id)
+        baseline_variant = {
+            "variant_id": f"{candidate_id}@g0:baseline",
+            "parent_candidate": candidate_id,
+            "family": _family(candidate_id),
+            "generation": 0,
+            "hypothesis": "sealed generation-0 baseline",
+            "parameters": candidate.get_config(),
+            "changed_parameters": (),
+        }
+        finalist_candidates.append(
+            (
+                baseline_variant["variant_id"],
+                _merge_selection_metrics(research_metrics, validation_metrics),
+                baseline_variant,
+            )
+        )
     for result in g1_validation_candidates:
         variant = result["variant"]
         research_metrics = result["master_metrics"]
@@ -1616,7 +1781,7 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
         _json_write(
             output / "CHAMPION_PROPOSAL.json",
             {
-                "status": "PENDING_OPERATOR_APPROVAL",
+                "status": TerminalStatus.NO_PROMOTABLE_ALPHA_AFTER_BOUNDED_SEARCH.value,
                 "candidate_id": best[0],
                 "metrics": best[1].get("master_metrics", {}),
                 "profitability_recovery": {
@@ -1653,6 +1818,70 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
     )
     champion_base = str(champion_variant["parent_candidate"])
     champion_spec = VariantSpec(**champion_variant)
+    champion_research_result = generation_zero["results"].get(champion_base)
+    champion_validation_result = validation_results.get(champion_base)
+    if champion_research_result is None:
+        champion_research_result = generation_one["results"].get(champion_id)
+        champion_validation_result = g1_validation_results.get(champion_id)
+    if champion_research_result is None:
+        champion_research_result = generation_two["results"].get(champion_id)
+        champion_validation_result = g2_validation_results.get(champion_id)
+    if champion_research_result is None:
+        raise RuntimeError(f"finalist result missing for {champion_id}")
+    merged_champion_result = _merge_research_validation_result(champion_research_result, champion_validation_result)
+    expensive_evidence = _run_expensive_validations(
+        candidate_id=champion_id,
+        result=merged_champion_result,
+        output=output,
+    )
+    merged_champion_result["expensive_validation"] = expensive_evidence
+    if _expensive_validation_pending(expensive_evidence):
+        pending_report: dict[str, Any] = {
+            "status": TerminalStatus.FINALIST_FROZEN_PENDING_EXPENSIVE_VALIDATION.value,
+            "reason": "candidate_specific_expensive_validation_spec_required",
+            "finalist": {
+                "strategy_id": champion_base,
+                "variant_id": champion_id,
+                "variant": champion_variant,
+                "metrics": champion_metrics,
+            },
+            "expensive_validation": expensive_evidence,
+            "final_holdout_results_accessed": False,
+            "production_authority": "NOT_GRANTED",
+            "dual_gate": build_dual_gate_report(
+                execution_chain={"status": "BLOCKED", "evidence": ["production_forward_not_verified"]},
+                profitability_recovery={
+                    "status": "PENDING",
+                    "evidence": [
+                        "finalist_frozen",
+                        "expensive_validation_spec_required",
+                        "final_holdout_locked",
+                    ],
+                },
+            ),
+        }
+        _json_write(output / "FINALIST_FROZEN.json", pending_report)
+        _json_write(output / "FINAL_REPORT.json", pending_report)
+        write_checkpoint(
+            output,
+            MasterCheckpoint(
+                schema_version=2,
+                stage=MasterStage.S9_FINAL_UNTOUCHED_AUDIT.value,
+                status=str(pending_report["status"]),
+                generated_at=_now().isoformat(),
+                baseline=baseline,
+                candidate_id=champion_base,
+                candidate_version=get_candidate(champion_base).version,
+                pending_acceptance_stage=MasterStage.S9_FINAL_UNTOUCHED_AUDIT.value,
+                evidence={
+                    "final_report": "FINAL_REPORT.json",
+                    "finalist_frozen": "FINALIST_FROZEN.json",
+                    "expensive_validation": f"EXPENSIVE_VALIDATION_{champion_id.replace('/', '_').replace(':', '_')}.json",
+                },
+            ),
+        )
+        return pending_report
+
     final_audit = run_final_audit(
         database,
         output,
@@ -1660,11 +1889,16 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
         split=split,
         variant=champion_spec,
     )
+    _json_write(output / "FINAL_AUDIT.json", final_audit)
     final_metrics = final_audit["master_metrics"]
     final_recovery = evaluate_profitability_recovery(
-        _recovery_metrics_for_result(final_audit, final_holdout=final_metrics)
+        _recovery_metrics_for_result(
+            merged_champion_result,
+            final_holdout=final_metrics,
+            expensive_evidence=expensive_evidence,
+        )
     )
-    if not _research_passes(final_metrics) or not final_recovery.eligible:
+    if not final_recovery.eligible:
         no_final_audit_report: dict[str, Any] = {
             "status": TerminalStatus.NO_PROMOTABLE_ALPHA_AFTER_BOUNDED_SEARCH.value,
             "reason": "final_audit_failed_after_entry_and_validation_freeze",
@@ -1749,10 +1983,11 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
             ],
         },
         profitability_recovery={
-            "status": "PASS",
+            "status": "PENDING",
             "evidence": [
-                "champion_candidate_passed_oos_validation_holdout_and_cost_gates",
+                "research_and_validation_evidence_frozen",
                 "final_holdout_results_accessed_once_after_selection_freeze",
+                "production_forward_evidence_required_before_profitability_recovery_pass",
             ],
         },
     )
@@ -1788,6 +2023,7 @@ def main() -> int:
         if result["status"]
         in {
             TerminalStatus.ALPHA_CHAMPION_TESTNET_CLOSED_LOOP_VALIDATED.value,
+            TerminalStatus.FINALIST_FROZEN_PENDING_EXPENSIVE_VALIDATION.value,
             TerminalStatus.NO_PROMOTABLE_ALPHA_AFTER_BOUNDED_SEARCH.value,
             TerminalStatus.BLOCKED_EXTERNAL_NATURAL_MARKET.value,
         }
