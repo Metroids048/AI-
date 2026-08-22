@@ -1961,3 +1961,8 @@
   2 deselected, 2 warnings`; Ruff and configured mypy passed. A restarted natural Testnet
   cycle was healthy but had no candidate, so runtime `r2_cost_gate.funding_R` evidence
   remains pending rather than being inferred from tests.
+# 2026-08-22 F-103/F-104 closeout
+
+- Red tests cover funding direction, raw/effective funnel evidence, fresh/stale/missing/future timestamps, Production fail-closed, and Canary diagnostic semantics.
+- Focused V2 tests: 43 passed. Full non-integration suite: 1809 passed, 14 skipped, 2 deselected.
+- Commit A: `d0a0d3c0d999b67d5b8cef68617f268373f094d4`.

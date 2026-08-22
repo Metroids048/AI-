@@ -1283,3 +1283,10 @@
 - Runtime `/snapshot`, `/positions`, `/reconciliation`, and `/no-trade-summary` share one ownership-aware projection ID. Canonical reconciliation is fail-closed for missing V2 order/fill identity; projection fingerprints include order/fill/protection identities and scheduler publishes baseline lifecycle/drift metadata.
 - Read-only lifecycle forensics report: `.local/trade-lifecycle-forensics.json` / `.local/trade-lifecycle-forensics.md`; current 30-row cohort does not contain the requested ETH/SOL exact episodes.
 - Gates: Runtime Deployment BLOCKED; Strategy Analysis READY; Strategy Deployment BLOCKED. No stop, sizing, leverage, fee, or promotion threshold changed.
+# 2026-08-22 bounded engineering closeout
+
+- F-103/F-104 implemented in Commit A `d0a0d3c0d999b67d5b8cef68617f268373f094d4`.
+- Binance mark-price `@1s` WS is the current funding producer; `market_extras` is canonical storage.
+- Funding is side-aware (`LONG=raw`, `SHORT=-raw`) and freshness-aware (`15s` tolerance).
+- Production missing/stale funding blocks; Testnet Canary remains diagnostic; management-only cycles do not load funding.
+- Commit B updates the transaction contract baseline/hashes and must prove no-approval verification.
