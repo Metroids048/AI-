@@ -398,3 +398,24 @@ class TestE010ProfileResolution:
 
         assert unchanged.canary_contract_applied is False
         assert unchanged.max_leverage == base.max_leverage
+
+    def test_canary_contract_requires_each_exact_scope_condition(self):
+        """The fixed contract must remain bound to all four scope dimensions."""
+        base = resolve_v2_execution_settings("BTC/USDT", {"max_leverage": 20, "max_symbol_exposure": 0.4})
+        cases = (
+            {"execution_mode": "BINANCE_TESTNET_SIMULATION"},
+            {"entry_authority": "PRODUCTION"},
+            {"symbol": "DOGE/USDT"},
+            {"candidate_lane": "PRODUCTION"},
+        )
+        for mismatch in cases:
+            args = {
+                "symbol": "BTC/USDT",
+                "execution_mode": "BINANCE_TESTNET",
+                "entry_authority": "TESTNET_CANARY",
+                "candidate_lane": "TESTNET_SAMPLING",
+            }
+            args.update(mismatch)
+            settings = apply_testnet_canary_runtime_contract(base, **args)
+            assert settings.canary_contract_applied is False, mismatch
+            assert settings.max_leverage == base.max_leverage, mismatch

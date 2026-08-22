@@ -21,6 +21,25 @@ def test_r1_cost_gate_uses_target_relative_net_payoff() -> None:
     assert result.reason == "OK"
 
 
+def test_r2_funding_cost_can_flip_a_borderline_trade() -> None:
+    without_funding = calculate_cost_gate(
+        entry_price=Decimal("65000"),
+        stop_distance=Decimal("650"),
+        take_profit_distance=Decimal("975"),
+        funding_bps=Decimal("0"),
+    )
+    with_funding = calculate_cost_gate(
+        entry_price=Decimal("65000"),
+        stop_distance=Decimal("650"),
+        take_profit_distance=Decimal("975"),
+        funding_bps=Decimal("5"),
+    )
+
+    assert without_funding.passed is True
+    assert with_funding.passed is False
+    assert with_funding.funding_r > 0
+
+
 def test_p1_is_symmetric_and_only_tightens() -> None:
     long = p1_profit_protection(
         direction="long",

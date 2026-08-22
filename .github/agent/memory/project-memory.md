@@ -20,7 +20,8 @@
 - VERIFIED: `一键启动.cmd` 实测返回 `SUCCESS / STARTUP_READY`，状态为
   `ACTIVE/BINANCE_TESTNET/TESTNET_CANARY`，入口已启用且已授权，对账为 `HEALTHY`。
 - VERIFIED: `RuntimeScheduler` 现在发布 per-job `critical_jobs`；
-  `automated_trading_v2_cycle` 由 supervisor 管理，异常退出按 5s/15s/30s backoff，
+  `automated_trading_v2_cycle` 由 supervisor 管理，异常退出按 5s/15s bounded restart
+  backoff；第 3 次连续失败进入 `AUTO_RECOVERY_EXHAUSTED`，
   恢复前检查 active execution intent、`EXCHANGE_UNKNOWN` 和最新 reconciliation，
   不安全时保持 `ENTRY_PAUSED`，正常 shutdown 不重启。
 - VERIFIED: 2026-08-21 15:15 与 15:30 UTC BTC/ETH 新闭合柱均生成 V2 decision；

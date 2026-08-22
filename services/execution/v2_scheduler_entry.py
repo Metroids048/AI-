@@ -53,6 +53,7 @@ from services.automated_trading.infrastructure.runtime_lock import (
     resolve_engine_activation,
 )
 from services.data.binance_clock import BinanceClockUnavailable, fetch_binance_server_time
+from services.data.repository import DataRepository
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.database import get_session_factory
 from services.execution.natural_testnet_mode import natural_testnet_mode_requested
@@ -112,6 +113,19 @@ def _managed_symbols_requiring_recovery(*, execution_mode: V2ExecutionMode) -> t
             )
         )
         return tuple(sorted({str(symbol) for symbol in rows}))
+
+
+def _load_latest_funding_bps(*, symbol: str) -> Decimal | None:
+    """Read the latest persisted funding rate for the V2 cost gate."""
+    try:
+        with get_session_factory()() as session:
+            latest = DataRepository(session).get_latest_market_extras(symbol=symbol)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("funding rate unavailable for %s: %s", symbol, exc)
+        return None
+    if latest is None or latest.funding_rate is None:
+        return None
+    return latest.funding_rate * Decimal("10000")
 
 
 def _load_v2_entry_timeframe(
@@ -979,6 +993,7 @@ def _execute_v2_automated_trading_cycles(
                 },
                 ai_review_budget_seconds=settings.v2_ai_review_budget_seconds,
                 r2_cost_gate_enabled=True,
+                funding_bps=None if management_only else _load_latest_funding_bps(symbol=symbol),
             )
             try:
                 result = run_automated_trading_cycle(request, adapter)

@@ -3,7 +3,8 @@
 ## [TASK-2026-08-21-LIVENESS-RECOVERY-FINALIZE]
 
 - Commit A `ceaf46b2e7cfd3166303b897ad2bff66e9a1574b` 完成 Scheduler V2 liveness、
-  durable entry hold、management-only recovery、5/15/30s backoff 与 worker process recycle。
+  durable entry hold、management-only recovery、5s/15s bounded restart backoff 与 worker
+  process recycle；第 3 次连续失败进入 `AUTO_RECOVERY_EXHAUSTED`。
 - Added tests for unsafe crash continuity, manual-vs-system hold clearing, dynamic state path,
   stalled critical task detection and current-HEAD transaction drift.
 - Transaction contract baseline now points to Commit A protected-path hashes；Commit B 只包含

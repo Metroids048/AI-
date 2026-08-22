@@ -170,6 +170,10 @@ class CycleRequest:
     # keeps drift attributable to the market instead of to a dead provider.
     ai_review_budget_seconds: float = 1.5
     r2_cost_gate_enabled: bool = False
+    # Loaded once by the scheduler from the latest persisted market extras.
+    # None is intentionally distinct from zero: missing funding data must not
+    # silently make the cost gate look cheaper.
+    funding_bps: Decimal | None = None
 
     @property
     def reconcile_existing_positions(self) -> bool:
@@ -2346,31 +2350,58 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         )
         return result
 
-    cost_gate = calculate_cost_gate(
-        entry_price=snapshot_market.current_price,
-        stop_distance=candidate.stop_distance,
-        take_profit_distance=candidate.take_profit_distance,
-    )
     r2_policy = _resolve_r2_cost_gate_policy(request, candidate)
-    result.funnel_payload["r2_cost_gate"] = {
-        "cost_R": str(cost_gate.cost_r),
-        "theoretical_net_payoff": str(cost_gate.theoretical_net_payoff),
-        "planned_target_R": str(cost_gate.planned_target_r),
-        "commission_R": str(cost_gate.commission_r),
-        "funding_R": str(cost_gate.funding_r),
-        "slippage_R": str(cost_gate.slippage_r),
-        "minimum_theoretical_net_payoff": "1.15",
-        "status": "PASS" if cost_gate.passed else "REJECT",
-        "policy": r2_policy.value,
-        "would_block": not cost_gate.passed,
-        "enforced": r2_policy is R2CostGatePolicy.BLOCKING,
-    }
-    if r2_policy is R2CostGatePolicy.BLOCKING:
-        entry_runtime = replace(
-            entry_runtime,
-            theoretical_net_payoff=cost_gate.theoretical_net_payoff,
-            cost_r=cost_gate.cost_r,
+    if request.funding_bps is None:
+        result.funnel_payload["r2_cost_gate"] = {
+            "cost_R": None,
+            "theoretical_net_payoff": None,
+            "planned_target_R": None,
+            "commission_R": None,
+            "funding_R": None,
+            "slippage_R": None,
+            "funding_bps": None,
+            "minimum_theoretical_net_payoff": "1.15",
+            "status": "UNAVAILABLE",
+            "reason": "FUNDING_RATE_UNAVAILABLE",
+            "policy": r2_policy.value,
+            "would_block": True,
+            "enforced": r2_policy is R2CostGatePolicy.BLOCKING,
+        }
+        if r2_policy is R2CostGatePolicy.BLOCKING:
+            _append_funnel_stage(
+                result.funnel_payload,
+                stage="PRICE_DRIFT_APPROVED",
+                outcome="REJECTED",
+                reason_code="FUNDING_RATE_UNAVAILABLE",
+            )
+            return result
+    else:
+        cost_gate = calculate_cost_gate(
+            entry_price=snapshot_market.current_price,
+            stop_distance=candidate.stop_distance,
+            take_profit_distance=candidate.take_profit_distance,
+            funding_bps=request.funding_bps,
         )
+        result.funnel_payload["r2_cost_gate"] = {
+            "cost_R": str(cost_gate.cost_r),
+            "theoretical_net_payoff": str(cost_gate.theoretical_net_payoff),
+            "planned_target_R": str(cost_gate.planned_target_r),
+            "commission_R": str(cost_gate.commission_r),
+            "funding_R": str(cost_gate.funding_r),
+            "slippage_R": str(cost_gate.slippage_r),
+            "funding_bps": str(request.funding_bps),
+            "minimum_theoretical_net_payoff": "1.15",
+            "status": "PASS" if cost_gate.passed else "REJECT",
+            "policy": r2_policy.value,
+            "would_block": not cost_gate.passed,
+            "enforced": r2_policy is R2CostGatePolicy.BLOCKING,
+        }
+        if r2_policy is R2CostGatePolicy.BLOCKING:
+            entry_runtime = replace(
+                entry_runtime,
+                theoretical_net_payoff=cost_gate.theoretical_net_payoff,
+                cost_r=cost_gate.cost_r,
+            )
 
     gate = evaluate_entry(candidate, entry_runtime, snapshot_market)
     if not gate.approved:

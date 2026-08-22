@@ -174,6 +174,7 @@ def build_request(**overrides) -> CycleRequest:
         "fencing_token": "btcusdt@BINANCE_TESTNET@default@20260728@abc12345",
         "now": CYCLE_NOW,
         "sampling_fallback_enabled": True,
+        "funding_bps": Decimal("0"),
     }
     defaults.update(overrides)
     return CycleRequest(**defaults)
@@ -279,6 +280,83 @@ def test_r2_cost_gate_still_blocks_an_authorized_production_candidate() -> None:
     assert r2_gate["policy"] == "BLOCKING"
     assert r2_gate["would_block"] is True
     assert r2_gate["enforced"] is True
+
+
+def test_r2_cost_gate_missing_funding_is_fail_closed_for_production() -> None:
+    adapter = build_adapter_with_successful_cycle()
+    candidate = TradeCandidate(
+        candidate_id="production-missing-funding",
+        cycle_id="production-missing-funding-cycle",
+        strategy_id="production-r2-strategy",
+        strategy_version="1.0.0",
+        lane=CandidateLane.PRODUCTION,
+        candidate_type=V2CandidateType.PRIMARY,
+        symbol="BTC/USDT",
+        side="LONG",
+        signal_candle_close_time=LAST_BAR_TS,
+        signal_reference_price=Decimal("101"),
+        confidence=Decimal("0.8"),
+        stop_distance=Decimal("0.3535"),
+        take_profit_distance=Decimal("0.53025"),
+        max_entry_drift_bps=Decimal("20"),
+        expires_at=CYCLE_NOW + timedelta(seconds=65),
+        non_promotable=False,
+    )
+    result = run_automated_trading_cycle(
+        build_request(
+            entry_authority=EntryAuthority.PRODUCTION,
+            production_authorized=True,
+            production_candidate=candidate,
+            r2_cost_gate_enabled=True,
+            funding_bps=None,
+        ),
+        adapter,
+    )
+
+    adapter.submit_market_order.assert_not_called()
+    assert result.funnel_payload["reason_code"] == "FUNDING_RATE_UNAVAILABLE"
+    r2_gate = result.funnel_payload["r2_cost_gate"]
+    assert r2_gate["status"] == "UNAVAILABLE"
+    assert r2_gate["funding_R"] is None
+    assert r2_gate["would_block"] is True
+
+
+def test_r2_cost_gate_uses_real_funding_and_can_flip_edge() -> None:
+    adapter = build_adapter_with_successful_cycle()
+    candidate = TradeCandidate(
+        candidate_id="production-funding-edge",
+        cycle_id="production-funding-edge-cycle",
+        strategy_id="production-r2-strategy",
+        strategy_version="1.0.0",
+        lane=CandidateLane.PRODUCTION,
+        candidate_type=V2CandidateType.PRIMARY,
+        symbol="BTC/USDT",
+        side="LONG",
+        signal_candle_close_time=LAST_BAR_TS,
+        signal_reference_price=Decimal("65000"),
+        confidence=Decimal("0.8"),
+        stop_distance=Decimal("650"),
+        take_profit_distance=Decimal("975"),
+        max_entry_drift_bps=Decimal("20"),
+        expires_at=CYCLE_NOW + timedelta(seconds=65),
+        non_promotable=False,
+    )
+    adapter.fetch_market_snapshot.return_value.current_price = Decimal("65000")
+    result = run_automated_trading_cycle(
+        build_request(
+            entry_authority=EntryAuthority.PRODUCTION,
+            production_authorized=True,
+            production_candidate=candidate,
+            r2_cost_gate_enabled=True,
+            funding_bps=Decimal("5"),
+        ),
+        adapter,
+    )
+
+    assert result.funnel_payload["r2_cost_gate"]["funding_bps"] == "5"
+    assert Decimal(result.funnel_payload["r2_cost_gate"]["funding_R"]) > 0
+    assert result.funnel_payload["r2_cost_gate"]["status"] == "REJECT"
+    assert result.funnel_payload["reason_code"] == "NO_TRADE_COST_INEFFICIENT"
 
 
 def test_testnet_canary_rejects_opposite_unmanaged_external_baseline(monkeypatch) -> None:
