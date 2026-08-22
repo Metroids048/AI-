@@ -1603,7 +1603,21 @@ def bounded_search_plan(inventory: tuple[CandidateInventoryRecord, ...]) -> dict
 def _stage_leaderboard_metrics(result: dict[str, Any] | None) -> dict[str, Any]:
     """Normalize one research/validation result for the combined evidence table."""
 
-    result = result or {}
+    if not result:
+        return {
+            "btc_trades": 0,
+            "eth_trades": 0,
+            "trades": 0,
+            "profit_factor": 0.0,
+            "net_expectancy": 0.0,
+            "net_return": 0.0,
+            "max_drawdown": 0.0,
+            "positive_windows": 0,
+            "cost_stress_1_5x_net_expectancy": 0.0,
+            "cost_stress_1_5x_profit_factor": 0.0,
+            "funding_observed": False,
+            "pass": False,
+        }
     metrics = dict(result.get("master_metrics", {}))
     symbols = result.get("symbols", {})
     metrics.setdefault("funding_observed", bool(result.get("portfolio", {}).get("funding_rate_available", False)))

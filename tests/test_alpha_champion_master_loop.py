@@ -748,6 +748,36 @@ def test_research_validation_leaderboard_exposes_both_stages() -> None:
     assert entries[0]["combined"]["finalist_eligible"] is False
 
 
+def test_research_validation_leaderboard_marks_missing_validation_as_not_run() -> None:
+    research = {
+        "master_metrics": {
+            "trades": 80,
+            "profit_factor": 1.1,
+            "net_expectancy": 0.01,
+            "net_return": 0.8,
+            "positive_windows": 5,
+            "funding_observed": True,
+        },
+        "portfolio": {"funding_rate_available": True},
+    }
+    entries = _build_research_validation_leaderboard(
+        [
+            {
+                "candidate_id": "candidate",
+                "variant_id": "candidate@g0:baseline",
+                "generation": 0,
+                "family": "test",
+                "research": research,
+                "validation": None,
+            }
+        ]
+    )
+
+    assert entries[0]["research_status"] == "PASS"
+    assert entries[0]["validation_status"] == "NOT_RUN"
+    assert entries[0]["combined"]["finalist_eligible"] is False
+
+
 def test_data_audit_rejects_missing_spacing_and_alignment(tmp_path: Path) -> None:
     database = tmp_path / "market.db"
     _database(database)
