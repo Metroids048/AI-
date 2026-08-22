@@ -14,16 +14,21 @@ from scripts.run_alpha_champion_master_loop import (
     CandidateInventoryRecord,
     TerminalStatus,
     TournamentDisposition,
+    VariantSpec,
     _apply_funding_cost,
+    _bounded_search_execution,
+    _build_research_validation_leaderboard,
     _candidate_passes,
     _expensive_validation_pending,
     _generation_one_specs,
     _generation_two_specs,
     _merge_research_validation_result,
+    _no_alpha_allowed,
     _recovery_metrics_for_result,
     _research_passes,
     _run_base_validation,
     _run_expensive_validations,
+    _search_surface_exhausted,
     audit_market_data,
     bounded_search_plan,
     build_dual_gate_report,
@@ -33,6 +38,20 @@ from scripts.run_alpha_champion_master_loop import (
     tournament_candidate_ids,
     unclassified_unreachable_candidates,
 )
+
+
+def _split() -> proposal_research.ProposalWalkForwardWindow:
+    return proposal_research.ProposalWalkForwardWindow(
+        window_id="w0",
+        train_start=datetime(2025, 1, 1, tzinfo=UTC),
+        train_end=datetime(2025, 6, 1, tzinfo=UTC),
+        purge_start=datetime(2025, 6, 1, tzinfo=UTC),
+        purge_end=datetime(2025, 6, 2, tzinfo=UTC),
+        oos_start=datetime(2025, 6, 2, tzinfo=UTC),
+        oos_end=datetime(2025, 7, 1, tzinfo=UTC),
+        embargo_start=datetime(2025, 7, 1, tzinfo=UTC),
+        embargo_end=datetime(2025, 7, 2, tzinfo=UTC),
+    )
 
 
 def _database(path: Path) -> None:
@@ -469,6 +488,264 @@ def test_generation_two_is_hard_capped_at_two_single_changes() -> None:
 
     assert len(specs) == 2
     assert all(spec.generation == 2 and len(spec.changed_parameters) == 1 for spec in specs)
+
+
+def test_generation_one_executes_full_declared_ofat_surface(tmp_path: Path, monkeypatch) -> None:
+    module = __import__("scripts.run_alpha_champion_master_loop", fromlist=["run_generation_one"])
+    parent = "volatility_expansion_v1"
+    specs = tuple(
+        VariantSpec(
+            variant_id=f"{parent}@g1:{index}",
+            parent_candidate=parent,
+            family="breakout",
+            generation=1,
+            hypothesis="bounded",
+            parameters={("compression_ratio" if index < 2 else "breakout_body_atr"): 0.7 + index / 10},
+            changed_parameters=(("compression_ratio",) if index < 2 else ("breakout_body_atr",)),
+        )
+        for index in range(4)
+    )
+    monkeypatch.setattr(module, "_generation_one_specs", lambda candidate_id: specs)
+    monkeypatch.setattr(module, "_research_windows", lambda split: ())
+    calls: list[str] = []
+
+    def fake_run_variant(**kwargs):
+        spec = kwargs["spec"]
+        calls.append(spec.variant_id)
+        return {"variant": spec.as_record(), "master_metrics": {"net_expectancy": 0.01}}
+
+    monkeypatch.setattr(module, "_run_variant", fake_run_variant)
+    split = type("Split", (), {"research_end": datetime(2025, 1, 1, tzinfo=UTC)})()
+    result = module.run_generation_one(
+        database=tmp_path / "market.db",
+        output=tmp_path / "output",
+        split=split,
+        generation_zero={
+            "results": {
+                parent: {
+                    "master_metrics": {
+                        "trades": 100,
+                        "net_expectancy": 0.01,
+                    }
+                }
+            }
+        },
+    )
+
+    assert len(result["variants"]) == 4
+    assert set(calls) == {spec.variant_id for spec in specs}
+
+
+def test_generation_one_does_not_exceed_declared_surface(tmp_path: Path, monkeypatch) -> None:
+    module = __import__("scripts.run_alpha_champion_master_loop", fromlist=["run_generation_one"])
+    parent = "volatility_expansion_v1"
+    specs = tuple(
+        VariantSpec(
+            variant_id=f"{parent}@g1:{index}",
+            parent_candidate=parent,
+            family="breakout",
+            generation=1,
+            hypothesis="bounded",
+            parameters={("compression_ratio" if index < 2 else "breakout_body_atr"): 0.7 + index / 10},
+            changed_parameters=(("compression_ratio",) if index < 2 else ("breakout_body_atr",)),
+        )
+        for index in range(4)
+    )
+    monkeypatch.setattr(module, "_generation_one_specs", lambda candidate_id: specs)
+    monkeypatch.setattr(module, "_research_windows", lambda split: ())
+    monkeypatch.setattr(
+        module,
+        "_run_variant",
+        lambda **kwargs: {"variant": kwargs["spec"].as_record(), "master_metrics": {"net_expectancy": 0.01}},
+    )
+    split = type("Split", (), {"research_end": datetime(2025, 1, 1, tzinfo=UTC)})()
+    result = module.run_generation_one(
+        database=tmp_path / "market.db",
+        output=tmp_path / "output",
+        split=split,
+        generation_zero={
+            "results": {
+                parent: {
+                    "master_metrics": {
+                        "trades": 100,
+                        "net_expectancy": 0.01,
+                    }
+                }
+            }
+        },
+    )
+
+    assert len(result["variants"]) == len(specs)
+    assert len({item["variant_id"] for item in result["variants"]}) == len(specs)
+
+
+def test_resume_runs_only_pending_generation_one_variants(tmp_path: Path, monkeypatch) -> None:
+    module = __import__("scripts.run_alpha_champion_master_loop", fromlist=["run_generation_one"])
+    parent = "volatility_expansion_v1"
+    specs = tuple(
+        VariantSpec(
+            variant_id=f"{parent}@g1:{index}",
+            parent_candidate=parent,
+            family="breakout",
+            generation=1,
+            hypothesis="bounded",
+            parameters={("compression_ratio" if index < 2 else "breakout_body_atr"): 0.7 + index / 10},
+            changed_parameters=(("compression_ratio",) if index < 2 else ("breakout_body_atr",)),
+        )
+        for index in range(4)
+    )
+    monkeypatch.setattr(module, "_generation_one_specs", lambda candidate_id: specs)
+    monkeypatch.setattr(module, "_research_windows", lambda split: ())
+    calls: list[str] = []
+
+    def fake_run_variant(**kwargs):
+        spec = kwargs["spec"]
+        calls.append(spec.variant_id)
+        return {"variant": spec.as_record(), "master_metrics": {"net_expectancy": 0.01}}
+
+    monkeypatch.setattr(module, "_run_variant", fake_run_variant)
+    output = tmp_path / "output"
+    output.mkdir()
+    partial_results = {
+        spec.variant_id: {"variant": spec.as_record(), "master_metrics": {"net_expectancy": 0.01}} for spec in specs[:2]
+    }
+    (output / "GENERATION_1_PARTIAL.json").write_text(
+        json.dumps(
+            {
+                "generation": 1,
+                "parents": [parent],
+                "variants": [spec.as_record() for spec in specs],
+                "results": partial_results,
+            }
+        ),
+        encoding="utf-8",
+    )
+    split = type("Split", (), {"research_end": datetime(2025, 1, 1, tzinfo=UTC)})()
+    result = module.run_generation_one(
+        database=tmp_path / "market.db",
+        output=output,
+        split=split,
+        generation_zero={
+            "results": {
+                parent: {
+                    "master_metrics": {
+                        "trades": 100,
+                        "net_expectancy": 0.01,
+                    }
+                }
+            }
+        },
+        resume=True,
+    )
+
+    assert calls == [spec.variant_id for spec in specs[2:]]
+    assert set(result["results"]) == {spec.variant_id for spec in specs}
+
+
+def test_generation_two_respects_two_hypothesis_cap() -> None:
+    specs = _generation_two_specs(
+        {
+            "results": {
+                str(i): {
+                    "variant": {
+                        "parent_candidate": f"candidate_{i}",
+                        "parameters": {},
+                        "generation": 1,
+                        "family": "family",
+                        "changed_parameters": (),
+                    },
+                    "master_metrics": {"net_expectancy": 1.0 - i / 10},
+                }
+                for i in range(5)
+            }
+        }
+    )
+    assert len(specs) <= 2
+
+
+def test_search_surface_exhaustion_is_fail_closed() -> None:
+    incomplete = _bounded_search_execution(
+        planned_generation_1=["g1-a", "g1-b"],
+        executed_generation_1=["g1-a"],
+        validated_generation_1=["g1-a"],
+        planned_generation_2=["g2-a"],
+        executed_generation_2=["g2-a"],
+        validated_generation_2=["g2-a"],
+        entries=[],
+    )
+    assert incomplete["search_surface_exhausted"] is False
+    assert incomplete["missing_generation_1"] == ["g1-b"]
+    assert _search_surface_exhausted(incomplete) is False
+    assert _no_alpha_allowed(incomplete, finalist_count=0, final_holdout_accessed=False) is False
+
+    complete = _bounded_search_execution(
+        planned_generation_1=["g1-a"],
+        executed_generation_1=["g1-a"],
+        validated_generation_1=["g1-a"],
+        planned_generation_2=["g2-a"],
+        executed_generation_2=["g2-a"],
+        validated_generation_2=["g2-a"],
+        entries=[],
+    )
+    assert _search_surface_exhausted(complete) is True
+    assert _no_alpha_allowed(complete, finalist_count=0, final_holdout_accessed=False) is True
+    assert _no_alpha_allowed(complete, finalist_count=1, final_holdout_accessed=False) is False
+    assert _no_alpha_allowed(complete, finalist_count=0, final_holdout_accessed=True) is False
+
+
+def test_research_validation_leaderboard_exposes_both_stages() -> None:
+    research = {
+        "portfolio": {
+            "total_trades": 80,
+            "profit_factor": 1.15,
+            "net_expectancy": 0.01,
+            "net_return": 0.8,
+            "max_drawdown": 0.1,
+        },
+        "symbols": {"BTC/USDT": {"total_trades": 40}, "ETH/USDT": {"total_trades": 40}},
+        "walk_forward_oos": {},
+        "master_metrics": {
+            "trades": 80,
+            "profit_factor": 1.15,
+            "net_expectancy": 0.01,
+            "net_return": 0.8,
+            "max_drawdown": 0.1,
+            "positive_windows": 5,
+        },
+    }
+    validation = {
+        "portfolio": {
+            "total_trades": 80,
+            "profit_factor": 0.9,
+            "net_expectancy": -0.01,
+            "net_return": -0.8,
+            "max_drawdown": 0.2,
+        },
+        "symbols": {"BTC/USDT": {"total_trades": 40}, "ETH/USDT": {"total_trades": 40}},
+        "walk_forward_oos": {},
+        "master_metrics": {
+            "trades": 80,
+            "profit_factor": 0.9,
+            "net_expectancy": -0.01,
+            "net_return": -0.8,
+            "max_drawdown": 0.2,
+            "positive_windows": 2,
+        },
+    }
+    entries = _build_research_validation_leaderboard(
+        [
+            {
+                "candidate_id": "volatility_expansion_v1",
+                "generation": 0,
+                "family": "breakout",
+                "research": research,
+                "validation": validation,
+            }
+        ],
+    )
+    assert entries[0]["research"]["profit_factor"] == pytest.approx(1.15)
+    assert entries[0]["validation"]["profit_factor"] == pytest.approx(0.9)
+    assert entries[0]["combined"]["finalist_eligible"] is False
 
 
 def test_data_audit_rejects_missing_spacing_and_alignment(tmp_path: Path) -> None:

@@ -92,6 +92,7 @@ class TerminalStatus(StrEnum):
     BLOCKED_EXCHANGE_EXTERNAL = "BLOCKED_EXCHANGE_EXTERNAL"
     BLOCKED_EXTERNAL_NATURAL_MARKET = "BLOCKED_EXTERNAL_NATURAL_MARKET"
     FINALIST_FROZEN_PENDING_EXPENSIVE_VALIDATION = "FINALIST_FROZEN_PENDING_EXPENSIVE_VALIDATION"
+    BOUNDED_SEARCH_INCOMPLETE = "BOUNDED_SEARCH_INCOMPLETE"
     NO_PROMOTABLE_ALPHA_AFTER_BOUNDED_SEARCH = "NO_PROMOTABLE_ALPHA_AFTER_BOUNDED_SEARCH"
 
 
@@ -1026,22 +1027,25 @@ def run_generation_one(
     parents = tuple(candidate_id for candidate_id, _ in positive[:2])
     selected_specs: list[VariantSpec] = []
     for parent in parents:
-        seen_parameters: set[str] = set()
+        by_parameter: dict[str, list[VariantSpec]] = {}
         for spec in _generation_one_specs(parent):
             parameter = spec.changed_parameters[0] if spec.changed_parameters else ""
-            if parameter and parameter not in seen_parameters:
-                selected_specs.append(spec)
-                seen_parameters.add(parameter)
-    # Execute one OFAT winner probe per bounded loop invocation.  The
-    # candidate ledger still records the full two-variable/three-value cap in
-    # the search plan; a resumable run can extend this same bounded surface
-    # without silently expanding it.
-    specs = tuple(selected_specs[:1])
+            if parameter:
+                by_parameter.setdefault(parameter, []).append(spec)
+        for parameter in list(by_parameter)[:2]:
+            selected_specs.extend(by_parameter[parameter][:2])
+    # Execute the complete pre-declared OFAT surface.  Each exposed variable
+    # contributes its bounded non-default alternatives; no ad-hoc grid is
+    # created here and the parent/family cap above remains the sole selector.
+    specs = tuple(selected_specs)
     ledger = TrialLedger(output / "trial-ledger.jsonl")
     research_windows = _research_windows(split)
     partial_path = output / "GENERATION_1_PARTIAL.json"
     partial = _json_read(partial_path) if resume and partial_path.is_file() else {}
-    results: dict[str, Any] = dict(partial.get("results", {}))
+    planned_ids = {spec.variant_id for spec in specs}
+    results: dict[str, Any] = {
+        variant_id: result for variant_id, result in partial.get("results", {}).items() if variant_id in planned_ids
+    }
     for spec in specs:
         if spec.variant_id in results:
             continue
@@ -1062,12 +1066,17 @@ def run_generation_one(
                 "results": results,
             },
         )
+    planned_id_list = [spec.variant_id for spec in specs]
+    completed_ids = sorted(set(results).intersection(planned_id_list))
     return {
         "generation": 1,
         "parents": parents,
         "variants": [spec.as_record() for spec in specs],
         "results": results,
         "research_windows": [window.as_record() for window in research_windows],
+        "planned_variant_ids": planned_id_list,
+        "completed_variant_ids": completed_ids,
+        "complete": set(completed_ids) == set(planned_ids),
     }
 
 
@@ -1127,7 +1136,10 @@ def run_generation_two(
     windows = _research_windows(split)
     partial_path = output / "GENERATION_2_PARTIAL.json"
     partial = _json_read(partial_path) if resume and partial_path.is_file() else {}
-    results: dict[str, Any] = dict(partial.get("results", {}))
+    planned_ids = {spec.variant_id for spec in specs}
+    results: dict[str, Any] = {
+        variant_id: result for variant_id, result in partial.get("results", {}).items() if variant_id in planned_ids
+    }
     for spec in specs:
         if spec.variant_id in results:
             continue
@@ -1143,11 +1155,16 @@ def run_generation_two(
             partial_path,
             {"generation": 2, "hypotheses": [item.as_record() for item in specs], "results": results},
         )
+    planned_id_list = [spec.variant_id for spec in specs]
+    completed_ids = sorted(set(results).intersection(planned_id_list))
     return {
         "generation": 2,
         "hypotheses": [spec.as_record() for spec in specs],
         "results": results,
         "research_windows": [window.as_record() for window in windows],
+        "planned_hypothesis_ids": planned_id_list,
+        "completed_hypothesis_ids": completed_ids,
+        "complete": set(completed_ids) == set(planned_ids),
     }
 
 
@@ -1583,6 +1600,115 @@ def bounded_search_plan(inventory: tuple[CandidateInventoryRecord, ...]) -> dict
     }
 
 
+def _stage_leaderboard_metrics(result: dict[str, Any] | None) -> dict[str, Any]:
+    """Normalize one research/validation result for the combined evidence table."""
+
+    result = result or {}
+    metrics = dict(result.get("master_metrics", {}))
+    symbols = result.get("symbols", {})
+    metrics.setdefault("funding_observed", bool(result.get("portfolio", {}).get("funding_rate_available", False)))
+    cost_stress = result.get("cost_stress", {})
+    stress = cost_stress.get("1.5x", {})
+    return {
+        "btc_trades": int(symbols.get("BTC/USDT", {}).get("total_trades", 0)),
+        "eth_trades": int(symbols.get("ETH/USDT", {}).get("total_trades", 0)),
+        "trades": int(metrics.get("trades", result.get("portfolio", {}).get("total_trades", 0))),
+        "profit_factor": float(metrics.get("profit_factor", result.get("portfolio", {}).get("profit_factor", 0.0))),
+        "net_expectancy": float(metrics.get("net_expectancy", result.get("portfolio", {}).get("net_expectancy", 0.0))),
+        "net_return": float(metrics.get("net_return", result.get("portfolio", {}).get("net_return", 0.0))),
+        "max_drawdown": float(metrics.get("max_drawdown", result.get("portfolio", {}).get("max_drawdown", 0.0))),
+        "positive_windows": int(metrics.get("positive_windows", 0)),
+        "cost_stress_1_5x_net_expectancy": float(stress.get("net_expectancy", 0.0)),
+        "cost_stress_1_5x_profit_factor": float(stress.get("profit_factor") or 0.0),
+        "funding_observed": bool(
+            metrics.get("funding_observed", result.get("portfolio", {}).get("funding_rate_available", False))
+        ),
+        "pass": bool(_research_passes(metrics)) if metrics else False,
+    }
+
+
+def _build_research_validation_leaderboard(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Expose both selection stages without collapsing validation into research."""
+
+    leaderboard: list[dict[str, Any]] = []
+    for record in records:
+        research = record.get("research")
+        validation = record.get("validation")
+        research_metrics = _stage_leaderboard_metrics(research)
+        validation_metrics = _stage_leaderboard_metrics(validation)
+        variant = record.get("variant") or {}
+        leaderboard.append(
+            {
+                "candidate_id": record.get("candidate_id"),
+                "variant_id": record.get("variant_id"),
+                "parent": variant.get("parent_candidate", record.get("candidate_id")),
+                "generation": int(record.get("generation", 0)),
+                "family": record.get("family"),
+                "changed_parameters": list(variant.get("changed_parameters", ())),
+                "parameters": variant.get("parameters", record.get("candidate_parameters", {})),
+                "research": research_metrics,
+                "validation": validation_metrics,
+                "research_status": "PASS" if research_metrics["pass"] else "FAIL" if research else "NOT_RUN",
+                "validation_status": "PASS" if validation_metrics["pass"] else "FAIL" if validation else "NOT_RUN",
+                "combined": {
+                    "finalist_eligible": bool(research_metrics["pass"] and validation_metrics["pass"]),
+                },
+            }
+        )
+    return leaderboard
+
+
+def _bounded_search_execution(
+    *,
+    planned_generation_1: list[str],
+    executed_generation_1: list[str],
+    validated_generation_1: list[str],
+    planned_generation_2: list[str],
+    executed_generation_2: list[str],
+    validated_generation_2: list[str],
+    entries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build the fail-closed evidence for the declared bounded surface."""
+
+    planned_generation_1 = list(dict.fromkeys(planned_generation_1))
+    executed_generation_1 = list(dict.fromkeys(executed_generation_1))
+    validated_generation_1 = list(dict.fromkeys(validated_generation_1))
+    planned_generation_2 = list(dict.fromkeys(planned_generation_2))
+    executed_generation_2 = list(dict.fromkeys(executed_generation_2))
+    validated_generation_2 = list(dict.fromkeys(validated_generation_2))
+    missing_generation_1 = sorted(set(planned_generation_1) - set(executed_generation_1))
+    missing_generation_2 = sorted(set(planned_generation_2) - set(executed_generation_2))
+    missing_validation_1 = sorted(set(planned_generation_1) - set(validated_generation_1))
+    missing_validation_2 = sorted(set(planned_generation_2) - set(validated_generation_2))
+    exhausted = (
+        not missing_generation_1 and not missing_generation_2 and not missing_validation_1 and not missing_validation_2
+    )
+    return {
+        "planned_generation_1_variants": planned_generation_1,
+        "executed_generation_1_variants": executed_generation_1,
+        "validated_generation_1_variants": validated_generation_1,
+        "planned_generation_2_hypotheses": planned_generation_2,
+        "executed_generation_2_hypotheses": executed_generation_2,
+        "validated_generation_2_hypotheses": validated_generation_2,
+        "missing_generation_1": missing_generation_1,
+        "missing_generation_2": missing_generation_2,
+        "missing_generation_1_validation": missing_validation_1,
+        "missing_generation_2_validation": missing_validation_2,
+        "search_surface_exhausted": exhausted,
+        "entries": entries,
+    }
+
+
+def _search_surface_exhausted(execution: dict[str, Any]) -> bool:
+    return bool(execution.get("search_surface_exhausted", False))
+
+
+def _no_alpha_allowed(execution: dict[str, Any], *, finalist_count: int, final_holdout_accessed: bool) -> bool:
+    """No-Alpha is legal only after every declared stage is complete and holdout is untouched."""
+
+    return _search_surface_exhausted(execution) and finalist_count == 0 and not final_holdout_accessed
+
+
 def write_checkpoint(output: Path, checkpoint: MasterCheckpoint) -> None:
     _json_write(output / "MASTER_CHECKPOINT.json", asdict(checkpoint))
 
@@ -1593,6 +1719,22 @@ def load_checkpoint(output: Path) -> MasterCheckpoint | None:
         return None
     raw = json.loads(path.read_text(encoding="utf-8"))
     return MasterCheckpoint(**raw)
+
+
+def _generation_one_payload_complete(payload: dict[str, Any]) -> bool:
+    planned = {str(item.get("variant_id")) for item in payload.get("variants", [])}
+    completed = set(payload.get("results", {}))
+    return bool(payload.get("complete", False)) and planned == completed == set(
+        payload.get("planned_variant_ids", planned)
+    )
+
+
+def _generation_two_payload_complete(payload: dict[str, Any]) -> bool:
+    planned = {str(item.get("variant_id")) for item in payload.get("hypotheses", [])}
+    completed = set(payload.get("results", {}))
+    return bool(payload.get("complete", False)) and planned == completed == set(
+        payload.get("planned_hypothesis_ids", planned)
+    )
 
 
 def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = False) -> dict[str, Any]:
@@ -1714,30 +1856,54 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
     _json_write(output / "VALIDATION.json", validation)
 
     generation_one_path = output / "GENERATION_1.json"
-    generation_one = (
-        _json_read(generation_one_path)
-        if resume and generation_one_path.is_file()
-        else run_generation_one(
+    generation_one = _json_read(generation_one_path) if resume and generation_one_path.is_file() else {}
+    if not _generation_one_payload_complete(generation_one):
+        generation_one = run_generation_one(
             database=database,
             output=output,
             split=split,
             generation_zero=generation_zero,
             resume=resume,
         )
-    )
+    if not _generation_one_payload_complete(generation_one):
+        incomplete = {
+            "status": TerminalStatus.BOUNDED_SEARCH_INCOMPLETE.value,
+            "reason": "generation_1_surface_not_exhausted",
+            "generation": 1,
+            "planned_variant_ids": generation_one.get("planned_variant_ids", []),
+            "completed_variant_ids": generation_one.get("completed_variant_ids", []),
+            "missing_generation_1": sorted(
+                set(generation_one.get("planned_variant_ids", []))
+                - set(generation_one.get("completed_variant_ids", []))
+            ),
+            "final_holdout_results_accessed": False,
+            "dual_gate": blocked_dual_gate("bounded_search_incomplete"),
+        }
+        _json_write(output / "BOUNDED_SEARCH_EXECUTION.json", incomplete)
+        _json_write(output / "FINAL_REPORT.json", incomplete)
+        return incomplete
     _json_write(output / "GENERATION_1.json", generation_one)
     g1_ranked = sorted(
         generation_one["results"].values(),
         key=lambda result: result["master_metrics"]["net_expectancy"],
         reverse=True,
     )
-    g1_validation_candidates = [
-        result for result in g1_ranked if _research_passes(result["master_metrics"])
-    ] or g1_ranked[:2]
+    g1_validation_candidates = g1_ranked
     g1_validation: dict[str, Any] = {}
-    g1_validation_results: dict[str, Any] = {}
+    g1_validation_partial_path = output / "GENERATION_1_VALIDATION_PARTIAL.json"
+    g1_validation_partial = (
+        _json_read(g1_validation_partial_path) if resume and g1_validation_partial_path.is_file() else {}
+    )
+    planned_g1_validation_ids = {str(result["variant"]["variant_id"]) for result in g1_validation_candidates}
+    g1_validation_results: dict[str, Any] = {
+        variant_id: result
+        for variant_id, result in g1_validation_partial.get("results", {}).items()
+        if variant_id in planned_g1_validation_ids
+    }
     for result in g1_validation_candidates:
         spec = VariantSpec(**result["variant"])
+        if spec.variant_id in g1_validation_results:
+            continue
         validated = _run_variant(
             database=database,
             output=output,
@@ -1748,21 +1914,60 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
             ledger_label="validation",
         )
         g1_validation_results[spec.variant_id] = validated
-        g1_validation[spec.variant_id] = validated["master_metrics"]
+        _json_write(
+            g1_validation_partial_path,
+            {
+                "generation": 1,
+                "results": g1_validation_results,
+                "planned_variant_ids": sorted(planned_g1_validation_ids),
+            },
+        )
+    g1_validation = {variant_id: result["master_metrics"] for variant_id, result in g1_validation_results.items()}
     _json_write(output / "GENERATION_1_VALIDATION.json", g1_validation)
 
-    generation_two = run_generation_two(
-        database=database,
-        output=output,
-        split=split,
-        generation_one=generation_one,
-        resume=resume,
-    )
+    generation_two_path = output / "GENERATION_2.json"
+    generation_two = _json_read(generation_two_path) if resume and generation_two_path.is_file() else {}
+    if not _generation_two_payload_complete(generation_two):
+        generation_two = run_generation_two(
+            database=database,
+            output=output,
+            split=split,
+            generation_one=generation_one,
+            resume=resume,
+        )
+    if not _generation_two_payload_complete(generation_two):
+        incomplete = {
+            "status": TerminalStatus.BOUNDED_SEARCH_INCOMPLETE.value,
+            "reason": "generation_2_surface_not_exhausted",
+            "generation": 2,
+            "planned_hypothesis_ids": generation_two.get("planned_hypothesis_ids", []),
+            "completed_hypothesis_ids": generation_two.get("completed_hypothesis_ids", []),
+            "missing_generation_2": sorted(
+                set(generation_two.get("planned_hypothesis_ids", []))
+                - set(generation_two.get("completed_hypothesis_ids", []))
+            ),
+            "final_holdout_results_accessed": False,
+            "dual_gate": blocked_dual_gate("bounded_search_incomplete"),
+        }
+        _json_write(output / "BOUNDED_SEARCH_EXECUTION.json", incomplete)
+        _json_write(output / "FINAL_REPORT.json", incomplete)
+        return incomplete
     _json_write(output / "GENERATION_2.json", generation_two)
     g2_validation: dict[str, Any] = {}
-    g2_validation_results: dict[str, Any] = {}
+    g2_validation_partial_path = output / "GENERATION_2_VALIDATION_PARTIAL.json"
+    g2_validation_partial = (
+        _json_read(g2_validation_partial_path) if resume and g2_validation_partial_path.is_file() else {}
+    )
+    planned_g2_validation_ids = {str(result["variant"]["variant_id"]) for result in generation_two["results"].values()}
+    g2_validation_results: dict[str, Any] = {
+        variant_id: result
+        for variant_id, result in g2_validation_partial.get("results", {}).items()
+        if variant_id in planned_g2_validation_ids
+    }
     for result in generation_two["results"].values():
         spec = VariantSpec(**result["variant"])
+        if spec.variant_id in g2_validation_results:
+            continue
         validated = _run_variant(
             database=database,
             output=output,
@@ -1773,15 +1978,100 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
             ledger_label="validation",
         )
         g2_validation_results[spec.variant_id] = validated
-        g2_validation[spec.variant_id] = validated["master_metrics"]
+        _json_write(
+            g2_validation_partial_path,
+            {
+                "generation": 2,
+                "results": g2_validation_results,
+                "planned_hypothesis_ids": sorted(planned_g2_validation_ids),
+            },
+        )
+    g2_validation = {variant_id: result["master_metrics"] for variant_id, result in g2_validation_results.items()}
     _json_write(output / "GENERATION_2_VALIDATION.json", g2_validation)
 
+    leaderboard_records: list[dict[str, Any]] = []
+    for candidate_id, research_result in generation_zero["results"].items():
+        candidate = get_candidate(candidate_id)
+        leaderboard_records.append(
+            {
+                "candidate_id": candidate_id,
+                "variant_id": f"{candidate_id}@g0:baseline",
+                "generation": 0,
+                "family": _family(candidate_id),
+                "research": research_result,
+                "validation": validation_results.get(candidate_id),
+                "candidate_parameters": candidate.get_config(),
+            }
+        )
+    for result in generation_one["results"].values():
+        variant = result["variant"]
+        leaderboard_records.append(
+            {
+                "candidate_id": variant["parent_candidate"],
+                "variant_id": variant["variant_id"],
+                "generation": 1,
+                "family": variant["family"],
+                "variant": variant,
+                "research": result,
+                "validation": g1_validation_results.get(variant["variant_id"]),
+            }
+        )
+    for result in generation_two["results"].values():
+        variant = result["variant"]
+        leaderboard_records.append(
+            {
+                "candidate_id": variant["parent_candidate"],
+                "variant_id": variant["variant_id"],
+                "generation": 2,
+                "family": variant["family"],
+                "variant": variant,
+                "research": result,
+                "validation": g2_validation_results.get(variant["variant_id"]),
+            }
+        )
+    research_validation_leaderboard = _build_research_validation_leaderboard(leaderboard_records)
+    _json_write(output / "RESEARCH_VALIDATION_LEADERBOARD.json", research_validation_leaderboard)
+    bounded_execution = _bounded_search_execution(
+        planned_generation_1=list(generation_one.get("planned_variant_ids", [])),
+        executed_generation_1=list(generation_one.get("results", {})),
+        validated_generation_1=list(g1_validation_results),
+        planned_generation_2=list(generation_two.get("planned_hypothesis_ids", [])),
+        executed_generation_2=list(generation_two.get("results", {})),
+        validated_generation_2=list(g2_validation_results),
+        entries=research_validation_leaderboard,
+    )
+    _json_write(output / "BOUNDED_SEARCH_EXECUTION.json", bounded_execution)
     bounded = {
         "generation_0": {"status": "EXECUTED", "candidate_count": len(candidate_ids)},
-        "generation_1": {"status": "EXECUTED", "variation_count": len(generation_one["variants"])},
-        "generation_2": {"status": "EXECUTED", "hypothesis_count": len(generation_two["hypotheses"])},
+        "generation_1": {
+            "status": "EXECUTED",
+            "variation_count": len(generation_one["variants"]),
+            "planned": len(bounded_execution["planned_generation_1_variants"]),
+            "executed": len(bounded_execution["executed_generation_1_variants"]),
+            "validated": len(bounded_execution["validated_generation_1_variants"]),
+        },
+        "generation_2": {
+            "status": "EXECUTED",
+            "hypothesis_count": len(generation_two["hypotheses"]),
+            "planned": len(bounded_execution["planned_generation_2_hypotheses"]),
+            "executed": len(bounded_execution["executed_generation_2_hypotheses"]),
+            "validated": len(bounded_execution["validated_generation_2_hypotheses"]),
+        },
+        "search_surface_exhausted": bounded_execution["search_surface_exhausted"],
     }
     _json_write(output / "BOUNDED_GENERATIONS.json", bounded)
+
+    if not _search_surface_exhausted(bounded_execution):
+        incomplete = {
+            "status": TerminalStatus.BOUNDED_SEARCH_INCOMPLETE.value,
+            "reason": "declared_bounded_surface_not_exhausted",
+            "bounded_search_execution": bounded_execution,
+            "research_validation_leaderboard": research_validation_leaderboard,
+            "final_holdout_results_accessed": False,
+            "dual_gate": blocked_dual_gate("bounded_search_incomplete"),
+        }
+        _json_write(output / "FINAL_REPORT.json", incomplete)
+        return incomplete
 
     finalist_candidates: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
     for candidate_id in g0_research_qualified:
@@ -1846,6 +2136,9 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
             "generation_1_validation": g1_validation,
             "generation_2_validation": g2_validation,
             "bounded_generations": bounded,
+            "bounded_search_execution": bounded_execution,
+            "research_validation_leaderboard": research_validation_leaderboard,
+            "final_holdout_results_accessed": False,
             "promotion_attempted": False,
         }
         best_result = (
@@ -1867,6 +2160,8 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
                 },
                 "canary_candidate_ids": sorted(CANARY_CANDIDATES),
                 "production_authority": "NOT_GRANTED",
+                "bounded_search_execution": "BOUNDED_SEARCH_EXECUTION.json",
+                "research_validation_leaderboard": "RESEARCH_VALIDATION_LEADERBOARD.json",
             },
         )
         no_alpha_report["dual_gate"] = build_dual_gate_report(
