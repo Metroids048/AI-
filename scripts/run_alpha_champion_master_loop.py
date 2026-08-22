@@ -95,6 +95,16 @@ class TerminalStatus(StrEnum):
     NO_PROMOTABLE_ALPHA_AFTER_BOUNDED_SEARCH = "NO_PROMOTABLE_ALPHA_AFTER_BOUNDED_SEARCH"
 
 
+class TournamentDisposition(StrEnum):
+    """Finite audit states for registry candidates in this replay."""
+
+    REACHABLE_TOURNAMENT_CANDIDATE = "REACHABLE_TOURNAMENT_CANDIDATE"
+    SUPERSEDED = "SUPERSEDED"
+    UNIMPLEMENTED_DESIGN_STUB = "UNIMPLEMENTED_DESIGN_STUB"
+    UNCLASSIFIED_UNREACHABLE = "UNCLASSIFIED_UNREACHABLE"
+    NOT_REGISTERED = "NOT_REGISTERED"
+
+
 CONTROL_CANDIDATES = frozenset(
     {
         "testnet_sampling_v2",
@@ -110,6 +120,18 @@ CANARY_CANDIDATES = frozenset({"testnet_sampling_v2"})
 TOURNAMENT_CONTROL_CANDIDATES = CONTROL_CANDIDATES - CANARY_CANDIDATES
 PROPOSAL_CANDIDATES = frozenset(RESEARCH_CANDIDATE_VERSIONS)
 ALL_INVENTORY_IDS = tuple(sorted(CONTROL_CANDIDATES | PROPOSAL_CANDIDATES | set(list_candidates())))
+EXPLICIT_TOURNAMENT_EXCLUSIONS: dict[str, tuple[TournamentDisposition, str | None, str]] = {
+    "trend_pullback_v1": (
+        TournamentDisposition.SUPERSEDED,
+        "trend_pullback_v2",
+        "historical research config superseded by the canonical trend_pullback_v2 proposal evaluator",
+    ),
+    "aggressive_multi_regime_v1": (
+        TournamentDisposition.UNIMPLEMENTED_DESIGN_STUB,
+        None,
+        "registry design stub has no canonical CandidateEvaluator or proposal-pipeline entry",
+    ),
+}
 FINAL_HOLDOUT_START = datetime(2026, 1, 29, tzinfo=UTC)
 RESEARCH_START = datetime(2023, 1, 29, tzinfo=UTC)
 MAX_GENERATION = 2
@@ -129,6 +151,10 @@ class CandidateInventoryRecord:
     timeframe: str | None
     entry_contract: str | None
     reason: str | None = None
+    tournament_disposition: str = TournamentDisposition.UNCLASSIFIED_UNREACHABLE.value
+    eligible_for_tournament: bool = False
+    superseded_by: str | None = None
+    exclusion_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -272,7 +298,25 @@ def discover_candidate_inventory() -> tuple[CandidateInventoryRecord, ...]:
         )
         execution_eligible = bool(candidate and candidate.execution_eligible)
         reachable = registered and evaluator_path is not None
-        reason = None if reachable else "missing registry entry or evaluator path"
+        if reachable:
+            disposition = TournamentDisposition.REACHABLE_TOURNAMENT_CANDIDATE
+            superseded_by = None
+            exclusion_reason = None
+            eligible_for_tournament = candidate_id not in CANARY_CANDIDATES
+        elif candidate_id in EXPLICIT_TOURNAMENT_EXCLUSIONS:
+            disposition, superseded_by, exclusion_reason = EXPLICIT_TOURNAMENT_EXCLUSIONS[candidate_id]
+            eligible_for_tournament = False
+        elif registered:
+            disposition = TournamentDisposition.UNCLASSIFIED_UNREACHABLE
+            superseded_by = None
+            exclusion_reason = None
+            eligible_for_tournament = False
+        else:
+            disposition = TournamentDisposition.NOT_REGISTERED
+            superseded_by = None
+            exclusion_reason = None
+            eligible_for_tournament = False
+        reason = None if reachable else (exclusion_reason or "missing registry entry or evaluator path")
         records.append(
             CandidateInventoryRecord(
                 candidate_id=candidate_id,
@@ -287,9 +331,42 @@ def discover_candidate_inventory() -> tuple[CandidateInventoryRecord, ...]:
                 timeframe=candidate.timeframe if candidate else "15m",
                 entry_contract="proposal" if candidate_id in PROPOSAL_CANDIDATES else "technical_control",
                 reason=reason,
+                tournament_disposition=disposition.value,
+                eligible_for_tournament=eligible_for_tournament,
+                superseded_by=superseded_by,
+                exclusion_reason=exclusion_reason,
             )
         )
     return tuple(records)
+
+
+def _has_valid_tournament_disposition(item: CandidateInventoryRecord) -> bool:
+    if not item.registered:
+        return True
+    if item.canonical_replay_reachable:
+        return (
+            item.tournament_disposition == TournamentDisposition.REACHABLE_TOURNAMENT_CANDIDATE.value
+            and item.eligible_for_tournament
+        )
+    if item.eligible_for_tournament:
+        return False
+    if item.tournament_disposition == TournamentDisposition.SUPERSEDED.value:
+        return bool(item.superseded_by and item.exclusion_reason)
+    if item.tournament_disposition == TournamentDisposition.UNIMPLEMENTED_DESIGN_STUB.value:
+        return bool(item.exclusion_reason)
+    return False
+
+
+def unclassified_unreachable_candidates(
+    inventory: tuple[CandidateInventoryRecord, ...],
+) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            item.candidate_id
+            for item in inventory
+            if item.registered and not item.canonical_replay_reachable and not _has_valid_tournament_disposition(item)
+        )
+    )
 
 
 def tournament_candidate_ids(inventory: tuple[CandidateInventoryRecord, ...]) -> tuple[str, ...]:
@@ -303,7 +380,7 @@ def tournament_candidate_ids(inventory: tuple[CandidateInventoryRecord, ...]) ->
         sorted(
             item.candidate_id
             for item in inventory
-            if item.registered and item.canonical_replay_reachable and item.candidate_id not in CANARY_CANDIDATES
+            if item.registered and item.canonical_replay_reachable and item.eligible_for_tournament
         )
     )
 
@@ -1539,7 +1616,7 @@ def run_master_loop(*, root: Path, database: Path, output: Path, resume: bool = 
 
     inventory = discover_candidate_inventory()
     _json_write(output / "CANDIDATE_INVENTORY.json", [asdict(item) for item in inventory])
-    unreachable = [item.candidate_id for item in inventory if item.registered and not item.canonical_replay_reachable]
+    unreachable = unclassified_unreachable_candidates(inventory)
     if unreachable and database.is_file():
         final = {
             "status": TerminalStatus.BLOCKED_BASELINE.value,

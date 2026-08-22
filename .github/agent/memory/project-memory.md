@@ -1324,6 +1324,20 @@
 - Focused recovery tests pass (`17 passed`). The declared `py -3` environment now
   reports `1828 passed, 16 skipped, 2 warnings`; no long replay or natural Production
   evidence was run.
+
+## PROFITABILITY RECOVERY P0-C (2026-08-22)
+
+- Registry-only candidates now carry a finite tournament disposition in
+  `CANDIDATE_INVENTORY.json` instead of being silently dropped or blocking all replay.
+- `trend_pullback_v1` is explicitly `SUPERSEDED` by `trend_pullback_v2`; the historical
+  registry entry remains, but it is not reachable or tournament-eligible.
+- `aggressive_multi_regime_v1` is explicitly `UNIMPLEMENTED_DESIGN_STUB`; no evaluator
+  was invented and it cannot enter Generation 0, Finalist, Champion, or promotion evidence.
+- Any registered unreachable candidate without a valid finite disposition remains a
+  `BLOCKED_BASELINE` condition. The old `artifacts/profitability_recovery_20260822`
+  blocker evidence is preserved; the next replay uses a new output directory.
+- Verification before replay: P0-C focused `22 passed`; full pytest `1832 passed,
+  16 skipped, 2 warnings`; Ruff and configured mypy passed.
 # Runtime Truth + trade lifecycle closeout (2026-08-19)
 
 - Manual baseline now has explicit lifecycle/acknowledgement states and symbol-scoped drift blocking. No rebaseline or live order was performed; current persisted BTC short `0.5346` remains intentionally unchanged while Binance is flat.

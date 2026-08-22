@@ -2005,3 +2005,17 @@
 - Full pytest initially used the wrong `python` interpreter and showed async-plugin
   failures. The declared environment `py -3 -m pytest -q` passed with
   `1828 passed, 16 skipped, 2 warnings`. Formal long replay remains paused until push.
+
+# [TASK-2026-08-22-PROFITABILITY-RECOVERY-P0-C]
+
+- Added finite inventory tournament dispositions without adding strategy evaluators:
+  `trend_pullback_v1=SUPERSEDED` by `trend_pullback_v2`, and
+  `aggressive_multi_regime_v1=UNIMPLEMENTED_DESIGN_STUB`.
+- Both remain visible in inventory with `canonical_replay_reachable=false` and
+  `eligible_for_tournament=false`; excluded candidates cannot reach leaderboard,
+  finalist, champion, or promotion paths.
+- Registered unreachable candidates without a valid disposition still fail closed as
+  `BLOCKED_BASELINE`; this prevents future silent registry drift.
+- P0-C focused tests `22 passed`; full pytest `1832 passed, 16 skipped, 2 warnings`;
+  Ruff, configured mypy, and `git diff --check` passed. Old blocked replay artifacts
+  remain under `artifacts/profitability_recovery_20260822`.

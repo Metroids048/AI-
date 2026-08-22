@@ -13,6 +13,7 @@ from scripts.run_alpha_champion_master_loop import (
     PROPOSAL_CANDIDATES,
     CandidateInventoryRecord,
     TerminalStatus,
+    TournamentDisposition,
     _apply_funding_cost,
     _candidate_passes,
     _expensive_validation_pending,
@@ -30,6 +31,7 @@ from scripts.run_alpha_champion_master_loop import (
     run_generation_zero,
     run_master_loop,
     tournament_candidate_ids,
+    unclassified_unreachable_candidates,
 )
 
 
@@ -59,6 +61,7 @@ def test_all_proposal_candidates_are_registered_and_reachable() -> None:
     assert records.keys() >= PROPOSAL_CANDIDATES
     assert all(records[candidate_id].registered for candidate_id in PROPOSAL_CANDIDATES)
     assert all(records[candidate_id].canonical_replay_reachable for candidate_id in PROPOSAL_CANDIDATES)
+    assert all(records[candidate_id].eligible_for_tournament for candidate_id in PROPOSAL_CANDIDATES)
     assert all(not records[candidate_id].execution_eligible for candidate_id in PROPOSAL_CANDIDATES)
 
 
@@ -69,6 +72,63 @@ def test_tournament_includes_registry_controls_but_excludes_canary() -> None:
     assert "trend_breakout_v1" in candidate_ids
     assert "operator_heuristic_v2_relaxed" in candidate_ids
     assert "testnet_sampling_v2" not in candidate_ids
+
+
+def test_registry_only_candidates_have_explicit_exclusion_dispositions() -> None:
+    records = {record.candidate_id: record for record in discover_candidate_inventory()}
+
+    superseded = records["trend_pullback_v1"]
+    assert superseded.registered is True
+    assert superseded.canonical_replay_reachable is False
+    assert superseded.tournament_disposition == TournamentDisposition.SUPERSEDED.value
+    assert superseded.eligible_for_tournament is False
+    assert superseded.superseded_by == "trend_pullback_v2"
+    assert superseded.exclusion_reason
+
+    stub = records["aggressive_multi_regime_v1"]
+    assert stub.registered is True
+    assert stub.canonical_replay_reachable is False
+    assert stub.tournament_disposition == TournamentDisposition.UNIMPLEMENTED_DESIGN_STUB.value
+    assert stub.eligible_for_tournament is False
+    assert stub.exclusion_reason
+
+
+def test_explicitly_excluded_registry_candidates_do_not_enter_tournament() -> None:
+    candidate_ids = tournament_candidate_ids(discover_candidate_inventory())
+
+    assert "trend_pullback_v1" not in candidate_ids
+    assert "aggressive_multi_regime_v1" not in candidate_ids
+    assert "trend_pullback_v2" in candidate_ids
+
+
+def test_unknown_unreachable_registered_candidate_still_blocks_baseline(monkeypatch, tmp_path: Path) -> None:
+    module = __import__("scripts.run_alpha_champion_master_loop", fromlist=["run_master_loop"])
+    unknown = CandidateInventoryRecord(
+        candidate_id="unknown_registry_candidate",
+        version="0.0.0",
+        family="other",
+        registered=True,
+        evaluator_path=None,
+        canonical_replay_reachable=False,
+        research_only=True,
+        execution_eligible=False,
+        symbols=("BTC/USDT", "ETH/USDT"),
+        timeframe="15m",
+        entry_contract="proposal",
+    )
+    monkeypatch.setattr(module, "discover_candidate_inventory", lambda: (unknown,))
+    database = tmp_path / "market.db"
+    _database(database)
+
+    result = module.run_master_loop(root=Path.cwd(), database=database, output=tmp_path / "output")
+
+    assert result["status"] == TerminalStatus.BLOCKED_BASELINE.value
+    assert result["reason"] == "candidate_path_unreachable"
+
+
+def test_explicit_exclusions_do_not_block_baseline() -> None:
+    inventory = discover_candidate_inventory()
+    assert unclassified_unreachable_candidates(inventory) == ()
 
 
 def test_dual_gate_report_never_claims_final_acceptance_from_one_gate() -> None:
