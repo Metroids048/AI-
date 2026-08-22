@@ -359,6 +359,103 @@ def test_r2_cost_gate_uses_real_funding_and_can_flip_edge() -> None:
     assert result.funnel_payload["reason_code"] == "NO_TRADE_COST_INEFFICIENT"
 
 
+def test_r2_funnel_preserves_raw_and_effective_funding_for_short() -> None:
+    adapter = build_adapter_with_successful_cycle()
+    candidate = TradeCandidate(
+        candidate_id="production-short-funding",
+        cycle_id="production-short-funding-cycle",
+        strategy_id="production-r2-strategy",
+        strategy_version="1.0.0",
+        lane=CandidateLane.PRODUCTION,
+        candidate_type=V2CandidateType.PRIMARY,
+        symbol="BTC/USDT",
+        side="SHORT",
+        signal_candle_close_time=LAST_BAR_TS,
+        signal_reference_price=Decimal("65000"),
+        confidence=Decimal("0.8"),
+        stop_distance=Decimal("650"),
+        take_profit_distance=Decimal("975"),
+        max_entry_drift_bps=Decimal("20"),
+        expires_at=CYCLE_NOW + timedelta(seconds=65),
+        non_promotable=False,
+    )
+    result = run_automated_trading_cycle(
+        build_request(
+            entry_authority=EntryAuthority.PRODUCTION,
+            production_authorized=True,
+            production_candidate=candidate,
+            r2_cost_gate_enabled=True,
+            funding_bps=Decimal("5"),
+            funding_observed_at=CYCLE_NOW - timedelta(seconds=2),
+            funding_age_seconds=2,
+            funding_status="FRESH",
+        ),
+        adapter,
+    )
+    r2_gate = result.funnel_payload["r2_cost_gate"]
+    assert r2_gate["raw_funding_bps"] == "5"
+    assert r2_gate["effective_funding_bps"] == "-5"
+    assert Decimal(r2_gate["funding_R"]) < 0
+    assert r2_gate["funding_status"] == "FRESH"
+    assert r2_gate["funding_age_seconds"] == 2
+
+
+def test_r2_production_stale_funding_is_fail_closed() -> None:
+    adapter = build_adapter_with_successful_cycle()
+    candidate = TradeCandidate(
+        candidate_id="production-stale-funding",
+        cycle_id="production-stale-funding-cycle",
+        strategy_id="production-r2-strategy",
+        strategy_version="1.0.0",
+        lane=CandidateLane.PRODUCTION,
+        candidate_type=V2CandidateType.PRIMARY,
+        symbol="BTC/USDT",
+        side="LONG",
+        signal_candle_close_time=LAST_BAR_TS,
+        signal_reference_price=Decimal("101"),
+        confidence=Decimal("0.8"),
+        stop_distance=Decimal("0.3535"),
+        take_profit_distance=Decimal("0.53025"),
+        max_entry_drift_bps=Decimal("20"),
+        expires_at=CYCLE_NOW + timedelta(seconds=65),
+        non_promotable=False,
+    )
+    result = run_automated_trading_cycle(
+        build_request(
+            entry_authority=EntryAuthority.PRODUCTION,
+            production_authorized=True,
+            production_candidate=candidate,
+            r2_cost_gate_enabled=True,
+            funding_bps=Decimal("5"),
+            funding_observed_at=CYCLE_NOW - timedelta(seconds=30),
+            funding_age_seconds=30,
+            funding_status="STALE",
+        ),
+        adapter,
+    )
+    adapter.submit_market_order.assert_not_called()
+    assert result.funnel_payload["reason_code"] == "FUNDING_RATE_STALE"
+    assert result.funnel_payload["r2_cost_gate"]["status"] == "STALE"
+
+
+def test_r2_canary_stale_funding_remains_diagnostic() -> None:
+    adapter = build_adapter_with_successful_cycle()
+    result = run_automated_trading_cycle(
+        build_request(
+            entry_authority=EntryAuthority.TESTNET_CANARY,
+            r2_cost_gate_enabled=True,
+            funding_bps=Decimal("5"),
+            funding_observed_at=CYCLE_NOW - timedelta(seconds=30),
+            funding_age_seconds=30,
+            funding_status="STALE",
+        ),
+        adapter,
+    )
+    adapter.submit_market_order.assert_called_once()
+    assert result.entry_submitted
+    assert result.funnel_payload["r2_cost_gate"]["funding_status"] == "STALE"
+
+
 def test_testnet_canary_rejects_opposite_unmanaged_external_baseline(monkeypatch) -> None:
     """A Canary must never reduce or flip an operator-owned one-way position."""
     from services.automated_trading.application import cycle_service

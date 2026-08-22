@@ -12,7 +12,7 @@ import socket
 import subprocess
 import uuid
 from collections.abc import Callable, Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -72,8 +72,23 @@ from shared.models.risk import TESTNET_CANARY_RUNTIME_CONTRACT
 logger = logging.getLogger(__name__)
 
 V2_CYCLE_TIMEFRAME = "15m"
+# The V2 scheduler refreshes Binance's public premium-index snapshot once per
+# ~60s cycle.  A 90s tolerance covers one delayed cycle without treating old
+# settled backfill as a live cost.  The continuous mark-price WS can still
+# produce much newer observations when its worker is healthy.
+FUNDING_FRESHNESS_TOLERANCE_SECONDS = 90
 AdapterFactory = Callable[[V2ExecutionMode], Any]
 MarketContextLoader = Callable[[str, datetime], MarketContext]
+
+
+@dataclass(frozen=True)
+class FundingObservation:
+    """Canonical funding evidence loaded for one V2 cycle."""
+
+    raw_funding_bps: Decimal | None
+    observed_at: datetime | None
+    age_seconds: int | None
+    status: str  # FRESH | STALE | MISSING
 
 
 def _slot_start(observed_at: datetime, interval_seconds: float) -> datetime:
@@ -115,17 +130,64 @@ def _managed_symbols_requiring_recovery(*, execution_mode: V2ExecutionMode) -> t
         return tuple(sorted({str(symbol) for symbol in rows}))
 
 
-def _load_latest_funding_bps(*, symbol: str) -> Decimal | None:
-    """Read the latest persisted funding rate for the V2 cost gate."""
+def _load_funding_observation(*, symbol: str, now: datetime | None = None) -> FundingObservation:
+    """Read current funding from the canonical market_extras live snapshot.
+
+    The production runtime's mark-price WS writes Binance ``r`` with the
+    exchange event timestamp approximately once per second.  Settled funding
+    backfill remains in the same table, but is STALE once it exceeds this
+    source-derived tolerance and cannot be used as a live cost.
+    """
+    now = (now or datetime.now(UTC)).astimezone(UTC)
     try:
         with get_session_factory()() as session:
             latest = DataRepository(session).get_latest_market_extras(symbol=symbol)
     except Exception as exc:  # noqa: BLE001
         logger.warning("funding rate unavailable for %s: %s", symbol, exc)
-        return None
+        return FundingObservation(None, None, None, "MISSING")
     if latest is None or latest.funding_rate is None:
-        return None
-    return latest.funding_rate * Decimal("10000")
+        return FundingObservation(None, None, None, "MISSING")
+    # Legacy test doubles may omit the timestamp; production MarketExtras
+    # always carries the exchange observation time.
+    observed_at = getattr(latest, "timestamp", None) or now
+    if observed_at.tzinfo is None:
+        observed_at = observed_at.replace(tzinfo=UTC)
+    observed_at = observed_at.astimezone(UTC)
+    if observed_at > now:
+        logger.warning("ignoring future funding timestamp for %s: %s", symbol, observed_at.isoformat())
+        return FundingObservation(None, None, None, "MISSING")
+    age_seconds = max(0, int((now - observed_at).total_seconds()))
+    status = "FRESH" if age_seconds <= FUNDING_FRESHNESS_TOLERANCE_SECONDS else "STALE"
+    return FundingObservation(
+        raw_funding_bps=latest.funding_rate * Decimal("10000"),
+        observed_at=observed_at,
+        age_seconds=age_seconds,
+        status=status,
+    )
+
+
+def _refresh_current_funding(*, symbol: str, now: datetime | None = None) -> bool:
+    """Refresh current Binance funding into the canonical market_extras table."""
+    now = (now or datetime.now(UTC)).astimezone(UTC)
+    try:
+        from services.data.binance import BinanceCcxtClient
+
+        with get_session_factory()() as session:
+            client = BinanceCcxtClient()
+            extra = client.fetch_premium_index(symbol=symbol)
+            if extra is None or extra.timestamp > now:
+                return False
+            DataRepository(session).store_market_extras([extra])
+            return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("current funding refresh unavailable for %s: %s", symbol, exc)
+        return False
+
+
+def _load_latest_funding_bps(*, symbol: str) -> Decimal | None:
+    """Backward-compatible raw funding accessor for non-V2 callers/tests."""
+    observation = _load_funding_observation(symbol=symbol)
+    return observation.raw_funding_bps
 
 
 def _load_v2_entry_timeframe(
@@ -907,6 +969,12 @@ def _execute_v2_automated_trading_cycles(
                 candidate_lane=TESTNET_CANARY_RUNTIME_CONTRACT["candidate_lane"],
             )
 
+            if management_only:
+                funding_observation = None
+            else:
+                _refresh_current_funding(symbol=symbol, now=now)
+                funding_observation = _load_funding_observation(symbol=symbol, now=now)
+
             bar_timestamp = entry_timeframe.last_closed.timestamp if entry_timeframe.last_closed else bar_slot
             decision_id = str(uuid.uuid4())
             try:
@@ -993,7 +1061,10 @@ def _execute_v2_automated_trading_cycles(
                 },
                 ai_review_budget_seconds=settings.v2_ai_review_budget_seconds,
                 r2_cost_gate_enabled=True,
-                funding_bps=None if management_only else _load_latest_funding_bps(symbol=symbol),
+                funding_bps=funding_observation.raw_funding_bps if funding_observation else None,
+                funding_observed_at=funding_observation.observed_at if funding_observation else None,
+                funding_age_seconds=funding_observation.age_seconds if funding_observation else None,
+                funding_status=funding_observation.status if funding_observation else "NOT_REQUIRED",
             )
             try:
                 result = run_automated_trading_cycle(request, adapter)

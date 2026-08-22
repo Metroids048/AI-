@@ -76,6 +76,7 @@ from services.automated_trading.application.recovery_service import (
 from services.automated_trading.application.risk_controls import (
     calculate_cost_gate,
     p1_profit_protection,
+    resolve_effective_funding_bps,
     shadow_profit_protection,
 )
 from services.automated_trading.audit.forward_baseline import serialize_trade_candidate
@@ -174,6 +175,9 @@ class CycleRequest:
     # None is intentionally distinct from zero: missing funding data must not
     # silently make the cost gate look cheaper.
     funding_bps: Decimal | None = None
+    funding_observed_at: datetime | None = None
+    funding_age_seconds: int | None = None
+    funding_status: str = "FRESH"
 
     @property
     def reconcile_existing_positions(self) -> bool:
@@ -2351,7 +2355,20 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         return result
 
     r2_policy = _resolve_r2_cost_gate_policy(request, candidate)
-    if request.funding_bps is None:
+    raw_funding_bps = request.funding_bps
+    funding_status = request.funding_status if raw_funding_bps is not None else "MISSING"
+    funding_evidence = {
+        "raw_funding_bps": str(raw_funding_bps) if raw_funding_bps is not None else None,
+        "effective_funding_bps": None,
+        "funding_observed_at": request.funding_observed_at.isoformat() if request.funding_observed_at else None,
+        "funding_age_seconds": request.funding_age_seconds,
+        "funding_status": funding_status,
+    }
+    funding_unavailable_reason = {
+        "MISSING": "FUNDING_RATE_UNAVAILABLE",
+        "STALE": "FUNDING_RATE_STALE",
+    }.get(funding_status)
+    if funding_unavailable_reason:
         result.funnel_payload["r2_cost_gate"] = {
             "cost_R": None,
             "theoretical_net_payoff": None,
@@ -2359,10 +2376,11 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             "commission_R": None,
             "funding_R": None,
             "slippage_R": None,
-            "funding_bps": None,
+            "funding_bps": str(raw_funding_bps) if raw_funding_bps is not None else None,
+            **funding_evidence,
             "minimum_theoretical_net_payoff": "1.15",
-            "status": "UNAVAILABLE",
-            "reason": "FUNDING_RATE_UNAVAILABLE",
+            "status": "UNAVAILABLE" if funding_status == "MISSING" else funding_status,
+            "reason": funding_unavailable_reason,
             "policy": r2_policy.value,
             "would_block": True,
             "enforced": r2_policy is R2CostGatePolicy.BLOCKING,
@@ -2372,15 +2390,20 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                 result.funnel_payload,
                 stage="PRICE_DRIFT_APPROVED",
                 outcome="REJECTED",
-                reason_code="FUNDING_RATE_UNAVAILABLE",
+                reason_code=funding_unavailable_reason,
             )
             return result
-    else:
+    elif raw_funding_bps is not None:
+        effective_funding_bps = resolve_effective_funding_bps(
+            raw_funding_bps=raw_funding_bps,
+            side=candidate.side,
+        )
+        funding_evidence["effective_funding_bps"] = str(effective_funding_bps)
         cost_gate = calculate_cost_gate(
             entry_price=snapshot_market.current_price,
             stop_distance=candidate.stop_distance,
             take_profit_distance=candidate.take_profit_distance,
-            funding_bps=request.funding_bps,
+            effective_funding_bps=effective_funding_bps,
         )
         result.funnel_payload["r2_cost_gate"] = {
             "cost_R": str(cost_gate.cost_r),
@@ -2389,7 +2412,8 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             "commission_R": str(cost_gate.commission_r),
             "funding_R": str(cost_gate.funding_r),
             "slippage_R": str(cost_gate.slippage_r),
-            "funding_bps": str(request.funding_bps),
+            "funding_bps": str(raw_funding_bps),
+            **funding_evidence,
             "minimum_theoretical_net_payoff": "1.15",
             "status": "PASS" if cost_gate.passed else "REJECT",
             "policy": r2_policy.value,

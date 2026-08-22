@@ -14,6 +14,18 @@ DEFAULT_TAKER_FEE_BPS = Decimal("5")
 DEFAULT_ROUND_TRIP_SLIPPAGE_BPS = Decimal("6")
 
 
+def resolve_effective_funding_bps(*, raw_funding_bps: Decimal, side: str) -> Decimal:
+    """Resolve Binance funding cost from the candidate direction.
+
+    Binance positive funding is paid by longs and received by shorts; the
+    candidate-side sign is therefore part of the cost contract, not an
+    absolute-value normalization.
+    """
+    if side not in {"LONG", "SHORT"}:
+        raise ValueError("side must be LONG or SHORT")
+    return raw_funding_bps if side == "LONG" else -raw_funding_bps
+
+
 @dataclass(frozen=True)
 class CostGateResult:
     cost_r: Decimal
@@ -32,21 +44,26 @@ def calculate_cost_gate(
     stop_distance: Decimal,
     take_profit_distance: Decimal | None,
     commission_bps: Decimal = DEFAULT_TAKER_FEE_BPS * Decimal("2"),
-    funding_bps: Decimal = Decimal("0"),
+    effective_funding_bps: Decimal | None = None,
+    funding_bps: Decimal | None = None,
     slippage_bps: Decimal = DEFAULT_ROUND_TRIP_SLIPPAGE_BPS,
     minimum_net_payoff: Decimal = R2_MIN_THEORETICAL_NET_PAYOFF,
 ) -> CostGateResult:
     """Compute the target-relative post-cost payoff gate.
 
-    Cost is expressed in R using the stop distance.  No fixed ``cost_R``
-    threshold is used; the admission test is the requested mechanical net
-    payoff formula.
+    Cost is expressed in R using the stop distance.  The preferred
+    ``effective_funding_bps`` input must already include candidate-side
+    direction.  ``funding_bps`` remains a compatibility alias for older
+    offline callers and is never direction-normalized here.
     """
     if entry_price <= 0 or stop_distance <= 0:
         raise ValueError("entry_price and stop_distance must be positive")
+    if effective_funding_bps is not None and funding_bps is not None:
+        raise ValueError("provide only effective_funding_bps or funding_bps")
+    effective_funding = effective_funding_bps if effective_funding_bps is not None else (funding_bps or Decimal("0"))
     planned_target_r = (take_profit_distance / stop_distance) if take_profit_distance is not None else Decimal("0")
     commission_r = (commission_bps / Decimal("10000")) * entry_price / stop_distance
-    funding_r = (funding_bps / Decimal("10000")) * entry_price / stop_distance
+    funding_r = (effective_funding / Decimal("10000")) * entry_price / stop_distance
     slippage_r = (slippage_bps / Decimal("10000")) * entry_price / stop_distance
     cost_r = commission_r + funding_r + slippage_r
     theoretical_net_payoff = (planned_target_r - cost_r) / (Decimal("1") + cost_r)
