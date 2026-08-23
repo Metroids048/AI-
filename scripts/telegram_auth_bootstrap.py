@@ -4,9 +4,9 @@ import argparse
 import asyncio
 import json
 
-from shared.config import settings
 from services.agents.telegram_kol.auth_bootstrap import authorize_and_verify
 from services.agents.telegram_kol.ingestion.telegram_client import TelethonTelegramClient
+from shared.config import settings
 
 
 def _missing_config() -> list[str]:
