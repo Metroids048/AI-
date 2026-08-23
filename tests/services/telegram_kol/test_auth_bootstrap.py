@@ -83,6 +83,7 @@ async def test_authorize_and_verify_returns_read_only_sources_and_disconnects() 
             _Filter(
                 title=_Title("搬运脚本分组"),
                 include_peers=(_Peer(id=-1001234),),
+                pinned_peers=(_Peer(id=-1005678),),
             ),
         ),
         dialogs=(
@@ -90,6 +91,11 @@ async def test_authorize_and_verify_returns_read_only_sources_and_disconnects() 
                 id=-1001234,
                 name="KOL signals",
                 entity=_Entity(id=1234, title="KOL signals"),
+            ),
+            _Dialog(
+                id=-1005678,
+                name="Pinned signals",
+                entity=_Entity(id=5678, title="Pinned signals"),
             ),
         ),
     )
@@ -100,13 +106,19 @@ async def test_authorize_and_verify_returns_read_only_sources_and_disconnects() 
     assert client.disconnected is True
     assert result.status == READ_ONLY_VERIFY_OK
     assert result.folder_name == "搬运脚本分组"
-    assert result.source_count == 1
+    assert result.source_count == 2
     assert result.sources == (
         {
             "chat_id": "-1001234",
             "title": "KOL signals",
             "chat_type": "_Entity",
             "source_id": "-1001234",
+        },
+        {
+            "chat_id": "-1005678",
+            "title": "Pinned signals",
+            "chat_type": "_Entity",
+            "source_id": "-1005678",
         },
     )
 
