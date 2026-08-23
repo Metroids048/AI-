@@ -34,7 +34,7 @@ class TelegramAuthRequired(RuntimeError):
 
 
 class TelethonTelegramClient:
-    """Thin optional Telethon adapter; no outbound Telegram actions are exposed."""
+    """Thin optional Telethon adapter; no outbound Telegram messaging actions are exposed."""
 
     def __init__(self, *, api_id: int, api_hash: str, phone: str, session_dir: str | Path) -> None:
         self.api_id = api_id
@@ -47,6 +47,11 @@ class TelethonTelegramClient:
         except ImportError as exc:  # pragma: no cover - depends on optional runtime dependency
             raise RuntimeError("Telethon is required for the Telegram User API collector") from exc
         self._client = TelegramClient(str(self.session_dir / "telegram_kol"), api_id, api_hash)
+
+    async def start_interactive(self) -> None:
+        """Create/reuse the local user session; Telethon prompts locally for OTP/2FA when required."""
+
+        await self._client.start(phone=self.phone)
 
     async def connect(self) -> None:
         await self._client.connect()
