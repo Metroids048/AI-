@@ -61,8 +61,16 @@ def _filter_mapping(item: Any) -> dict[str, Any]:
 def _dialog_mapping(item: Any) -> dict[str, Any]:
     entity = getattr(item, "entity", item)
     chat_id = getattr(item, "id", None) or getattr(entity, "id", None)
-    title = getattr(item, "name", None) or getattr(entity, "title", None) or getattr(entity, "first_name", None)
-    return {"chat_id": str(chat_id), "title": str(title or chat_id), "chat_type": type(entity).__name__}
+    title = (
+        getattr(item, "name", None)
+        or getattr(entity, "title", None)
+        or getattr(entity, "first_name", None)
+    )
+    return {
+        "chat_id": str(chat_id),
+        "title": str(title or chat_id),
+        "chat_type": type(entity).__name__,
+    }
 
 
 async def authorize_and_verify(
