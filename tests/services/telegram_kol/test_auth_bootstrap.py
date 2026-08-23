@@ -28,7 +28,7 @@ class _Filter:
 
 @dataclass
 class _Peer:
-    channel_id: int
+    id: int
 
 
 @dataclass
@@ -82,7 +82,7 @@ async def test_authorize_and_verify_returns_read_only_sources_and_disconnects() 
         filters=(
             _Filter(
                 title=_Title("搬运脚本分组"),
-                include_peers=(_Peer(channel_id=1234),),
+                include_peers=(_Peer(id=-1001234),),
             ),
         ),
         dialogs=(
