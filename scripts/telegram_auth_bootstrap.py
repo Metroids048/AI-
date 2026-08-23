@@ -24,7 +24,9 @@ async def _run(folder_name: str) -> int:
     missing = _missing_config()
     if missing:
         print(f"CONFIG_ERROR missing={','.join(missing)}")
-        print("Fill the missing values in the local .env file. Never paste API hash, OTP, 2FA password, or session files into chat.")
+        print(
+            "Fill the missing values in the local .env file. Never paste API hash, OTP, 2FA password, or session files into chat."
+        )
         return 2
 
     client = TelethonTelegramClient(
