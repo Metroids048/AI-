@@ -2019,3 +2019,20 @@
 - P0-C focused tests `22 passed`; full pytest `1832 passed, 16 skipped, 2 warnings`;
   Ruff, configured mypy, and `git diff --check` passed. Old blocked replay artifacts
   remain under `artifacts/profitability_recovery_20260822`.
+
+# [TASK-2026-08-23-TELEGRAM-KOL-G1-G6]
+
+- Added the Telegram KOL G0-G4 code baseline under `services/agents/telegram_kol/`:
+  append-only raw ledger, Telethon User API adapter, folder-derived source registry,
+  media hashing/OCR boundary, parser/thread lifecycle, shadow market sanity, candidate
+  inbox and injected single-writer dispatcher. V2 Binance adapter remains untouched.
+- Raw revisions preserve `source_id`, `raw_id`, and `raw_hash`; candidate keys include
+  `telegram:{source_id}:{thread_id}:{message_id}:{revision}`. Multi-TP and conditional
+  signals remain shadow-only; claimed leverage/position are context claims only.
+- Verification: Telegram focused tests `17 passed`; `ruff check .` passed; `mypy` passed
+  (`310 source files`); V2 transaction contract passed; full pytest `1848 passed,
+  17 failed, 7 skipped, 25 warnings`, with all failures caused by missing
+  `pytest-asyncio` (`async def functions are not natively supported`).
+- Real Telegram credentials/session, live folder membership, forward messages, and
+  Binance Testnet G5/G6 evidence were unavailable. Telegram system status remains
+  `BLOCKED`, not `PASS`; no secrets or sessions were added to the worktree.

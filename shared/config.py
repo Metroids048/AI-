@@ -165,6 +165,16 @@ class Settings(BaseSettings):
     twitter_watch_user_ids: str = "25073877,44196397,902926941413453824"
     telegram_bot_token: str = ""
     telegram_channel_ids: str = ""
+    # Telegram KOL User API collector (read-only, never used for outbound messages).
+    telegram_api_id: int = 0
+    telegram_api_hash: str = ""
+    telegram_phone: str = ""
+    telegram_session_dir: str = ".local/telegram_kol/session"
+    telegram_folder_name: str = "搬运脚本分组"
+    telegram_collector_enabled: bool = False
+    telegram_folder_resync_seconds: int = 300
+    telegram_history_backfill_limit: int = 100
+    telegram_collector_id: str = "telegram_kol_collector"
     notification_webhook_url: str = ""
     notification_dispatch_max_attempts: int = 3
     notification_dispatch_base_delay_seconds: int = 300

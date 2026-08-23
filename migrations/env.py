@@ -10,6 +10,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+import services.agents.telegram_kol.persistence.models  # noqa: F401,E402
+
 # Imported for its side effect of registering V2 tables on Base.metadata.
 import services.automated_trading.infrastructure.models  # noqa: F401,E402
 from services.strategy_library.models import Base

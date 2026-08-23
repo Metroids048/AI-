@@ -1,5 +1,16 @@
 # Project Memory
 
+## Telegram KOL G0-G6 implementation (2026-08-23)
+
+- Code baseline now exists under `services/agents/telegram_kol/` with read-only Telethon
+  User API ingestion, folder-derived source registry, append-only raw revisions/media
+  hashes, parser/thread lifecycle, shadow market sanity, candidate inbox and injected
+  V2 dispatcher boundary.
+- Telegram code does not import or call the Binance adapter and does not expand the
+  BTC/ETH execution universe. Multi-TP/conditional events are explicitly shadow-only.
+- Real account/Testnet evidence is still external and unavailable; do not mark G1 or
+  G5/G6 as passed from unit tests.
+
 ## Profitability Recovery P0 gate/resume/tiny-canary repair (2026-08-22)
 
 - VERIFIED: technical replay now reads point-in-time funding observations from

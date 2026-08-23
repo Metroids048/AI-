@@ -34,7 +34,9 @@ from apps.api.routers import (
     strategies,
     strategy_library,
     system,
+    telegram_kol,
 )
+from services.agents.telegram_kol.runtime import runtime as telegram_kol_runtime
 from services.execution.bootstrap import (
     bootstrap_local_paper_runtime,
     bootstrap_poll_information_sources,
@@ -60,6 +62,7 @@ async def lifespan(_: FastAPI):
     scheduler = None
     seed_task: asyncio.Task[int] | None = None
     ingest_task: asyncio.Task[dict] | None = None
+    telegram_task: asyncio.Task[None] | None = None
     # The one-click desktop console must not consume its request workers with
     # a Top20 cycle or outbound feeds before the operator opens the workspace.
     local_api_only = _is_local_console_api_only()
@@ -72,6 +75,8 @@ async def lifespan(_: FastAPI):
         if os.getenv("PAPER_CONSOLE_SKIP_BACKGROUND_BOOTSTRAP", "false").lower() != "true":
             seed_task = asyncio.create_task(asyncio.to_thread(bootstrap_seed_multi_timeframe_ohlcv))
             ingest_task = asyncio.create_task(asyncio.to_thread(bootstrap_poll_information_sources))
+    if not local_api_only and settings.telegram_collector_enabled:
+        telegram_task = asyncio.create_task(telegram_kol_runtime.start())
     try:
         yield
     finally:
@@ -83,6 +88,11 @@ async def lifespan(_: FastAPI):
             ingest_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await ingest_task
+        if telegram_task is not None:
+            telegram_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await telegram_task
+        await telegram_kol_runtime.stop()
         if scheduler is not None:
             await scheduler.stop()
         set_runtime_scheduler(None)
@@ -143,6 +153,7 @@ for router in (
     notifications.router,
     research_sources.router,
     runtime.router,
+    telegram_kol.router,
 ):
     app.include_router(router, prefix="/api/v1")
 

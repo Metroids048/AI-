@@ -28,7 +28,8 @@ dependencies = [
   "pandas>=2.3,<3.0",
   "numpy>=2.0,<3.0",
   "alembic>=1.13,<2.0",
-  "prometheus-client>=0.21,<1.0"
+  "prometheus-client>=0.21,<1.0",
+  "telethon>=1.36,<2.0"
 ]
 
 [project.optional-dependencies]
@@ -81,6 +82,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
 
 [tool.ruff.lint.per-file-ignores]
 "apps/api/routers/*.py" = ["B008"]
+"services/agents/telegram_kol/parsing/parser.py" = ["E501"]
 # Ops/diagnostic one-off scripts: keep them commitable without blocking product code.
 # Still linted for hard errors (F821 etc.); style noise is ignored.
 "scripts/*.py" = ["E402", "E501", "E702", "E722", "F841", "B007", "SIM115"]
