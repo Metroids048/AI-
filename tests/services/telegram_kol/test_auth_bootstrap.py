@@ -102,7 +102,12 @@ async def test_authorize_and_verify_returns_read_only_sources_and_disconnects() 
     assert result.folder_name == "搬运脚本分组"
     assert result.source_count == 1
     assert result.sources == (
-        {"chat_id": "-1001234", "title": "KOL signals", "chat_type": "_Entity", "source_id": "-1001234"},
+        {
+            "chat_id": "-1001234",
+            "title": "KOL signals",
+            "chat_type": "_Entity",
+            "source_id": "-1001234",
+        },
     )
 
 
