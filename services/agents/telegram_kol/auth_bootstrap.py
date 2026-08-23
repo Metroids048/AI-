@@ -54,8 +54,12 @@ def _peer_id(peer: Any) -> str:
 
 
 def _filter_mapping(item: Any) -> dict[str, Any]:
-    peers = getattr(item, "include_peers", None) or getattr(item, "pinned_peers", None) or ()
-    return {"title": _filter_title(item), "chat_ids": [_peer_id(peer) for peer in peers]}
+    include_peers = tuple(getattr(item, "include_peers", None) or ())
+    pinned_peers = tuple(getattr(item, "pinned_peers", None) or ())
+    return {
+        "title": _filter_title(item),
+        "chat_ids": [_peer_id(peer) for peer in (*include_peers, *pinned_peers)],
+    }
 
 
 def _dialog_mapping(item: Any) -> dict[str, Any]:
