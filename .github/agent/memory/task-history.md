@@ -1,5 +1,23 @@
 # Task History
 
+## [TASK-2026-08-23-P0-RUNTIME-ENTRY-GATE]
+
+- Read-only audit confirmed the user's six `ENTRY_KILL_SWITCH_ACTIVE` counts
+  were caused by a persisted liveness recovery hold (`global.entry_enabled=false`),
+  not by RSI/MACD strategy code. The control was already auto-recovered at
+  `2026-08-23 08:56:47 UTC` with `LIVENESS_RECOVERY_RECOVERED`.
+- A formal `launch-paper-console.ps1 -AutomatedTradingEngine v2_active
+  -EnableNaturalTestnet -PreserveExternalTestnetBaseline -OpenBrowser:$false`
+  restart reclaimed four stale leases, removed the duplicate scheduler launch,
+  and returned `EXIT_CODE=0` with `ACTIVE Trading Mode Contract verified`.
+- Natural post-recovery evidence: BTC/ETH `2026-08-23 09:45 UTC` decisions had
+  `TESTNET_CANARY`, `entry_authorized=true`, `AUTHORIZED_TESTNET_CANARY`,
+  and no new `ENTRY_KILL_SWITCH_ACTIVE`; BTC ended at
+  `MACD_DIRECTION_MISMATCH`, ETH at `RSI_OUTSIDE_RANGE`.
+- Runtime truth at close: Binance Testnet available, reconciliation `HEALTHY`,
+  exchange/local positions `0/0`, open orders `0/0`. No strategy or risk
+  parameter was changed; Production remains `PENDING`.
+
 ## [TASK-2026-08-21-LIVENESS-RECOVERY-FINALIZE]
 
 - Commit A `ceaf46b2e7cfd3166303b897ad2bff66e9a1574b` 完成 Scheduler V2 liveness、

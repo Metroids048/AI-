@@ -1,5 +1,25 @@
 # Project Memory
 
+## P0-RUNTIME-ENTRY-GATE diagnosis and recovery (2026-08-23)
+
+- VERIFIED: the reported `ENTRY_KILL_SWITCH_ACTIVE` decisions were historical
+  `GLOBAL_ENTRY_DISABLED` events. In `.local_paper_console.db`,
+  `v2_runtime_controls.global` is now `entry_enabled=1`, reason
+  `LIVENESS_RECOVERY_RECOVERED`, updated at `2026-08-23 08:56:47 UTC`.
+- VERIFIED: Binance Testnet runtime is `ACTIVE/BINANCE_TESTNET/TESTNET_CANARY`,
+  exchange/local open positions are `0/0`, open orders are `0/0`, and latest
+  reconciliation is `HEALTHY`.
+- VERIFIED: after the recovery and a clean launcher restart, the natural
+  `2026-08-23 09:45 UTC` closed-bar decisions remained authorized Canary entries
+  and terminated at strategy evaluation (`BTC: MACD_DIRECTION_MISMATCH`,
+  `ETH: RSI_OUTSIDE_RANGE`); no new `ENTRY_KILL_SWITCH_ACTIVE` occurred.
+- VERIFIED: a duplicate scheduler launch was present and was cleaned up by the
+  formal launcher; the active writer lease now belongs to one scheduler worker.
+- CONCLUSION: this incident is `HISTORICAL_ONLY_CURRENTLY_RECOVERED`, not a
+  current strategy/entry-gate outage. Do not relax RSI/MACD/EMA or risk settings
+  based on the pre-recovery screenshot; wait for additional natural bars and
+  evaluate strategy suitability separately from runtime liveness.
+
 ## Telegram KOL G0-G6 implementation (2026-08-23)
 
 - Code baseline now exists under `services/agents/telegram_kol/` with read-only Telethon
