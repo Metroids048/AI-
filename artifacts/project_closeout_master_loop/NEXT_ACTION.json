@@ -1,5 +1,5 @@
 {
-  "phase": "FINAL_VERIFICATION",
-  "next_action": "RUN_FULL_VERIFICATION_AND_GIT_CLOSEOUT",
-  "why": "Data and leakage audits are ready; all three pre-registered families failed Research Gates. Complete fresh verification and repository delivery before terminalizing."
+  "phase": "FINAL_REPORT",
+  "next_action": "STOP_RESEARCH_AND_REASSESS",
+  "why": "Canonical tests, official data audit, leakage audit, research gates, frontend checks, commit, and push are complete; all three pre-registered families failed without opening Validation or Final Holdout."
 }
