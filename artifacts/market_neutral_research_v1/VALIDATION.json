@@ -1,0 +1,7 @@
+{
+  "schema": "MARKET_NEUTRAL_VALIDATION_V1",
+  "status": "NOT_RUN",
+  "reason": "all_research_gates_failed",
+  "final_holdout_accessed": false,
+  "runtime_modified": false
+}

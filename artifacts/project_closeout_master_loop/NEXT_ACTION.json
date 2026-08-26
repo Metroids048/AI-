@@ -1,0 +1,5 @@
+{
+  "phase": "FINAL_VERIFICATION",
+  "next_action": "RUN_FULL_VERIFICATION_AND_GIT_CLOSEOUT",
+  "why": "Data and leakage audits are ready; all three pre-registered families failed Research Gates. Complete fresh verification and repository delivery before terminalizing."
+}

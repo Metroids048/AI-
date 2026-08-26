@@ -1,0 +1,75 @@
+{
+  "schema": "MARKET_NEUTRAL_RESEARCH_V1_FINAL_REPORT",
+  "status": "MARKET_NEUTRAL_BATCH_EXHAUSTED",
+  "data_audit_status": "DATA_READY",
+  "data_quality": {
+    "coverage_thresholds_passed": true,
+    "source_gaps_not_filled": true,
+    "impact": "Research uses only timestamp intersections; missing official bars reduce eligible observations but do not create synthetic fills."
+  },
+  "H1": {
+    "BTCUSDT": {
+      "trade_count": 554,
+      "metrics": {
+        "observations": 554,
+        "profit_factor": 0.0,
+        "expectancy": -0.003002154275375413,
+        "max_drawdown": 0.810945920443263,
+        "cost_stress_expectancy": -0.004602154275375413,
+        "positive_windows": 0,
+        "window_count": 3,
+        "majority_windows_positive": false,
+        "gate_pass": false
+      }
+    },
+    "ETHUSDT": {
+      "trade_count": 585,
+      "metrics": {
+        "observations": 585,
+        "profit_factor": 0.0,
+        "expectancy": -0.002998999305243814,
+        "max_drawdown": 0.8274516730367084,
+        "cost_stress_expectancy": -0.004598999305243815,
+        "positive_windows": 0,
+        "window_count": 3,
+        "majority_windows_positive": false,
+        "gate_pass": false
+      }
+    }
+  },
+  "H2": {
+    "trade_count": 1478,
+    "metrics": {
+      "observations": 1478,
+      "profit_factor": 0.7048985194440588,
+      "expectancy": -0.0021372293282053935,
+      "max_drawdown": 0.9709602039978218,
+      "cost_stress_expectancy": -0.0037372293282053938,
+      "positive_windows": 0,
+      "window_count": 3,
+      "majority_windows_positive": false,
+      "gate_pass": false
+    }
+  },
+  "H3": {
+    "trade_count": 650,
+    "metrics": {
+      "observations": 650,
+      "profit_factor": 0.5832652837132538,
+      "expectancy": -0.003199882627913119,
+      "max_drawdown": 0.8918258549922216,
+      "cost_stress_expectancy": -0.004799882627913119,
+      "positive_windows": 0,
+      "window_count": 3,
+      "majority_windows_positive": false,
+      "gate_pass": false
+    }
+  },
+  "Best": null,
+  "Final Holdout accessed": false,
+  "Survivor": null,
+  "Runtime modified": false,
+  "Production": "NOT_GRANTED",
+  "Terminal": "MARKET_NEUTRAL_BATCH_EXHAUSTED",
+  "Next action": "STOP_RESEARCH_AND_REASSESS"
+}

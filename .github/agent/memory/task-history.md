@@ -2274,3 +2274,43 @@
   blocker above. Ruff `All checks passed!`, mypy `Success: no issues found in 311
   source files`, full pytest `1912 passed, 16 skipped, 2 warnings`, and
   `git diff --check` all passed.
+
+# 2026-08-26 RUNTIME_OBSERVABILITY_AND_MARKET_NEUTRAL_RESEARCH_V1
+
+- Loop A closeout changed only observability surfaces and tests: strategy filters,
+  operational entry blocks, and system failures are reported separately; `MAX_OPEN_EXPOSURES`
+  is an entry blocker; `signal_generated` now reflects base-signal telemetry.
+- Real 24h audit evidence: `221` effective decisions, `2` orders, `1` fill, `1` closed
+  position; current runtime healthy at `0/2` open positions; terminal
+  `HEALTHY_WAITING_FOR_MARKET`; no sampling-rule change.
+- Loop B stopped at Data Audit. Fixed universe Spot 1h cache is only `2023-11..2025-02`
+  (`16` monthly archives per symbol). Existing microstructure cache is BTC/ETH daily
+  futures metrics plus monthly aggTrades; required perpetual 1h, mark/index/premium,
+  funding history, and trading-rule snapshot are absent.
+- Generated `artifacts/market_neutral_research_v1/` including
+  `MARKET_NEUTRAL_DATA_AUDIT.json`, `DATA_AUDIT.json`, frozen plan, blocked H1/H2/H3,
+  NOT_RUN Validation/Stability, and `FINAL_REPORT.json`.
+- Terminal: `BLOCKED_MARKET_NEUTRAL_DATA`. Final Holdout was not accessed. Runtime,
+  Canary, Production Manifest, Promotion Gate, ConfigSnapshot, and Binance execution
+  were not modified.
+- Verification caveat: targeted API tests had `5 passed` before fixture setup errors
+  caused by the pre-existing missing `telegram_trade_threads` table; `git diff --check`
+  passed. Full frontend verification for Loop A remained the previously recorded
+  `116 passed`, build success, browser PASS.
+
+# 2026-08-27 QUANT_PROJECT_CLOSEOUT_MASTER_LOOP
+
+- VERIFIED: canonical tests are closed via `scripts/test.ps1` -> `py -3 -m pytest`; full
+  suite result is `1915 passed, 16 skipped, 2 warnings` with zero failures.
+- VERIFIED: official Binance recovery completed 931 manifest objects under
+  `%LOCALAPPDATA%\\ai-quant\\market-neutral-v1`; fixed-universe Spot/Perpetual/Mark/
+  Index/Premium 1h archives are checksum-valid, five funding histories are `3288/3288`,
+  and current exchangeInfo is snapshotted. Final Holdout stayed sealed.
+- VERIFIED: row-level audit is `DATA_READY`; bounded chronological H1/H2/H3 Research
+  ran with no hyperopt. H1/H2/H3 expectancies were approximately `-0.00329`, `-0.00214`,
+  and `-0.00390`; all Research Gates and 1.5x cost-stress expectancy checks failed.
+- VERIFIED: terminal conclusion is `MARKET_NEUTRAL_BATCH_EXHAUSTED`; Validation,
+  Stability, and Final Holdout were correctly not run. Runtime and Production surfaces
+  remained untouched and Production remains `NOT_GRANTED`.
+- VERIFIED: Ruff, mypy, frontend tests (`116 passed`), frontend build, JSON parsing and
+  `git diff --check` all passed.

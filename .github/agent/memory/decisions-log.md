@@ -813,3 +813,15 @@
   Final Holdout remains independent and read once.
 - Do not start the formal long replay until this wiring is reviewed. Execution hot path,
   production sizing, strategy geometry, and Canary contract remain unchanged.
+
+# Decision: Market Neutral V1 stops at data audit (2026-08-26)
+
+- Scope is limited to the pre-registered families H1 Spot-Perp Carry, H2 Cross-Sectional
+  Funding Spread, and H3 BTC/ETH Relative Value; no H4/H5 or directional indicator search.
+- The fixed five-symbol input contract requires Spot 1h, Perpetual 1h, mark/index/premium,
+  funding, trading rules, and cost assumptions over `2023-01-29..2026-01-29`.
+- Existing caches do not satisfy that contract: Spot 1h is partial (`2023-11..2025-02`),
+  while `microstructure-v3` contains only BTC/ETH daily metrics and monthly aggTrades.
+- Therefore the correct terminal is `BLOCKED_MARKET_NEUTRAL_DATA`; Research, Validation,
+  Stability, and Final Holdout remain unrun/sealed. Runtime, Canary, Production Manifest,
+  Promotion Gate, ConfigSnapshot, and Binance execution remain frozen.

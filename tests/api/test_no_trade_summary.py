@@ -213,14 +213,78 @@ def test_throughput_reports_actual_canary_capacity_and_blocker_share_inputs():
         )
     )
 
-    assert result["throughput"] == {
-        "current_open_positions": 1,
-        "effective_max_open_positions": 1,
-        "remaining_slots": 0,
-        "at_capacity": True,
-        "blocker_counts": {"MAX_OPEN_EXPOSURES": 1, "MACD_DIRECTION_MISMATCH": 1},
-        "blocker_total": 2,
+    assert result["throughput"]["current_open_positions"] == 1
+    assert result["throughput"]["effective_max_open_positions"] == 1
+    assert result["throughput"]["remaining_slots"] == 0
+    assert result["throughput"]["at_capacity"] is True
+    assert result["throughput"]["operational_block_counts"] == {"MAX_OPEN_EXPOSURES": 1}
+    assert result["throughput"]["strategy_filter_counts"] == {
+        "MACD_DIRECTION_MISMATCH": 1,
+        "NO_ENTRY_SIGNAL": 1,
     }
+    assert result["current_status"]["active_blocker"] == "MAX_OPEN_EXPOSURES"
+
+
+def test_strategy_filters_are_not_operational_blockers():
+    now = datetime.now(UTC)
+    result = build_no_trade_summary(
+        **_facts(
+            decisions=[
+                {"at": now, "reason": "MULTI_TIMEFRAME_DISAGREEMENT"},
+                {"at": now - timedelta(minutes=1), "reason": "MACD_DIRECTION_MISMATCH"},
+            ]
+        )
+    )
+
+    assert result["summary_code"] == "HEALTHY_WAITING_FOR_SIGNAL"
+    assert result["current_status"]["active_blocker"] is None
+    assert result["historical_window"]["strategy_filter_counts"] == {
+        "MULTI_TIMEFRAME_DISAGREEMENT": 1,
+        "MACD_DIRECTION_MISMATCH": 1,
+    }
+    assert result["historical_window"]["operational_block_counts"] == {}
+
+
+def test_canary_capacity_uses_current_runtime_contract_not_historical_sizing():
+    now = datetime.now(UTC)
+    result = build_no_trade_summary(
+        **_facts(
+            execution_mode="BINANCE_TESTNET",
+            entry_runtime={
+                "trading_state": "TRADING",
+                "entry_authority": "TESTNET_CANARY",
+                "entry_authorized": True,
+                "reason": None,
+            },
+            open_positions_count=1,
+            decisions=[{"at": now, "reason": "NO_ENTRY_SIGNAL", "effective_max_open_positions": 1}],
+        )
+    )
+
+    assert result["throughput"]["effective_max_open_positions"] == 2
+    assert result["throughput"]["capacity_source"] == "TESTNET_CANARY_RUNTIME_CONTRACT"
+    assert result["current_status"]["active_blocker"] is None
+
+
+def test_capacity_two_of_two_is_current_entry_block():
+    now = datetime.now(UTC)
+    result = build_no_trade_summary(
+        **_facts(
+            execution_mode="BINANCE_TESTNET",
+            entry_runtime={
+                "trading_state": "TRADING",
+                "entry_authority": "TESTNET_CANARY",
+                "entry_authorized": True,
+                "reason": None,
+            },
+            open_positions_count=2,
+            decisions=[{"at": now, "reason": "MULTI_TIMEFRAME_DISAGREEMENT"}],
+        )
+    )
+
+    assert result["summary_code"] == "ENTRY_BLOCKED"
+    assert result["current_status"]["active_blocker"] == "MAX_OPEN_EXPOSURES"
+    assert result["runtime_status"] == "正常"
 
 
 def test_manual_direction_conflict_is_reported_as_entry_block():

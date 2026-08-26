@@ -1,0 +1,31 @@
+{
+  "schema": "MARKET_NEUTRAL_RESEARCH_PLAN_V1",
+  "status": "DATA_READY_RESEARCH_COMPLETE",
+  "families": [
+    "H1_SPOT_PERP_CARRY",
+    "H2_CROSS_SECTIONAL_FUNDING_SPREAD",
+    "H3_BTC_ETH_RELATIVE_VALUE"
+  ],
+  "parameter_search": "none",
+  "time_split": {
+    "research": "60%",
+    "validation": "20%",
+    "final_holdout": "20%",
+    "chronological": true,
+    "research_end": "2024-11-16T14:24:00Z",
+    "validation_end": "2025-06-23T19:12:00Z",
+    "final_holdout_start": "2025-06-23T19:12:00Z",
+    "final_holdout_sealed": true
+  },
+  "gate": {
+    "min_observations": 80,
+    "expectancy_gt": 0,
+    "profit_factor_gte": 1.15,
+    "max_dd_lte": 0.15,
+    "majority_windows_positive": true,
+    "stress_multiplier": 1.5
+  },
+  "research_result": "ALL_THREE_FAMILIES_RESEARCH_FAIL",
+  "runtime_modified": false,
+  "next_action": "STOP_RESEARCH_AND_REASSESS"
+}

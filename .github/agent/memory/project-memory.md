@@ -1587,3 +1587,32 @@
   latency, Validation, and Final Holdout remain `NOT_RUN`. `v6_resumed=false`,
   `final_holdout_accessed=false`, `runtime_modified=false`, and
   `production=NOT_GRANTED` remain explicit in the artifact.
+
+# RUNTIME OBSERVABILITY AND MARKET NEUTRAL V1 (2026-08-26)
+
+- VERIFIED: Loop A now separates strategy filters (`MULTI_TIMEFRAME_DISAGREEMENT`,
+  `MACD_DIRECTION_MISMATCH`, `RSI_OUTSIDE_RANGE`, `NO_ENTRY_SIGNAL`) from operational
+  entry blocks and system failures. `MAX_OPEN_EXPOSURES` is included in the entry-blocking
+  set, and `signal_generated` is based on base-signal telemetry rather than `candidate_key`.
+- VERIFIED: the 24h read-only runtime audit observed `221` effective decisions,
+  `2` orders, `1` fill, and `1` closed position. Current runtime was healthy with `0/2`
+  open positions; terminal was `HEALTHY_WAITING_FOR_MARKET`; sampling rules were unchanged.
+- VERIFIED: Loop B Data Audit found only partial Spot 1h archives for the fixed five-symbol
+  universe (`2023-11` through `2025-02`, 16 monthly files per symbol). Existing
+  `microstructure-v3` contains BTC/ETH daily futures metrics and monthly aggTrades only;
+  no fixed-universe perpetual 1h, mark/index/premium, funding-history, or research trading-rules
+  snapshot was found. Artifact status is `BLOCKED_MARKET_NEUTRAL_DATA`.
+- VERIFIED: `artifacts/market_neutral_research_v1/` contains DATA_AUDIT, frozen
+  RESEARCH_PLAN, blocked H1/H2/H3 results, NOT_RUN Validation/Stability, and a final report.
+  Final Holdout remains sealed and was not accessed. Runtime, Canary, Production Manifest,
+  Promotion Gate, ConfigSnapshot, and Binance execution code were not modified.
+
+## QUANT_PROJECT_CLOSEOUT_MASTER_LOOP (2026-08-27)
+
+- Canonical tests are fixed to `scripts/test.ps1` -> `py -3 -m pytest`; verified
+  `1915 passed, 16 skipped, 2 warnings`.
+- Official Binance market-neutral cache is complete under
+  `%LOCALAPPDATA%\\ai-quant\\market-neutral-v1`; audit status is `DATA_READY`, with
+  931 acquisition objects and five funding files at 3288 records each.
+- Pre-registered H1/H2/H3 all failed Research Gates after costs; terminal conclusion is
+  `MARKET_NEUTRAL_BATCH_EXHAUSTED`. No Runtime or Production surface changed; no Survivor.

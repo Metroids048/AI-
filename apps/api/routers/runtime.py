@@ -50,6 +50,7 @@ from services.strategy_library import (
     PaperRunRepository,
 )
 from shared.models import PaperRun, RuntimeDatum
+from shared.models.risk import TESTNET_CANARY_RUNTIME_CONTRACT
 
 router = APIRouter(prefix="/runtime", tags=["runtime-truth"])
 # Serve-from-cache window. This MUST exceed the console poll interval
@@ -943,6 +944,24 @@ def _v2_decision_payload(decision, cycle) -> dict:
         isinstance(stage, dict) and stage.get("stage") == "EXCHANGE_SUBMITTED" and stage.get("outcome") == "PASSED"
         for stage in (stages if isinstance(stages, list) else [])
     )
+    stage_rows = [stage for stage in stages if isinstance(stage, dict)] if isinstance(stages, list) else []
+    signal_stage = next((stage for stage in stage_rows if stage.get("stage") == "ENTRY_SIGNAL_EVALUATED"), None)
+    if not isinstance(signal_stage, dict):
+        signal_stage = {}
+    metrics_value = signal_stage.get("metrics")
+    signal_metrics: dict = metrics_value if isinstance(metrics_value, dict) else {}
+    candidate_created = any(
+        stage.get("stage") == "CANDIDATE_CREATED" and stage.get("outcome") == "PASSED" for stage in stage_rows
+    )
+    base_signal_detected = signal_metrics.get("base_signal_detected")
+    if not isinstance(base_signal_detected, bool):
+        base_signal_detected = bool(signal_metrics.get("base_signal_side"))
+    mtf_alignment_passed = signal_metrics.get("mtf_alignment_passed")
+    if not isinstance(mtf_alignment_passed, bool) and signal_stage:
+        mtf_alignment_passed = (
+            signal_stage.get("outcome") == "PASSED" and signal_metrics.get("strict_alignment") is True
+        )
+    confirmation_bars_passed = signal_metrics.get("confirmation_bars_passed")
     return {
         "decision_id": decision.decision_id,
         "cycle_id": cycle.cycle_id,
@@ -951,7 +970,12 @@ def _v2_decision_payload(decision, cycle) -> dict:
         "last_decision_at": decision.created_at.isoformat(),
         "strategy": payload.get("active_entry_strategy") or payload.get("strategy_id"),
         "entry_authority": payload.get("entry_authority"),
-        "signal_generated": bool(payload.get("candidate_key")),
+        "signal_generated": base_signal_detected,
+        "base_signal_detected": base_signal_detected,
+        "base_signal_side": signal_metrics.get("base_signal_side") or signal_metrics.get("side"),
+        "mtf_alignment_passed": mtf_alignment_passed,
+        "confirmation_bars_passed": confirmation_bars_passed,
+        "candidate_created": candidate_created,
         "entry_gate_result": payload.get("terminal_stage") or cycle.decision_terminal or "UNKNOWN",
         "entry_submitted": exchange_submitted,
         "terminal_reason": decision.terminal_reason or payload.get("reason_code") or "UNKNOWN",
@@ -1111,6 +1135,32 @@ _ENTRY_BLOCKING_REASONS = frozenset(
         "PRETRADE_DECISION_STALE",
         "RECONCILIATION_BLOCKED",
         "MANUAL_POSITION_DIRECTION_CONFLICT",
+        "MAX_OPEN_EXPOSURES",
+    }
+)
+_STRATEGY_FILTER_REASONS = frozenset(
+    {
+        "NO_ENTRY_SIGNAL",
+        "MACD_DIRECTION_MISMATCH",
+        "RSI_OUTSIDE_RANGE",
+        "MULTI_TIMEFRAME_DISAGREEMENT",
+        "EMA_DIRECTION_MISMATCH",
+        "REGIME_NOT_ELIGIBLE",
+        "SIGNAL_CONFIDENCE_BELOW_THRESHOLD",
+        "FOUR_HOUR_DIRECTION_CONFLICT",
+        "ONE_HOUR_REGIME_RANGE",
+        "SINGLE_TIMEFRAME_LANE",
+        "INSUFFICIENT_HISTORY",
+        "ATR_NOT_POSITIVE",
+    }
+)
+_SYSTEM_FAILURE_REASONS = frozenset(
+    {
+        "SCHEDULER_OFFLINE",
+        "MARKET_DATA_STALE",
+        "DECISION_PIPELINE_STALLED",
+        "RECONCILIATION_UNAVAILABLE",
+        "INTERNAL_ERROR",
     }
 )
 _DECISION_PIPELINE_MAX_AGE = timedelta(minutes=30)
@@ -1137,6 +1187,24 @@ def _entry_blocking_reason(reason: str) -> bool:
     return reason in _ENTRY_BLOCKING_REASONS or reason.startswith(("RISK_", "POSITION_", "PRICE_DRIFT_"))
 
 
+def _reason_category(reason: str) -> str:
+    if reason in _STRATEGY_FILTER_REASONS:
+        return "strategy_filter"
+    if reason in _SYSTEM_FAILURE_REASONS:
+        return "system_failure"
+    if _entry_blocking_reason(reason) or reason in {
+        "EXCHANGE_UNAVAILABLE",
+        "EXCHANGE_UNKNOWN",
+        "EXCHANGE_REJECTED",
+        "CANDIDATE_EXPIRED",
+        "ENTRY_PAUSED",
+        "NO_AUTHORIZED_PRODUCTION_STRATEGY",
+        "RECONCILIATION_BLOCKED",
+    }:
+        return "operational_block"
+    return "system_failure"
+
+
 def build_no_trade_summary(
     *,
     observed_at: datetime,
@@ -1151,6 +1219,7 @@ def build_no_trade_summary(
     funnel: dict | None = None,
     protection_truth: dict | None = None,
     open_positions_count: int | None = None,
+    execution_mode: str | None = None,
 ) -> dict:
     """Project existing Runtime Truth facts into one deterministic no-trade status."""
     window_start = observed_at - timedelta(hours=window_hours)
@@ -1162,9 +1231,21 @@ def build_no_trade_summary(
     duplicate_decisions = [item for item in normalized_decisions if item.get("reason") == "DUPLICATE_DECISION"]
     effective_decisions = [item for item in normalized_decisions if item.get("reason") != "DUPLICATE_DECISION"]
     reason_counts: dict[str, int] = {}
+    strategy_filter_counts: dict[str, int] = {}
+    operational_block_counts: dict[str, int] = {}
+    system_failure_counts: dict[str, int] = {}
     for item in effective_decisions:
         reason = str(item.get("reason") or "UNKNOWN")
+        if reason in {"OK", "CANDIDATE_READY", "ENTRY_INTENT_CREATED"}:
+            continue
         reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        category = _reason_category(reason)
+        target = {
+            "strategy_filter": strategy_filter_counts,
+            "operational_block": operational_block_counts,
+            "system_failure": system_failure_counts,
+        }[category]
+        target[reason] = target.get(reason, 0) + 1
     dominant_reason = next(iter(reason_counts), None)
     if reason_counts:
         dominant_reason = max(reason_counts, key=lambda reason: (reason_counts[reason], reason))
@@ -1173,12 +1254,19 @@ def build_no_trade_summary(
         for item in effective_decisions
         if item.get("effective_max_open_positions") is not None
     ]
-    effective_max_open_positions = sizing_values[0] if sizing_values else None
-    blocker_counts = {
-        reason: count
-        for reason, count in reason_counts.items()
-        if reason not in {"OK", "NO_ENTRY_SIGNAL"}
-    }
+    canary_authority = str(execution_mode or entry_runtime.get("execution_mode") or "") == str(
+        TESTNET_CANARY_RUNTIME_CONTRACT["execution_mode"]
+    ) and str(entry_runtime.get("entry_authority") or "") == str(TESTNET_CANARY_RUNTIME_CONTRACT["entry_authority"])
+    effective_max_open_positions = (
+        int(TESTNET_CANARY_RUNTIME_CONTRACT["max_open_positions"])
+        if canary_authority
+        else (sizing_values[0] if sizing_values else None)
+    )
+    capacity_source = (
+        "TESTNET_CANARY_RUNTIME_CONTRACT"
+        if canary_authority
+        else ("HISTORICAL_DECISION_AUDIT" if sizing_values else None)
+    )
 
     entry_fill_times = [
         at
@@ -1197,7 +1285,13 @@ def build_no_trade_summary(
     trading_state = str(entry_runtime.get("trading_state") or "ENTRY_PAUSED")
     entry_authorized = bool(entry_runtime.get("entry_authorized"))
     latest_decision_at = normalized_decisions[0]["at"] if normalized_decisions else None
+    active_blocker: str | None = None
 
+    at_capacity = (
+        effective_max_open_positions is not None
+        and open_positions_count is not None
+        and open_positions_count >= effective_max_open_positions
+    )
     if not bool(scheduler.get("running")):
         summary_code = "SCHEDULER_OFFLINE"
     elif exchange_status == "unavailable" or exchange.get("value") is None:
@@ -1215,10 +1309,37 @@ def build_no_trade_summary(
         summary_code = "ENTRY_PAUSED"
     elif latest_decision_at is None or observed_at - latest_decision_at > _DECISION_PIPELINE_MAX_AGE:
         summary_code = "DECISION_PIPELINE_STALLED"
+    elif at_capacity:
+        summary_code = "ENTRY_BLOCKED"
+        active_blocker = "MAX_OPEN_EXPOSURES"
     elif dominant_reason is not None and _entry_blocking_reason(dominant_reason):
         summary_code = "ENTRY_BLOCKED"
+        active_blocker = dominant_reason
     else:
         summary_code = "HEALTHY_WAITING_FOR_SIGNAL"
+
+    if summary_code != "ENTRY_BLOCKED":
+        active_blocker = {
+            "SCHEDULER_OFFLINE": "SCHEDULER_OFFLINE",
+            "EXCHANGE_UNAVAILABLE": "EXCHANGE_UNAVAILABLE",
+            "MARKET_DATA_STALE": "MARKET_DATA_STALE",
+            "RECONCILIATION_BLOCKED": "RECONCILIATION_BLOCKED",
+            "DECISION_PIPELINE_STALLED": "DECISION_PIPELINE_STALLED",
+            "ENTRY_PAUSED": entry_runtime.get("reason") or "ENTRY_PAUSED",
+        }.get(summary_code)
+    active_blocker_category = _reason_category(active_blocker) if active_blocker else None
+    runtime_health = (
+        "degraded"
+        if summary_code
+        in {
+            "SCHEDULER_OFFLINE",
+            "EXCHANGE_UNAVAILABLE",
+            "MARKET_DATA_STALE",
+            "RECONCILIATION_BLOCKED",
+            "DECISION_PIPELINE_STALLED",
+        }
+        else "healthy"
+    )
 
     return {
         "window_hours": window_hours,
@@ -1268,6 +1389,16 @@ def build_no_trade_summary(
             "entry_authorized": entry_authorized,
             "reason": entry_runtime.get("reason") or entry_runtime.get("entry_authority_reason"),
         },
+        "current_status": {
+            "runtime_health": runtime_health,
+            "active_blocker": active_blocker,
+            "active_blocker_category": active_blocker_category,
+            "active_blocker_since": _iso_datetime(latest_decision_at) if active_blocker else None,
+            "currently_at_capacity": at_capacity,
+            "current_open_positions": open_positions_count,
+            "effective_max_open_positions": effective_max_open_positions,
+            "capacity_source": capacity_source,
+        },
         "decisions": {
             "total": len(normalized_decisions),
             "effective": len(effective_decisions),
@@ -1275,23 +1406,32 @@ def build_no_trade_summary(
             "latest_at": _iso_datetime(latest_decision_at),
             "reason_counts": reason_counts,
             "dominant_reason": dominant_reason,
+            "strategy_filter_counts": strategy_filter_counts,
+            "operational_block_counts": operational_block_counts,
+            "system_failure_counts": system_failure_counts,
+        },
+        "historical_window": {
+            "window_hours": window_hours,
+            "strategy_filter_counts": strategy_filter_counts,
+            "operational_block_counts": operational_block_counts,
+            "system_failure_counts": system_failure_counts,
         },
         "funnel": funnel or {},
         "throughput": {
             "current_open_positions": open_positions_count,
             "effective_max_open_positions": effective_max_open_positions,
+            "capacity_source": capacity_source,
             "remaining_slots": (
                 max(effective_max_open_positions - open_positions_count, 0)
                 if effective_max_open_positions is not None and open_positions_count is not None
                 else None
             ),
-            "at_capacity": (
-                effective_max_open_positions is not None
-                and open_positions_count is not None
-                and open_positions_count >= effective_max_open_positions
-            ),
-            "blocker_counts": blocker_counts,
-            "blocker_total": sum(blocker_counts.values()),
+            "at_capacity": at_capacity,
+            "strategy_filter_counts": strategy_filter_counts,
+            "operational_block_counts": operational_block_counts,
+            "system_failure_counts": system_failure_counts,
+            "blocker_counts": operational_block_counts,
+            "blocker_total": sum(operational_block_counts.values()),
         },
         "protection": protection_truth
         or {
@@ -1413,6 +1553,11 @@ def runtime_no_trade_summary(
                 "at": decision.created_at,
                 "reason": payload["terminal_reason"],
                 "signal_generated": payload["signal_generated"],
+                "base_signal_detected": payload["base_signal_detected"],
+                "base_signal_side": payload["base_signal_side"],
+                "mtf_alignment_passed": payload["mtf_alignment_passed"],
+                "confirmation_bars_passed": payload["confirmation_bars_passed"],
+                "candidate_created": payload["candidate_created"],
                 "entry_gate_result": payload["entry_gate_result"],
                 "entry_submitted": payload["entry_submitted"],
                 "effective_max_open_positions": payload["effective_max_open_positions"],
@@ -1456,6 +1601,7 @@ def runtime_no_trade_summary(
         entry_fills=fills,
         protection_truth=projection["current_protection"],
         open_positions_count=len(projection["local_open"]),
+        execution_mode=scheduler.execution_mode,
     )
     effective = [item for item in decisions if item["reason"] != "DUPLICATE_DECISION"]
     orders = v2_repo.list_exchange_orders(execution_mode=V2ExecutionMode.BINANCE_TESTNET, limit=500)
@@ -1497,10 +1643,11 @@ def runtime_no_trade_summary(
     ]
     summary["funnel"] = {
         "decision_cycles": len(effective),
-        "signal_generated": sum(bool(item.get("signal_generated")) for item in effective),
-        "candidate_created": sum(
-            bool(item.get("signal_generated")) and item.get("reason") != "NO_ENTRY_SIGNAL" for item in effective
-        ),
+        "signal_generated": sum(bool(item.get("base_signal_detected")) for item in effective),
+        "base_signal_detected": sum(bool(item.get("base_signal_detected")) for item in effective),
+        "mtf_confirmation_passed": sum(bool(item.get("mtf_alignment_passed")) for item in effective),
+        "confirmation_bars_passed": sum(bool(item.get("confirmation_bars_passed")) for item in effective),
+        "candidate_created": sum(bool(item.get("candidate_created")) for item in effective),
         "r2_cost_rejected": sum(item["reason"] == "NO_TRADE_COST_INEFFICIENT" for item in effective),
         "position_rejected": sum(item["reason"].startswith("POSITION_") for item in effective),
         "price_drift_rejected": sum(item["reason"].startswith("PRICE_DRIFT_") for item in effective),

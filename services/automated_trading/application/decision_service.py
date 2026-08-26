@@ -420,9 +420,7 @@ def evaluate_symbol(context: DecisionContext) -> DecisionOutcome:
     )
 
     # --- TIMEFRAMES_ALIGNED ---
-    if context.strict_sampling_alignment and (
-        context.direction_timeframe is None or context.state_timeframe is None
-    ):
+    if context.strict_sampling_alignment and (context.direction_timeframe is None or context.state_timeframe is None):
         return _terminate(
             context,
             builder,
@@ -478,6 +476,11 @@ def evaluate_symbol(context: DecisionContext) -> DecisionOutcome:
 
     # --- ENTRY_SIGNAL_EVALUATED ---
     evaluation = evaluate_sampling_signal(context.entry_timeframe)
+    signal_metrics = dict(evaluation.metrics)
+    signal_metrics.setdefault("base_signal_detected", evaluation.side is not None)
+    signal_metrics.setdefault("base_signal_side", evaluation.side.value if evaluation.side is not None else None)
+    signal_metrics.setdefault("mtf_alignment_passed", None)
+    signal_metrics.setdefault("confirmation_bars_passed", None)
     if evaluation.side is None:
         reason = evaluation.reason_code or DecisionReasonCode.NO_ENTRY_SIGNAL
         return _terminate(
@@ -485,7 +488,7 @@ def evaluate_symbol(context: DecisionContext) -> DecisionOutcome:
             builder,
             FunnelStage.ENTRY_SIGNAL_EVALUATED,
             reason,
-            metrics=evaluation.metrics,
+            metrics=signal_metrics,
         )
     if context.strict_sampling_alignment:
         assert context.direction_timeframe is not None
@@ -500,17 +503,16 @@ def evaluate_symbol(context: DecisionContext) -> DecisionOutcome:
                 FunnelStage.ENTRY_SIGNAL_EVALUATED,
                 DecisionReasonCode.MULTI_TIMEFRAME_DISAGREEMENT,
                 metrics={
-                    **dict(evaluation.metrics),
+                    **signal_metrics,
                     "side": evaluation.side.value,
+                    "mtf_alignment_passed": False,
                     "strict_alignment": False,
                 },
             )
         confirmations = max(context.sampling_confirmation_bars, 0)
         for offset in range(1, confirmations + 1):
             confirmation_bars = context.entry_timeframe.bars[:-offset]
-            confirmation = evaluate_sampling_signal(
-                TimeframeView(context.entry_timeframe.timeframe, confirmation_bars)
-            )
+            confirmation = evaluate_sampling_signal(TimeframeView(context.entry_timeframe.timeframe, confirmation_bars))
             if confirmation.side is not evaluation.side:
                 return _terminate(
                     context,
@@ -518,8 +520,10 @@ def evaluate_symbol(context: DecisionContext) -> DecisionOutcome:
                     FunnelStage.ENTRY_SIGNAL_EVALUATED,
                     DecisionReasonCode.MULTI_TIMEFRAME_DISAGREEMENT,
                     metrics={
-                        **dict(evaluation.metrics),
+                        **signal_metrics,
                         "side": evaluation.side.value,
+                        "mtf_alignment_passed": True,
+                        "confirmation_bars_passed": False,
                         "strict_alignment": True,
                         "confirmation_bars": confirmations,
                         "failed_confirmation_offset": offset,
@@ -529,8 +533,10 @@ def evaluate_symbol(context: DecisionContext) -> DecisionOutcome:
         FunnelStage.ENTRY_SIGNAL_EVALUATED,
         StageOutcome.PASSED,
         metrics={
-            **dict(evaluation.metrics),
+            **signal_metrics,
             "side": evaluation.side.value,
+            "mtf_alignment_passed": True,
+            "confirmation_bars_passed": True,
             "strict_alignment": context.strict_sampling_alignment,
             "confirmation_bars": context.sampling_confirmation_bars,
         },

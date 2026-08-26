@@ -1,0 +1,7 @@
+{
+  "schema": "MARKET_NEUTRAL_STABILITY_V1",
+  "status": "NOT_RUN",
+  "reason": "no_research_survivor",
+  "final_holdout_accessed": false,
+  "runtime_modified": false
+}

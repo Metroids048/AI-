@@ -86,13 +86,30 @@ function SummaryCard({ summary }) {
   const protection = summary.protection ?? {};
   const reconciliation = summary.reconciliation ?? {};
   const throughput = summary.throughput ?? {};
-  const blockerTotal = Number(throughput.blocker_total ?? 0);
-  const blockerRows = Object.entries(throughput.blocker_counts ?? {})
+  const historical = summary.historical_window ?? {};
+  const operationalCounts = historical.operational_block_counts ?? throughput.operational_block_counts ?? throughput.blocker_counts ?? {};
+  const strategyCounts = historical.strategy_filter_counts ?? throughput.strategy_filter_counts ?? {};
+  const systemCounts = historical.system_failure_counts ?? throughput.system_failure_counts ?? {};
+  const operationalTotal = Object.values(operationalCounts).reduce((sum, value) => sum + Number(value), 0);
+  const blockerRows = Object.entries(operationalCounts)
     .sort(([, left], [, right]) => Number(right) - Number(left))
     .slice(0, 5);
+  const strategyRows = Object.entries(strategyCounts)
+    .sort(([, left], [, right]) => Number(right) - Number(left))
+    .slice(0, 5);
+  const systemRows = Object.entries(systemCounts)
+    .sort(([, left], [, right]) => Number(right) - Number(left))
+    .slice(0, 5);
+  const current = summary.current_status ?? {};
+  const activeBlocker = current.active_blocker;
   return (
     <div className="why-no-trade-summary">
       <p className="why-no-trade-status">{summaryCopy(summary)}</p>
+      <div className="why-no-trade-current-status">
+        <strong>当前状态</strong>
+        <span>{current.runtime_health === "healthy" ? "正常等待交易机会" : "运行状态需要关注"}</span>
+        <span>当前 Active Blocker：{activeBlocker ? formatDecisionReason(activeBlocker) : "无"}</span>
+      </div>
       {protection.p0_unprotected ? (
         <p className="why-no-trade-p0" role="alert">
           P0：当前权威持仓存在未确认保护，自动开仓已阻断。受管保护 {protection.protected_positions ?? 0}，未保护 {protection.unprotected_positions ?? 0}。
@@ -114,15 +131,27 @@ function SummaryCard({ summary }) {
             : `Testnet Canary 当前持仓：${throughput.current_open_positions} / ${throughput.effective_max_open_positions}，仍可新增 ${throughput.remaining_slots ?? 0} 个仓位`}
         </p>
       ) : null}
+      {strategyRows.length ? (
+        <div className="why-no-trade-blockers">
+          <span>近 {historical.window_hours ?? summary.window_hours ?? 3} 小时策略过滤</span>
+          {strategyRows.map(([code, count]) => <span key={code}>{formatDecisionReason(code)} {count} 次</span>)}
+        </div>
+      ) : null}
       {blockerRows.length ? (
         <div className="why-no-trade-blockers">
-          <span>主要 blocker</span>
+          <span>近 {historical.window_hours ?? summary.window_hours ?? 3} 小时执行阻断</span>
           {blockerRows.map(([code, count]) => (
             <span key={code}>
               {formatDecisionReason(code)} {count} 次
-              {blockerTotal ? `（${formatNumber(Number(count) / blockerTotal * 100, 1)}%）` : ""}
+              {operationalTotal ? `（${formatNumber(Number(count) / operationalTotal * 100, 1)}%）` : ""}
             </span>
           ))}
+        </div>
+      ) : null}
+      {systemRows.length ? (
+        <div className="why-no-trade-blockers">
+          <span>近 {historical.window_hours ?? summary.window_hours ?? 3} 小时系统故障</span>
+          {systemRows.map(([code, count]) => <span key={code}>{formatDecisionReason(code)} {count} 次</span>)}
         </div>
       ) : null}
       <div className="why-no-trade-stats">
@@ -132,8 +161,9 @@ function SummaryCard({ summary }) {
       </div>
       {summary.funnel ? (
         <div className="why-no-trade-stats">
-          <span>信号 {summary.funnel.signal_generated ?? 0}</span>
-          <span>候选 {summary.funnel.candidate_created ?? 0}</span>
+          <span>基础信号 {summary.funnel.base_signal_detected ?? summary.funnel.signal_generated ?? 0}</span>
+          <span>多周期确认 {summary.funnel.mtf_confirmation_passed ?? 0}</span>
+          <span>Candidate {summary.funnel.candidate_created ?? 0}</span>
           <span>R2 拒绝 {summary.funnel.r2_cost_rejected ?? 0}</span>
           <span>Intent {summary.funnel.intent_created ?? 0}</span>
           <span>提交订单 {summary.funnel.exchange_submitted ?? 0}</span>

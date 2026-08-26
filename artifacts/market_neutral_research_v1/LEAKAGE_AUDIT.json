@@ -1,0 +1,17 @@
+{
+  "schema": "MARKET_NEUTRAL_LEAKAGE_AUDIT_V1",
+  "status": "PASS",
+  "chronological": true,
+  "split_boundaries": {
+    "research_end": "2024-11-16T14:24:00+00:00",
+    "validation_end": "2025-06-23T19:12:00+00:00",
+    "final_holdout_start": "2026-01-29T00:00:00+00:00"
+  },
+  "future_beta": false,
+  "full_sample_normalization": false,
+  "position_crosses_split": false,
+  "overlapping_positions_within_family": false,
+  "research_intervals_checked": 3267,
+  "validation_accessed": false,
+  "final_holdout_accessed": false
+}
