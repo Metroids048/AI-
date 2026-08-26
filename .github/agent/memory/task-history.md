@@ -2054,3 +2054,223 @@
 - Real Telegram credentials/session, live folder membership, forward messages, and
   Binance Testnet G5/G6 evidence were unavailable. Telegram system status remains
   `BLOCKED`, not `PASS`; no secrets or sessions were added to the worktree.
+
+# [TASK-2026-08-25-ALPHA-RESEARCH-RECOVERY-V2]
+
+- Added a Research-only tournament for exactly three new alpha families:
+  `vwap_deviation_reversion_v1`, `regression_trend_pullback_v1`, and
+  `volume_climax_reversal_v1`. Runtime, candidate registry, proposal pipeline,
+  ConfigSnapshot, Production Authorization, Binance, and Promotion Gate were not changed.
+- Re-ran the bounded tournament against the existing read-only database copy after fixing
+  H1 target viability to use only the current closed bar. Added a deterministic test that
+  mutating future bars cannot change prior H1 signals.
+- Evidence: `artifacts/alpha_research_recovery_v2/FINAL_REPORT.json` is
+  `NEW_ALPHA_BATCH_EXHAUSTED`; H1/H2/H3 research PF were `0.6059829`, `0.6471911`,
+  and `0.5731455`, with negative expectancy for all three. No validation promotion,
+  neighbor search, or Final Holdout access occurred.
+- Focused v2 tests: `10 passed`; Ruff passed; mypy passed. Full pytest had
+  `20 failed, 1858 passed, 7 skipped` because the environment lacks the async pytest
+  plugin; failures are pre-existing async tests and unrelated to this Research-only work.
+
+# [TASK-2026-08-25-ALPHA-RESEARCH-RECOVERY-V3]
+
+- Added a Research-only Futures AggTrades -> closed 5m aggressor-flow pipeline with
+  point-in-time OI metrics. Runtime, Execution, Authorization, ConfigSnapshot,
+  Production Manifest, Binance code, and Promotion Gate were untouched.
+- All 37 AggTrades archives were downloaded and SHA256-validated. Metrics acquisition
+  stopped after two Binance Vision TLS EOF failures (`2023-03-02`, retry `2023-03-06`);
+  only 47 BTCUSDT metric archives were cached and ETHUSDT metrics were unavailable.
+- Final artifact `artifacts/alpha_research_recovery_v3/FINAL_REPORT.json` records
+  `BLOCKED_MICROSTRUCTURE_HISTORICAL_DATA`. H1/H2/H3 replay, validation, stability,
+  and Final Holdout were not run; resume only from the existing cache after external
+  network resolution, with no further retry under the bounded contract.
+# 2026-08-25 ALPHA_RESEARCH_RECOVERY_V3_1
+
+- Recovered Binance Vision daily Metrics for BTCUSDT/ETHUSDT: `1096/1096` per symbol,
+  `100%` checksum-valid coverage, no source/network/checksum gaps.
+- Added manifest-driven, resume-safe downloader behavior with curl-first transport fallback,
+  per-object retries, atomic `.part` handling, and 404 source archive classification.
+- Fixed Metrics parser for Binance ISO `create_time` values; generated BTC 5m feature cache
+  with `105044` rows. ETH feature rows remain `0` because the existing AggTrades cache has no
+  ETHUSDT archives; no AggTrades were re-downloaded under task constraints.
+- H1/H2/H3 were run after acquisition and all failed research gates; Final Holdout untouched,
+  Runtime unchanged, Production not granted.
+- Verification: focused V3 tests `12 passed`; Ruff touched files `All checks passed!`;
+  `git diff --check` passed.
+
+# 2026-08-25 ALPHA_RESEARCH_RECOVERY_V3_2
+
+- Resumed from the existing cache and completed the missing ETHUSDT AggTrades acquisition;
+  BTCUSDT/ETHUSDT AggTrades are both `37/37`, and daily Metrics are both `1096/1096`.
+  BTC was not re-downloaded. Final Holdout remained sealed.
+- Completed dual-symbol feature construction: BTCUSDT and ETHUSDT each have `105044`
+  closed-5m rows and the same feature schema hash. Runtime, Execution, Authorization,
+  ConfigSnapshot, Production Manifest, Binance code, and Promotion Gate were untouched.
+- Replayed H1/H2/H3 with per-symbol gates and 1.5x cost stress. All three research gates
+  failed for both BTC and ETH; validation was `NOT_RUN`, with no portfolio or
+  symbol-specific survivor. `FINAL_REPORT.json` is now validly
+  `MICROSTRUCTURE_ALPHA_BATCH_EXHAUSTED` for the complete dual-symbol batch.
+- Key research PF (BTC/ETH): H1 `0.4417/0.5257`, H2 `0.4237/0.4169`, H3
+  `0.4131/0.3928`; all expectancies were negative. Production authority remains
+  `NOT_GRANTED`; Runtime modified remains `false`.
+- Audit caveat: ETH source parsing excluded `6,506,691` non-positive-quantity rows;
+  archives were complete and no zero/neutral feature fill was used, but this quality issue
+  is retained explicitly in `DATA_AUDIT.json` and must accompany the exhaustion conclusion.
+- Verification after the final type fix: `ruff check` -> `All checks passed!`; mypy on the
+  touched V3 script/tests -> `Success: no issues found in 2 source files`; focused pytest
+  -> `12 passed in 2.30s`; `git diff --check` passed.
+
+# 2026-08-25 ALPHA_RESEARCH_RECOVERY_V4
+
+- Started `EXTERNAL_CONTEXT_ALPHA_OVERLAY` with the required frozen baseline
+  `volatility_expansion_v1`; the runner is overlay-only and cannot create trades or change
+  direction/geometry.
+- Canonical replay did not reproduce the frozen baseline. Actual current-span evidence is
+  `732` trades, PF `0.9198940645`, expectancy `-0.0014049180`, MaxDD `1.0228369251`, versus
+  expected `281`, `1.1576630479`, `0.0015124510`, `0.1873643284`.
+- Per V4 hard gate, stopped before external data acquisition/joins. Final status is
+  `BLOCKED_BASELINE_REPRODUCTION`; H1 breadth, H2 DVOL, H3 Fear & Greed, validation, and
+  combined overlay are not run. Final Holdout `false`, Runtime modified `false`,
+  Production `NOT_GRANTED`.
+- `BASELINE_EVENT_LEDGER.parquet` was generated with `732` rows and required event fields.
+  The declared `py -3` interpreter lacked `pyarrow`; the runner reused the existing local
+  `.agent-reach-venv` package path without installing or changing dependencies.
+- One-shot endpoint availability probes were performed before the baseline run but no
+  external rows were persisted or joined; future resume must begin from this blocker and
+  repair baseline reproduction first.
+
+# 2026-08-26 ALPHA_RESEARCH_RECOVERY_V4_1
+
+- Implemented `scripts/run_alpha_research_recovery_v4_1.py` and focused tests in
+  `tests/test_alpha_research_recovery_v4_1.py`.
+- Verified the historical Champion provenance from
+  `C:\Users\Windows11\AppData\Local\Temp\ai-quant-p2-champion\FINAL_REPORT.json`:
+  `volatility_expansion_v1`, `proposal_pipeline -> ProposalReplayRunner`, three
+  expanding Research windows, 24-hour purge, 281 trades (`BTC=132`, `ETH=149`),
+  PF `1.1576630479`, expectancy `0.0015124510`, MaxDD `18.7364%`.
+- Current V4's 732 event keys have zero overlap with the historical 281 event keys;
+  the mismatch is replay contract/scope, not a dataset identity mismatch. Current and
+  historical DB SHA256 are both
+  `24a6c836b66758f3f4a3b733a7393c4e290e04f0b1610254984456058605e5cb`.
+- V4.1 status is `BASELINE_REPRODUCED`, root cause
+  `REPLAY_SCOPE_SEMANTICS_MISMATCH`. Corrected 281-row baseline ledger and provenance
+  artifacts are under `artifacts/alpha_research_recovery_v4_1/`.
+- Historical source commit `470d3d3d...` is not present in current refs; source drift
+  comparison is explicitly `UNKNOWN_COMMIT_OBJECT`. Final Holdout, Runtime,
+  Production authority, and external overlay acquisition remain untouched.
+
+# 2026-08-26 AUTO_TRADING_THROUGHPUT_RECOVERY
+
+- Resumed existing throughput recovery without repeating prior natural lifecycle evidence.
+  Root cause remains `CANARY_SINGLE_POSITION_THROUGHPUT_BOTTLENECK`; the permitted
+  Canary contract is now `max_open_positions=2`, `max_total_exposure=0.02`, while
+  per-symbol exposure remains `0.01` and diagnostic notional remains `50 USDT`.
+- Scheduler, CycleRequest sizing, and Canary portfolio evaluation consume the resolved
+  request contract; Production/Mainnet contracts remain unchanged. Audit selection of
+  the latest sizing payload is deterministic by `created_at`.
+- Refreshed 24-hour artifact records `2757` bar evaluations, `12` candidates, and `4`
+  historical `MAX_OPEN_EXPOSURES` blocks; latest resolved sizing is `2 / 0.02`.
+- Verification: Canary tests `3 passed`; frontend `21 files / 116 tests passed`; touched
+  Ruff and mypy passed; `git diff --check` passed. Official restart returned
+  `STARTUP_READY`, API health `200`, and active Testnet Canary Scheduler health.
+  Final full pytest is `1889 passed, 16 skipped, 2 warnings`.
+
+# 2026-08-26 ALPHA_RESEARCH_RECOVERY_V5
+
+- Added the independent read-only Telegram history gate runner
+  `scripts/run_alpha_research_recovery_v5.py` and focused tests.
+- The real local audit returned `BLOCKED_KOL_HISTORICAL_DATA` with blocker
+  `TELEGRAM_CREDENTIALS_NOT_CONFIGURED`: collector disabled, no API credentials,
+  no local session, and zero accessible groups. Exit code was `2`.
+- The runner generated the complete V5 evidence directory, including a zero-row
+  `SIGNAL_LEDGER.parquet`, explicit `NOT_RUN` H1/H2/H3/parser/latency/validation
+  artifacts, and `FINAL_REPORT.json`. It did not touch Runtime, Binance, or the
+  strategy database; Final Holdout stayed sealed and Production remained
+  `NOT_GRANTED`.
+- Verification: V5 focused tests `3 passed`; touched Ruff and mypy passed; the
+  real audit produced the blocker above. Formal research must not resume until the
+  minimum Telegram history gate is met.
+
+# 2026-08-26 ALPHA_RESEARCH_RECOVERY_V6
+
+- Added `scripts/run_alpha_research_recovery_v6.py` with narrow-window GDELT and
+  read-only Federal Reserve FOMC source auditing, plus focused tests.
+- Real execution returned `BLOCKED_EVENT_HISTORICAL_DATA`: the first GDELT probe
+  (`2023-01-29` to `2023-02-05`) timed out after 15 seconds; no article rows or
+  event clusters were used. The Fed calendar was reachable for 2023-2025, but
+  official statement release timestamps were not extracted, so FOMC attribution
+  remained unavailable.
+- Generated `artifacts/alpha_research_recovery_v6/` with `EVENT_DATA_AUDIT.json`,
+  `RESEARCH_PLAN.json`, empty cluster ledger, explicit `NOT_RUN` H1/H2/H3/QA/
+  latency/validation artifacts, and `FINAL_REPORT.json`.
+- No Runtime or Production surface changed; Final Holdout stayed sealed and
+  Production remained `NOT_GRANTED`.
+
+# 2026-08-26 ALPHA_RESEARCH_RECOVERY_V4_RESUME
+
+- Added the independent Research-only runner `scripts/run_alpha_research_recovery_v4_resume.py`.
+  It locks the corrected V4.1 Champion ledger before any external join, records event/database/
+  strategy/config/split/window/replay hashes, and never creates trades or changes Runtime.
+- Baseline lock verified `281` trades (`BTC=132`, `ETH=149`), PF `1.1576630479`, expectancy
+  `0.0015124510`, MaxDD `0.1873643284`; Final Holdout remained sealed.
+- H1 Binance Spot 1h fixed-universe coverage is complete (`16` monthly archives per symbol,
+  `10,836` rows each). The parser handles Binance millisecond and microsecond epoch formats.
+- H2 Deribit DVOL was fetched in 30-day windows to respect the API row limit; BTC/ETH coverage
+  is complete for all 281 events. H3 Alternative.me Fear & Greed uses the conservative D+1 UTC
+  publication policy and covers all 281 events.
+- Quartile attribution showed no stable monotonic overlay relationship. All three Research gates
+  failed; Validation and Combined were correctly `NOT_RUN`. Final status is
+  `EXTERNAL_CONTEXT_ALPHA_BATCH_EXHAUSTED` with `runtime_modified=false`,
+  `production_authority=NOT_GRANTED`.
+- Verification: focused V4 resume tests `3 passed`; Ruff touched files `All checks passed!`.
+
+# 2026-08-26 ALPHA_RESEARCH_RECOVERY_V6_1
+
+- Reworked `scripts/v6_event_acquisition.py` into a resumable per-slice GDELT
+  helper with fixed query families, saturation splitting, network-failure recovery,
+  manifest statuses, bounded backoff, and canonical news normalization.
+- Added official Federal Reserve statement resolver with transport fallback,
+  release-line hashes, DST-safe UTC conversion, scheduled/extraordinary separation,
+  and `FOMC_EVENT_LEDGER.json` output.
+- Real run used a bounded Q01 historical probe and returned
+  `BLOCKED_EVENT_HISTORICAL_DATA` with GDELT `0/36` month coverage and a recorded
+  unresolved slice. No BigQuery authority was present, so GKG fallback was not
+  attempted. FOMC scheduled coverage recovered to `24/24`.
+- H1/H2/H3, clustering, Label QA, latency, Validation, and Final Holdout remain
+  `NOT_RUN`; Runtime and Production remain untouched. Artifacts are under
+  `artifacts/alpha_research_recovery_v6_1/`.
+- Verification: focused V6.1 tests `12 passed`; touched Ruff and mypy passed. A
+  full-history acquisition or V6 research continuation was not claimed from a
+  probe-only run.
+
+# 2026-08-26 ALPHA_RESEARCH_RECOVERY_V6_2
+
+- Added `scripts/run_alpha_research_recovery_v6_2.py` with a bounded six-date raw
+  archive probe (`20230129`, `20230701`, `20240101`, `20240701`, `20250101`,
+  `20250701`) for official GDELT daily GKG and Event ZIPs. The probe uses the
+  existing curl/requests/PowerShell fallback, validates ZIP integrity in memory,
+  and never retains raw archives or touches Runtime/Execution/Promotion/Final
+  Holdout.
+- Real probe evidence is under `artifacts/alpha_research_recovery_v6_2/`:
+  GKG `5/6`, Event `5/6`; all five reachable archives returned valid ZIPs.
+  `20250701.gkg.csv.zip` and `20250701.export.CSV.zip` returned empty HTTP 200
+  bodies through curl followed by HTTP 404 from requests; both are recorded as
+  network failures with `http_status=404`.
+- Corrected the schema probe to parse the actual headered GKG 1.0 11-column TSV.
+  The five reachable files each supplied 9,999 sampled rows with populated
+  `DATE`, `THEMES`, `ORGANIZATIONS`, `PERSONS`, `TONE`, `SOURCES`, and
+  `SOURCEURLS`; keyword matches ranged from `6297` to `6619`. Category/schema
+  semantics therefore passed for the reachable sample. Event exports were also
+  parsed as 58-column records; each reachable sample yielded 10,000 valid rows
+  with event codes, quantitative fields, `DATEADDED`, and source URLs.
+- GKG 1.0 `DATE` is `YYYYMMDD` day-level only. The parser reports
+  `timestamp_resolution=DAY_ONLY` and rejects minute-resolution claims; no
+  publisher timestamp or title was synthesized. Final probe status remains
+  `BLOCKED_GDELT_RAW_ARCHIVE_NETWORK` (network `5/6`), with timestamp gate also
+  failing (`timestamp_pass=false`).
+- FOMC ledger was reused at `24/24`; V6 was not resumed, Final Holdout was not
+  accessed, Runtime was not modified, and Production remained `NOT_GRANTED`.
+- Verification: V6.2 focused tests `5 passed`; real probe completed with the
+  blocker above. Ruff `All checks passed!`, mypy `Success: no issues found in 311
+  source files`, full pytest `1912 passed, 16 skipped, 2 warnings`, and
+  `git diff --check` all passed.

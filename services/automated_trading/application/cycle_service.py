@@ -94,6 +94,7 @@ from services.automated_trading.domain.enums import (
 )
 from services.automated_trading.domain.portfolio_risk import (
     MAX_OPEN_POSITIONS,
+    MAX_TOTAL_INITIAL_RISK_FRACTION,
     evaluate_portfolio_risk,
     portfolio_risk_blocks,
 )
@@ -792,16 +793,18 @@ def _calculate_quantity(
         # Canary sizing is a tiny connectivity probe.  The explicit diagnostic
         # notional cap wins over the legacy margin-derived target; exchange
         # market rules still perform the final min-notional and step-size checks.
-        canary_exposure_ceiling = equity * Decimal(
-            str(TESTNET_CANARY_RUNTIME_CONTRACT["max_symbol_exposure"])
-        )
-        canary_total_exposure_ceiling = equity * Decimal(
-            str(TESTNET_CANARY_RUNTIME_CONTRACT["max_total_exposure"])
-        )
-        canary_margin_budget_ceiling = equity * Decimal(
-            str(TESTNET_CANARY_RUNTIME_CONTRACT["max_margin_fraction"])
-        ) * Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_leverage"]))
-        canary_margin_ceiling = equity * Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_leverage"]))
+        # Use the already-resolved CycleRequest contract so the immutable
+        # runtime snapshot and the sizing path cannot silently diverge.
+        canary_exposure_ceiling = exposure_ceiling
+        requested_exposure_fraction = vars(request).get("max_position_fraction", Decimal("1.50"))
+        if requested_exposure_fraction == Decimal("1.50"):
+            canary_exposure_ceiling = equity * Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_symbol_exposure"]))
+        canary_total_exposure_fraction = request.max_total_exposure
+        if canary_total_exposure_fraction == Decimal("7.50"):
+            canary_total_exposure_fraction = Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_total_exposure"]))
+        canary_total_exposure_ceiling = equity * canary_total_exposure_fraction
+        canary_margin_budget_ceiling = equity * request.max_margin_fraction * Decimal(request.max_leverage)
+        canary_margin_ceiling = equity * Decimal(request.max_leverage)
         committed_notional = sum(
             (abs(position.quantity) * position.mark_price for position in snapshot.positions),
             Decimal("0"),
@@ -852,6 +855,7 @@ def _evaluate_durable_portfolio_risk(
     snapshot: AuthoritativeAccountSnapshot,
     initial_risk_usdt: Decimal,
     max_open_positions: int | None = None,
+    max_total_fraction: Decimal | None = None,
 ):
     """Load durable reservations and fail closed on legacy active unknown risk."""
     from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
@@ -869,6 +873,9 @@ def _evaluate_durable_portfolio_risk(
         candidate_initial_risk_usdt=initial_risk_usdt,
         committed=committed,
         max_open_positions=max_open_positions if max_open_positions is not None else MAX_OPEN_POSITIONS,
+        max_total_fraction=(
+            max_total_fraction if max_total_fraction is not None else MAX_TOTAL_INITIAL_RISK_FRACTION
+        ),
     )
     return decision, decision.reason_code
 
@@ -2494,6 +2501,15 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                     request.max_open_positions or int(TESTNET_CANARY_RUNTIME_CONTRACT["max_open_positions"])
                     if canary_sampling
                     else MAX_OPEN_POSITIONS
+                ),
+                max_total_fraction=(
+                    (
+                        request.max_total_exposure
+                        if request.max_total_exposure != Decimal("7.50")
+                        else Decimal(str(TESTNET_CANARY_RUNTIME_CONTRACT["max_total_exposure"]))
+                    )
+                    if canary_sampling
+                    else None
                 ),
             )
         except Exception as exc:  # noqa: BLE001

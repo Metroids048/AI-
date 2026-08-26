@@ -193,6 +193,29 @@ describe("WhyNoTrade", () => {
     expect(screen.getByText(/已提交至交易所/)).toBeTruthy();
   });
 
+  it("explains the current Canary position capacity and blocker share", () => {
+    render(
+      <WhyNoTrade
+        decisions={[]}
+        noTradeSummary={{
+          summary_code: "ENTRY_BLOCKED",
+          hours_since_last_entry: 1,
+          decisions: { effective: 4, duplicate: 0, reason_counts: { MAX_OPEN_EXPOSURES: 3, MACD_DIRECTION_MISMATCH: 1 } },
+          throughput: {
+            current_open_positions: 1,
+            effective_max_open_positions: 1,
+            remaining_slots: 0,
+            at_capacity: true,
+            blocker_counts: { MAX_OPEN_EXPOSURES: 3, MACD_DIRECTION_MISMATCH: 1 },
+            blocker_total: 4,
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText(/当前已达到 Testnet Canary 持仓上限：1 \/ 1/)).toBeTruthy();
+    expect(screen.getByText(/已达到持仓上限 3 次（75.0%）/)).toBeTruthy();
+  });
+
   it("shows latest decision per symbol when duplicates", () => {
     const earlier = new Date(Date.now() - 60_000).toISOString();
     const later = new Date().toISOString();

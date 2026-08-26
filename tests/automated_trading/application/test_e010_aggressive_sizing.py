@@ -303,8 +303,8 @@ class TestE010ProfileResolution:
             assert settings.max_margin_fraction == Decimal("0.005"), symbol
             assert settings.order_notional_usdt == E010_MAX_NOTIONAL, symbol
             assert settings.max_position_fraction == Decimal("0.01"), symbol
-            assert settings.max_open_positions == 1, symbol
-            assert settings.max_total_exposure == Decimal("0.01"), symbol
+            assert settings.max_open_positions == 2, symbol
+            assert settings.max_total_exposure == Decimal("0.02"), symbol
             assert settings.risk_per_trade == Decimal("0.01"), symbol
             assert settings.canary_contract_applied is True
 

@@ -196,6 +196,33 @@ def test_entry_blocked_is_operational_block_not_runtime_failure():
     assert result["runtime_status"] == "正常"
 
 
+def test_throughput_reports_actual_canary_capacity_and_blocker_share_inputs():
+    now = datetime.now(UTC)
+    result = build_no_trade_summary(
+        **_facts(
+            open_positions_count=1,
+            decisions=[
+                {"at": now, "reason": "MAX_OPEN_EXPOSURES", "effective_max_open_positions": 1},
+                {
+                    "at": now - timedelta(minutes=1),
+                    "reason": "MACD_DIRECTION_MISMATCH",
+                    "effective_max_open_positions": 1,
+                },
+                {"at": now - timedelta(minutes=2), "reason": "NO_ENTRY_SIGNAL"},
+            ],
+        )
+    )
+
+    assert result["throughput"] == {
+        "current_open_positions": 1,
+        "effective_max_open_positions": 1,
+        "remaining_slots": 0,
+        "at_capacity": True,
+        "blocker_counts": {"MAX_OPEN_EXPOSURES": 1, "MACD_DIRECTION_MISMATCH": 1},
+        "blocker_total": 2,
+    }
+
+
 def test_manual_direction_conflict_is_reported_as_entry_block():
     now = datetime.now(UTC)
     result = build_no_trade_summary(

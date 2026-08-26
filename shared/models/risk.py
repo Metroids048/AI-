@@ -42,8 +42,8 @@ TESTNET_CANARY_RUNTIME_CONTRACT: dict[str, Any] = {
     "max_margin_fraction": 0.005,
     "target_notional_fraction": 0.01,
     "max_symbol_exposure": 0.01,
-    "max_open_positions": 1,
-    "max_total_exposure": 0.01,
+    "max_open_positions": 2,
+    "max_total_exposure": 0.02,
     "max_notional_usdt": 50.0,
 }
 

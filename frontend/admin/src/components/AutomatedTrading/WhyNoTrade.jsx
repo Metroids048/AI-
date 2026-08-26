@@ -85,6 +85,11 @@ function SummaryCard({ summary }) {
     .slice(0, 5);
   const protection = summary.protection ?? {};
   const reconciliation = summary.reconciliation ?? {};
+  const throughput = summary.throughput ?? {};
+  const blockerTotal = Number(throughput.blocker_total ?? 0);
+  const blockerRows = Object.entries(throughput.blocker_counts ?? {})
+    .sort(([, left], [, right]) => Number(right) - Number(left))
+    .slice(0, 5);
   return (
     <div className="why-no-trade-summary">
       <p className="why-no-trade-status">{summaryCopy(summary)}</p>
@@ -102,6 +107,24 @@ function SummaryCard({ summary }) {
       <p className="why-no-trade-age">
         {hasEntryAge ? `已 ${formatNumber(hours, 1)} 小时未产生新开仓` : "当前查询窗口内没有新开仓成交记录"}
       </p>
+      {throughput.current_open_positions !== null && throughput.current_open_positions !== undefined && throughput.effective_max_open_positions ? (
+        <p className="why-no-trade-throughput" role={throughput.at_capacity ? "status" : undefined}>
+          {throughput.at_capacity
+            ? `当前已达到 Testnet Canary 持仓上限：${throughput.current_open_positions} / ${throughput.effective_max_open_positions}，因此暂停新增仓位，等待现有持仓退出`
+            : `Testnet Canary 当前持仓：${throughput.current_open_positions} / ${throughput.effective_max_open_positions}，仍可新增 ${throughput.remaining_slots ?? 0} 个仓位`}
+        </p>
+      ) : null}
+      {blockerRows.length ? (
+        <div className="why-no-trade-blockers">
+          <span>主要 blocker</span>
+          {blockerRows.map(([code, count]) => (
+            <span key={code}>
+              {formatDecisionReason(code)} {count} 次
+              {blockerTotal ? `（${formatNumber(Number(count) / blockerTotal * 100, 1)}%）` : ""}
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="why-no-trade-stats">
         <span>有效策略判断 {decisions.effective ?? 0} 次</span>
         {rows.map(([code, count]) => <span key={code}>{formatDecisionReason(code)} {count} 次</span>)}

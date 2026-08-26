@@ -1,0 +1,40 @@
+{
+  "url": "https://data.binance.vision/data/futures/um/daily/metrics/BTCUSDT/BTCUSDT-metrics-2023-03-02.zip",
+  "timestamp": "2026-08-25T07:03:13.2945753Z",
+  "proxy_environment": {
+    "HTTP_PROXY": "http://127.0.0.1:7892",
+    "ALL_PROXY": "http://127.0.0.1:7892",
+    "HTTPS_PROXY": "http://127.0.0.1:7892",
+    "NO_PROXY": "127.0.0.1,localhost,::1,*.local,10.*,192.168.*,172.16.*,172.17.*,172.18.*,172.19.*,172.2*,172.30.*,172.31.*"
+  },
+  "dns": [
+    {
+      "Type": 1,
+      "IPAddress": "99.84.41.101"
+    },
+    {
+      "Type": 1,
+      "IPAddress": "99.84.41.32"
+    },
+    {
+      "Type": 1,
+      "IPAddress": "99.84.41.104"
+    },
+    {
+      "Type": 1,
+      "IPAddress": "99.84.41.91"
+    }
+  ],
+  "transports": {
+    "powershell": {
+      "status": 200,
+      "bytes": 14648,
+      "elapsed_s": 2.792
+    },
+    "curl": [
+      "",
+      "200 14648 6.951036"
+    ]
+  },
+  "classification": "UNKNOWN"
+}

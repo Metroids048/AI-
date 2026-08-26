@@ -27,12 +27,13 @@ const DEFAULT_AUTO_SETTINGS = {
 };
 
 const CANARY_RUNTIME_CONTRACT = {
-  risk_per_trade: 0.10,
+  risk_per_trade: 0.01,
   max_leverage: 30,
-  max_margin_fraction: 0.05,
-  max_symbol_exposure: 1.50,
-  max_open_positions: 5,
-  max_total_exposure: 7.50,
+  max_margin_fraction: 0.005,
+  max_symbol_exposure: 0.01,
+  max_open_positions: 2,
+  max_total_exposure: 0.02,
+  order_notional_usdt: 50,
   max_symbols: 5,
 };
 
@@ -368,13 +369,13 @@ export function AutoSettingsPanel({ paperRunId, autoSettings, onSave }) {
           <option value="paper_only">仅本地</option>
         </select></label>
         <label>杠杆（Canary 30x）<input type="number" readOnly={isCanary} value={canaryValue("max_leverage")} onChange={(event) => update("max_leverage", event.target.value)} /></label>
-        <label>目标保证金比例（5%）<input type="number" step="0.01" min="0" max="0.05" readOnly={isCanary} value={canaryValue("max_margin_fraction")} onChange={(event) => update("max_margin_fraction", event.target.value)} /></label>
+        <label>目标保证金比例（Canary 0.5%）<input type="number" step="0.001" min="0" max="0.05" readOnly={isCanary} value={canaryValue("max_margin_fraction")} onChange={(event) => update("max_margin_fraction", event.target.value)} /></label>
         <label>诊断单笔风险<input type="number" step="0.001" readOnly={isCanary} value={canaryValue("risk_per_trade")} onChange={(event) => update("risk_per_trade", event.target.value)} /></label>
         <label>固定金额<input type="number" value={form.order_notional_usdt} onChange={(event) => update("order_notional_usdt", event.target.value)} /></label>
         <label>最多持仓<input type="number" readOnly={isCanary} value={canaryValue("max_open_positions")} onChange={(event) => update("max_open_positions", event.target.value)} /></label>
         <label>扫描币种<input type="number" readOnly={isCanary} value={canaryValue("max_symbols")} onChange={(event) => update("max_symbols", event.target.value)} /></label>
-        <label>单币最大名义仓位（150% Equity）<input type="number" step="0.01" readOnly={isCanary} value={canaryValue("max_symbol_exposure")} onChange={(event) => update("max_symbol_exposure", event.target.value)} /></label>
-        <label>最大组合名义仓位（750% Equity）<input type="number" step="0.01" readOnly={isCanary} value={canaryValue("max_total_exposure")} onChange={(event) => update("max_total_exposure", event.target.value)} /></label>
+        <label>单币最大名义仓位（Canary 1% Equity）<input type="number" step="0.001" readOnly={isCanary} value={canaryValue("max_symbol_exposure")} onChange={(event) => update("max_symbol_exposure", event.target.value)} /></label>
+        <label>最大组合名义仓位（Canary 2% Equity）<input type="number" step="0.001" readOnly={isCanary} value={canaryValue("max_total_exposure")} onChange={(event) => update("max_total_exposure", event.target.value)} /></label>
         <label>日亏损<input type="number" step="0.01" value={form.daily_loss_limit} onChange={(event) => update("daily_loss_limit", event.target.value)} /></label>
         <label>周亏损<input type="number" step="0.01" value={form.weekly_loss_limit} onChange={(event) => update("weekly_loss_limit", event.target.value)} /></label>
         <label>硬停止<input type="number" step="0.01" value={form.hard_stop_drawdown_limit} onChange={(event) => update("hard_stop_drawdown_limit", event.target.value)} /></label>

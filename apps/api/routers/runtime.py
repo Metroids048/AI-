@@ -955,6 +955,11 @@ def _v2_decision_payload(decision, cycle) -> dict:
         "entry_gate_result": payload.get("terminal_stage") or cycle.decision_terminal or "UNKNOWN",
         "entry_submitted": exchange_submitted,
         "terminal_reason": decision.terminal_reason or payload.get("reason_code") or "UNKNOWN",
+        "effective_max_open_positions": (
+            (payload.get("sizing_contract") or {}).get("effective_max_open_positions")
+            if isinstance(payload.get("sizing_contract"), dict)
+            else None
+        ),
     }
 
 
@@ -1145,6 +1150,7 @@ def build_no_trade_summary(
     entry_fills: list[dict],
     funnel: dict | None = None,
     protection_truth: dict | None = None,
+    open_positions_count: int | None = None,
 ) -> dict:
     """Project existing Runtime Truth facts into one deterministic no-trade status."""
     window_start = observed_at - timedelta(hours=window_hours)
@@ -1162,6 +1168,17 @@ def build_no_trade_summary(
     dominant_reason = next(iter(reason_counts), None)
     if reason_counts:
         dominant_reason = max(reason_counts, key=lambda reason: (reason_counts[reason], reason))
+    sizing_values = [
+        int(item["effective_max_open_positions"])
+        for item in effective_decisions
+        if item.get("effective_max_open_positions") is not None
+    ]
+    effective_max_open_positions = sizing_values[0] if sizing_values else None
+    blocker_counts = {
+        reason: count
+        for reason, count in reason_counts.items()
+        if reason not in {"OK", "NO_ENTRY_SIGNAL"}
+    }
 
     entry_fill_times = [
         at
@@ -1260,6 +1277,22 @@ def build_no_trade_summary(
             "dominant_reason": dominant_reason,
         },
         "funnel": funnel or {},
+        "throughput": {
+            "current_open_positions": open_positions_count,
+            "effective_max_open_positions": effective_max_open_positions,
+            "remaining_slots": (
+                max(effective_max_open_positions - open_positions_count, 0)
+                if effective_max_open_positions is not None and open_positions_count is not None
+                else None
+            ),
+            "at_capacity": (
+                effective_max_open_positions is not None
+                and open_positions_count is not None
+                and open_positions_count >= effective_max_open_positions
+            ),
+            "blocker_counts": blocker_counts,
+            "blocker_total": sum(blocker_counts.values()),
+        },
         "protection": protection_truth
         or {
             "positions": [],
@@ -1382,6 +1415,7 @@ def runtime_no_trade_summary(
                 "signal_generated": payload["signal_generated"],
                 "entry_gate_result": payload["entry_gate_result"],
                 "entry_submitted": payload["entry_submitted"],
+                "effective_max_open_positions": payload["effective_max_open_positions"],
             }
         )
     fills = [
@@ -1421,6 +1455,7 @@ def runtime_no_trade_summary(
         decisions=decisions,
         entry_fills=fills,
         protection_truth=projection["current_protection"],
+        open_positions_count=len(projection["local_open"]),
     )
     effective = [item for item in decisions if item["reason"] != "DUPLICATE_DECISION"]
     orders = v2_repo.list_exchange_orders(execution_mode=V2ExecutionMode.BINANCE_TESTNET, limit=500)

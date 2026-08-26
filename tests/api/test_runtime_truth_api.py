@@ -451,6 +451,7 @@ def test_runtime_decisions_reads_persisted_v2_canary_fact(api_client, db_session
             "entry_gate_result": "RISK_APPROVED",
             "entry_submitted": False,
             "terminal_reason": "NO_ENTRY_SIGNAL",
+            "effective_max_open_positions": None,
         }
     ]
 
