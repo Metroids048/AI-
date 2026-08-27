@@ -1,0 +1,330 @@
+{
+  "schema_version": 1,
+  "pipeline": "QINXIONGMAO_RESEARCH_PIPELINE",
+  "generated_at": "2026-08-27T03:17:40.275215+00:00",
+  "video_root": "C:\\Users\\Windows11\\Documents\\ChatGPT\\video1\\workspace\\research\\youtube\\qinxiongmao",
+  "video_commit": "817affc3f377371bf404eb08309040fef6d98d17",
+  "ai_commit": "c1d13b665888c235db3099682de654afd10c84ba",
+  "raw_corpus_hash": "4886171f744cf747c0e727db2263bf699b74e178c508b78dfd60a50060c6384d",
+  "strategy_spec_hashes": {
+    "STRAT-RULE-KU-h7OaxJ24XnM-0013.json": "586c2b9b107b59f7e331b1012481f91192750098c4eef31b854401648faeed2e",
+    "STRAT-RULE-KU-l82O0bheEJU-0002.json": "466e749e6d78b5f954492599225569bbea4a33e2dc50812376242c3fa53b22f5",
+    "STRAT-RULE-KU-LMHkTQaQ7GQ-0001.json": "52c3121ad3fb43fb6337e7b85af7c481780025e1b1d759f8dd4b8ae41159cea0"
+  },
+  "video_rule_candidates": 1128,
+  "video_incomplete_rules": 1125,
+  "fragment_accounting": {
+    "input_incomplete_rules": 1125,
+    "accounted_rule_count": 1125,
+    "topic_groups": {
+      "三部曲/军线": 1,
+      "军线": 36,
+      "顺势回调": 7,
+      "三部曲": 4,
+      "军线/道氏": 4,
+      "谐波": 1,
+      "军线/OB": 2,
+      "回测": 13,
+      "道氏": 9,
+      "顺势回调/三部曲": 2,
+      "OB": 6
+    },
+    "cross_video_synthesis_candidates": [
+      {
+        "topic": "军线",
+        "rule_ids": [
+          "RULE-KU-zf2QElxgITI-0010",
+          "RULE-KU-zf2QElxgITI-0011",
+          "RULE-KU-zf2QElxgITI-0018",
+          "RULE-KU-vzF8aJiD154-0002",
+          "RULE-KU-vzF8aJiD154-0003",
+          "RULE-KU-ty2Jynnj0H4-0003",
+          "RULE-KU-iaEHqwlzmLM-0001",
+          "RULE-KU-aONxIQmcSis-0023",
+          "RULE-KU-aONxIQmcSis-0024",
+          "RULE-KU-X7z-nSJpl1g-0002",
+          "RULE-KU-VKL013Czw3M-0001",
+          "RULE-KU-VKL013Czw3M-0002",
+          "RULE-KU-V456V4oB9Ww-0028",
+          "RULE-KU-UebWWMXcUek-0003",
+          "RULE-KU-UebWWMXcUek-0004",
+          "RULE-KU-UebWWMXcUek-0015",
+          "RULE-KU-Sa2ptWaJYPI-0001",
+          "RULE-KU-S2xx2IBq5KQ-0002",
+          "RULE-KU-REfHNS4YvLI-0016",
+          "RULE-KU-REfHNS4YvLI-0025",
+          "RULE-KU-R-wvpWJydyI-0003",
+          "RULE-KU-PI5StS6CExo-0001",
+          "RULE-KU-P7L_nAfWoe4-0001",
+          "RULE-KU-N6V8zmu61L0-0002",
+          "RULE-KU-JdkmfiTHZnA-0004",
+          "RULE-KU-G83KfQp-HTY-0001",
+          "RULE-KU-A58-M9NQeKA-0001",
+          "RULE-KU-9sS0s4s__BM-0001",
+          "RULE-KU-9c-lqlgN6LY-0002",
+          "RULE-KU-6VroW_GLAu0-0006",
+          "RULE-KU-6Rscdcv_3vU-0008",
+          "RULE-KU-3BCGxiIZIak-0013",
+          "RULE-KU-0lsTNIqqe58-0013",
+          "RULE-KU-0lsTNIqqe58-0015",
+          "RULE-KU-0lsTNIqqe58-0017",
+          "RULE-KU--mmcYoK0ooE-0001"
+        ],
+        "source_videos": [
+          "-mmcYoK0ooE",
+          "0lsTNIqqe58",
+          "3BCGxiIZIak",
+          "6Rscdcv_3vU",
+          "6VroW_GLAu0",
+          "9c-lqlgN6LY",
+          "9sS0s4s__BM",
+          "A58-M9NQeKA",
+          "G83KfQp-HTY",
+          "JdkmfiTHZnA",
+          "N6V8zmu61L0",
+          "P7L_nAfWoe4",
+          "PI5StS6CExo",
+          "R-wvpWJydyI",
+          "REfHNS4YvLI",
+          "S2xx2IBq5KQ",
+          "Sa2ptWaJYPI",
+          "UebWWMXcUek",
+          "V456V4oB9Ww",
+          "VKL013Czw3M",
+          "X7z-nSJpl1g",
+          "aONxIQmcSis",
+          "iaEHqwlzmLM",
+          "ty2Jynnj0H4",
+          "vzF8aJiD154",
+          "zf2QElxgITI"
+        ]
+      },
+      {
+        "topic": "顺势回调",
+        "rule_ids": [
+          "RULE-KU-zf2QElxgITI-0015",
+          "RULE-KU-x8vAn6PTz-0-0004",
+          "RULE-KU-x8vAn6PTz-0-0008",
+          "RULE-KU-oMtKDwdJgQA-0001",
+          "RULE-KU-WakCmAvWjCo-0001",
+          "RULE-KU-2mO-BJ_Ils4-0004",
+          "RULE-KU-2mO-BJ_Ils4-0009"
+        ],
+        "source_videos": [
+          "2mO-BJ_Ils4",
+          "WakCmAvWjCo",
+          "oMtKDwdJgQA",
+          "x8vAn6PTz-0",
+          "zf2QElxgITI"
+        ]
+      },
+      {
+        "topic": "三部曲",
+        "rule_ids": [
+          "RULE-KU-zf2QElxgITI-0020",
+          "RULE-KU-h7OaxJ24XnM-0004",
+          "RULE-KU-fj-Mc9ltkf4-0001",
+          "RULE-KU-A6-P6zlonQw-0011"
+        ],
+        "source_videos": [
+          "A6-P6zlonQw",
+          "fj-Mc9ltkf4",
+          "h7OaxJ24XnM",
+          "zf2QElxgITI"
+        ]
+      },
+      {
+        "topic": "军线/道氏",
+        "rule_ids": [
+          "RULE-KU-wlVQ3UXaG4I-0003",
+          "RULE-KU-wlVQ3UXaG4I-0004",
+          "RULE-KU-cJXRtTlXixQ-0003",
+          "RULE-KU-AtB48p_O248-0003"
+        ],
+        "source_videos": [
+          "AtB48p_O248",
+          "cJXRtTlXixQ",
+          "wlVQ3UXaG4I"
+        ]
+      },
+      {
+        "topic": "军线/OB",
+        "rule_ids": [
+          "RULE-KU-wUSevcuKRRI-0001",
+          "RULE-KU-IFN9CipMLhU-0001"
+        ],
+        "source_videos": [
+          "IFN9CipMLhU",
+          "wUSevcuKRRI"
+        ]
+      },
+      {
+        "topic": "回测",
+        "rule_ids": [
+          "RULE-KU-ttGyITKM3UA-0003",
+          "RULE-KU-sWm90DsrsTg-0003",
+          "RULE-KU-h98slxaoxu8-0001",
+          "RULE-KU-gMA6RpT_QIw-0001",
+          "RULE-KU-bfinRDEGcQE-0001",
+          "RULE-KU-ZVv7IhmbXCI-0005",
+          "RULE-KU-Vd3RBcZ6xPQ-0004",
+          "RULE-KU-V1gVw4gYRo8-0149",
+          "RULE-KU-V1gVw4gYRo8-0167",
+          "RULE-KU-Szw2F42CJ6w-0002",
+          "RULE-KU-C234yek7Ei0-0088",
+          "RULE-KU-9kqPCf6yfvg-0001",
+          "RULE-KU-5fAUmZsAdAY-0007"
+        ],
+        "source_videos": [
+          "5fAUmZsAdAY",
+          "9kqPCf6yfvg",
+          "C234yek7Ei0",
+          "Szw2F42CJ6w",
+          "V1gVw4gYRo8",
+          "Vd3RBcZ6xPQ",
+          "ZVv7IhmbXCI",
+          "bfinRDEGcQE",
+          "gMA6RpT_QIw",
+          "h98slxaoxu8",
+          "sWm90DsrsTg",
+          "ttGyITKM3UA"
+        ]
+      },
+      {
+        "topic": "道氏",
+        "rule_ids": [
+          "RULE-KU-rTx46G8QGF4-0002",
+          "RULE-KU-ehGJDqOpS_w-0002",
+          "RULE-KU-ehGJDqOpS_w-0005",
+          "RULE-KU-ZizVOlf4Aeo-0003",
+          "RULE-KU-XxgpH-THrro-0012",
+          "RULE-KU-SgsVQkBtcCo-0021",
+          "RULE-KU-EfvYnuuKVHs-0001",
+          "RULE-KU-D9Ykatz21xw-0001",
+          "RULE-KU-2oxQXSRdJ34-0001"
+        ],
+        "source_videos": [
+          "2oxQXSRdJ34",
+          "D9Ykatz21xw",
+          "EfvYnuuKVHs",
+          "SgsVQkBtcCo",
+          "XxgpH-THrro",
+          "ZizVOlf4Aeo",
+          "ehGJDqOpS_w",
+          "rTx46G8QGF4"
+        ]
+      },
+      {
+        "topic": "顺势回调/三部曲",
+        "rule_ids": [
+          "RULE-KU-fj-Mc9ltkf4-0007",
+          "RULE-KU-Gg0hlm-NE8Q-0001"
+        ],
+        "source_videos": [
+          "Gg0hlm-NE8Q",
+          "fj-Mc9ltkf4"
+        ]
+      },
+      {
+        "topic": "OB",
+        "rule_ids": [
+          "RULE-KU-ZizVOlf4Aeo-0018",
+          "RULE-KU-MTesY3jBWL8-0001",
+          "RULE-KU-IFN9CipMLhU-0005",
+          "RULE-KU-9c-lqlgN6LY-0003",
+          "RULE-KU-3_HdojX8zcc-0002",
+          "RULE-KU-3BCGxiIZIak-0003"
+        ],
+        "source_videos": [
+          "3BCGxiIZIak",
+          "3_HdojX8zcc",
+          "9c-lqlgN6LY",
+          "IFN9CipMLhU",
+          "MTesY3jBWL8",
+          "ZizVOlf4Aeo"
+        ]
+      }
+    ],
+    "synthesized_count": 0,
+    "decision": "NO_SYNTHESIS_WITHOUT_EXPLICIT_AUTHOR_LINK",
+    "artifact": "C:\\Users\\Windows11\\Documents\\ChatGPT\\video1\\workspace\\research\\youtube\\qinxiongmao\\strategy_research\\rule-fragment-accounting.jsonl"
+  },
+  "strategy_audits": [
+    {
+      "strategy_id": "STRAT-RULE-KU-h7OaxJ24XnM-0013",
+      "source_audit": {
+        "passed": true,
+        "failures": []
+      },
+      "mechanizability_audit": {
+        "passed": false,
+        "failures": [
+          "entry_not_structured",
+          "exit_not_structured",
+          "stop_loss_not_structured",
+          "position_sizing_not_structured",
+          "entry_contains_ambiguous_prose",
+          "exit_contains_ambiguous_prose",
+          "stop_loss_contains_ambiguous_prose",
+          "position_sizing_contains_ambiguous_prose",
+          "instrument_not_explicit"
+        ]
+      },
+      "research_eligible": false
+    },
+    {
+      "strategy_id": "STRAT-RULE-KU-l82O0bheEJU-0002",
+      "source_audit": {
+        "passed": true,
+        "failures": []
+      },
+      "mechanizability_audit": {
+        "passed": false,
+        "failures": [
+          "entry_not_structured",
+          "exit_not_structured",
+          "stop_loss_not_structured",
+          "position_sizing_not_structured",
+          "entry_contains_ambiguous_prose",
+          "exit_contains_ambiguous_prose",
+          "stop_loss_contains_ambiguous_prose",
+          "position_sizing_contains_ambiguous_prose",
+          "instrument_not_explicit"
+        ]
+      },
+      "research_eligible": false
+    },
+    {
+      "strategy_id": "STRAT-RULE-KU-LMHkTQaQ7GQ-0001",
+      "source_audit": {
+        "passed": true,
+        "failures": []
+      },
+      "mechanizability_audit": {
+        "passed": false,
+        "failures": [
+          "entry_not_structured",
+          "exit_not_structured",
+          "stop_loss_not_structured",
+          "position_sizing_not_structured",
+          "entry_contains_ambiguous_prose",
+          "exit_contains_ambiguous_prose",
+          "stop_loss_contains_ambiguous_prose",
+          "position_sizing_contains_ambiguous_prose",
+          "instrument_not_explicit"
+        ]
+      },
+      "research_eligible": false
+    }
+  ],
+  "replay_results": [],
+  "validation_policy": {
+    "sharpe_min": 1.0,
+    "profit_factor_min": 1.3,
+    "max_drawdown_max": 0.25,
+    "expectancy_min": 0.0
+  },
+  "promotion_authorized": false,
+  "status": "RESEARCH_COMPLETE_NO_PROMOTABLE_STRATEGY",
+  "reason": "当前 Strategy Spec 为长段自然语言且缺少结构化 entry/exit/stop/timeframe/regime/sizing；未满足 Mechanizability Gate，未运行或伪造回测。"
+}
