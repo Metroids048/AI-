@@ -17,6 +17,7 @@ START = datetime(2023, 1, 29, tzinfo=UTC)
 END = datetime(2026, 1, 29, tzinfo=UTC)
 RESEARCH_END = START + (END - START) * 0.6
 VALIDATION_END = START + (END - START) * 0.8
+LOAD_END = VALIDATION_END
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT")
 BASE_NOTIONAL = 100_000.0
 COMMISSION_PER_LEG = 0.001
@@ -46,7 +47,7 @@ def _bars(dataset: str, symbol: str) -> dict[datetime, Bar]:
                         continue
                     try:
                         ts = _ts(row[0])
-                        if START <= ts < END:
+                        if START <= ts < LOAD_END:
                             result[ts] = Bar(ts, float(row[4]))
                     except (TypeError, ValueError, OSError):
                         continue
@@ -59,7 +60,7 @@ def _funding(symbol: str) -> dict[datetime, float]:
         for item in (
             json.loads(line) for line in (ROOT / "funding" / f"{symbol}.jsonl").read_text(encoding="utf-8").splitlines()
         )
-        if START <= datetime.fromtimestamp(int(item["fundingTime"]) / 1000, tz=UTC) < END
+        if START <= datetime.fromtimestamp(int(item["fundingTime"]) / 1000, tz=UTC) < LOAD_END
     }
 
 
@@ -353,7 +354,7 @@ def _leakage_audit(h1: dict[str, object], h2: dict[str, object], h3: dict[str, o
         "split_boundaries": {
             "research_end": RESEARCH_END.isoformat(),
             "validation_end": VALIDATION_END.isoformat(),
-            "final_holdout_start": END.isoformat(),
+            "final_holdout_start": VALIDATION_END.isoformat(),
         },
         "future_beta": False,
         "full_sample_normalization": False,
