@@ -1,10 +1,10 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "pipeline": "QINXIONGMAO_RESEARCH_PIPELINE",
-  "generated_at": "2026-08-27T03:22:50.857384+00:00",
+  "generated_at": "2026-08-27T03:38:31.129866+00:00",
   "video_root": "C:\\Users\\Windows11\\Documents\\ChatGPT\\video1\\workspace\\research\\youtube\\qinxiongmao",
-  "video_commit": "23edd91c3bb33359a7514461170c5fa8a2c8f049",
-  "ai_commit": "be9f5fe051159e997219d2f515e0deac7a6d0724",
+  "video_commit": "c2ae151c7403b96a7e3e6a16b95d2b7dcc691fa9",
+  "ai_commit": "078f6989adfb241397f8edcf51635ad01ab46bba",
   "raw_corpus_hash": "4886171f744cf747c0e727db2263bf699b74e178c508b78dfd60a50060c6384d",
   "strategy_spec_hashes": {
     "STRAT-RULE-KU-h7OaxJ24XnM-0013.json": "586c2b9b107b59f7e331b1012481f91192750098c4eef31b854401648faeed2e",
@@ -317,7 +317,135 @@
       "research_eligible": false
     }
   ],
+  "mechanizability_recovery": [
+    {
+      "strategy_id": "STRAT-RULE-KU-h7OaxJ24XnM-0013",
+      "recovery": "SIGNAL_ONLY_NOT_RECOVERED",
+      "reason": "source text does not expose a bounded, unambiguous event without adding author-absent parameters"
+    },
+    {
+      "strategy_id": "STRAT-RULE-KU-l82O0bheEJU-0002",
+      "recovery": "SIGNAL_ONLY_CANDIDATE_REQUIRES_OPERATIONALIZATION_REVIEW",
+      "signal_id": "SB_TREND_BULLISH_ENGULFING"
+    },
+    {
+      "strategy_id": "STRAT-RULE-KU-LMHkTQaQ7GQ-0001",
+      "recovery": "SIGNAL_ONLY_NOT_RECOVERED",
+      "reason": "source text does not expose a bounded, unambiguous event without adding author-absent parameters"
+    }
+  ],
   "replay_results": [],
+  "signal_only": {
+    "classification": "MECHANIZABLE_SIGNAL_ONLY",
+    "source_videos": [
+      "l82O0bheEJU"
+    ],
+    "source_rule": "RULE-KU-l82O0bheEJU-0002",
+    "source_timestamp": {
+      "video_id": "l82O0bheEJU",
+      "start_sec": 7.14,
+      "end_sec": 794.48
+    },
+    "operationalization": "4h EMA(21)>EMA(55)>EMA(144) trend filter plus 15m bullish-engulfing event; this is a research proxy, not an author-complete rule.",
+    "source_exact": false,
+    "verdict": "NO_OBSERVED_POST_COST_EDGE",
+    "results": [
+      {
+        "signal_id": "SB_TREND_BULLISH_ENGULFING",
+        "status": "OBSERVED_ONLY",
+        "horizon_bars": 4,
+        "sample_count": 875,
+        "train_sample_count": 612,
+        "oos_sample_count": 263,
+        "mean_net_forward_return": -0.0009653139287421851,
+        "train_mean_net_forward_return": -0.0009491323005281628,
+        "oos_mean_net_forward_return": -0.0010029685160691114,
+        "round_trip_cost_fraction": 0.0012,
+        "walk_forward": [
+          {
+            "window": 1,
+            "sample_count": 291,
+            "mean_net_forward_return": -0.0011430330155585838
+          },
+          {
+            "window": 2,
+            "sample_count": 291,
+            "mean_net_forward_return": -0.0008025669512907904
+          },
+          {
+            "window": 3,
+            "sample_count": 293,
+            "mean_net_forward_return": -0.0009504440180759181
+          }
+        ],
+        "eligible_for_strategy_promotion": false,
+        "promotion_authorized": false
+      },
+      {
+        "signal_id": "SB_TREND_BULLISH_ENGULFING",
+        "status": "OBSERVED_ONLY",
+        "horizon_bars": 8,
+        "sample_count": 875,
+        "train_sample_count": 612,
+        "oos_sample_count": 263,
+        "mean_net_forward_return": -0.0008290870934989973,
+        "train_mean_net_forward_return": -0.0008607735297633876,
+        "oos_mean_net_forward_return": -0.0007553528767925075,
+        "round_trip_cost_fraction": 0.0012,
+        "walk_forward": [
+          {
+            "window": 1,
+            "sample_count": 291,
+            "mean_net_forward_return": -0.0011192922830040005
+          },
+          {
+            "window": 2,
+            "sample_count": 291,
+            "mean_net_forward_return": -0.0007095494304948383
+          },
+          {
+            "window": 3,
+            "sample_count": 293,
+            "mean_net_forward_return": -0.0006595845330493536
+          }
+        ],
+        "eligible_for_strategy_promotion": false,
+        "promotion_authorized": false
+      },
+      {
+        "signal_id": "SB_TREND_BULLISH_ENGULFING",
+        "status": "OBSERVED_ONLY",
+        "horizon_bars": 16,
+        "sample_count": 875,
+        "train_sample_count": 612,
+        "oos_sample_count": 263,
+        "mean_net_forward_return": -0.0006045014831321717,
+        "train_mean_net_forward_return": -0.0008631933129751786,
+        "oos_mean_net_forward_return": -2.526578706619318e-06,
+        "round_trip_cost_fraction": 0.0012,
+        "walk_forward": [
+          {
+            "window": 1,
+            "sample_count": 291,
+            "mean_net_forward_return": -0.0009244798352421677
+          },
+          {
+            "window": 2,
+            "sample_count": 291,
+            "mean_net_forward_return": -0.0008617288011679437
+          },
+          {
+            "window": 3,
+            "sample_count": 293,
+            "mean_net_forward_return": -3.1235783431084324e-05
+          }
+        ],
+        "eligible_for_strategy_promotion": false,
+        "promotion_authorized": false
+      }
+    ],
+    "promotion_authorized": false
+  },
   "validation_policy": {
     "sharpe_min": 1.0,
     "profit_factor_min": 1.3,
@@ -326,5 +454,5 @@
   },
   "promotion_authorized": false,
   "status": "RESEARCH_COMPLETE_NO_PROMOTABLE_STRATEGY",
-  "reason": "当前 Strategy Spec 为长段自然语言且缺少结构化 entry/exit/stop/timeframe/regime/sizing；未满足 Mechanizability Gate，未运行或伪造回测。"
+  "reason": "完整 Strategy Spec 未通过 Mechanizability Gate；另行对作者明确的 SB 入场成分做 signal-only 固定前视窗口研究，结果不构成策略或晋级证据。"
 }

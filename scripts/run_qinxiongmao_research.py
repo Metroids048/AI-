@@ -155,6 +155,103 @@ def _load_market_data(database_url: str, days: int) -> dict[str, dict[str, list[
         }
 
 
+def _open(bar: Any) -> float:
+    return float(bar.open if hasattr(bar, "open") else bar["open"])
+
+
+def _close(bar: Any) -> float:
+    return float(bar.close if hasattr(bar, "close") else bar["close"])
+
+
+def _ema(values: list[float], period: int) -> list[float | None]:
+    out: list[float | None] = [None] * len(values)
+    if len(values) < period:
+        return out
+    alpha = 2.0 / (period + 1)
+    current = sum(values[:period]) / period
+    out[period - 1] = current
+    for index in range(period, len(values)):
+        current = alpha * values[index] + (1.0 - alpha) * current
+        out[index] = current
+    return out
+
+
+def _bullish_engulfing(previous: Any, current: Any) -> bool:
+    po, pc, co, cc = _open(previous), _close(previous), _open(current), _close(current)
+    return pc < po and cc > co and co <= pc and cc >= po
+
+
+def _signal_edge_study(market_data: dict[str, dict[str, list[Any]]]) -> list[dict[str, Any]]:
+    """Event study for explicit SB entry ingredients; it is not a strategy backtest."""
+    bars15 = market_data.get("BTC/USDT", {}).get("15m", [])
+    bars4h = market_data.get("BTC/USDT", {}).get("4h", [])
+    if len(bars15) < 200 or len(bars4h) < 180:
+        return [{"signal_id": "SB_TREND_BULLISH_ENGULFING", "status": "INSUFFICIENT_DATA", "sample_count": 0}]
+    ema21, ema55, ema144 = (_ema([_close(bar) for bar in bars4h], period) for period in (21, 55, 144))
+    trend = {
+        bars4h[i].timestamp: bool(ema21[i] and ema55[i] and ema144[i] and ema21[i] > ema55[i] > ema144[i])
+        for i in range(len(bars4h))
+    }
+    events: list[dict[str, Any]] = []
+    for index in range(1, len(bars15) - 16):
+        current = bars15[index]
+        htf = [bar for bar in bars4h if bar.timestamp <= current.timestamp]
+        if htf and trend.get(htf[-1].timestamp) and _bullish_engulfing(bars15[index - 1], current):
+            entry = _close(current)
+            events.append(
+                {
+                    "timestamp": current.timestamp.isoformat(),
+                    "forward": [_close(bars15[index + horizon]) / entry - 1.0 for horizon in (4, 8, 16)],
+                }
+            )
+    if not events:
+        return [{"signal_id": "SB_TREND_BULLISH_ENGULFING", "status": "NO_EVENTS", "sample_count": 0}]
+    try:
+        from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_RULES
+
+        rules = AUTO_PAPER_TECHNICAL_RULES["entry_rules"]
+        cost = 2.0 * (float(rules.get("core_fee_bps", 5.0)) + float(rules.get("core_slippage_bps", 1.0))) / 10000.0
+    except Exception:  # pragma: no cover
+        cost = 0.0012
+    split = max(1, int(len(events) * 0.70))
+    output: list[dict[str, Any]] = []
+    for offset, horizon in enumerate((4, 8, 16)):
+        values = [event["forward"][offset] - cost for event in events]
+        train = values[:split]
+        oos = values[split:]
+        width = max(1, len(values) // 3)
+        walk_forward = []
+        for window in range(3):
+            start = window * width
+            end = len(values) if window == 2 else min(len(values), (window + 1) * width)
+            sample = values[start:end]
+            walk_forward.append(
+                {
+                    "window": window + 1,
+                    "sample_count": len(sample),
+                    "mean_net_forward_return": sum(sample) / len(sample) if sample else None,
+                }
+            )
+        output.append(
+            {
+                "signal_id": "SB_TREND_BULLISH_ENGULFING",
+                "status": "OBSERVED_ONLY",
+                "horizon_bars": horizon,
+                "sample_count": len(values),
+                "train_sample_count": len(train),
+                "oos_sample_count": len(oos),
+                "mean_net_forward_return": sum(values) / len(values),
+                "train_mean_net_forward_return": sum(train) / len(train) if train else None,
+                "oos_mean_net_forward_return": sum(oos) / len(oos) if oos else None,
+                "round_trip_cost_fraction": cost,
+                "walk_forward": walk_forward,
+                "eligible_for_strategy_promotion": False,
+                "promotion_authorized": False,
+            }
+        )
+    return output
+
+
 def _replay_if_mechanizable(spec: dict[str, Any], market_data: dict[str, dict[str, list[Any]]]) -> dict[str, Any]:
     """Replay hook for future structured specs; current text-only specs stop at audit."""
     from services.validation.technical_replay import TechnicalStrategyValidationService
@@ -205,6 +302,28 @@ def run(video_root: Path, database_url: str, days: int, ai_repo_root: Path) -> d
             market_data = market_data or _load_market_data(database_url, days)
             replay_results.append(_replay_if_mechanizable(spec, market_data))
         audits.append(row)
+    signal_only_results = _signal_edge_study(market_data or _load_market_data(database_url, days))
+    recovery_loop = []
+    for row in audits:
+        strategy_id = str(row["strategy_id"])
+        if row["research_eligible"]:
+            recovery_loop.append({"strategy_id": strategy_id, "recovery": "FULL_STRATEGY_RECOVERED"})
+        elif "l82O0bheEJU" in strategy_id:
+            recovery_loop.append(
+                {
+                    "strategy_id": strategy_id,
+                    "recovery": "SIGNAL_ONLY_CANDIDATE_REQUIRES_OPERATIONALIZATION_REVIEW",
+                    "signal_id": "SB_TREND_BULLISH_ENGULFING",
+                }
+            )
+        else:
+            recovery_loop.append(
+                {
+                    "strategy_id": strategy_id,
+                    "recovery": "SIGNAL_ONLY_NOT_RECOVERED",
+                    "reason": "source text does not expose a bounded, unambiguous event without adding author-absent parameters",
+                }
+            )
     accounting_path = research / "rule-fragment-accounting.jsonl"
     accounting_path.write_text(
         "".join(
@@ -222,8 +341,11 @@ def run(video_root: Path, database_url: str, days: int, ai_repo_root: Path) -> d
         ),
         encoding="utf-8",
     )
+    signal_verdict = "NO_OBSERVED_POST_COST_EDGE"
+    if any((row.get("oos_mean_net_forward_return") or 0.0) > 0.0 for row in signal_only_results):
+        signal_verdict = "POSITIVE_OOS_SIGNAL_REQUIRES_FURTHER_VALIDATION"
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "pipeline": "QINXIONGMAO_RESEARCH_PIPELINE",
         "generated_at": datetime.now(UTC).isoformat(),
         "video_root": str(video_root),
@@ -237,7 +359,19 @@ def run(video_root: Path, database_url: str, days: int, ai_repo_root: Path) -> d
         "video_incomplete_rules": len(incomplete),
         "fragment_accounting": {**_fragment_accounting(incomplete), "artifact": str(accounting_path)},
         "strategy_audits": audits,
+        "mechanizability_recovery": recovery_loop,
         "replay_results": replay_results,
+        "signal_only": {
+            "classification": "MECHANIZABLE_SIGNAL_ONLY",
+            "source_videos": ["l82O0bheEJU"],
+            "source_rule": "RULE-KU-l82O0bheEJU-0002",
+            "source_timestamp": {"video_id": "l82O0bheEJU", "start_sec": 7.14, "end_sec": 794.48},
+            "operationalization": "4h EMA(21)>EMA(55)>EMA(144) trend filter plus 15m bullish-engulfing event; this is a research proxy, not an author-complete rule.",
+            "source_exact": False,
+            "verdict": signal_verdict,
+            "results": signal_only_results,
+            "promotion_authorized": False,
+        },
         "validation_policy": {
             "sharpe_min": default_policy.min_sharpe,
             "profit_factor_min": default_policy.min_profit_factor,
@@ -246,7 +380,7 @@ def run(video_root: Path, database_url: str, days: int, ai_repo_root: Path) -> d
         },
         "promotion_authorized": False,
         "status": "RESEARCH_COMPLETE_NO_PROMOTABLE_STRATEGY" if not replay_results else "RESEARCH_COMPLETE",
-        "reason": "当前 Strategy Spec 为长段自然语言且缺少结构化 entry/exit/stop/timeframe/regime/sizing；未满足 Mechanizability Gate，未运行或伪造回测。"
+        "reason": "完整 Strategy Spec 未通过 Mechanizability Gate；另行对作者明确的 SB 入场成分做 signal-only 固定前视窗口研究，结果不构成策略或晋级证据。"
         if not replay_results
         else "仅对通过 Source + Mechanizability Gate 的规则运行现有 TechnicalStrategyValidationService。",
     }
