@@ -18,7 +18,9 @@ from services.research.quant_knowledge import (
 from services.research.quant_knowledge.runner import (
     _bootstrap_delta,
     _forward_distribution,
+    _paired_bootstrap_delta,
     _rebuild_progress,
+    _validate_experiment_design,
 )
 from services.strategy_library.event_edge import EdgeEvent, EventBar
 
@@ -161,6 +163,67 @@ def test_bootstrap_delta_is_deterministic() -> None:
     assert first == second
 
 
+def test_v2_hypothesis_contract_is_explicit_and_hashed() -> None:
+    hypothesis = ResearchHypothesis(
+        hypothesis_id="HYP-QK-V2-1",
+        claim="claim",
+        base_event="HTF_BREAK_RETEST",
+        primitive="QP_TEST",
+        metric="net_expectancy",
+        research_design_version=2,
+        experiment_type="INCREMENTAL_FILTER",
+        parent_universe={"selector": "base_event"},
+        baseline_selector={"event_type": "HTF_BREAK_RETEST"},
+        candidate_selector={"primitive_id": "QP_TEST", "predicate": "x >= 1"},
+        parameter_space={"x": {"values": [1, 2]}},
+        feature_formula_hash="formula-hash",
+        symbols=["BTC/USDT"],
+        timeframes=["15m", "1h", "4h"],
+    )
+    assert hypothesis.hypothesis_hash
+    spec = (
+        HypothesisRegistry()
+        .register(hypothesis)
+        .to_experiment_spec(dataset_id="d", dataset_hash="dh", strategy_hash="sh")
+    )
+    assert spec.engine_options["research_design_version"] == 2
+    assert spec.engine_options["feature_formula_hash"] == "formula-hash"
+
+
+def test_tautological_role_reversal_design_is_rejected() -> None:
+    assert (
+        _validate_experiment_design(
+            primitive_id="QP_SUPPORT_ROLE_REVERSAL",
+            base_event="HTF_BREAK_RETEST",
+            baseline_ids=["a", "b"],
+            candidate_ids=["a", "b"],
+            event_admission_features={"event_type": "HTF_BREAK_RETEST"},
+        )
+        == "TAUTOLOGY_FAIL"
+    )
+
+
+def test_event_admission_overlap_is_invalid_for_regime_filters() -> None:
+    assert (
+        _validate_experiment_design(
+            primitive_id="QP_TREND_EMA_ALIGNMENT",
+            base_event="HTF_BREAK_RETEST",
+            baseline_ids=["a"],
+            candidate_ids=["a"],
+            event_admission_features={"uses_regime_4h": True, "uses_trend_strength_1h": True},
+        )
+        == "TAUTOLOGY_FAIL"
+    )
+
+
+def test_paired_bootstrap_reapplies_predicate_to_resampled_baseline() -> None:
+    rows = [(0.01, True), (0.02, False), (-0.01, True), (-0.02, False)]
+    result = _paired_bootstrap_delta(rows, seed=7, rounds=100)
+    assert result["sample_count"] == 4
+    assert result["candidate_sample_count"] <= 4
+    assert result["mean_delta"] != 0.0
+
+
 def test_progress_accounts_deferred_primitives_without_unknown() -> None:
     primitive = _primitive(primitive_id="QP_DEFERRED")
     hypothesis = ResearchHypothesis(
@@ -172,5 +235,6 @@ def test_progress_accounts_deferred_primitives_without_unknown() -> None:
     )
     progress: dict[str, Any] = {"hypothesis_status": {}, "primitive_status": {}}
     _rebuild_progress(progress, [hypothesis], {primitive.primitive_id: primitive})
-    assert progress["primitives"]["accounted"] == 1
+    assert progress["primitives"]["accounted"] == 0
+    assert progress["primitives"]["deferred"] == 1
     assert progress["hypotheses"]["unknown"] == 0

@@ -65,14 +65,23 @@ class QuantPrimitive(PlatformModel):
 
 
 class ResearchHypothesis(PlatformModel):
+    research_design_version: int = 2
     hypothesis_id: str
     claim: str
     base_event: str
     primitive: str
+    experiment_type: str = "ATOMIC_EDGE"
+    parent_universe: dict[str, Any] = Field(default_factory=dict)
+    baseline_selector: dict[str, Any] = Field(default_factory=dict)
+    candidate_selector: dict[str, Any] = Field(default_factory=dict)
+    parameter_space: dict[str, Any] = Field(default_factory=dict)
+    feature_formula_hash: str = ""
     metric: Literal["forward_return", "mfe", "mae", "hit_rate", "net_return", "net_expectancy"]
     horizons: list[int] = Field(default_factory=lambda: [4, 8, 16])
     split_plan: dict[str, Any] = Field(default_factory=dict)
     cost_model: dict[str, Any] = Field(default_factory=dict)
+    symbols: list[str] = Field(default_factory=list)
+    timeframes: list[str] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)
     registered_before_evaluation: bool = False
 
@@ -111,6 +120,13 @@ class ResearchHypothesis(PlatformModel):
                 "primitive_id": self.primitive,
                 "metric": self.metric,
                 "horizons": self.horizons,
+                "research_design_version": self.research_design_version,
+                "experiment_type": self.experiment_type,
+                "parent_universe": self.parent_universe,
+                "baseline_selector": self.baseline_selector,
+                "candidate_selector": self.candidate_selector,
+                "parameter_space": self.parameter_space,
+                "feature_formula_hash": self.feature_formula_hash,
             },
         )
 

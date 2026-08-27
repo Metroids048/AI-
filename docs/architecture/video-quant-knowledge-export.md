@@ -14,6 +14,7 @@ video Clean Corpus -> Agent Corpus / Knowledge Units
                    -> Primitive Registry + Hypothesis Registry
                    -> paired Event/Filter ablation
                    -> existing ResearchExperimentSpec / Orchestrator
+                   -> V2 terminal classification / OOS closeout
 ```
 
 The exporter writes `quant_knowledge_bundle.jsonl`, `quant_concepts.jsonl`,
@@ -31,6 +32,20 @@ The exporter writes `quant_knowledge_bundle.jsonl`, `quant_concepts.jsonl`,
   authority, order, position, or risk setting is modified.
 - Hypotheses must be registered before they can be bound to a
   `ResearchExperimentSpec`, preserving pre-result claim semantics.
+
+## Research Design V2
+
+V2 hashes the complete experiment contract: parent universe, baseline and candidate
+selectors, experiment type, explicit parameter space, feature-formula hash, horizons,
+symbols, timeframes, cost model, and split plan. A candidate already implied by
+EventEdge admission is recorded as `TAUTOLOGY_FAIL`, not as negative alpha. Filter,
+regime, confirmation, veto, and level comparisons use paired bootstrap by resampling
+the parent event universe and then reapplying the predicate.
+
+V1 artifacts remain append-only evidence and are referenced as
+`SUPERSEDED_EXPERIMENT_DESIGN` when V2 invalidates their interpretation. Final Holdout
+is never opened when no eligible candidate exists; the terminal state is
+`SEALED_NO_ELIGIBLE_CANDIDATE`.
 
 ## Search-width guard
 

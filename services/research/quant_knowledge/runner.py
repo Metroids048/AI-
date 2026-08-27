@@ -26,7 +26,7 @@ from .contracts import QuantPrimitive, ResearchHypothesis
 
 HOLDOUT_START = datetime(2026, 1, 29, tzinfo=UTC)
 DEVELOPMENT_START = datetime(2023, 1, 29, tzinfo=UTC)
-SYMBOLS = ("BTC/USDT", "ETH/USDT")
+SYMBOLS = ("BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT")
 HORIZONS = (4, 8, 16)
 COST_RATE = 0.0012
 TERMINAL_STATES = {
@@ -41,6 +41,10 @@ TERMINAL_STATES = {
     "CONFLICTED",
     "DISCRETIONARY_ONLY",
     "DATA_UNAVAILABLE",
+    "TAUTOLOGY_FAIL",
+    "INVALID_EXPERIMENT_DESIGN",
+    "IMPLEMENTATION_AMBIGUOUS",
+    "INSUFFICIENT_SAMPLE_CONFIRMED",
 }
 P0_FAMILIES = {
     "SUPPORT_RESISTANCE",
@@ -49,10 +53,24 @@ P0_FAMILIES = {
     "TREND_PULLBACK",
     "PRICE_ACTION_CONFIRMATION",
 }
-PRIMITIVE_ACCOUNTING_STATES = {
-    *TERMINAL_STATES,
-    "REDUNDANT",
-    "DEFERRED_P1",
+PRIMITIVE_ACCOUNTING_STATES = TERMINAL_STATES
+
+EVENT_ADMISSION_FEATURES = {
+    "event_type": "HTF_BREAK_RETEST",
+    "uses_regime_4h": True,
+    "uses_trend_strength_1h": True,
+}
+
+PARAMETER_SPACE: dict[str, dict[str, Any]] = {
+    "QP_SUPPORT_TOUCH_COUNT": {"touch_count_min": {"values": [2], "origin": "RESEARCH_PARAMETER"}},
+    "QP_LEVEL_REACTION_STRENGTH_ATR": {"reaction_strength_atr_min": {"values": [0.5], "origin": "RESEARCH_PARAMETER"}},
+    "QP_LEVEL_AGE": {"level_age_min": {"values": [4], "origin": "RESEARCH_PARAMETER"}},
+    "QP_BREAKOUT_DISTANCE_ATR": {"breakout_distance_atr_min": {"values": [0.5], "origin": "RESEARCH_PARAMETER"}},
+    "QP_TREND_PULLBACK_DEPTH": {"pullback_depth_atr_min": {"values": [0.0], "origin": "RESEARCH_PARAMETER"}},
+    "QP_VOLUME_CONFIRMATION": {"volume_ratio_min": {"values": [1.5], "origin": "RESEARCH_PARAMETER"}},
+    "QP_WICK_REJECTION": {"wick_body_ratio_min": {"values": [1.5], "origin": "RESEARCH_PARAMETER"}},
+    "QP_MULTI_TIMEFRAME_AGREEMENT": {"trend_strength_1h_min": {"values": [0.1], "origin": "RESEARCH_PARAMETER"}},
+    "QP_NO_TRADE_CHOP_VETO": {"chop_score_max": {"values": [0.6], "origin": "RESEARCH_PARAMETER"}},
 }
 
 
@@ -198,6 +216,39 @@ def _predicate(primitive_id: str, record: ResearchRecord) -> bool:
     return False
 
 
+def _feature_formula_hash(primitive_id: str) -> str:
+    return stable_hash(
+        {
+            "primitive_id": primitive_id,
+            "parameters": PARAMETER_SPACE.get(primitive_id, {}),
+            "known_at": "bars_closed_at_or_before_event_time",
+            "predicate_version": "qk-v2-point-in-time-1",
+        }
+    )
+
+
+def _validate_experiment_design(
+    *,
+    primitive_id: str,
+    base_event: str,
+    baseline_ids: list[str],
+    candidate_ids: list[str],
+    event_admission_features: dict[str, Any],
+) -> str | None:
+    """Reject a design before metrics when its treatment is already admitted."""
+    if baseline_ids and baseline_ids == candidate_ids:
+        return "TAUTOLOGY_FAIL"
+    if primitive_id == "QP_SUPPORT_ROLE_REVERSAL" and base_event == "HTF_BREAK_RETEST":
+        return "TAUTOLOGY_FAIL"
+    if primitive_id == "QP_MARKET_STRUCTURE_HH_HL" and event_admission_features.get("uses_regime_4h"):
+        return "TAUTOLOGY_FAIL"
+    if primitive_id == "QP_TREND_EMA_ALIGNMENT" and (
+        event_admission_features.get("uses_regime_4h") or event_admission_features.get("uses_trend_strength_1h")
+    ):
+        return "TAUTOLOGY_FAIL"
+    return None
+
+
 def _forward_values(records: Iterable[ResearchRecord], horizon: int) -> list[float]:
     values: list[float] = []
     for record in records:
@@ -264,6 +315,57 @@ def _bootstrap_delta(
         "median_delta": median(deltas),
         "lcb95": ordered[max(0, int(rounds * 0.025) - 1)],
         "ucb95": ordered[min(len(ordered) - 1, int(rounds * 0.975))],
+    }
+
+
+def _paired_bootstrap_delta(
+    rows: list[tuple[float, bool]], *, seed: int = 0, rounds: int = 1000
+) -> dict[str, float | int | bool]:
+    """Resample the parent universe, then reapply the registered predicate.
+
+    Candidate rows are a subset of each resampled baseline.  Sampling the two
+    distributions independently would destroy that dependency and understate
+    uncertainty for an incremental filter.
+    """
+    if not rows:
+        return {
+            "paired": True,
+            "sample_count": 0,
+            "candidate_sample_count": 0,
+            "mean_delta": 0.0,
+            "median_delta": 0.0,
+            "lcb95": 0.0,
+            "ucb95": 0.0,
+        }
+    rng = random.Random(seed)
+    deltas: list[float] = []
+    candidate_counts: list[int] = []
+    for _ in range(rounds):
+        sample = rng.choices(rows, k=len(rows))
+        candidate = [value for value, selected in sample if selected]
+        if not candidate:
+            continue
+        deltas.append(mean(candidate) - mean(value for value, _ in sample))
+        candidate_counts.append(len(candidate))
+    if not deltas:
+        return {
+            "paired": True,
+            "sample_count": len(rows),
+            "candidate_sample_count": 0,
+            "mean_delta": 0.0,
+            "median_delta": 0.0,
+            "lcb95": 0.0,
+            "ucb95": 0.0,
+        }
+    ordered = sorted(deltas)
+    return {
+        "paired": True,
+        "sample_count": len(rows),
+        "candidate_sample_count": round(mean(candidate_counts)),
+        "mean_delta": mean(deltas),
+        "median_delta": median(deltas),
+        "lcb95": ordered[max(0, int(len(ordered) * 0.025) - 1)],
+        "ucb95": ordered[min(len(ordered) - 1, int(len(ordered) * 0.975))],
     }
 
 
@@ -358,6 +460,12 @@ def _execution_matrix(
                 "split_plan": hypothesis.split_plan,
                 "parameter_space": primitive.parameter_priors if primitive else {},
                 "current_status": "REGISTERED",
+                "research_design_version": hypothesis.research_design_version,
+                "experiment_type": hypothesis.experiment_type,
+                "parent_universe": hypothesis.parent_universe,
+                "baseline_selector": hypothesis.baseline_selector,
+                "candidate_selector": hypothesis.candidate_selector,
+                "feature_formula_hash": hypothesis.feature_formula_hash,
             }
         )
     return rows
@@ -396,11 +504,17 @@ def _rebuild_progress(
         status = statuses.get(hypothesis.hypothesis_id, {}).get("status")
         if status in TERMINAL_STATES:
             item["status"] = status
+    # A parameter prior without an executable hypothesis is still explicitly
+    # accounted for, but cannot be promoted or silently treated as tested.
+    for primitive_id, item in primitive_status.items():
+        if not item.get("hypothesis_ids") and primitive_id == "QP_STOP_STRUCTURE_PRIOR":
+            item["status"] = "IMPLEMENTATION_AMBIGUOUS"
     progress["primitive_status"] = primitive_status
     progress["primitives"] = {
         "total": len(primitives),
         "accounted": sum(item.get("status") in PRIMITIVE_ACCOUNTING_STATES for item in primitive_status.values()),
         "terminal": sum(item.get("status") in TERMINAL_STATES for item in primitive_status.values()),
+        "deferred": sum(item.get("status") == "DEFERRED_P1" for item in primitive_status.values()),
     }
     progress["useful_filters"] = sum(item.get("status") == "USEFUL_FILTER" for item in statuses.values())
     progress["useful_regimes"] = sum(item.get("status") == "USEFUL_REGIME_FILTER" for item in statuses.values())
@@ -466,6 +580,7 @@ def run_alpha_research(
         ),
         "execution_matrix": _execution_matrix(hypotheses, primitives, dataset_hash),
         "negative_evidence": str(output_dir / "negative_evidence.jsonl"),
+        "superseded_v1_evidence": str(output_dir / "superseded_v1_evidence.jsonl"),
         "final_holdout": {"status": "SEALED_NOT_ACCESSED", "start": HOLDOUT_START.isoformat()},
     }
     if resume and progress_path.exists():
@@ -478,6 +593,7 @@ def run_alpha_research(
     )
     _write_json(progress_path, progress)
     negative_path = output_dir / "negative_evidence.jsonl"
+    superseded_path = output_dir / "superseded_v1_evidence.jsonl"
     composition_path = output_dir / "candidate_compositions.jsonl"
     for hypothesis in hypotheses:
         if resume and progress["hypothesis_status"].get(hypothesis.hypothesis_id, {}).get("status") in TERMINAL_STATES:
@@ -500,6 +616,64 @@ def run_alpha_research(
         if not baseline:
             baseline = records
         candidate = tuple(record for record in baseline if _predicate(primitive_id, record))
+        design_failure = _validate_experiment_design(
+            primitive_id=primitive_id,
+            base_event=hypothesis.base_event,
+            baseline_ids=[record.event.event_id for record in baseline],
+            candidate_ids=[record.event.event_id for record in candidate],
+            event_admission_features=EVENT_ADMISSION_FEATURES,
+        )
+        if design_failure:
+            report = {
+                "pipeline": "QINXIONGMAO_KNOWLEDGE_ALPHA_PIPELINE",
+                "research_design_version": hypothesis.research_design_version,
+                "hypothesis_id": hypothesis.hypothesis_id,
+                "hypothesis_hash": hypothesis.hypothesis_hash,
+                "primitive_id": primitive_id,
+                "primitive_hash": primitive.primitive_hash if primitive else None,
+                "family": _family(primitive_id),
+                "status": design_failure,
+                "supersedes": "V1_INDEPENDENT_BOOTSTRAP_EVIDENCE",
+                "design_failure": "candidate selector is already implied by parent event admission",
+                "dataset": {
+                    "dataset_hash": dataset_hash,
+                    "development_start": DEVELOPMENT_START.isoformat(),
+                    "holdout_start": HOLDOUT_START.isoformat(),
+                    "holdout_accessed": False,
+                    "baseline_event_count": len(baseline),
+                    "candidate_event_count": len(candidate),
+                },
+                "final_holdout": {"status": "SEALED_NOT_ACCESSED", "start": HOLDOUT_START.isoformat()},
+            }
+            _write_json(output_dir / "hypotheses" / f"{hypothesis.hypothesis_id}.json", report)
+            with superseded_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(
+                        {
+                            "evidence_class": "SUPERSEDED_EXPERIMENT_DESIGN",
+                            "hypothesis_id": hypothesis.hypothesis_id,
+                            "hypothesis_hash": hypothesis.hypothesis_hash,
+                            "primitive_id": primitive_id,
+                            "dataset_hash": dataset_hash,
+                            "status": design_failure,
+                            "superseded_v1_artifact": (
+                                f"artifacts/strategy_research/qinxiongmao_alpha/hypotheses/HYP-QK-{primitive_id}.json"
+                            ),
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    + "\n"
+                )
+            progress["hypothesis_status"][hypothesis.hypothesis_id] = {
+                "primitive_id": primitive_id,
+                "family": _family(primitive_id),
+                "status": design_failure,
+                "artifact": str(output_dir / "hypotheses" / f"{hypothesis.hypothesis_id}.json"),
+            }
+            _rebuild_progress(progress, hypotheses, primitives)
+            _write_json(progress_path, progress)
+            continue
         atomic = _atomic_metrics(candidate)
         windows_report: list[dict[str, Any]] = []
         for window in windows:
@@ -515,8 +689,11 @@ def run_alpha_research(
             oos_candidate = tuple(
                 record for record in candidate if window.oos_start <= record.event.event_time < window.oos_end
             )
-            base_values = _forward_values(oos_base, 8)
-            candidate_values = _forward_values(oos_candidate, 8)
+            paired_rows = []
+            for record in oos_base:
+                distribution = _forward_distribution(record, 8)
+                if distribution is not None:
+                    paired_rows.append((distribution[0], record in oos_candidate))
             windows_report.append(
                 {
                     "window_id": window.window_id,
@@ -526,7 +703,7 @@ def run_alpha_research(
                         "candidate": _metrics(oos_candidate),
                         "delta": _metrics(oos_candidate)["net_expectancy"] - _metrics(oos_base)["net_expectancy"],
                     },
-                    "bootstrap": _bootstrap_delta(base_values, candidate_values),
+                    "bootstrap": _paired_bootstrap_delta(paired_rows),
                 }
             )
         deltas = [float(row["oos"]["delta"]) for row in windows_report if row["oos"]["candidate"]["sample_count"]]
@@ -534,9 +711,15 @@ def run_alpha_research(
         aggregate_base = _metrics(baseline)
         aggregate_candidate = _metrics(candidate)
         aggregate_delta = aggregate_candidate["net_expectancy"] - aggregate_base["net_expectancy"]
-        all_bootstrap = _bootstrap_delta(_forward_values(baseline, 8), _forward_values(candidate, 8))
+        paired_rows = []
+        candidate_ids = {record.event.event_id for record in candidate}
+        for record in baseline:
+            distribution = _forward_distribution(record, 8)
+            if distribution is not None:
+                paired_rows.append((distribution[0], record.event.event_id in candidate_ids))
+        all_bootstrap = _paired_bootstrap_delta(paired_rows)
         if aggregate_candidate["sample_count"] < 30:
-            status = "INSUFFICIENT_SAMPLE"
+            status = "INSUFFICIENT_SAMPLE_CONFIRMED"
         elif aggregate_delta > 0 and all_bootstrap["lcb95"] > 0 and positive_windows >= 4:
             status = (
                 "USEFUL_REGIME_FILTER"
@@ -592,9 +775,19 @@ def run_alpha_research(
                     {item.event.event_id for item in baseline} & {item.event.event_id for item in candidate}
                 ),
                 "removed_events": aggregate_base["sample_count"] - aggregate_candidate["sample_count"],
+                "bootstrap_dependency": "baseline_resample_then_predicate",
             },
             "oos_walk_forward": windows_report,
             "final_holdout": {"status": "SEALED_NOT_ACCESSED", "start": HOLDOUT_START.isoformat()},
+            "research_design": {
+                "version": hypothesis.research_design_version,
+                "experiment_type": hypothesis.experiment_type,
+                "parent_universe": hypothesis.parent_universe,
+                "baseline_selector": hypothesis.baseline_selector,
+                "candidate_selector": hypothesis.candidate_selector,
+                "parameter_space": hypothesis.parameter_space,
+                "feature_formula_hash": hypothesis.feature_formula_hash,
+            },
         }
         _write_json(output_dir / "hypotheses" / f"{hypothesis.hypothesis_id}.json", report)
         progress["hypothesis_status"][hypothesis.hypothesis_id] = {
@@ -611,6 +804,7 @@ def run_alpha_research(
             "NO_EDGE",
             "UNSTABLE",
             "INSUFFICIENT_SAMPLE",
+            "INSUFFICIENT_SAMPLE_CONFIRMED",
             "LOOKAHEAD_FAIL",
             "CONFLICTED",
             "DISCRETIONARY_ONLY",
@@ -624,6 +818,7 @@ def run_alpha_research(
                 "cost_model_hash": progress["cost_model_hash"],
                 "split_hash": progress["split_hash"],
                 "status": status,
+                "evidence_class": "V2_NEGATIVE_EVIDENCE",
                 "delta_expectancy": aggregate_delta,
                 "bootstrap": all_bootstrap,
             }
@@ -638,6 +833,12 @@ def run_alpha_research(
         if progress["hypothesis_status"].get(h.hypothesis_id, {}).get("status")
         in {"USEFUL_FILTER", "USEFUL_REGIME_FILTER", "USEFUL_SIGNAL", "USEFUL_EXIT"}
     ]
+    if not useful:
+        progress["final_holdout"] = {
+            "status": "SEALED_NO_ELIGIBLE_CANDIDATE",
+            "start": HOLDOUT_START.isoformat(),
+            "access_count": 0,
+        }
     existing_compositions: set[str] = set()
     if composition_path.exists():
         with composition_path.open(encoding="utf-8") as handle:
@@ -675,14 +876,43 @@ def run_alpha_research(
         for family in P0_FAMILIES
     )
     progress["status"] = (
-        "QINXIONGMAO_KNOWLEDGE_ALPHA_PIPELINE_COMPLETE"
-        if progress["hypotheses"]["terminal"] == progress["hypotheses"]["registered"]
-        and progress["hypotheses"]["registered"] > 0
-        and progress["hypotheses"]["running"] == 0
-        and progress["hypotheses"]["unknown"] == 0
-        and p0_complete
+        "RESEARCH_COMPLETE_WITH_PROMOTABLE_CANDIDATE"
+        if (
+            len(primitives) == 14
+            and progress["primitives"]["terminal"] == len(primitives)
+            and progress["primitives"]["deferred"] == 0
+            and progress["hypotheses"]["terminal"] == progress["hypotheses"]["registered"]
+            and progress["hypotheses"]["registered"] > 0
+            and progress["hypotheses"]["running"] == 0
+            and progress["hypotheses"]["unknown"] == 0
+            and p0_complete
+            and useful
+        )
+        else "RESEARCH_COMPLETE_NO_VALIDATED_EDGE"
+        if (
+            len(primitives) == 14
+            and progress["primitives"]["terminal"] == len(primitives)
+            and progress["primitives"]["deferred"] == 0
+            and progress["hypotheses"]["terminal"] == progress["hypotheses"]["registered"]
+            and progress["hypotheses"]["registered"] > 0
+            and progress["hypotheses"]["running"] == 0
+            and progress["hypotheses"]["unknown"] == 0
+            and p0_complete
+        )
         else "EXPERIMENT_EXECUTION_PENDING"
     )
+    progress["research_design_version"] = 2
+    progress["registered_hypotheses_v2"] = progress["hypotheses"]["registered"]
+    progress["terminal_hypotheses_v2"] = progress["hypotheses"]["terminal"]
+    progress["primitive_terminal"] = progress["primitives"]["terminal"]
+    progress["primitive_deferred"] = progress["primitives"]["deferred"]
+    progress["invalid_experiment_unaccounted"] = progress["hypotheses"]["unknown"] + progress["hypotheses"]["running"]
+    progress["pipeline_closeout"] = (
+        "QINXIONGMAO_KNOWLEDGE_ALPHA_FINAL_CLOSEOUT: COMPLETE"
+        if progress["status"] != "EXPERIMENT_EXECUTION_PENDING"
+        else "QINXIONGMAO_KNOWLEDGE_ALPHA_FINAL_CLOSEOUT: INCOMPLETE"
+    )
+    progress["promotion_authorized"] = False
     progress["research_summary"] = {
         "registered": progress["hypotheses"]["registered"],
         "terminal": progress["hypotheses"]["terminal"],

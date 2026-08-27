@@ -13,6 +13,29 @@ from services.research.integrations.contracts import stable_hash
 from .contracts import QuantKnowledgeBundle, QuantPrimitive, ResearchHypothesis
 from .registry import HypothesisRegistry, QuantPrimitiveRegistry
 
+
+def _experiment_type(role: str) -> str:
+    if role == "EVENT":
+        return "ATOMIC_EDGE"
+    if role == "EXIT_HYPOTHESIS":
+        return "EXIT_ABLATION"
+    if role in {"FILTER", "REGIME", "CONFIRMATION", "VETO", "LEVEL"}:
+        return "INCREMENTAL_FILTER"
+    return "IMPLEMENTATION_REVIEW"
+
+
+_PARAMETER_PRIORS: dict[str, dict[str, Any]] = {
+    "QP_SUPPORT_TOUCH_COUNT": {"touch_count_min": {"values": [2], "origin": "RESEARCH_PARAMETER"}},
+    "QP_LEVEL_REACTION_STRENGTH_ATR": {"reaction_strength_atr_min": {"values": [0.5], "origin": "RESEARCH_PARAMETER"}},
+    "QP_LEVEL_AGE": {"level_age_min": {"values": [4], "origin": "RESEARCH_PARAMETER"}},
+    "QP_BREAKOUT_DISTANCE_ATR": {"breakout_distance_atr_min": {"values": [0.5], "origin": "RESEARCH_PARAMETER"}},
+    "QP_TREND_PULLBACK_DEPTH": {"pullback_depth_atr_min": {"values": [0.0], "origin": "RESEARCH_PARAMETER"}},
+    "QP_VOLUME_CONFIRMATION": {"volume_ratio_min": {"values": [1.5], "origin": "RESEARCH_PARAMETER"}},
+    "QP_WICK_REJECTION": {"wick_body_ratio_min": {"values": [1.5], "origin": "RESEARCH_PARAMETER"}},
+    "QP_MULTI_TIMEFRAME_AGREEMENT": {"trend_strength_1h_min": {"values": [0.1], "origin": "RESEARCH_PARAMETER"}},
+    "QP_NO_TRADE_CHOP_VETO": {"chop_score_max": {"values": [0.6], "origin": "RESEARCH_PARAMETER"}},
+}
+
 _TEMPLATES: tuple[dict[str, Any], ...] = (
     {
         "id": "QP_SUPPORT_TOUCH_COUNT",
@@ -247,7 +270,7 @@ def export_quant_knowledge(
             quantization_status="PROXY_ALLOWED",
             quantization=template["quantization"],
             required_features=list(template["features"]),
-            parameter_priors={},
+            parameter_priors=_PARAMETER_PRIORS.get(template["id"], {}),
             lookahead_risk=template["risk"],
             contradictions=[],
             provenance="PROXY_DERIVED",
@@ -280,13 +303,32 @@ def export_quant_knowledge(
         }:
             base_event = "HTF_BREAK_RETEST" if template["role"] != "EVENT" else primitive.primitive_id
             hypothesis = ResearchHypothesis(
-                hypothesis_id=f"HYP-QK-{primitive.primitive_id}",
+                hypothesis_id=f"HYP-QK-V2-{primitive.primitive_id}",
                 claim=f"在 {base_event} 事件中，加入 {primitive.concept} 后 OOS net expectancy 改善。",
                 base_event=base_event,
                 primitive=primitive.primitive_id,
+                research_design_version=2,
+                experiment_type=_experiment_type(primitive.role),
+                parent_universe={"selector": "canonical_eventedge_development", "base_event": base_event},
+                baseline_selector={"event_type": base_event},
+                candidate_selector={"primitive_id": primitive.primitive_id, "point_in_time": True},
+                parameter_space={
+                    "source": "primitive_parameter_priors",
+                    "values": primitive.parameter_priors,
+                },
+                feature_formula_hash=stable_hash(
+                    {
+                        "primitive_id": primitive.primitive_id,
+                        "quantization": primitive.quantization,
+                        "required_features": primitive.required_features,
+                    }
+                ),
                 metric="net_expectancy",
+                horizons=[4, 8, 16],
                 split_plan={"method": "walk_forward", "paired_comparison": True},
                 cost_model={"required": True},
+                symbols=["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"],
+                timeframes=["15m", "1h", "4h"],
                 source_refs=source_refs,
                 registered_before_evaluation=True,
             )

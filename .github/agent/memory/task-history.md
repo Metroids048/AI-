@@ -2352,3 +2352,15 @@
 - VERIFIED: Atomic artifacts include costed forward return, hit rate, MFE and MAE;
   paired ablation and eight-window walk-forward OOS are recorded. Production,
   execution, risk, authorization, and runtime hot paths were not modified.
+
+# 2026-08-27 QINXIONGMAO_RESEARCH_DESIGN_V2
+
+- V1 interpretation was superseded where the baseline already admitted the tested
+  condition. V2 adds explicit design/version/selectors/parameter/formula hashes and
+  records those cases as `TAUTOLOGY_FAIL` in separate
+  `superseded_v1_evidence.jsonl` artifacts.
+- Paired bootstrap now resamples the parent event universe before reapplying the
+  candidate predicate. Independent baseline/candidate bootstrap is not used for filters.
+- Real V2 run from canonical SQLite development history: 14 primitives terminal, 13/13
+  V2 hypotheses terminal, 0 running, 0 unknown, 0 deferred, and no candidate composition.
+  Final Holdout remained sealed as `SEALED_NO_ELIGIBLE_CANDIDATE`; promotion remains false.

@@ -1645,3 +1645,13 @@
 - VERIFIED: no execution, risk, production authorization, or Final Holdout
   surface was changed. Canonical full suite is `1919 passed, 16 skipped,
   2 warnings`.
+
+## VIDEO QUANT KNOWLEDGE RESEARCH DESIGN V2 (2026-08-27)
+
+- Research Design V2 is the active contract for QINXIONGMAO alpha experiments.
+  It hashes experiment type, parent/baseline/candidate selectors, parameter space,
+  feature formula, horizons, symbols, timeframes, cost model, and split plan.
+- V2 real artifacts are under `artifacts/strategy_research/qinxiongmao_alpha_v2_2/`.
+  Terminal counts are `primitive 14/14`, `hypothesis 13/13`, `RUNNING=0`, `UNKNOWN=0`,
+  `DEFERRED=0`, with `candidate_compositions=0` and Holdout
+  `SEALED_NO_ELIGIBLE_CANDIDATE`.
