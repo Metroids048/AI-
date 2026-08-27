@@ -1,4 +1,5 @@
 """Research-only tournament for three orthogonal alpha families."""
+
 from __future__ import annotations
 
 import argparse
@@ -49,7 +50,9 @@ def _dt(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=UTC)
 
 
-def _load_bars(connection: sqlite3.Connection, symbol: str, timeframe: str, start: datetime, end: datetime) -> list[Bar]:
+def _load_bars(
+    connection: sqlite3.Connection, symbol: str, timeframe: str, start: datetime, end: datetime
+) -> list[Bar]:
     rows = connection.execute(
         """
         SELECT time, open, high, low, close, volume
@@ -62,7 +65,9 @@ def _load_bars(connection: sqlite3.Connection, symbol: str, timeframe: str, star
     return [Bar(_dt(str(t)), float(o), float(h), float(low), float(c), float(v or 0.0)) for t, o, h, low, c, v in rows]
 
 
-def _load_funding(connection: sqlite3.Connection, symbol: str, start: datetime, end: datetime) -> list[tuple[datetime, float]]:
+def _load_funding(
+    connection: sqlite3.Connection, symbol: str, start: datetime, end: datetime
+) -> list[tuple[datetime, float]]:
     rows = connection.execute(
         "SELECT time, funding_rate FROM market_extras WHERE symbol=? AND time>=? AND time<=? AND funding_rate IS NOT NULL ORDER BY time",
         (symbol, start.isoformat(sep=" "), end.isoformat(sep=" ")),
@@ -155,7 +160,9 @@ def _simulate_trade(
             hit = bar.high >= target if side == "long" else bar.low <= target
             if hit and remaining > 0:
                 take_fraction = min(fraction, remaining)
-                realized_gross += take_fraction * ((target - entry) / entry if side == "long" else (entry - target) / entry)
+                realized_gross += take_fraction * (
+                    (target - entry) / entry if side == "long" else (entry - target) / entry
+                )
                 remaining -= take_fraction
                 closed_index = index
                 if remaining <= 1e-9:
@@ -168,8 +175,24 @@ def _simulate_trade(
         realized_gross += remaining * ((bar.close - entry) / entry if side == "long" else (entry - bar.close) / entry)
     fee = 2.0 * FEE_BPS / 10_000.0
     slippage = 2.0 * SLIPPAGE_BPS / 10_000.0
-    funding = sum(rate if side == "long" else -rate for timestamp, rate in funding_rates if entry_bar.timestamp <= timestamp <= bars[closed_index].timestamp)
-    return Trade(symbol, side, entry_bar.timestamp.isoformat(), bars[closed_index].timestamp.isoformat(), realized_gross, realized_gross - fee - slippage - funding, fee, slippage, funding, exit_reason, closed_index - entry_index + 1)
+    funding = sum(
+        rate if side == "long" else -rate
+        for timestamp, rate in funding_rates
+        if entry_bar.timestamp <= timestamp <= bars[closed_index].timestamp
+    )
+    return Trade(
+        symbol,
+        side,
+        entry_bar.timestamp.isoformat(),
+        bars[closed_index].timestamp.isoformat(),
+        realized_gross,
+        realized_gross - fee - slippage - funding,
+        fee,
+        slippage,
+        funding,
+        exit_reason,
+        closed_index - entry_index + 1,
+    )
 
 
 def _h1_signals(bars: Sequence[Bar]) -> list[tuple[int, str, float, Sequence[tuple[float, float]]]]:
@@ -199,7 +222,9 @@ def _h1_signals(bars: Sequence[Bar]) -> list[tuple[int, str, float, Sequence[tup
     return signals
 
 
-def _h2_signals(bars_15m: Sequence[Bar], bars_1h: Sequence[Bar]) -> list[tuple[int, str, float, Sequence[tuple[float, float]]]]:
+def _h2_signals(
+    bars_15m: Sequence[Bar], bars_1h: Sequence[Bar]
+) -> list[tuple[int, str, float, Sequence[tuple[float, float]]]]:
     hourly_times = [bar.timestamp for bar in bars_1h]
     signals: list[tuple[int, str, float, Sequence[tuple[float, float]]]] = []
     for i in range(20, len(bars_15m) - 1):
@@ -228,21 +253,42 @@ def _h3_signals(bars: Sequence[Bar]) -> list[tuple[int, str, float, Sequence[tup
         climax = bars[i - 1]
         atr = _atr(bars, i - 1)
         vol_mid = _median_volume(bars, i - 1)
-        if atr is None or vol_mid is None or climax.volume / vol_mid < 2.0 or abs(climax.close - climax.open) / atr < 1.2:
+        if (
+            atr is None
+            or vol_mid is None
+            or climax.volume / vol_mid < 2.0
+            or abs(climax.close - climax.open) / atr < 1.2
+        ):
             continue
         confirmation = bars[i]
         span = max(climax.high - climax.low, 1e-12)
         close_location = (climax.close - climax.low) / span
-        if climax.close < climax.open and close_location >= 0.35 and confirmation.close > climax.close and confirmation.close > confirmation.open:
+        if (
+            climax.close < climax.open
+            and close_location >= 0.35
+            and confirmation.close > climax.close
+            and confirmation.close > confirmation.open
+        ):
             stop = climax.low - 0.25 * atr
             signals.append((i + 1, "long", stop, ((1.0, 0.5), (2.0, 0.5))))
-        elif climax.close > climax.open and close_location <= 0.65 and confirmation.close < climax.close and confirmation.close < confirmation.open:
+        elif (
+            climax.close > climax.open
+            and close_location <= 0.65
+            and confirmation.close < climax.close
+            and confirmation.close < confirmation.open
+        ):
             stop = climax.high + 0.25 * atr
             signals.append((i + 1, "short", stop, ((1.0, 0.5), (2.0, 0.5))))
     return signals
 
 
-def _run_family(family: str, data: dict[str, dict[str, list[Bar]]], funding: dict[str, list[tuple[datetime, float]]], start: datetime, end: datetime) -> list[Trade]:
+def _run_family(
+    family: str,
+    data: dict[str, dict[str, list[Bar]]],
+    funding: dict[str, list[tuple[datetime, float]]],
+    start: datetime,
+    end: datetime,
+) -> list[Trade]:
     trades: list[Trade] = []
     for symbol in SYMBOLS:
         bars_15m = data[symbol]["15m"]
@@ -280,10 +326,12 @@ def _metrics(trades: Sequence[Trade]) -> dict[str, Any]:
         peak = max(peak, equity)
         max_dd = max(max_dd, peak - equity)
     by_symbol: dict[str, list[Trade]] = {symbol: [row for row in rows if row.symbol == symbol] for symbol in SYMBOLS}
+
     def pf(items: Sequence[Trade]) -> float:
         positives = sum(max(0.0, item.net_return) for item in items)
         negatives = abs(sum(min(0.0, item.net_return) for item in items))
         return positives / negatives if negatives else 0.0
+
     return {
         "trades": len(rows),
         "btc_trades": len(by_symbol["BTC/USDT"]),
@@ -302,15 +350,27 @@ def _metrics(trades: Sequence[Trade]) -> dict[str, Any]:
         "fees": sum(row.fee for row in rows),
         "slippage": sum(row.slippage for row in rows),
         "funding": sum(row.funding for row in rows),
-        "cost_share": (sum(row.fee + row.slippage + row.funding for row in rows) / abs(sum(row.gross_return for row in rows))) if rows and sum(row.gross_return for row in rows) else 0.0,
+        "cost_share": (
+            sum(row.fee + row.slippage + row.funding for row in rows) / abs(sum(row.gross_return for row in rows))
+        )
+        if rows and sum(row.gross_return for row in rows)
+        else 0.0,
         "long_trades": sum(row.side == "long" for row in rows),
         "short_trades": sum(row.side == "short" for row in rows),
-        "exit_reasons": {reason: sum(row.exit_reason == reason for row in rows) for reason in sorted({row.exit_reason for row in rows})},
+        "exit_reasons": {
+            reason: sum(row.exit_reason == reason for row in rows)
+            for reason in sorted({row.exit_reason for row in rows})
+        },
     }
 
 
-def _window_metrics(trades: Sequence[Trade], windows: Sequence[tuple[str, datetime, datetime]]) -> dict[str, dict[str, Any]]:
-    return {window_id: _metrics([row for row in trades if start <= _dt(row.opened_at) < end]) for window_id, start, end in windows}
+def _window_metrics(
+    trades: Sequence[Trade], windows: Sequence[tuple[str, datetime, datetime]]
+) -> dict[str, dict[str, Any]]:
+    return {
+        window_id: _metrics([row for row in trades if start <= _dt(row.opened_at) < end])
+        for window_id, start, end in windows
+    }
 
 
 def _window_summary(window_metrics: dict[str, dict[str, Any]]) -> dict[str, int]:
@@ -354,13 +414,17 @@ def _validation_gate(family: str, metrics: dict[str, Any]) -> tuple[str, str]:
     return "SURVIVOR", "research and validation gates passed"
 
 
-def _read_only_data(database: Path, start: datetime, end: datetime) -> tuple[dict[str, dict[str, list[Bar]]], dict[str, list[tuple[datetime, float]]]]:
+def _read_only_data(
+    database: Path, start: datetime, end: datetime
+) -> tuple[dict[str, dict[str, list[Bar]]], dict[str, list[tuple[datetime, float]]]]:
     warmup = start - timedelta(days=30)
     result: dict[str, dict[str, list[Bar]]] = {}
     funding: dict[str, list[tuple[datetime, float]]] = {}
     with sqlite3.connect(f"file:{database.resolve().as_posix()}?mode=ro", uri=True) as connection:
         for symbol in SYMBOLS:
-            result[symbol] = {timeframe: _load_bars(connection, symbol, timeframe, warmup, end) for timeframe in ("15m", "1h", "4h")}
+            result[symbol] = {
+                timeframe: _load_bars(connection, symbol, timeframe, warmup, end) for timeframe in ("15m", "1h", "4h")
+            }
             funding[symbol] = _load_funding(connection, symbol, warmup, end)
     return result, funding
 
@@ -382,21 +446,32 @@ def main() -> int:
     evaluation_end = split.validation_end
     data, funding = _read_only_data(args.database, windows[0][1], evaluation_end)
     definitions = {
-        "vwap_deviation_reversion_v1": {"family": "VWAP Deviation Mean Reversion", "formula": "48-bar rolling VWAP, 1.5 ATR deviation, range proxy, volume median confirmation"},
-        "regression_trend_pullback_v1": {"family": "Regression Trend Pullback", "formula": "48 closed 1h bars, normalized slope > 0/<0, R2 >= 0.35, 15m pullback and resumption"},
-        "volume_climax_reversal_v1": {"family": "Volume Climax Exhaustion Reversal", "formula": "15m volume/ATR climax >= 2.0x/1.2 ATR, failed close location, next-bar reversal confirmation"},
+        "vwap_deviation_reversion_v1": {
+            "family": "VWAP Deviation Mean Reversion",
+            "formula": "48-bar rolling VWAP, 1.5 ATR deviation, range proxy, volume median confirmation",
+        },
+        "regression_trend_pullback_v1": {
+            "family": "Regression Trend Pullback",
+            "formula": "48 closed 1h bars, normalized slope > 0/<0, R2 >= 0.35, 15m pullback and resumption",
+        },
+        "volume_climax_reversal_v1": {
+            "family": "Volume Climax Exhaustion Reversal",
+            "formula": "15m volume/ATR climax >= 2.0x/1.2 ATR, failed close location, next-bar reversal confirmation",
+        },
     }
     results: dict[str, Any] = {}
     survivors: list[str] = []
     for family, definition in definitions.items():
         trades = _run_family(family, data, funding, windows[0][1], evaluation_end)
         research_trades = [row for row in trades if _dt(row.opened_at) < split.validation_start]
-        validation_trades = [row for row in trades if split.validation_start <= _dt(row.opened_at) < split.validation_end]
+        validation_trades = [
+            row for row in trades if split.validation_start <= _dt(row.opened_at) < split.validation_end
+        ]
         research_metrics = _metrics(research_trades)
         validation_metrics = _metrics(validation_trades)
         research_status, research_reason = _gate(family, research_metrics)
         validation_status = "NOT_RUN"
-        validation_reason = "research gate failed; validation not run" 
+        validation_reason = "research gate failed; validation not run"
         if research_status == "RESEARCH_PASS":
             validation_status, validation_reason = _validation_gate(family, validation_metrics)
         if validation_status == "SURVIVOR":
@@ -407,28 +482,65 @@ def main() -> int:
             "candidate_id": family,
             "version": "1.0.0",
             "hypothesis": definition,
-            "research": {"metrics": research_metrics, "windows": research_windows, **_window_summary(research_windows), "status": research_status, "reason": research_reason},
-            "validation": {"metrics": validation_metrics, "windows": validation_windows, **_window_summary(validation_windows), "status": validation_status, "reason": validation_reason},
-            "research_to_validation_degradation": (validation_metrics["net_expectancy"] / research_metrics["net_expectancy"]) if research_metrics["net_expectancy"] else None,
+            "research": {
+                "metrics": research_metrics,
+                "windows": research_windows,
+                **_window_summary(research_windows),
+                "status": research_status,
+                "reason": research_reason,
+            },
+            "validation": {
+                "metrics": validation_metrics,
+                "windows": validation_windows,
+                **_window_summary(validation_windows),
+                "status": validation_status,
+                "reason": validation_reason,
+            },
+            "research_to_validation_degradation": (
+                validation_metrics["net_expectancy"] / research_metrics["net_expectancy"]
+            )
+            if research_metrics["net_expectancy"]
+            else None,
             "trades": [asdict(row) for row in trades],
             "final_holdout_accessed": False,
             "runtime_visible": False,
         }
         results[family] = payload
-        _write(args.output_dir / {"vwap_deviation_reversion_v1": "H1_RESULT.json", "regression_trend_pullback_v1": "H2_RESULT.json", "volume_climax_reversal_v1": "H3_RESULT.json"}[family], payload)
-    stability = {"status": "NOT_RUN", "reason": "No research+validation survivor; neighbor policy forbids variants for failed hypotheses.", "survivors": survivors, "final_holdout_accessed": False}
+        _write(
+            args.output_dir
+            / {
+                "vwap_deviation_reversion_v1": "H1_RESULT.json",
+                "regression_trend_pullback_v1": "H2_RESULT.json",
+                "volume_climax_reversal_v1": "H3_RESULT.json",
+            }[family],
+            payload,
+        )
+    stability = {
+        "status": "NOT_RUN",
+        "reason": "No research+validation survivor; neighbor policy forbids variants for failed hypotheses.",
+        "survivors": survivors,
+        "final_holdout_accessed": False,
+    }
     _write(args.output_dir / "SURVIVOR_STABILITY.json", stability)
     status = "NEW_ALPHA_SURVIVOR" if survivors else "NEW_ALPHA_BATCH_EXHAUSTED"
     report = {
         "status": status,
-        "baseline": {"candidate": "volatility_expansion_v1", "trades": 281, "profit_factor": 1.1576630479094718, "expectancy": 0.001512451049147131, "max_drawdown": 0.18736432836022304},
+        "baseline": {
+            "candidate": "volatility_expansion_v1",
+            "trades": 281,
+            "profit_factor": 1.1576630479094718,
+            "expectancy": 0.001512451049147131,
+            "max_drawdown": 0.18736432836022304,
+        },
         "hypotheses": [results[key]["hypothesis"] for key in definitions],
         "research_results": {key: results[key]["research"] for key in definitions},
         "validation_results": {key: results[key]["validation"] for key in definitions},
         "survivors": survivors,
         "best_candidate": survivors[0] if survivors else None,
         "why_it_improved": [],
-        "why_others_failed": [f"{key}: {results[key]['research']['reason']}" for key in definitions if key not in survivors],
+        "why_others_failed": [
+            f"{key}: {results[key]['research']['reason']}" for key in definitions if key not in survivors
+        ],
         "runtime_modified": False,
         "production_authority": "NOT_GRANTED",
         "final_holdout_accessed": False,
@@ -436,12 +548,29 @@ def main() -> int:
         "research_end": split.validation_start.isoformat(),
         "validation_end": split.validation_end.isoformat(),
         "data_quality": {
-            symbol: {timeframe: {"bars": len(data[symbol][timeframe]), "gaps": _gap_count(data[symbol][timeframe], timedelta(minutes={"15m": 15, "1h": 60, "4h": 240}[timeframe]))} for timeframe in ("15m", "1h", "4h")}
+            symbol: {
+                timeframe: {
+                    "bars": len(data[symbol][timeframe]),
+                    "gaps": _gap_count(
+                        data[symbol][timeframe], timedelta(minutes={"15m": 15, "1h": 60, "4h": 240}[timeframe])
+                    ),
+                }
+                for timeframe in ("15m", "1h", "4h")
+            }
             for symbol in SYMBOLS
         },
     }
     _write(args.output_dir / "FINAL_REPORT.json", report)
-    print(json.dumps({"status": status, "survivors": survivors, "research": {key: results[key]["research"]["metrics"] for key in definitions}}, indent=2))
+    print(
+        json.dumps(
+            {
+                "status": status,
+                "survivors": survivors,
+                "research": {key: results[key]["research"]["metrics"] for key in definitions},
+            },
+            indent=2,
+        )
+    )
     return 0
 
 

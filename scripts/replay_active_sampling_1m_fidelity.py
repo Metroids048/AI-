@@ -41,7 +41,9 @@ class _OneMinuteStream:
         timestamp = datetime.fromisoformat(str(row[0]).replace(" ", "T")).replace(tzinfo=UTC)
         self._current = (timestamp, Decimal(str(row[1])), Decimal(str(row[2])))
 
-    def replay(self, *, start: datetime, side: str, entry: Decimal, risk: Decimal) -> tuple[Decimal, datetime | None, bool]:
+    def replay(
+        self, *, start: datetime, side: str, entry: Decimal, risk: Decimal
+    ) -> tuple[Decimal, datetime | None, bool]:
         while self._current is not None and self._current[0] < start:
             self._advance()
         stop = entry - risk if side == "long" else entry + risk
@@ -92,9 +94,13 @@ def _replay_symbol(
             decision_bar = bars_15m[index]
             if active_until is not None and decision_bar.time <= active_until:
                 continue
-            while trend_index + 1 < len(bars_4h) and bars_4h[trend_index + 1].time <= decision_bar.time - timedelta(hours=4):
+            while trend_index + 1 < len(bars_4h) and bars_4h[trend_index + 1].time <= decision_bar.time - timedelta(
+                hours=4
+            ):
                 trend_index += 1
-            while secondary_trend_index + 1 < len(bars_1h) and bars_1h[secondary_trend_index + 1].time <= decision_bar.time - timedelta(hours=1):
+            while secondary_trend_index + 1 < len(bars_1h) and bars_1h[
+                secondary_trend_index + 1
+            ].time <= decision_bar.time - timedelta(hours=1):
                 secondary_trend_index += 1
             view = TimeframeView("15m", tuple(_as_view(bar) for bar in bars_15m[index - 100 : index + 1]))
             side = _fast_sampling_side(view)
@@ -204,7 +210,9 @@ def main() -> int:
         "result": "PASS" if passes else "REJECTED",
         "comparisons": comparisons,
     }
-    output = Path("artifacts/active_strategy_optimization/strict_dual_timeframe_alignment_two_bar_1m_fidelity_20260815.json")
+    output = Path(
+        "artifacts/active_strategy_optimization/strict_dual_timeframe_alignment_two_bar_1m_fidelity_20260815.json"
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
     print(json.dumps(result["promotion_gate"], ensure_ascii=False, indent=2))

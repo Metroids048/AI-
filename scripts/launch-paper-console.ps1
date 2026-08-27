@@ -43,6 +43,7 @@ $script:ProjectionRecoveryGap = ""
 $script:ProjectionRecoveryBootstrap = $false
 $script:StartupRecoveryResult = "NOT_REQUIRED"
 $script:StartupSafetyStop = $false
+$script:RuntimePrepared = $false
 
 $env:NO_PROXY = "127.0.0.1,localhost"
 $env:HTTP_PROXY = ""
@@ -591,6 +592,9 @@ function Open-Frontend([string]$Url) {
 }
 
 function Ensure-Runtime {
+    if ($script:RuntimePrepared) {
+        return
+    }
     $script:StartupStage = "RUNTIME_PREPARE"
     if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
         throw "Node.js/npm not found."
@@ -764,6 +768,7 @@ function Ensure-Runtime {
     $env:PAPER_CONSOLE_API_ONLY = "true"
     Remove-Item Env:VITE_LOCAL_CONSOLE_API_ONLY -ErrorAction SilentlyContinue
     Write-Step "starting isolated Paper scheduler; Testnet mirror remains cost-gated"
+    $script:RuntimePrepared = $true
 }
 
 function Initialize-LocalDatabase {

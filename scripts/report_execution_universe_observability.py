@@ -74,8 +74,7 @@ def _rejection_report(symbol: str, execution_repo: Any, snapshot_repo: Any, sinc
         "total_samples": total_samples,
         "counts": counts,
         "rates": {
-            reason: round(value / total_samples, 6) if total_samples else 0.0
-            for reason, value in counts.items()
+            reason: round(value / total_samples, 6) if total_samples else 0.0 for reason, value in counts.items()
         },
     }
 

@@ -628,9 +628,7 @@ def discover_quality_gate(
     fit, validation = ordered[:split], ordered[split:]
     best: tuple[tuple[float, float, float], QualityGate, GateMetrics] | None = None
     candidate_event_types = (
-        tuple(event_types)
-        if event_types is not None
-        else ("ANY", "HTF_STRUCTURE_BREAK", "HTF_BREAK_RETEST")
+        tuple(event_types) if event_types is not None else ("ANY", "HTF_STRUCTURE_BREAK", "HTF_BREAK_RETEST")
     )
     for event_type in candidate_event_types:
         for side in ("ANY", "long", "short"):

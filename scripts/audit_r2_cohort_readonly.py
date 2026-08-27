@@ -74,14 +74,30 @@ def main() -> int:
             start = parsed_start.replace(tzinfo=UTC)
         except (KeyError, ValueError):
             continue
-        bars = load_bars(DB, symbol=str(candidate["symbol"]), timeframe="1m", start=start, end=start + timedelta(hours=24))
+        bars = load_bars(
+            DB, symbol=str(candidate["symbol"]), timeframe="1m", start=start, end=start + timedelta(hours=24)
+        )
         if not bars:
             continue
         favorable = max((bar.high - entry if side == "long" else entry - bar.low) for bar in bars)
         adverse = max((entry - bar.low if side == "long" else bar.high - entry) for bar in bars)
         excursions.append({"mfe_r": str(favorable / risk), "mae_r": str(adverse / risk)})
-        bars_15m = load_bars(DB, symbol=str(candidate["symbol"]), timeframe="15m", start=start - timedelta(hours=30), end=start + timedelta(minutes=15))
-        view = TimeframeView("15m", tuple(BarView(timestamp=bar.time, open=bar.open, high=bar.high, low=bar.low, close=bar.close, volume=bar.volume) for bar in bars_15m[-120:]))
+        bars_15m = load_bars(
+            DB,
+            symbol=str(candidate["symbol"]),
+            timeframe="15m",
+            start=start - timedelta(hours=30),
+            end=start + timedelta(minutes=15),
+        )
+        view = TimeframeView(
+            "15m",
+            tuple(
+                BarView(
+                    timestamp=bar.time, open=bar.open, high=bar.high, low=bar.low, close=bar.close, volume=bar.volume
+                )
+                for bar in bars_15m[-120:]
+            ),
+        )
         confirmation = evaluate_sampling_signal(view)
         confirmations.append({"same_side": confirmation.side is not None and confirmation.side.value.lower() == side})
     intents = [

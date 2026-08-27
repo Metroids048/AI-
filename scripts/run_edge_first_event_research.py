@@ -215,11 +215,7 @@ def run_candidate(candidate_id: str) -> dict[str, Any]:
     aggregate = gate_metrics(selected)
     if len(all_events) < 30:
         conclusion = "INSUFFICIENT_DATA"
-    elif (
-        aggregate.profit_factor >= 1.40
-        and aggregate.expectancy >= 0.10
-        and aggregate.expectancy_lcb95 > 0
-    ):
+    elif aggregate.profit_factor >= 1.40 and aggregate.expectancy >= 0.10 and aggregate.expectancy_lcb95 > 0:
         conclusion = "ACCEPTED_FOR_SHADOW_PROMOTION"
     else:
         conclusion = "REJECTED_WITH_EVIDENCE"

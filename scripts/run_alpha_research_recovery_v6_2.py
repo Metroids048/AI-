@@ -25,14 +25,46 @@ import requests  # type: ignore[import-untyped]
 PROBE_DATES = ("20230129", "20230701", "20240101", "20240701", "20250101", "20250701")
 RAW_BASE = "https://data.gdeltproject.org"
 GKG_2_FIELDS = (
-    "GKGRECORDID", "DATE", "SourceCollectionIdentifier", "SourceCommonName", "DocumentIdentifier",
-    "Counts", "V2Counts", "Themes", "V2Themes", "Locations", "V2Locations", "Persons", "V2Persons",
-    "Organizations", "V2Organizations", "Tone", "EnhancedDates", "GCAM", "SharingImage", "RelatedImages",
-    "SocialImageEmbeds", "SocialVideoEmbeds", "Quotations", "AllNames", "Amounts", "TranslationInfo", "Extras",
+    "GKGRECORDID",
+    "DATE",
+    "SourceCollectionIdentifier",
+    "SourceCommonName",
+    "DocumentIdentifier",
+    "Counts",
+    "V2Counts",
+    "Themes",
+    "V2Themes",
+    "Locations",
+    "V2Locations",
+    "Persons",
+    "V2Persons",
+    "Organizations",
+    "V2Organizations",
+    "Tone",
+    "EnhancedDates",
+    "GCAM",
+    "SharingImage",
+    "RelatedImages",
+    "SocialImageEmbeds",
+    "SocialVideoEmbeds",
+    "Quotations",
+    "AllNames",
+    "Amounts",
+    "TranslationInfo",
+    "Extras",
 )
 GKG_1_FIELDS = (
-    "DATE", "NUMARTS", "COUNTS", "THEMES", "LOCATIONS", "PERSONS",
-    "ORGANIZATIONS", "TONE", "CAMEOEVENTIDS", "SOURCES", "SOURCEURLS",
+    "DATE",
+    "NUMARTS",
+    "COUNTS",
+    "THEMES",
+    "LOCATIONS",
+    "PERSONS",
+    "ORGANIZATIONS",
+    "TONE",
+    "CAMEOEVENTIDS",
+    "SOURCES",
+    "SOURCEURLS",
 )
 EVENT_REQUIRED_FIELDS = {
     "GLOBALEVENTID": 0,
@@ -47,11 +79,35 @@ EVENT_REQUIRED_FIELDS = {
     "DATEADDED": 56,
     "SOURCEURL": 57,
 }
-KEYWORDS = ("bitcoin", "btc", "ethereum", "eth", "cryptocurrency", "binance", "coinbase", "sec", "etf", "hack", "exploit", "bankruptcy", "stablecoin", "listing", "delisting")
+KEYWORDS = (
+    "bitcoin",
+    "btc",
+    "ethereum",
+    "eth",
+    "cryptocurrency",
+    "binance",
+    "coinbase",
+    "sec",
+    "etf",
+    "hack",
+    "exploit",
+    "bankruptcy",
+    "stablecoin",
+    "listing",
+    "delisting",
+)
 FILTER_FIELDS = (
-    "THEMES", "V1THEMES", "V2Themes", "Organizations", "ORGANIZATIONS",
-    "V2Organizations", "DocumentIdentifier", "SourceCommonName", "SOURCES",
-    "SOURCEURLS", "Extras",
+    "THEMES",
+    "V1THEMES",
+    "V2Themes",
+    "Organizations",
+    "ORGANIZATIONS",
+    "V2Organizations",
+    "DocumentIdentifier",
+    "SourceCommonName",
+    "SOURCES",
+    "SOURCEURLS",
+    "Extras",
 )
 STATUS_NETWORK = "BLOCKED_GDELT_RAW_ARCHIVE_NETWORK"
 STATUS_SCHEMA = "BLOCKED_GDELT_RAW_SCHEMA_FOR_V6"
@@ -128,8 +184,17 @@ def fetch_archive(url: str, *, timeout: int = 15) -> tuple[bytes, dict[str, Any]
             if status is not None and status not in observed_statuses:
                 observed_statuses.append(status)
             errors.append(f"{transport}:{exc}")
-    status = next((value for value in observed_statuses if value != 200), observed_statuses[-1] if observed_statuses else None)
-    return b"", {"ok": False, "transport": None, "http_status": status, "observed_http_statuses": observed_statuses, "bytes": 0, "errors": errors}
+    status = next(
+        (value for value in observed_statuses if value != 200), observed_statuses[-1] if observed_statuses else None
+    )
+    return b"", {
+        "ok": False,
+        "transport": None,
+        "http_status": status,
+        "observed_http_statuses": observed_statuses,
+        "bytes": 0,
+        "errors": errors,
+    }
 
 
 def inspect_zip(data: bytes) -> dict[str, Any]:
@@ -188,7 +253,8 @@ def reuse_fomc_ledger(path: Path = FOMC_LEDGER_PATH) -> dict[str, Any]:
         payload = json.loads(path.read_text(encoding="utf-8"))
         events = payload.get("events", [])
         scheduled_verified = [
-            event for event in events
+            event
+            for event in events
             if event.get("scheduled_meeting") is True
             and event.get("status") == "VERIFIED"
             and event.get("release_time_verified") is True
@@ -285,7 +351,11 @@ def inspect_gkg(data: bytes) -> dict[str, Any]:
     }
     result["required_fields_present"] = all(result["canonical_field_presence"].values())
     result["filter_has_matches"] = result["keyword_matches"] > 0
-    result["minute_timestamp_pass"] = result["sample_rows"] > 0 and result["minute_timestamp_values"] == result["sample_rows"] and result["non_midnight_timestamp_values"] > 0
+    result["minute_timestamp_pass"] = (
+        result["sample_rows"] > 0
+        and result["minute_timestamp_values"] == result["sample_rows"]
+        and result["non_midnight_timestamp_values"] > 0
+    )
     if result["timestamp_values"] == 0:
         result["timestamp_resolution"] = "MISSING"
     elif result["minute_timestamp_values"] == result["timestamp_values"]:
@@ -356,7 +426,9 @@ def run_probe(*, output_dir: Path, timeout: int = 15) -> dict[str, Any]:
         "raw_archives_retained": False,
         "probe_completed_at": datetime.now(UTC).isoformat(),
     }
-    (output_dir / "RAW_ARCHIVE_PROBE.json").write_text(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+    (output_dir / "RAW_ARCHIVE_PROBE.json").write_text(
+        json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return report
 
 
@@ -366,7 +438,24 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=15)
     args = parser.parse_args()
     report = run_probe(output_dir=args.output_dir, timeout=max(1, args.timeout))
-    print(json.dumps({key: report[key] for key in ("status", "gkg_files_ok", "event_files_ok", "schema_pass", "timestamp_pass", "fomc", "v6_resumed")}, indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                key: report[key]
+                for key in (
+                    "status",
+                    "gkg_files_ok",
+                    "event_files_ok",
+                    "schema_pass",
+                    "timestamp_pass",
+                    "fomc",
+                    "v6_resumed",
+                )
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     return 0 if report["status"] == STATUS_RECOVERED else 2
 
 

@@ -87,8 +87,7 @@ def _summary(outcomes: list[ShadowOutcome]) -> dict[str, Any]:
         return {"trades": 0}
     aggregate = aggregate_outcomes(outcomes, slice_key="real_entries")[ExitPolicyId.CURRENT_CONTROL]
     hits = sum(
-        outcome.excursions.mfe_r is not None and outcome.excursions.mfe_r >= Decimal("0.5")
-        for outcome in outcomes
+        outcome.excursions.mfe_r is not None and outcome.excursions.mfe_r >= Decimal("0.5") for outcome in outcomes
     )
     return {
         "trades": len(outcomes),
@@ -173,9 +172,7 @@ def _four_hour_conflicts(side: str, bars: list[Any]) -> bool:
     if fast is None or slow is None:
         return False
     last = bars[-1].close
-    return (side == "long" and last < slow and fast < slow) or (
-        side == "short" and last > slow and fast > slow
-    )
+    return (side == "long" and last < slow and fast < slow) or (side == "short" and last > slow and fast > slow)
 
 
 def _trend_aligned(side: str, bars: list[Any]) -> bool:
@@ -185,9 +182,7 @@ def _trend_aligned(side: str, bars: list[Any]) -> bool:
     if fast is None or slow is None:
         return False
     last = bars[-1].close
-    return (side == "long" and last > slow and fast >= slow) or (
-        side == "short" and last < slow and fast <= slow
-    )
+    return (side == "long" and last > slow and fast >= slow) or (side == "short" and last < slow and fast <= slow)
 
 
 def _trade_metrics(trades: list[dict[str, Any]], candidates: int) -> dict[str, Any]:
@@ -212,11 +207,11 @@ def _trade_metrics(trades: list[dict[str, Any]], candidates: int) -> dict[str, A
         "avg_loss_r": None if not losses else str(sum(losses, Decimal("0")) / Decimal(len(losses))),
         "win_loss_ratio": None
         if not wins or not losses
-        else str((sum(wins, Decimal("0")) / Decimal(len(wins))) / abs(sum(losses, Decimal("0")) / Decimal(len(losses)))),
+        else str(
+            (sum(wins, Decimal("0")) / Decimal(len(wins))) / abs(sum(losses, Decimal("0")) / Decimal(len(losses)))
+        ),
         "net_expectancy_r": None if not trades else str(sum(values, Decimal("0")) / Decimal(len(trades))),
-        "profit_factor": None
-        if not losses
-        else str(sum(wins, Decimal("0")) / abs(sum(losses, Decimal("0")))),
+        "profit_factor": None if not losses else str(sum(wins, Decimal("0")) / abs(sum(losses, Decimal("0")))),
         "net_r": str(sum(values, Decimal("0"))),
         "max_drawdown_r": str(max_drawdown),
     }
@@ -255,12 +250,16 @@ def _replay_symbol(
     final_signal_index = len(bars_15m) - 1 - confirmation_bars
     for index in range(100, final_signal_index):
         decision_bar = bars_15m[index]
-        while trend_index + 1 < len(trend_bars) and trend_bars[trend_index + 1].time <= decision_bar.time - timedelta(hours=trend_hours):
+        while trend_index + 1 < len(trend_bars) and trend_bars[trend_index + 1].time <= decision_bar.time - timedelta(
+            hours=trend_hours
+        ):
             trend_index += 1
         if dual_timeframe_conflict_only or strict_dual_timeframe_alignment_only:
             if secondary_trend_bars is None:
                 raise RuntimeError("dual-timeframe replay requires secondary trend bars")
-            while secondary_trend_index + 1 < len(secondary_trend_bars) and secondary_trend_bars[secondary_trend_index + 1].time <= decision_bar.time - timedelta(hours=secondary_trend_hours):
+            while secondary_trend_index + 1 < len(secondary_trend_bars) and secondary_trend_bars[
+                secondary_trend_index + 1
+            ].time <= decision_bar.time - timedelta(hours=secondary_trend_hours):
                 secondary_trend_index += 1
         view = TimeframeView("15m", tuple(_as_view(bar) for bar in bars_15m[index - 100 : index + 1]))
         side = _fast_sampling_side(view)
@@ -278,10 +277,9 @@ def _replay_symbol(
             secondary_trend = secondary_trend_bars[: secondary_trend_index + 1]
             if not _trend_aligned(side, trend) or not _trend_aligned(side, secondary_trend):
                 continue
-        conflict_applies = (
-            not short_side_conflict_only
-            or side == "short"
-        ) and (not long_side_conflict_only or side == "long")
+        conflict_applies = (not short_side_conflict_only or side == "short") and (
+            not long_side_conflict_only or side == "long"
+        )
         conflict = _four_hour_conflicts(side, trend)
         if dual_timeframe_conflict_only:
             assert secondary_trend_bars is not None
@@ -416,7 +414,22 @@ def historical_oos_comparison(
         by_policy = {"baseline": {}, "two_closed_bar_confirmation": {}}
     elif one_bar_only:
         by_policy = {"baseline": {}, "one_closed_bar_confirmation": {}}
-    if not one_bar_only and not two_bar_only and not long_side_only and not short_side_only and not short_side_conflict_only and not long_side_conflict_only and not long_side_1h_conflict_only and not short_side_1h_conflict_only and not dual_timeframe_conflict_only and not long_dual_timeframe_conflict_only and not short_dual_timeframe_conflict_only and not strict_dual_timeframe_alignment_only and not strict_dual_timeframe_alignment_one_bar_only and not strict_dual_timeframe_alignment_two_bar_only:
+    if (
+        not one_bar_only
+        and not two_bar_only
+        and not long_side_only
+        and not short_side_only
+        and not short_side_conflict_only
+        and not long_side_conflict_only
+        and not long_side_1h_conflict_only
+        and not short_side_1h_conflict_only
+        and not dual_timeframe_conflict_only
+        and not long_dual_timeframe_conflict_only
+        and not short_dual_timeframe_conflict_only
+        and not strict_dual_timeframe_alignment_only
+        and not strict_dual_timeframe_alignment_one_bar_only
+        and not strict_dual_timeframe_alignment_two_bar_only
+    ):
         by_policy.update({"four_hour_conflict_veto": {}, "one_hour_conflict_veto": {}})
     for symbol in ("BTC/USDT", "ETH/USDT"):
         bars_15m = load_bars(db_path, symbol=symbol, timeframe="15m", start=start, end=end)
@@ -424,8 +437,24 @@ def historical_oos_comparison(
         if not bars_15m or not bars_4h:
             raise RuntimeError(f"missing historical bars for {symbol}")
         split_at = bars_15m[int(len(bars_15m) * Decimal("0.7"))].time
-        by_policy["baseline"][symbol] = _replay_symbol(bars_15m, bars_4h, conflict_veto=False, trend_hours=4, split_at=split_at)
-        if not two_bar_only and not long_side_only and not short_side_only and not short_side_conflict_only and not long_side_conflict_only and not long_side_1h_conflict_only and not short_side_1h_conflict_only and not dual_timeframe_conflict_only and not long_dual_timeframe_conflict_only and not short_dual_timeframe_conflict_only and not strict_dual_timeframe_alignment_only and not strict_dual_timeframe_alignment_one_bar_only and not strict_dual_timeframe_alignment_two_bar_only:
+        by_policy["baseline"][symbol] = _replay_symbol(
+            bars_15m, bars_4h, conflict_veto=False, trend_hours=4, split_at=split_at
+        )
+        if (
+            not two_bar_only
+            and not long_side_only
+            and not short_side_only
+            and not short_side_conflict_only
+            and not long_side_conflict_only
+            and not long_side_1h_conflict_only
+            and not short_side_1h_conflict_only
+            and not dual_timeframe_conflict_only
+            and not long_dual_timeframe_conflict_only
+            and not short_dual_timeframe_conflict_only
+            and not strict_dual_timeframe_alignment_only
+            and not strict_dual_timeframe_alignment_one_bar_only
+            and not strict_dual_timeframe_alignment_two_bar_only
+        ):
             by_policy["one_closed_bar_confirmation"][symbol] = _replay_symbol(
                 bars_15m,
                 bars_4h,
@@ -434,7 +463,22 @@ def historical_oos_comparison(
                 split_at=split_at,
                 confirmation_bars=1,
             )
-        if not one_bar_only and not two_bar_only and not long_side_only and not short_side_only and not short_side_conflict_only and not long_side_conflict_only and not long_side_1h_conflict_only and not short_side_1h_conflict_only and not dual_timeframe_conflict_only and not long_dual_timeframe_conflict_only and not short_dual_timeframe_conflict_only and not strict_dual_timeframe_alignment_only and not strict_dual_timeframe_alignment_one_bar_only and not strict_dual_timeframe_alignment_two_bar_only:
+        if (
+            not one_bar_only
+            and not two_bar_only
+            and not long_side_only
+            and not short_side_only
+            and not short_side_conflict_only
+            and not long_side_conflict_only
+            and not long_side_1h_conflict_only
+            and not short_side_1h_conflict_only
+            and not dual_timeframe_conflict_only
+            and not long_dual_timeframe_conflict_only
+            and not short_dual_timeframe_conflict_only
+            and not strict_dual_timeframe_alignment_only
+            and not strict_dual_timeframe_alignment_one_bar_only
+            and not strict_dual_timeframe_alignment_two_bar_only
+        ):
             by_policy["two_closed_bar_confirmation"][symbol] = _replay_symbol(
                 bars_15m,
                 bars_4h,
@@ -443,7 +487,22 @@ def historical_oos_comparison(
                 split_at=split_at,
                 confirmation_bars=2,
             )
-        if not one_bar_only and not two_bar_only and not long_side_only and not short_side_only and not short_side_conflict_only and not long_side_conflict_only and not long_side_1h_conflict_only and not short_side_1h_conflict_only and not dual_timeframe_conflict_only and not long_dual_timeframe_conflict_only and not short_dual_timeframe_conflict_only and not strict_dual_timeframe_alignment_only and not strict_dual_timeframe_alignment_one_bar_only and not strict_dual_timeframe_alignment_two_bar_only:
+        if (
+            not one_bar_only
+            and not two_bar_only
+            and not long_side_only
+            and not short_side_only
+            and not short_side_conflict_only
+            and not long_side_conflict_only
+            and not long_side_1h_conflict_only
+            and not short_side_1h_conflict_only
+            and not dual_timeframe_conflict_only
+            and not long_dual_timeframe_conflict_only
+            and not short_dual_timeframe_conflict_only
+            and not strict_dual_timeframe_alignment_only
+            and not strict_dual_timeframe_alignment_one_bar_only
+            and not strict_dual_timeframe_alignment_two_bar_only
+        ):
             bars_1h = load_bars(db_path, symbol=symbol, timeframe="1h", start=start, end=end)
             by_policy["four_hour_conflict_veto"][symbol] = _replay_symbol(
                 bars_15m, bars_4h, conflict_veto=True, trend_hours=4, split_at=split_at
@@ -642,8 +701,12 @@ def main() -> int:
         )
         if context is None or not bars:
             continue
-        trend_1h = _trend_at_decision(db_path, symbol=entry.symbol, decision_bar=entry.decision_bar_timestamp, timeframe="1h")
-        trend_4h = _trend_at_decision(db_path, symbol=entry.symbol, decision_bar=entry.decision_bar_timestamp, timeframe="4h")
+        trend_1h = _trend_at_decision(
+            db_path, symbol=entry.symbol, decision_bar=entry.decision_bar_timestamp, timeframe="1h"
+        )
+        trend_4h = _trend_at_decision(
+            db_path, symbol=entry.symbol, decision_bar=entry.decision_bar_timestamp, timeframe="4h"
+        )
         outcome = replay_entry_under_policy(
             entry=entry,
             bars=bars,

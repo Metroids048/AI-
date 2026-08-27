@@ -94,8 +94,7 @@ def _persist_result(
     if (
         result.run_status == "completed"
         and (
-            result.baseline_preserved
-            or (result.final_open_position_count == 0 and result.final_open_order_count == 0)
+            result.baseline_preserved or (result.final_open_position_count == 0 and result.final_open_order_count == 0)
         )
         and sorted(result.completed_symbols) == sorted(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     ):

@@ -91,12 +91,30 @@ def test_long_short_return_is_mirrored() -> None:
 def test_window_metrics_do_not_leak_between_windows() -> None:
     rows = [
         Trade(
-            "BTC/USDT", "long", "2024-01-01T00:00:00+00:00", "2024-01-01T00:15:00+00:00",
-            0.02, 0.0184, 0.001, 0.0006, 0.0, "targets", 1,
+            "BTC/USDT",
+            "long",
+            "2024-01-01T00:00:00+00:00",
+            "2024-01-01T00:15:00+00:00",
+            0.02,
+            0.0184,
+            0.001,
+            0.0006,
+            0.0,
+            "targets",
+            1,
         ),
         Trade(
-            "BTC/USDT", "long", "2024-01-02T00:00:00+00:00", "2024-01-02T00:15:00+00:00",
-            -0.02, -0.0216, 0.001, 0.0006, 0.0, "stop_loss", 1,
+            "BTC/USDT",
+            "long",
+            "2024-01-02T00:00:00+00:00",
+            "2024-01-02T00:15:00+00:00",
+            -0.02,
+            -0.0216,
+            0.001,
+            0.0006,
+            0.0,
+            "stop_loss",
+            1,
         ),
     ]
     result = _window_metrics(rows, (("w1", datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC)),))
@@ -107,12 +125,30 @@ def test_window_metrics_do_not_leak_between_windows() -> None:
 def test_metrics_reports_btc_eth_breakdown() -> None:
     rows = [
         Trade(
-            "BTC/USDT", "long", "2024-01-01T00:00:00+00:00", "2024-01-01T00:15:00+00:00",
-            0.02, 0.0184, 0.001, 0.0006, 0.0, "targets", 1,
+            "BTC/USDT",
+            "long",
+            "2024-01-01T00:00:00+00:00",
+            "2024-01-01T00:15:00+00:00",
+            0.02,
+            0.0184,
+            0.001,
+            0.0006,
+            0.0,
+            "targets",
+            1,
         ),
         Trade(
-            "ETH/USDT", "short", "2024-01-02T00:00:00+00:00", "2024-01-02T00:15:00+00:00",
-            -0.02, -0.0216, 0.001, 0.0006, 0.0, "stop_loss", 1,
+            "ETH/USDT",
+            "short",
+            "2024-01-02T00:00:00+00:00",
+            "2024-01-02T00:15:00+00:00",
+            -0.02,
+            -0.0216,
+            0.001,
+            0.0006,
+            0.0,
+            "stop_loss",
+            1,
         ),
     ]
     result = _metrics(rows)

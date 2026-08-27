@@ -206,9 +206,12 @@ def build_report(*, database: Path, output: Path) -> dict[str, Any]:
     try:
         import subprocess
 
-        source_commit_available = subprocess.run(
-            ["git", "cat-file", "-e", f"{HISTORICAL_SOURCE_COMMIT}^{{commit}}"], capture_output=True, check=False
-        ).returncode == 0
+        source_commit_available = (
+            subprocess.run(
+                ["git", "cat-file", "-e", f"{HISTORICAL_SOURCE_COMMIT}^{{commit}}"], capture_output=True, check=False
+            ).returncode
+            == 0
+        )
     except OSError:
         source_commit_available = False
 
@@ -328,7 +331,12 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/alpha_research_recovery_v4_1"))
     args = parser.parse_args()
     report = build_report(database=args.database, output=args.output_dir)
-    print(json.dumps({"status": report["status"], "root_cause": report["root_cause"], "matrix": report["reproduction_matrix"]}, indent=2))
+    print(
+        json.dumps(
+            {"status": report["status"], "root_cause": report["root_cause"], "matrix": report["reproduction_matrix"]},
+            indent=2,
+        )
+    )
     return 0
 
 

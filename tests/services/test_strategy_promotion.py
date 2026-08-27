@@ -153,9 +153,7 @@ def test_profitability_recovery_gate_accepts_complete_evidence() -> None:
         ("vectorbt_neighborhood_passed", False, "vectorbt_neighborhood_not_stable"),
     ],
 )
-def test_profitability_recovery_gate_rejects_each_hard_requirement(
-    field: str, value: object, reason: str
-) -> None:
+def test_profitability_recovery_gate_rejects_each_hard_requirement(field: str, value: object, reason: str) -> None:
     result = evaluate_profitability_recovery(_recovery_metrics(**{field: value}))
 
     assert result.eligible is False

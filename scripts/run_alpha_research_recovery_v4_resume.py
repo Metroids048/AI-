@@ -37,7 +37,18 @@ BASELINE_EXPECTED = {
     "expectancy": 0.001512451049147131,
     "max_drawdown": 0.18736432836022304,
 }
-ALT_SYMBOLS = ("BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", "LTCUSDT", "LINKUSDT", "AVAXUSDT", "DOTUSDT", "TRXUSDT")
+ALT_SYMBOLS = (
+    "BNBUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "ADAUSDT",
+    "DOGEUSDT",
+    "LTCUSDT",
+    "LINKUSDT",
+    "AVAXUSDT",
+    "DOTUSDT",
+    "TRXUSDT",
+)
 SPOT_SYMBOLS = ALT_SYMBOLS + ("BTCUSDT", "ETHUSDT")
 
 
@@ -98,7 +109,7 @@ def _metrics(rows: Iterable[dict[str, Any]]) -> dict[str, float | int]:
 
 def _event_id_hash(rows: Iterable[dict[str, Any]]) -> str:
     keys = sorted(
-        f"{row.get('symbol','')}|{row.get('direction','')}|{row.get('signal_time','')}|{row.get('proposal_id','')}"
+        f"{row.get('symbol', '')}|{row.get('direction', '')}|{row.get('signal_time', '')}|{row.get('proposal_id', '')}"
         for row in rows
     )
     return sha256_bytes("\n".join(keys).encode())
@@ -159,7 +170,9 @@ def _month_range(start: datetime, end: datetime) -> list[tuple[int, int]]:
     result: list[tuple[int, int]] = []
     while current < end:
         result.append((current.year, current.month))
-        current = datetime(current.year + (current.month == 12), 1 if current.month == 12 else current.month + 1, 1, tzinfo=UTC)
+        current = datetime(
+            current.year + (current.month == 12), 1 if current.month == 12 else current.month + 1, 1, tzinfo=UTC
+        )
     return result
 
 
@@ -182,7 +195,11 @@ def fetch_binance_spot(*, output: Path, start: datetime, end: datetime) -> dict[
     cache.mkdir(parents=True, exist_ok=True)
     closes: dict[str, dict[datetime, float]] = defaultdict(dict)
     audit: dict[str, Any] = {"source": "Binance Vision spot monthly klines", "symbols": {}, "status": "PASS"}
-    jobs = [(symbol, year, month) for symbol in SPOT_SYMBOLS for year, month in _month_range(start - timedelta(days=35), end)]
+    jobs = [
+        (symbol, year, month)
+        for symbol in SPOT_SYMBOLS
+        for year, month in _month_range(start - timedelta(days=35), end)
+    ]
 
     def fetch_one(job: tuple[str, int, int]) -> tuple[str, str, bytes | None, str | None]:
         symbol, year, month = job
@@ -193,9 +210,14 @@ def fetch_binance_spot(*, output: Path, start: datetime, end: datetime) -> dict[
         last_error: Exception | None = None
         for attempt in range(2):
             try:
-                return symbol, name, _download(
-                    f"https://data.binance.vision/data/spot/monthly/klines/{symbol}/1h/{urllib.parse.quote(name)}"
-                ), None
+                return (
+                    symbol,
+                    name,
+                    _download(
+                        f"https://data.binance.vision/data/spot/monthly/klines/{symbol}/1h/{urllib.parse.quote(name)}"
+                    ),
+                    None,
+                )
             except (OSError, urllib.error.URLError) as exc:
                 last_error = exc
                 if attempt == 0:
@@ -207,7 +229,9 @@ def fetch_binance_spot(*, output: Path, start: datetime, end: datetime) -> dict[
         for future in as_completed(futures):
             symbol, name, blob, error = future.result()
             if blob is None:
-                audit.setdefault("symbols", {}).setdefault(symbol, {}).setdefault("missing_archives", []).append(f"{name}:{error}")
+                audit.setdefault("symbols", {}).setdefault(symbol, {}).setdefault("missing_archives", []).append(
+                    f"{name}:{error}"
+                )
                 continue
             path = cache / name
             try:
@@ -225,7 +249,9 @@ def fetch_binance_spot(*, output: Path, start: datetime, end: datetime) -> dict[
                 audit.setdefault("symbols", {}).setdefault(symbol, {}).setdefault("downloaded", 0)
                 audit["symbols"][symbol]["downloaded"] += 1
             except (OSError, zipfile.BadZipFile, ValueError) as exc:
-                audit.setdefault("symbols", {}).setdefault(symbol, {}).setdefault("missing_archives", []).append(f"{name}:{type(exc).__name__}")
+                audit.setdefault("symbols", {}).setdefault(symbol, {}).setdefault("missing_archives", []).append(
+                    f"{name}:{type(exc).__name__}"
+                )
     for symbol in SPOT_SYMBOLS:
         details = audit.setdefault("symbols", {}).setdefault(symbol, {})
         downloaded = int(details.get("downloaded", 0))
@@ -243,7 +269,9 @@ def _asof_hour(closes: dict[datetime, float], timestamp: datetime) -> datetime |
     return key if key in closes else None
 
 
-def build_breadth_features(closes: dict[str, dict[datetime, float]], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_breadth_features(
+    closes: dict[str, dict[datetime, float]], rows: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     previous_breadth: float | None = None
     for row in sorted(rows, key=lambda item: parse_dt(item["signal_time"])):
@@ -260,8 +288,16 @@ def build_breadth_features(closes: dict[str, dict[datetime, float]], rows: list[
                 returns_4h.append(series[hour] / series[hour - timedelta(hours=4)] - 1.0)
         btc = closes.get("BTCUSDT", {})
         eth = closes.get("ETHUSDT", {})
-        btc_return = btc[hour] / btc[hour - timedelta(hours=1)] - 1.0 if hour in btc and hour - timedelta(hours=1) in btc else None
-        eth_return = eth[hour] / eth[hour - timedelta(hours=1)] - 1.0 if hour in eth and hour - timedelta(hours=1) in eth else None
+        btc_return = (
+            btc[hour] / btc[hour - timedelta(hours=1)] - 1.0
+            if hour in btc and hour - timedelta(hours=1) in btc
+            else None
+        )
+        eth_return = (
+            eth[hour] / eth[hour - timedelta(hours=1)] - 1.0
+            if hour in eth and hour - timedelta(hours=1) in eth
+            else None
+        )
         breadth = sum(value > 0 for value in returns_1h) / len(returns_1h) if returns_1h else None
         result.append(
             {
@@ -271,10 +307,20 @@ def build_breadth_features(closes: dict[str, dict[datetime, float]], rows: list[
                 "breadth_4h": sum(value > 0 for value in returns_4h) / len(returns_4h) if returns_4h else None,
                 "median_alt_return_1h": statistics.median(returns_1h) if returns_1h else None,
                 "median_alt_return_4h": statistics.median(returns_4h) if returns_4h else None,
-                "cross_section_dispersion": statistics.pstdev(returns_1h) if len(returns_1h) > 1 else 0.0 if returns_1h else None,
-                "alt_minus_btc_return": statistics.median(returns_1h) - btc_return if returns_1h and btc_return is not None else None,
-                "alt_minus_eth_return": statistics.median(returns_1h) - eth_return if returns_1h and eth_return is not None else None,
-                "breadth_acceleration": breadth - previous_breadth if breadth is not None and previous_breadth is not None else None,
+                "cross_section_dispersion": statistics.pstdev(returns_1h)
+                if len(returns_1h) > 1
+                else 0.0
+                if returns_1h
+                else None,
+                "alt_minus_btc_return": statistics.median(returns_1h) - btc_return
+                if returns_1h and btc_return is not None
+                else None,
+                "alt_minus_eth_return": statistics.median(returns_1h) - eth_return
+                if returns_1h and eth_return is not None
+                else None,
+                "breadth_acceleration": breadth - previous_breadth
+                if breadth is not None and previous_breadth is not None
+                else None,
             }
         )
         if breadth is not None:
@@ -291,11 +337,23 @@ def _quantile_bucket(values: list[float], value: float | None) -> str | None:
 
 
 def attribution(rows: list[dict[str, Any]], feature: str, *, direction_adjusted: bool = False) -> dict[str, Any]:
-    values = [float(row[feature]) * (1.0 if row["direction"] == "long" else -1.0) if direction_adjusted else float(row[feature]) for row in rows if row.get(feature) is not None]
+    values = [
+        float(row[feature]) * (1.0 if row["direction"] == "long" else -1.0)
+        if direction_adjusted
+        else float(row[feature])
+        for row in rows
+        if row.get(feature) is not None
+    ]
     buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         value = row.get(feature)
-        adjusted = float(value) * (1.0 if row["direction"] == "long" else -1.0) if value is not None and direction_adjusted else float(value) if value is not None else None
+        adjusted = (
+            float(value) * (1.0 if row["direction"] == "long" else -1.0)
+            if value is not None and direction_adjusted
+            else float(value)
+            if value is not None
+            else None
+        )
         bucket = _quantile_bucket(values, adjusted) if adjusted is not None else None
         if bucket:
             buckets[bucket].append(dict(row))
@@ -307,23 +365,45 @@ def _source_summary(rows: list[dict[str, Any]], *, source: str, feature: str) ->
     attribution_rows = attribution(valid, feature, direction_adjusted=True)
     baseline = _metrics(valid)
     ordered = [attribution_rows[key]["expectancy"] for key in ("Q1", "Q2", "Q3", "Q4") if key in attribution_rows]
-    monotonic = len(ordered) >= 3 and (all(a <= b for a, b in zip(ordered, ordered[1:], strict=False)) or all(a >= b for a, b in zip(ordered, ordered[1:], strict=False)))
-    best_bucket = max(attribution_rows, key=lambda key: float(attribution_rows[key]["expectancy"])) if attribution_rows else None
+    monotonic = len(ordered) >= 3 and (
+        all(a <= b for a, b in zip(ordered, ordered[1:], strict=False))
+        or all(a >= b for a, b in zip(ordered, ordered[1:], strict=False))
+    )
+    best_bucket = (
+        max(attribution_rows, key=lambda key: float(attribution_rows[key]["expectancy"])) if attribution_rows else None
+    )
     quantiles = [float(item[feature]) * (1.0 if item["direction"] == "long" else -1.0) for item in valid]
     high_buckets = {"Q3", "Q4"} if not ordered or ordered[-1] >= ordered[0] else {"Q1", "Q2"}
-    filtered = [row for row in valid if _quantile_bucket(quantiles, float(row[feature]) * (1.0 if row["direction"] == "long" else -1.0)) in high_buckets]
+    filtered = [
+        row
+        for row in valid
+        if _quantile_bucket(quantiles, float(row[feature]) * (1.0 if row["direction"] == "long" else -1.0))
+        in high_buckets
+    ]
     filtered_metrics = _metrics(filtered)
-    research_pass = monotonic and len(filtered) >= 80 and filtered_metrics["profit_factor"] > BASELINE_EXPECTED["profit_factor"] and filtered_metrics["expectancy"] > BASELINE_EXPECTED["expectancy"]
+    research_pass = (
+        monotonic
+        and len(filtered) >= 80
+        and filtered_metrics["profit_factor"] > BASELINE_EXPECTED["profit_factor"]
+        and filtered_metrics["expectancy"] > BASELINE_EXPECTED["expectancy"]
+    )
     return {
         "source": source,
         "feature": feature,
         "available_trades": len(valid),
         "missing_trades": len(rows) - len(valid),
         "baseline_direction_adjusted": baseline,
-        "per_symbol": {symbol: _metrics([row for row in valid if row.get("symbol") == symbol]) for symbol in ("BTC/USDT", "ETH/USDT")},
+        "per_symbol": {
+            symbol: _metrics([row for row in valid if row.get("symbol") == symbol])
+            for symbol in ("BTC/USDT", "ETH/USDT")
+        },
         "quartile_attribution": attribution_rows,
         "monotonic_relationship": monotonic,
-        "candidate_overlay": {"rule": "Q3_or_Q4", "selected_bucket": best_bucket if monotonic else None, "filtered_metrics": filtered_metrics},
+        "candidate_overlay": {
+            "rule": "Q3_or_Q4",
+            "selected_bucket": best_bucket if monotonic else None,
+            "filtered_metrics": filtered_metrics,
+        },
         "research_gate": "PASS" if research_pass else "FAIL",
         "validation": "NOT_RUN",
     }
@@ -338,7 +418,14 @@ def fetch_dvol(*, output: Path, start: datetime, end: datetime) -> dict[str, Any
             cursor = start
             while cursor < end:
                 window_end = min(cursor + timedelta(days=30), end)
-                params = urllib.parse.urlencode({"currency": currency, "start_timestamp": int(cursor.timestamp() * 1000), "end_timestamp": int(window_end.timestamp() * 1000), "resolution": 3600})
+                params = urllib.parse.urlencode(
+                    {
+                        "currency": currency,
+                        "start_timestamp": int(cursor.timestamp() * 1000),
+                        "end_timestamp": int(window_end.timestamp() * 1000),
+                        "resolution": 3600,
+                    }
+                )
                 url = f"https://www.deribit.com/api/v2/public/get_volatility_index_data?{params}"
                 payload = json.loads(_download(url).decode("utf-8"))
                 for item in payload.get("result", {}).get("data", []):
@@ -347,7 +434,11 @@ def fetch_dvol(*, output: Path, start: datetime, end: datetime) -> dict[str, Any
                         series[timestamp] = float(item[4])
                 cursor = window_end
             values[currency] = series
-            audit["symbols"][currency] = {"rows": len(series), "first": min(series).isoformat() if series else None, "last": max(series).isoformat() if series else None}
+            audit["symbols"][currency] = {
+                "rows": len(series),
+                "first": min(series).isoformat() if series else None,
+                "last": max(series).isoformat() if series else None,
+            }
             if not series:
                 audit["status"] = "BLOCKED_SOURCE_DATA"
         except (OSError, urllib.error.URLError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
@@ -359,7 +450,11 @@ def fetch_dvol(*, output: Path, start: datetime, end: datetime) -> dict[str, Any
 
 
 def fetch_fear_greed(*, output: Path) -> dict[str, Any]:
-    audit: dict[str, Any] = {"source": "Alternative.me Fear & Greed", "status": "PASS", "publication_policy": "D value usable from D+1 UTC day"}
+    audit: dict[str, Any] = {
+        "source": "Alternative.me Fear & Greed",
+        "status": "PASS",
+        "publication_policy": "D value usable from D+1 UTC day",
+    }
     try:
         payload = json.loads(_download("https://api.alternative.me/fng/?limit=0&format=json").decode("utf-8"))
         raw = payload.get("data", [])
@@ -386,7 +481,13 @@ def build_report(*, output: Path = DEFAULT_OUTPUT, baseline_root: Path = BASELIN
     lock = locked["lock"]
     (output / "BASELINE_LOCK.json").write_text(json.dumps(lock, indent=2), encoding="utf-8")
     if lock["status"] != "BASELINE_LOCKED":
-        report = {"status": "BLOCKED_BASELINE_REPRODUCTION", "baseline_lock": lock, "final_holdout_accessed": False, "runtime_modified": False, "production_authority": "NOT_GRANTED"}
+        report = {
+            "status": "BLOCKED_BASELINE_REPRODUCTION",
+            "baseline_lock": lock,
+            "final_holdout_accessed": False,
+            "runtime_modified": False,
+            "production_authority": "NOT_GRANTED",
+        }
         (output / "FINAL_REPORT.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         return report
     rows = locked["rows"]
@@ -397,7 +498,15 @@ def build_report(*, output: Path = DEFAULT_OUTPUT, baseline_root: Path = BASELIN
     h1_summary = _source_summary(breadth_rows, source="H1_ALTCOIN_MARKET_BREADTH_V1", feature="breadth_1h")
     h1_summary["additional_features"] = {
         feature: attribution(breadth_rows, feature, direction_adjusted=True)
-        for feature in ("breadth_4h", "median_alt_return_1h", "median_alt_return_4h", "cross_section_dispersion", "alt_minus_btc_return", "alt_minus_eth_return", "breadth_acceleration")
+        for feature in (
+            "breadth_4h",
+            "median_alt_return_1h",
+            "median_alt_return_4h",
+            "cross_section_dispersion",
+            "alt_minus_btc_return",
+            "alt_minus_eth_return",
+            "breadth_acceleration",
+        )
     }
     h2 = fetch_dvol(output=output, start=start - timedelta(hours=2), end=end)
     dvol_rows: list[dict[str, Any]] = []
@@ -410,15 +519,23 @@ def build_report(*, output: Path = DEFAULT_OUTPUT, baseline_root: Path = BASELIN
             previous = series.get(hour - timedelta(hours=offset))
             item[name] = (series[hour] - previous) if hour in series and previous is not None else None
         history = [value for timestamp, value in series.items() if hour - timedelta(days=30) <= timestamp <= hour]
-        item["dvol_30d_percentile"] = sum(value <= series[hour] for value in history) / len(history) if history and hour in series else None
-        item["dvol_rising"] = series.get(hour, 0.0) > series.get(hour - timedelta(hours=1), series.get(hour, 0.0)) if hour in series else None
+        item["dvol_30d_percentile"] = (
+            sum(value <= series[hour] for value in history) / len(history) if history and hour in series else None
+        )
+        item["dvol_rising"] = (
+            series.get(hour, 0.0) > series.get(hour - timedelta(hours=1), series.get(hour, 0.0))
+            if hour in series
+            else None
+        )
         dvol_rows.append(item)
     h2_summary = _source_summary(dvol_rows, source="H2_DERIBIT_DVOL_V1", feature="dvol_level")
     h2_summary["additional_features"] = {
         feature: attribution(dvol_rows, feature, direction_adjusted=True)
         for feature in ("dvol_change_1h", "dvol_change_6h", "dvol_change_24h", "dvol_30d_percentile")
     }
-    h2_summary["source_status"] = "BLOCKED_SOURCE_DATA" if h2["audit"]["status"] != "PASS" or h2_summary["missing_trades"] else "PASS"
+    h2_summary["source_status"] = (
+        "BLOCKED_SOURCE_DATA" if h2["audit"]["status"] != "PASS" or h2_summary["missing_trades"] else "PASS"
+    )
     h3 = fetch_fear_greed(output=output)
     fg_rows: list[dict[str, Any]] = []
     for row in rows:
@@ -429,17 +546,31 @@ def build_report(*, output: Path = DEFAULT_OUTPUT, baseline_root: Path = BASELIN
         item["fear_greed_level"] = values.get(day_key)
         for offset, name in ((1, "fear_greed_change_1d"), (3, "fear_greed_change_3d"), (7, "fear_greed_change_7d")):
             previous_day = day_key - timedelta(days=offset)
-            item[name] = values[day_key] - values[previous_day] if day_key in values and previous_day in values else None
+            item[name] = (
+                values[day_key] - values[previous_day] if day_key in values and previous_day in values else None
+            )
         change = item.get("fear_greed_change_1d")
-        item["fear_greed_trend"] = "IMPROVING" if change is not None and change > 0 else "DETERIORATING" if change is not None and change < 0 else "FLAT" if change is not None else None
+        item["fear_greed_trend"] = (
+            "IMPROVING"
+            if change is not None and change > 0
+            else "DETERIORATING"
+            if change is not None and change < 0
+            else "FLAT"
+            if change is not None
+            else None
+        )
         fg_rows.append(item)
     h3_summary = _source_summary(fg_rows, source="H3_FEAR_GREED_CONTEXT_V1", feature="fear_greed_level")
     h3_summary["additional_features"] = {
         feature: attribution(fg_rows, feature, direction_adjusted=True)
         for feature in ("fear_greed_change_1d", "fear_greed_change_3d", "fear_greed_change_7d")
     }
-    h3_summary["source_status"] = "BLOCKED_SOURCE_DATA" if h3["audit"]["status"] != "PASS" or h3_summary["missing_trades"] else "PASS"
-    h1_summary["source_status"] = "BLOCKED_SOURCE_DATA" if h1["audit"]["status"] != "PASS" or h1_summary["missing_trades"] else "PASS"
+    h3_summary["source_status"] = (
+        "BLOCKED_SOURCE_DATA" if h3["audit"]["status"] != "PASS" or h3_summary["missing_trades"] else "PASS"
+    )
+    h1_summary["source_status"] = (
+        "BLOCKED_SOURCE_DATA" if h1["audit"]["status"] != "PASS" or h1_summary["missing_trades"] else "PASS"
+    )
     source_statuses = [h1_summary["source_status"], h2_summary["source_status"], h3_summary["source_status"]]
     if "BLOCKED_SOURCE_DATA" in source_statuses:
         status = "BLOCKED_SOURCE_DATA"
@@ -453,7 +584,10 @@ def build_report(*, output: Path = DEFAULT_OUTPUT, baseline_root: Path = BASELIN
         "H1_ALTCOIN_MARKET_BREADTH_V1": h1_summary,
         "H2_DERIBIT_DVOL_V1": h2_summary,
         "H3_FEAR_GREED_CONTEXT_V1": h3_summary,
-        "combined": {"status": "NOT_RUN", "reason": "requires at least two independent Research + Validation PASS sources"},
+        "combined": {
+            "status": "NOT_RUN",
+            "reason": "requires at least two independent Research + Validation PASS sources",
+        },
         "final_holdout_accessed": False,
         "runtime_modified": False,
         "production_authority": "NOT_GRANTED",
@@ -469,7 +603,17 @@ def main() -> int:
     parser.add_argument("--baseline-root", type=Path, default=BASELINE_ROOT)
     args = parser.parse_args()
     report = build_report(output=args.output_dir, baseline_root=args.baseline_root)
-    print(json.dumps({"status": report["status"], "baseline": report["baseline"]["metrics"] if "baseline" in report else report["baseline_lock"]["metrics"]}, indent=2))
+    print(
+        json.dumps(
+            {
+                "status": report["status"],
+                "baseline": report["baseline"]["metrics"]
+                if "baseline" in report
+                else report["baseline_lock"]["metrics"],
+            },
+            indent=2,
+        )
+    )
     return 0
 
 

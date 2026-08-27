@@ -2364,3 +2364,13 @@
 - Real V2 run from canonical SQLite development history: 14 primitives terminal, 13/13
   V2 hypotheses terminal, 0 running, 0 unknown, 0 deferred, and no candidate composition.
   Final Holdout remained sealed as `SEALED_NO_ELIGIBLE_CANDIDATE`; promotion remains false.
+
+# 2026-08-27 STARTUP_DUPLICATE_INITIALIZATION_REPAIR
+
+- VERIFIED: removed the unauthorized desktop worktree `量化项目-qinxiongmao-research`; retained
+  the latest primary worktree at commit `0987636`.
+- VERIFIED: guarded `scripts/launch-paper-console.ps1::Ensure-Runtime` so one launcher process
+  performs environment and Binance baseline preparation only once.
+- VERIFIED: real `一键启动.cmd` returned `SUCCESS / STARTUP_READY`; API 8016 and frontend 5173
+  stayed available, scheduler recovery was `HEALTHY` after a 45-second liveness check.
+- VERIFIED: `py -3 -m pytest -q` = `1927 passed, 16 skipped, 2 warnings`; Ruff and mypy passed.

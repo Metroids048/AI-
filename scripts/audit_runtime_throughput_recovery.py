@@ -37,9 +37,7 @@ def _json(value: Any) -> dict[str, Any]:
 
 
 def _table_exists(con: sqlite3.Connection, table: str) -> bool:
-    return con.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
-    ).fetchone() is not None
+    return con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
 
 
 def _rows(con: sqlite3.Connection, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
@@ -96,14 +94,36 @@ def collect(*, db_path: str = DB, hours: int = 24) -> dict[str, Any]:
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     try:
-        cycle_rows = _rows(con, "SELECT * FROM v2_execution_cycles WHERE started_at >= ?", (since.replace(tzinfo=None).isoformat(sep=" "),))
-        decision_rows = _rows(con, "SELECT * FROM v2_execution_decisions WHERE created_at >= ?", (since.replace(tzinfo=None).isoformat(sep=" "),))
-        intent_rows = _rows(con, "SELECT * FROM v2_execution_intents WHERE created_at >= ?", (since.replace(tzinfo=None).isoformat(sep=" "),))
-        order_rows = _rows(con, "SELECT * FROM v2_exchange_orders WHERE created_at >= ?", (since.replace(tzinfo=None).isoformat(sep=" "),))
-        fill_rows = _rows(con, "SELECT * FROM v2_exchange_fills WHERE received_at >= ?", (since.replace(tzinfo=None).isoformat(sep=" "),))
+        cycle_rows = _rows(
+            con,
+            "SELECT * FROM v2_execution_cycles WHERE started_at >= ?",
+            (since.replace(tzinfo=None).isoformat(sep=" "),),
+        )
+        decision_rows = _rows(
+            con,
+            "SELECT * FROM v2_execution_decisions WHERE created_at >= ?",
+            (since.replace(tzinfo=None).isoformat(sep=" "),),
+        )
+        intent_rows = _rows(
+            con,
+            "SELECT * FROM v2_execution_intents WHERE created_at >= ?",
+            (since.replace(tzinfo=None).isoformat(sep=" "),),
+        )
+        order_rows = _rows(
+            con,
+            "SELECT * FROM v2_exchange_orders WHERE created_at >= ?",
+            (since.replace(tzinfo=None).isoformat(sep=" "),),
+        )
+        fill_rows = _rows(
+            con,
+            "SELECT * FROM v2_exchange_fills WHERE received_at >= ?",
+            (since.replace(tzinfo=None).isoformat(sep=" "),),
+        )
         position_rows = _rows(con, "SELECT * FROM v2_managed_positions")
         protection_rows = _rows(con, "SELECT * FROM v2_protection_records")
-        runtime_controls = _rows(con, "SELECT * FROM v2_runtime_controls") if _table_exists(con, "v2_runtime_controls") else []
+        runtime_controls = (
+            _rows(con, "SELECT * FROM v2_runtime_controls") if _table_exists(con, "v2_runtime_controls") else []
+        )
     finally:
         con.close()
 
@@ -144,10 +164,20 @@ def collect(*, db_path: str = DB, hours: int = 24) -> dict[str, Any]:
             "signals": sum(1 for item in symbol_candidates),
             "candidates": len(symbol_candidates),
             "intents": sum(1 for row in intent_rows if row["symbol"] == symbol),
-            "submitted_orders": sum(1 for row in order_rows if any(str(intent["intent_id"]) == str(row["intent_id"]) for intent in intent_rows if intent["symbol"] == symbol)),
+            "submitted_orders": sum(
+                1
+                for row in order_rows
+                if any(
+                    str(intent["intent_id"]) == str(row["intent_id"])
+                    for intent in intent_rows
+                    if intent["symbol"] == symbol
+                )
+            ),
             "fills": sum(1 for row in fill_rows if row["symbol"] == symbol),
             "protected_positions": sum(
-                1 for row in position_rows if row["symbol"] == symbol and _occurred_in_window(row, "protected_at", since)
+                1
+                for row in position_rows
+                if row["symbol"] == symbol and _occurred_in_window(row, "protected_at", since)
             ),
             "closed_positions": sum(
                 1 for row in position_rows if row["symbol"] == symbol and _occurred_in_window(row, "closed_at", since)
@@ -163,7 +193,14 @@ def collect(*, db_path: str = DB, hours: int = 24) -> dict[str, Any]:
         ),
         None,
     )
-    eth_protection = next((row for row in protection_rows if eth_position is not None and row["position_id"] == eth_position["position_id"]), None)
+    eth_protection = next(
+        (
+            row
+            for row in protection_rows
+            if eth_position is not None and row["position_id"] == eth_position["position_id"]
+        ),
+        None,
+    )
     exchange = _best_effort_exchange_snapshot()
     exchange_eth = next((row for row in exchange.get("positions", []) if row["symbol"].startswith("ETH/USDT")), None)
     exchange_eth_orders = [row for row in exchange.get("open_orders", []) if row["symbol"].startswith("ETH/USDT")]
@@ -224,7 +261,9 @@ def collect(*, db_path: str = DB, hours: int = 24) -> dict[str, Any]:
             "other_symbol_candidates": len(post_eth_candidates),
             "other_symbol_intents": len(post_eth_intent_cycles),
             "max_open_exposures_blocked_candidates": len(post_eth_max_exposure),
-            "max_open_exposures_block_rate": round(len(post_eth_max_exposure) / len(post_eth_candidates), 4) if post_eth_candidates else 0.0,
+            "max_open_exposures_block_rate": round(len(post_eth_max_exposure) / len(post_eth_candidates), 4)
+            if post_eth_candidates
+            else 0.0,
             "blocked_symbols": dict(Counter(item["symbol"] for item in post_eth_max_exposure)),
         },
         "eth_audit": {
@@ -248,7 +287,11 @@ def collect(*, db_path: str = DB, hours: int = 24) -> dict[str, Any]:
                 and exchange.get("available")
                 and (
                     eth_protection["state"] == "PROTECTION_ACTIVE"
-                    or (eth_position["state"] == "CLOSED" and eth_protection["state"] == "PROTECTION_FILLED" and not exchange_eth)
+                    or (
+                        eth_position["state"] == "CLOSED"
+                        and eth_protection["state"] == "PROTECTION_FILLED"
+                        and not exchange_eth
+                    )
                 )
                 else "UNVERIFIED"
             ),

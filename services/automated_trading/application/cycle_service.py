@@ -873,9 +873,7 @@ def _evaluate_durable_portfolio_risk(
         candidate_initial_risk_usdt=initial_risk_usdt,
         committed=committed,
         max_open_positions=max_open_positions if max_open_positions is not None else MAX_OPEN_POSITIONS,
-        max_total_fraction=(
-            max_total_fraction if max_total_fraction is not None else MAX_TOTAL_INITIAL_RISK_FRACTION
-        ),
+        max_total_fraction=(max_total_fraction if max_total_fraction is not None else MAX_TOTAL_INITIAL_RISK_FRACTION),
     )
     return decision, decision.reason_code
 

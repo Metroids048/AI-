@@ -110,7 +110,10 @@ def run_regime(output: Path) -> None:
         "holdout_start": HOLDOUT_START.isoformat(),
         "holdout_accessed": False,
         "variants": {
-            name: {candidate: _candidate_metrics(candidate, weights) for candidate in ("failed_breakout_reversal_v1", "range_sweep_reversion_v1")}
+            name: {
+                candidate: _candidate_metrics(candidate, weights)
+                for candidate in ("failed_breakout_reversal_v1", "range_sweep_reversion_v1")
+            }
             for name, weights in variants.items()
         },
         "trend_candidate_note": "The EventEdge continuation builder has no RegimeScorerV2 dependency; no trend-arm delta is claimed here.",
@@ -129,7 +132,11 @@ def run_bollinger(output: Path) -> None:
         "active_v2_signal_path": "services/automated_trading/application/decision_service.py:evaluate_sampling_signal",
         "bollinger_referenced_by_active_v2_signal": "bollinger" in source.lower(),
         "with_bollinger": {"trades": None, "expectancy": None, "note": "signal function has no Bollinger branch"},
-        "without_bollinger": {"trades": None, "expectancy": None, "note": "identical to active path; no Bollinger signal to remove"},
+        "without_bollinger": {
+            "trades": None,
+            "expectancy": None,
+            "note": "identical to active path; no Bollinger signal to remove",
+        },
         "evidence": "[事实] active V2 sampling evaluator only computes EMA50, MACD histogram, RSI14 and ATR14; the Bollinger branch exists in legacy services/execution/decision_pipeline.py, not this frozen V2 lane.",
     }
     output.parent.mkdir(parents=True, exist_ok=True)

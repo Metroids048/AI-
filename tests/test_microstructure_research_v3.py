@@ -111,7 +111,7 @@ def test_partial_download_is_never_valid_archive(monkeypatch: pytest.MonkeyPatch
 
 def test_checksum_mismatch_rejects_archive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(v3, "_checksum", lambda _url: "0" * 64)
-    monkeypatch.setattr(v3, "_transport_download", lambda _url, part, _transport: (part.write_bytes(b"bad") or 3))
+    monkeypatch.setattr(v3, "_transport_download", lambda _url, part, _transport: part.write_bytes(b"bad") or 3)
     monkeypatch.setattr(v3.time, "sleep", lambda _seconds: None)
     result = v3._download("https://example.test/archive.zip", tmp_path / "archive.zip")
     assert result["status"] == "CHECKSUM_FAILED"
