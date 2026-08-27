@@ -1616,3 +1616,32 @@
   931 acquisition objects and five funding files at 3288 records each.
 - Pre-registered H1/H2/H3 all failed Research Gates after costs; terminal conclusion is
   `MARKET_NEUTRAL_BATCH_EXHAUSTED`. No Runtime or Production surface changed; no Survivor.
+
+## QINXIONGMAO_KNOWLEDGE_ALPHA_PIPELINE (2026-08-27)
+
+- VERIFIED: real video-derived alpha research ran on canonical SQLite EventEdge history
+  with a sealed `2026-01-29T00:00:00Z` Final Holdout.
+- VERIFIED: current export is `14` primitives / `13` hypotheses / `6,927` proposals;
+  `REGISTERED=13`, `TERMINAL=13`, `RUNNING=0`, `UNKNOWN=0` and all five P0 families
+  are terminal.
+- VERIFIED: no primitive met the positive OOS/Bootstrap promotion condition;
+  `candidate_compositions=0`. All negative/unstable/insufficient outcomes are
+  append-only evidence under `artifacts/strategy_research/qinxiongmao_alpha/`.
+- Research runner/CLI are isolated from automated trading and production authorization.
+# VIDEO QUANT KNOWLEDGE EXPORT (2026-08-27)
+
+- VERIFIED: video corpus is now treated as an Alpha Hypothesis Source rather
+  than a complete-strategy reconstruction target. The AI- research boundary is
+  `services/research/quant_knowledge/`; it is isolated from automated trading.
+- VERIFIED: canonical export command is
+  `py -3 scripts/export_quant_knowledge.py --corpus-root <video1 qinxiongmao root>`.
+  Current real export contains 13 primitives, 11 hypotheses, and 6,191
+  quantization proposals under `artifacts/strategy_research/export/`; the
+  current stable export hash is
+  `4b54095f628434a4d81193ae2935db356efb730117fdc5215553ee66fc13d5bd`.
+- VERIFIED: provenance and registration are explicit; `PROXY_DERIVED` is never
+  presented as speaker-exact, hypothesis specs require pre-registration, and
+  candidate composition is limited to one FILTER plus one CONFIRMATION.
+- VERIFIED: no execution, risk, production authorization, or Final Holdout
+  surface was changed. Canonical full suite is `1919 passed, 16 skipped,
+  2 warnings`.

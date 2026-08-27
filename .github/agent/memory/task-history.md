@@ -2314,3 +2314,41 @@
   remained untouched and Production remains `NOT_GRANTED`.
 - VERIFIED: Ruff, mypy, frontend tests (`116 passed`), frontend build, JSON parsing and
   `git diff --check` all passed.
+# 2026-08-27 VIDEO_QUANT_KNOWLEDGE_EXPORT
+
+- Implemented research-only `services/research/quant_knowledge/` for the new
+  Alpha Hypothesis Source route. Video knowledge is exported as typed
+  `QuantPrimitive` records with explicit roles, provenance
+  (`SOURCE_EXACT` / `PROXY_DERIVED` / `CORPUS_INSPIRED` /
+  `DISCRETIONARY_ONLY` / `CONFLICTED`), quantization status, required features,
+  lookahead risk, and source references.
+- Added `HypothesisRegistry` with pre-evaluation registration enforcement,
+  binding hypotheses into the existing `ResearchExperimentSpec` hash chain.
+  Added paired ablation metrics and a bounded composer capped at one FILTER plus
+  one CONFIRMATION; all outputs remain `research_only` and
+  `promotion_authorized=false`.
+- Added `scripts/export_quant_knowledge.py` and architecture note
+  `docs/architecture/video-quant-knowledge-export.md`.
+- Real corpus export from `C:\Users\Windows11\Documents\ChatGPT\video1`:
+  13 primitives, 11 hypotheses, 6,191 quantization proposals; stable export
+  stable export hash `4b54095f628434a4d81193ae2935db356efb730117fdc5215553ee66fc13d5bd`.
+- Verification: focused tests `4 passed`; canonical full suite via
+  `py -3 -m pytest -q` = `1919 passed, 16 skipped, 2 warnings`; Ruff
+  `All checks passed!`; mypy `Success: no issues found in 316 source files`;
+  `git diff --check` passed. No execution, risk, strategy authorization, or
+  Final Holdout surfaces were modified.
+
+# 2026-08-27 QINXIONGMAO_ALPHA_RESEARCH_EXECUTION
+
+- VERIFIED: refreshed real export contains `14` primitives, `13` registered hypotheses,
+  and `6,927` proposals. Historical SQLite research ran on BTC/USDT and ETH/USDT
+  development data ending before `2026-01-29T00:00:00Z`; Final Holdout stayed sealed.
+- VERIFIED: terminal state is `QINXIONGMAO_KNOWLEDGE_ALPHA_PIPELINE_COMPLETE` with
+  `REGISTERED=13`, `TERMINAL=13`, `RUNNING=0`, `UNKNOWN=0`; all five P0 families
+  have terminal artifacts. `QP_STOP_STRUCTURE_PRIOR` is explicitly `DEFERRED_P1`.
+- VERIFIED: no hypothesis reached a useful signal/filter/regime/exit status;
+  `candidate_compositions=0`. Negative, unstable, and insufficient-sample outcomes
+  persist with OOS deltas and deterministic bootstrap bounds.
+- VERIFIED: Atomic artifacts include costed forward return, hit rate, MFE and MAE;
+  paired ablation and eight-window walk-forward OOS are recorded. Production,
+  execution, risk, authorization, and runtime hot paths were not modified.

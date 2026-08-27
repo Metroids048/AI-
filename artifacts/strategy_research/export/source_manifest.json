@@ -1,0 +1,18 @@
+{
+  "agent_corpus_path": "C:\\Users\\Windows11\\Documents\\ChatGPT\\video1\\workspace\\research\\youtube\\qinxiongmao\\agent_corpus",
+  "corpus_root": "C:\\Users\\Windows11\\Documents\\ChatGPT\\video1\\workspace\\research\\youtube\\qinxiongmao",
+  "export_hash": "6076cc8e75b6480796d8c4433408d1d89cd0baabb4ef4b8bce2240115c3dedde",
+  "file_hashes": {
+    "agent_corpus/knowledge_units.jsonl": "d77ccbc6522f83f3414687a59551cfd9ec665b498505663cf430f5b4d4ea97a9",
+    "strategy_research/rule_candidates.jsonl": "5b51c3a4d3280c4c8f28fa2ce1e8e9bf9d19b1b938bb1e2d154a3dff5e2df8ad"
+  },
+  "generated_at": "2026-08-27T05:34:32.069964+00:00",
+  "hypothesis_count": 13,
+  "knowledge_unit_count": 3623,
+  "primitive_count": 14,
+  "proposal_count": 6927,
+  "rule_candidate_count": 1128,
+  "rule_candidates_path": "C:\\Users\\Windows11\\Documents\\ChatGPT\\video1\\workspace\\research\\youtube\\qinxiongmao\\strategy_research\\rule_candidates.jsonl",
+  "source_hash": "de30bbaf5d28b3e16614cd3d73431d75d55994163327c0127e7ddf3737903931",
+  "source_type": "YOUTUBE_AGENT_CORPUS"
+}

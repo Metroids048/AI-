@@ -1,0 +1,425 @@
+{
+  "pipeline": "QINXIONGMAO_KNOWLEDGE_ALPHA_PIPELINE",
+  "hypothesis_id": "HYP-QK-QP_BREAKOUT_RETEST",
+  "hypothesis_hash": "a1527c69bdd401ce406f022c712e8d1900855c926e54e6c4bcbded341ada4123",
+  "primitive_id": "QP_BREAKOUT_RETEST",
+  "primitive_hash": "27e8ef0bf7842313917fbb89693a44f19d20cb56c8aa4b479165758749fb2c25",
+  "family": "BREAKOUT_RETEST",
+  "status": "UNSTABLE",
+  "dataset": {
+    "db_path": ".strategy_refactor_history.db",
+    "dataset_hash": "1abd8caadbb2a465851677d8a5127a737db0292bc2a042e7cfcf3772375008e7",
+    "development_start": "2023-01-29T00:00:00+00:00",
+    "holdout_start": "2026-01-29T00:00:00+00:00",
+    "holdout_accessed": false,
+    "event_count": 1258,
+    "baseline_event_count": 1258,
+    "candidate_event_count": 98
+  },
+  "cost_model": {
+    "round_trip_cost_rate": 0.0012,
+    "cost_source": "existing EventEdge research cost contract"
+  },
+  "known_at_semantics": "all primitive features are computed from bars closed at or before event_time",
+  "atomic": {
+    "4": {
+      "sample_count": 98,
+      "forward_return_mean": -0.0005430813513898045,
+      "forward_return_median": -0.0028935401929825653,
+      "net_expectancy": -0.0005430813513898045,
+      "hit_rate": 0.37755102040816324,
+      "mfe": 0.011107653355928468,
+      "mae": -0.00659284389819345
+    },
+    "8": {
+      "sample_count": 98,
+      "forward_return_mean": -0.0005517245847037916,
+      "forward_return_median": -0.0020247802955184893,
+      "net_expectancy": -0.0005517245847037916,
+      "hit_rate": 0.3673469387755102,
+      "mfe": 0.014822310604920674,
+      "mae": -0.008556490183187788
+    },
+    "16": {
+      "sample_count": 98,
+      "forward_return_mean": 0.0009433743389085214,
+      "forward_return_median": -0.0008549993151026734,
+      "net_expectancy": 0.0009433743389085214,
+      "hit_rate": 0.45918367346938777,
+      "mfe": 0.01921195236132032,
+      "mae": -0.01082345394259265
+    }
+  },
+  "incremental": {
+    "baseline_event": "QP_BREAKOUT_RETEST",
+    "baseline": {
+      "sample_count": 1258,
+      "net_expectancy": -0.0005975488317186688,
+      "median_net_return": -0.001964754354934874,
+      "hit_rate": 0.3934817170111288,
+      "profit_factor": 0.8720428894403456
+    },
+    "candidate": {
+      "sample_count": 98,
+      "net_expectancy": -0.0005517245847037916,
+      "median_net_return": -0.0020247802955184893,
+      "hit_rate": 0.3673469387755102,
+      "profit_factor": 0.8961643347472041
+    },
+    "delta_expectancy": 4.582424701487717e-05,
+    "positive_windows": 5,
+    "bootstrap": {
+      "mean_delta": 7.737935835015624e-05,
+      "median_delta": 8.713335050925062e-05,
+      "lcb95": -0.0026946993434600946,
+      "ucb95": 0.0030710452842651814
+    }
+  },
+  "ablation": {
+    "paired": true,
+    "paired_event_ids": 98,
+    "removed_events": 1160
+  },
+  "oos_walk_forward": [
+    {
+      "window_id": "oos_1",
+      "train": {
+        "baseline": {
+          "sample_count": 326,
+          "net_expectancy": -0.0009215137577066571,
+          "median_net_return": -0.002672100551039551,
+          "hit_rate": 0.3773006134969325,
+          "profit_factor": 0.8042094600295182
+        },
+        "candidate": {
+          "sample_count": 25,
+          "net_expectancy": -0.0029816928007369084,
+          "median_net_return": -0.004820164281928964,
+          "hit_rate": 0.32,
+          "profit_factor": 0.646669286791197
+        }
+      },
+      "oos": {
+        "baseline": {
+          "sample_count": 113,
+          "net_expectancy": -0.002395925365394306,
+          "median_net_return": -0.002784641725255877,
+          "hit_rate": 0.36283185840707965,
+          "profit_factor": 0.6355594174702441
+        },
+        "candidate": {
+          "sample_count": 11,
+          "net_expectancy": 0.0010177387859361072,
+          "median_net_return": -0.00020369813742224935,
+          "hit_rate": 0.45454545454545453,
+          "profit_factor": 1.2763056769832701
+        },
+        "delta": 0.0034136641513304133
+      },
+      "bootstrap": {
+        "mean_delta": 0.00330599900310733,
+        "median_delta": 0.003222240386244868,
+        "lcb95": -0.003230258991870249,
+        "ucb95": 0.01124549877154503
+      }
+    },
+    {
+      "window_id": "oos_2",
+      "train": {
+        "baseline": {
+          "sample_count": 339,
+          "net_expectancy": -0.0021914489118262663,
+          "median_net_return": -0.0029494020296159827,
+          "hit_rate": 0.35103244837758113,
+          "profit_factor": 0.5977250351992742
+        },
+        "candidate": {
+          "sample_count": 29,
+          "net_expectancy": -0.004193249136574283,
+          "median_net_return": -0.003075209368036237,
+          "hit_rate": 0.3448275862068966,
+          "profit_factor": 0.4654402810043864
+        }
+      },
+      "oos": {
+        "baseline": {
+          "sample_count": 110,
+          "net_expectancy": -0.0017028365524863352,
+          "median_net_return": -0.0022049315735720417,
+          "hit_rate": 0.33636363636363636,
+          "profit_factor": 0.5846982257376158
+        },
+        "candidate": {
+          "sample_count": 4,
+          "net_expectancy": -0.004569396932580162,
+          "median_net_return": -0.00521424512659381,
+          "hit_rate": 0.0,
+          "profit_factor": 0.0
+        },
+        "delta": -0.002866560380093827
+      },
+      "bootstrap": {
+        "mean_delta": -0.0028729787633361057,
+        "median_delta": -0.0028997397679568233,
+        "lcb95": -0.004938543927746841,
+        "ucb95": -0.0007829449195345785
+      }
+    },
+    {
+      "window_id": "oos_3",
+      "train": {
+        "baseline": {
+          "sample_count": 381,
+          "net_expectancy": -0.002307379142644846,
+          "median_net_return": -0.0027497290171378244,
+          "hit_rate": 0.35170603674540685,
+          "profit_factor": 0.5744147344084841
+        },
+        "candidate": {
+          "sample_count": 28,
+          "net_expectancy": -0.004687695600916005,
+          "median_net_return": -0.004639677471217896,
+          "hit_rate": 0.2857142857142857,
+          "profit_factor": 0.4102393787774577
+        }
+      },
+      "oos": {
+        "baseline": {
+          "sample_count": 104,
+          "net_expectancy": 0.00018185197070468516,
+          "median_net_return": -0.0013172250447598404,
+          "hit_rate": 0.4326923076923077,
+          "profit_factor": 1.0385993457161329
+        },
+        "candidate": {
+          "sample_count": 4,
+          "net_expectancy": -0.007680567226415622,
+          "median_net_return": -0.0061745335772347,
+          "hit_rate": 0.25,
+          "profit_factor": 0.1900754924021037
+        },
+        "delta": -0.007862419197120307
+      },
+      "bootstrap": {
+        "mean_delta": -0.007654357717410788,
+        "median_delta": -0.007588079582232503,
+        "lcb95": -0.020255603434636307,
+        "ucb95": 0.0028763045922386254
+      }
+    },
+    {
+      "window_id": "oos_4",
+      "train": {
+        "baseline": {
+          "sample_count": 417,
+          "net_expectancy": -0.0017196168204062123,
+          "median_net_return": -0.0024577683511072647,
+          "hit_rate": 0.3597122302158273,
+          "profit_factor": 0.6800889813156362
+        },
+        "candidate": {
+          "sample_count": 28,
+          "net_expectancy": -0.003279101139130239,
+          "median_net_return": -0.005080145906616745,
+          "hit_rate": 0.2857142857142857,
+          "profit_factor": 0.5128650408692419
+        }
+      },
+      "oos": {
+        "baseline": {
+          "sample_count": 125,
+          "net_expectancy": -0.0014574824874480394,
+          "median_net_return": -0.0024936412322085397,
+          "hit_rate": 0.4,
+          "profit_factor": 0.7338056888560063
+        },
+        "candidate": {
+          "sample_count": 13,
+          "net_expectancy": -0.0020269584477157166,
+          "median_net_return": -0.0014622508616813344,
+          "hit_rate": 0.38461538461538464,
+          "profit_factor": 0.6543117380116027
+        },
+        "delta": -0.0005694759602676773
+      },
+      "bootstrap": {
+        "mean_delta": -0.0003948873879651118,
+        "median_delta": -0.000518807360206022,
+        "lcb95": -0.008129321124941333,
+        "ucb95": 0.007999428644773916
+      }
+    },
+    {
+      "window_id": "oos_5",
+      "train": {
+        "baseline": {
+          "sample_count": 451,
+          "net_expectancy": -0.0013747022267397385,
+          "median_net_return": -0.002155716398163332,
+          "hit_rate": 0.3835920177383592,
+          "profit_factor": 0.7380648861148744
+        },
+        "candidate": {
+          "sample_count": 32,
+          "net_expectancy": -0.002004849681593446,
+          "median_net_return": -0.002412364834507596,
+          "hit_rate": 0.34375,
+          "profit_factor": 0.6290602034112666
+        }
+      },
+      "oos": {
+        "baseline": {
+          "sample_count": 105,
+          "net_expectancy": 0.0004168467822673614,
+          "median_net_return": -0.001947872361558893,
+          "hit_rate": 0.38095238095238093,
+          "profit_factor": 1.077690593139543
+        },
+        "candidate": {
+          "sample_count": 13,
+          "net_expectancy": 0.0007698315431811839,
+          "median_net_return": -0.0047643119160006514,
+          "hit_rate": 0.3076923076923077,
+          "profit_factor": 1.158623513121445
+        },
+        "delta": 0.00035298476091382244
+      },
+      "bootstrap": {
+        "mean_delta": 0.0003561491346225221,
+        "median_delta": 0.00014222418083436271,
+        "lcb95": -0.0068320511063783475,
+        "ucb95": 0.008837281125339642
+      }
+    },
+    {
+      "window_id": "oos_6",
+      "train": {
+        "baseline": {
+          "sample_count": 444,
+          "net_expectancy": -0.0006910266094890577,
+          "median_net_return": -0.0019736919344069364,
+          "hit_rate": 0.38738738738738737,
+          "profit_factor": 0.8598233881207733
+        },
+        "candidate": {
+          "sample_count": 34,
+          "net_expectancy": -0.0019218384233803546,
+          "median_net_return": -0.004683996837472559,
+          "hit_rate": 0.29411764705882354,
+          "profit_factor": 0.6658142712570924
+        }
+      },
+      "oos": {
+        "baseline": {
+          "sample_count": 128,
+          "net_expectancy": -0.0010025871633634338,
+          "median_net_return": -0.0016962899794980117,
+          "hit_rate": 0.3828125,
+          "profit_factor": 0.7625814074285504
+        },
+        "candidate": {
+          "sample_count": 12,
+          "net_expectancy": 0.00023645007639729745,
+          "median_net_return": -0.0009227560773005445,
+          "hit_rate": 0.3333333333333333,
+          "profit_factor": 1.0762863978793844
+        },
+        "delta": 0.0012390372397607311
+      },
+      "bootstrap": {
+        "mean_delta": 0.0012384079613118593,
+        "median_delta": 0.00112561037072931,
+        "lcb95": -0.0038858738864896926,
+        "ucb95": 0.006431741037860804
+      }
+    },
+    {
+      "window_id": "oos_7",
+      "train": {
+        "baseline": {
+          "sample_count": 458,
+          "net_expectancy": -0.0005203087046162331,
+          "median_net_return": -0.001807838876042195,
+          "hit_rate": 0.39737991266375544,
+          "profit_factor": 0.8947412178484045
+        },
+        "candidate": {
+          "sample_count": 42,
+          "net_expectancy": -0.001053036136853425,
+          "median_net_return": -0.0024021468332970954,
+          "hit_rate": 0.3333333333333333,
+          "profit_factor": 0.7937572540427545
+        }
+      },
+      "oos": {
+        "baseline": {
+          "sample_count": 125,
+          "net_expectancy": 0.0007377235604209009,
+          "median_net_return": -0.0010419407865026873,
+          "hit_rate": 0.448,
+          "profit_factor": 1.2166732188481546
+        },
+        "candidate": {
+          "sample_count": 10,
+          "net_expectancy": 0.004665919237218053,
+          "median_net_return": 0.0025816588719142232,
+          "hit_rate": 0.6,
+          "profit_factor": 3.228526694212589
+        },
+        "delta": 0.003928195676797152
+      },
+      "bootstrap": {
+        "mean_delta": 0.0038366969689616524,
+        "median_delta": 0.0036637427888055315,
+        "lcb95": -0.002792130138121138,
+        "ucb95": 0.011518924714165693
+      }
+    },
+    {
+      "window_id": "oos_8",
+      "train": {
+        "baseline": {
+          "sample_count": 480,
+          "net_expectancy": -0.00031513564267763623,
+          "median_net_return": -0.0017021446750445936,
+          "hit_rate": 0.40625,
+          "profit_factor": 0.9309493143085671
+        },
+        "candidate": {
+          "sample_count": 48,
+          "net_expectancy": 0.0006907071568749827,
+          "median_net_return": -0.0012536990238813848,
+          "hit_rate": 0.3958333333333333,
+          "profit_factor": 1.1679114560299837
+        }
+      },
+      "oos": {
+        "baseline": {
+          "sample_count": 119,
+          "net_expectancy": 0.001395647101059412,
+          "median_net_return": -0.0011037043589452959,
+          "hit_rate": 0.4369747899159664,
+          "profit_factor": 1.3808659297693784
+        },
+        "candidate": {
+          "sample_count": 6,
+          "net_expectancy": 0.004187349529689654,
+          "median_net_return": 0.003473899318376148,
+          "hit_rate": 0.5,
+          "profit_factor": 2.613545881862583
+        },
+        "delta": 0.002791702428630242
+      },
+      "bootstrap": {
+        "mean_delta": 0.0026866807647694317,
+        "median_delta": 0.002543764111775976,
+        "lcb95": -0.005794659997423885,
+        "ucb95": 0.01104966912228584
+      }
+    }
+  ],
+  "final_holdout": {
+    "status": "SEALED_NOT_ACCESSED",
+    "start": "2026-01-29T00:00:00+00:00"
+  }
+}

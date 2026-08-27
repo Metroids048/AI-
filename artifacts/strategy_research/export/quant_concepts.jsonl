@@ -1,0 +1,14 @@
+{"concept": "突破距离", "primitive_id": "QP_BREAKOUT_DISTANCE_ATR", "provenance": "PROXY_DERIVED", "role": "EVENT", "source_support_count": 742}
+{"concept": "突破回踩", "primitive_id": "QP_BREAKOUT_RETEST", "provenance": "PROXY_DERIVED", "role": "EVENT", "source_support_count": 630}
+{"concept": "关键位存续时间", "primitive_id": "QP_LEVEL_AGE", "provenance": "PROXY_DERIVED", "role": "LEVEL", "source_support_count": 736}
+{"concept": "关键位反应强度", "primitive_id": "QP_LEVEL_REACTION_STRENGTH_ATR", "provenance": "PROXY_DERIVED", "role": "FILTER", "source_support_count": 279}
+{"concept": "高高低低市场结构", "primitive_id": "QP_MARKET_STRUCTURE_HH_HL", "provenance": "PROXY_DERIVED", "role": "REGIME", "source_support_count": 599}
+{"concept": "多周期一致性", "primitive_id": "QP_MULTI_TIMEFRAME_AGREEMENT", "provenance": "PROXY_DERIVED", "role": "FILTER", "source_support_count": 733}
+{"concept": "震荡环境不交易", "primitive_id": "QP_NO_TRADE_CHOP_VETO", "provenance": "PROXY_DERIVED", "role": "VETO", "source_support_count": 165}
+{"concept": "结构止损位置先验", "primitive_id": "QP_STOP_STRUCTURE_PRIOR", "provenance": "PROXY_DERIVED", "role": "PARAMETER_PRIOR", "source_support_count": 327}
+{"concept": "支撑压力角色互换", "primitive_id": "QP_SUPPORT_ROLE_REVERSAL", "provenance": "PROXY_DERIVED", "role": "FILTER", "source_support_count": 712}
+{"concept": "支撑压力触及次数", "primitive_id": "QP_SUPPORT_TOUCH_COUNT", "provenance": "PROXY_DERIVED", "role": "LEVEL", "source_support_count": 305}
+{"concept": "均线排列与斜率", "primitive_id": "QP_TREND_EMA_ALIGNMENT", "provenance": "PROXY_DERIVED", "role": "REGIME", "source_support_count": 718}
+{"concept": "顺势回调深度", "primitive_id": "QP_TREND_PULLBACK_DEPTH", "provenance": "PROXY_DERIVED", "role": "FILTER", "source_support_count": 718}
+{"concept": "成交量确认", "primitive_id": "QP_VOLUME_CONFIRMATION", "provenance": "PROXY_DERIVED", "role": "CONFIRMATION", "source_support_count": 87}
+{"concept": "影线拒绝", "primitive_id": "QP_WICK_REJECTION", "provenance": "PROXY_DERIVED", "role": "CONFIRMATION", "source_support_count": 176}
