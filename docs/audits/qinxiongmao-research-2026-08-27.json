@@ -1,10 +1,10 @@
 {
   "schema_version": 2,
   "pipeline": "QINXIONGMAO_RESEARCH_PIPELINE",
-  "generated_at": "2026-08-27T03:40:16.937344+00:00",
+  "generated_at": "2026-08-27T03:44:52.518355+00:00",
   "video_root": "C:\\Users\\Windows11\\Documents\\ChatGPT\\video1\\workspace\\research\\youtube\\qinxiongmao",
   "video_commit": "c2ae151c7403b96a7e3e6a16b95d2b7dcc691fa9",
-  "ai_commit": "b6ea3cd79ed958644fef993c0cce3a6c57dfe7fd",
+  "ai_commit": "f1a15b3768ee13fc20008f3842de0a6993b011b2",
   "raw_corpus_hash": "4886171f744cf747c0e727db2263bf699b74e178c508b78dfd60a50060c6384d",
   "strategy_spec_hashes": {
     "STRAT-RULE-KU-h7OaxJ24XnM-0013.json": "586c2b9b107b59f7e331b1012481f91192750098c4eef31b854401648faeed2e",
