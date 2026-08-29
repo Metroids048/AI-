@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$Message = "chore: publish main workspace",
+    [switch]$CommitAll,
+    [switch]$InteractiveCommit,
     [int]$MaxCommitAttempts = 3,
     [int]$MaxPushAttempts = 5,
     [int]$LargeFileBytes = 52428800
@@ -59,41 +61,68 @@ if ($branch -ne "main") {
     Stop-Publish "MAIN_BRANCH_REQUIRED: current branch is '$branch'. One-click publish only commits and pushes main."
 }
 
+function Get-GitPaths {
+    param([Parameter(Mandatory = $true)][string[]]$Arguments)
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Git writes harmless CRLF conversion notices to stderr. Path discovery
+        # must never treat those diagnostic lines as files to stage.
+        $ErrorActionPreference = "SilentlyContinue"
+        $paths = @(& git @Arguments 2>$null)
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    [pscustomobject]@{
+        ExitCode = $exitCode
+        Paths = @($paths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim().Replace("\", "/") })
+    }
+}
+
+function Assert-FrozenTransactionContract {
+    param([Parameter(Mandatory = $true)][string]$VerifierPath)
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $contractOutput = (& python $VerifierPath --verify-baseline --verify-head 2>&1 | Out-String).Trim()
+        $contractExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($contractExitCode -ne 0) {
+        Stop-Publish "FROZEN_TRANSACTION_CONTRACT_BLOCKED: $contractOutput"
+    }
+}
+
 $originResult = Invoke-Git @("remote", "get-url", "origin")
 if ($originResult.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($originResult.Output)) {
     Stop-Publish "origin remote is missing"
 }
 
 # A one-click publisher must never silently mutate the index to make a push
-# succeed.  In particular, removing artifacts or worktree paths from the index
+# succeed. In particular, removing artifacts or worktree paths from the index
 # can create a misleading commit that drops user data from Git history.
 $contractVerifier = Join-Path $rootResult.Output "scripts\verify_v2_transaction_contract.py"
 if (-not (Test-Path -LiteralPath $contractVerifier)) {
     Stop-Publish "transaction contract verifier is missing"
 }
-$previousErrorActionPreference = $ErrorActionPreference
-try {
-    $ErrorActionPreference = "Continue"
-    $contractOutput = (& python $contractVerifier --verify-baseline --verify-head 2>&1 | Out-String).Trim()
-    $contractExitCode = $LASTEXITCODE
-} finally {
-    $ErrorActionPreference = $previousErrorActionPreference
-}
-if ($contractExitCode -ne 0) {
-    Stop-Publish "FROZEN_TRANSACTION_CONTRACT_BLOCKED: $contractOutput"
-}
+Assert-FrozenTransactionContract -VerifierPath $contractVerifier
 
-$unstagedPaths = Invoke-Git @("diff", "--name-only")
-$stagedPaths = Invoke-Git @("diff", "--cached", "--name-only")
-$untrackedPaths = Invoke-Git @("ls-files", "--others", "--exclude-standard")
+$unstagedPaths = Get-GitPaths @("diff", "--name-only")
+$stagedPaths = Get-GitPaths @("diff", "--cached", "--name-only")
+$untrackedPaths = Get-GitPaths @("ls-files", "--others", "--exclude-standard")
 if ($unstagedPaths.ExitCode -ne 0 -or $stagedPaths.ExitCode -ne 0 -or $untrackedPaths.ExitCode -ne 0) {
     Stop-Publish "could not inspect pending paths"
 }
-$pendingText = @($unstagedPaths.Output, $stagedPaths.Output, $untrackedPaths.Output)
-$pendingPaths = @($pendingText | ForEach-Object { $_ -split "`r?`n" } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim().Replace("\", "/") } | Sort-Object -Unique)
-$contract = Get-Content -Raw -LiteralPath (Join-Path $rootResult.Output "contracts\v2_transaction_contract.json") | ConvertFrom-Json
+$pendingPaths = @($unstagedPaths.Paths + $stagedPaths.Paths + $untrackedPaths.Paths | Sort-Object -Unique)
+$contractAtHead = Invoke-Git @("show", "HEAD:contracts/v2_transaction_contract.json")
+if ($contractAtHead.ExitCode -ne 0) {
+    Stop-Publish "could not read frozen transaction contract from HEAD"
+}
+$contract = $contractAtHead.Output | ConvertFrom-Json
 $protectedPaths = @($contract.protected_paths.PSObject.Properties.Name | ForEach-Object { $_.Replace("\", "/") })
-$protectedPending = @($pendingPaths | Where-Object { $protectedPaths -contains $_ })
+$contractGuardPaths = @("contracts/v2_transaction_contract.json", "scripts/verify_v2_transaction_contract.py")
+$protectedPending = @($pendingPaths | Where-Object { $protectedPaths -contains $_ -or $contractGuardPaths -contains $_ })
 if ($protectedPending.Count -gt 0) {
     Stop-Publish "PROTECTED_PATHS_REQUIRE_SEPARATE_APPROVED_TRANSACTION: $($protectedPending -join ', ')"
 }
@@ -113,8 +142,20 @@ $statusBefore = Invoke-Git @("status", "--porcelain")
 if ($statusBefore.ExitCode -ne 0) { Stop-Publish "could not inspect working tree" }
 $commitCreated = $false
 if (-not [string]::IsNullOrWhiteSpace($statusBefore.Output)) {
+    if (-not $CommitAll -and -not $InteractiveCommit) {
+        Stop-Publish "WORKTREE_NOT_CLEAN: review and stage the intended files, then rerun with -CommitAll; no files were staged."
+    }
+    Write-Host "Pending paths proposed for main:" -ForegroundColor Yellow
+    $pendingPaths | ForEach-Object { Write-Host "  - $_" }
+    if ($InteractiveCommit) {
+        $confirmation = Read-Host "Type PUBLISH_MAIN to stage only the listed paths and create the commit"
+        if ($confirmation -ne "PUBLISH_MAIN") {
+            Stop-Publish "publish cancelled; no files were staged"
+        }
+    }
+    $stageArguments = @("add", "--") + $pendingPaths
     for ($attempt = 1; $attempt -le [Math]::Max(1, $MaxCommitAttempts); $attempt++) {
-        $add = Invoke-Git @("add", "-A")
+        $add = Invoke-Git -Arguments $stageArguments
         if ($add.ExitCode -ne 0) { Stop-Publish "git add failed: $($add.Output)" }
         $commit = Invoke-Git @("commit", "-m", $Message)
         if ($commit.ExitCode -eq 0) {
@@ -144,10 +185,11 @@ if ($fetch.ExitCode -ne 0) {
 $remoteRef = "origin/main"
 $remoteBranch = Invoke-Git @("rev-parse", "--verify", $remoteRef)
 if ($remoteBranch.ExitCode -eq 0) {
-    $ancestor = Invoke-Git @("merge-base", "--is-ancestor", "HEAD", $remoteRef)
-    if ($ancestor.ExitCode -ne 0) {
+    $remoteAncestor = Invoke-Git @("merge-base", "--is-ancestor", $remoteRef, "HEAD")
+    if ($remoteAncestor.ExitCode -ne 0) {
         $rebase = Invoke-Git @("rebase", $remoteRef)
         if ($rebase.ExitCode -ne 0) { Stop-Publish "remote is ahead and automatic rebase has conflicts" }
+        Assert-FrozenTransactionContract -VerifierPath $contractVerifier
     }
 }
 
@@ -162,6 +204,7 @@ for ($attempt = 1; $attempt -le [Math]::Max(1, $MaxPushAttempts); $attempt++) {
         if ($fetch.ExitCode -ne 0) { Stop-Publish "push rejected and fetch failed: $($fetch.Output)" }
         $rebase = Invoke-Git @("rebase", $remoteRef)
         if ($rebase.ExitCode -ne 0) { Stop-Publish "push rejected and rebase has conflicts" }
+        Assert-FrozenTransactionContract -VerifierPath $contractVerifier
     } elseif ($push.Output -match "authentication|credential|permission|403|401|denied") {
         if (-not (Repair-GitAuth)) {
             Stop-Publish "AUTH_BLOCKED: push credentials rejected and gh is unavailable"
@@ -178,6 +221,7 @@ for ($attempt = 1; $attempt -le [Math]::Max(1, $MaxPushAttempts); $attempt++) {
 }
 
 $localResult = Invoke-Git @("rev-parse", "HEAD")
+$finalContractCheck = Assert-FrozenTransactionContract -VerifierPath $contractVerifier
 $remoteResult = Invoke-Git @("ls-remote", "origin", "refs/heads/$branch")
 $local = $localResult.Output.Trim()
 $remote = if ($remoteResult.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($remoteResult.Output)) {

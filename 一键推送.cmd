@@ -6,5 +6,5 @@ if not defined REPO_ROOT (
   exit /b 1
 )
 cd /d "%REPO_ROOT%"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%REPO_ROOT%\scripts\git_publish.ps1" %*
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%REPO_ROOT%\scripts\git_publish.ps1" -InteractiveCommit %*
 exit /b %ERRORLEVEL%
