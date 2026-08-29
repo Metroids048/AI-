@@ -540,6 +540,8 @@ def test_console_launcher_migrates_database_without_relaying_api_streams() -> No
     assert "-RedirectStandardError" not in api_block
     assert "-RedirectStandardOutput $SchedulerLog" in script
     assert "-RedirectStandardError $SchedulerErrorLog" in script
+    assert "Prefer the authoritative supervisor_pid" in script
+    assert "$healthPid = $state.supervisor_pid" in script
     assert 'return $commandLine -match "--local-console"' in script
     assert "frontend[/" in script and "]+admin" in script
     assert "量化项目.*vite" not in script

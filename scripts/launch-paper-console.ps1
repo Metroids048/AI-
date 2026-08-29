@@ -320,13 +320,21 @@ function Test-SchedulerHealthy {
     if (-not (Test-Path -LiteralPath $SchedulerPidFile) -or -not (Test-Path -LiteralPath $SchedulerStateFile)) {
         return $false
     }
-    $schedulerPid = (Get-Content -LiteralPath $SchedulerPidFile -Raw).Trim()
-    if ($schedulerPid -notmatch '^\d+$' -or -not (Get-Process -Id ([int]$schedulerPid) -ErrorAction SilentlyContinue)) {
-        return $false
-    }
     try {
         $state = Get-Content -LiteralPath $SchedulerStateFile -Raw | ConvertFrom-Json
         if (-not $state.running -or -not $state.heartbeat_at) { return $false }
+        # The pidfile may contain a short-lived launcher shim (for example a
+        # Python/PowerShell wrapper) rather than the supervisor that publishes
+        # the state. Prefer the authoritative supervisor_pid from the state
+        # payload, with the pidfile retained as a compatibility fallback for
+        # older state files that did not publish it.
+        $healthPid = $state.supervisor_pid
+        if ($healthPid -notmatch '^\d+$') {
+            $healthPid = (Get-Content -LiteralPath $SchedulerPidFile -Raw).Trim()
+        }
+        if ($healthPid -notmatch '^\d+$' -or -not (Get-Process -Id ([int]$healthPid) -ErrorAction SilentlyContinue)) {
+            return $false
+        }
         $targetNaturalTestnet = [bool]$EnableNaturalTestnet
         if ($null -eq $state.natural_testnet_enabled -or [bool]$state.natural_testnet_enabled -ne $targetNaturalTestnet) {
             return $false
