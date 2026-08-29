@@ -542,6 +542,11 @@ def test_console_launcher_migrates_database_without_relaying_api_streams() -> No
     assert "-RedirectStandardError $SchedulerErrorLog" in script
     assert "Prefer the authoritative supervisor_pid" in script
     assert "$healthPid = $state.supervisor_pid" in script
+    assert '$LaunchInstanceId = [guid]::NewGuid().ToString("D")' in script
+    assert "$env:V2_LAUNCH_INSTANCE_ID = $LaunchInstanceId" in script
+    assert "[string]$state.launch_instance_id -ne $LaunchInstanceId" in script
+    assert "function Test-TradingCoreReady" in script
+    assert 'ReasonCode "STARTUP_DEGRADED"' in script
     assert 'return $commandLine -match "--local-console"' in script
     assert "frontend[/" in script and "]+admin" in script
     assert "量化项目.*vite" not in script

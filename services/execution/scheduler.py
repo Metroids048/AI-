@@ -1324,6 +1324,7 @@ class RuntimeScheduler:
                 "task_failure_counts": self.status.failure_counts,
                 "task_last_results": self.status.last_results,
                 "scheduler_instance_id": self.scheduler_instance_id,
+                "launch_instance_id": os.getenv("V2_LAUNCH_INSTANCE_ID") or None,
                 "current_lock_owner": self.status.current_lock_owner,
                 "last_scheduled_for": self.status.last_scheduled_for.isoformat()
                 if self.status.last_scheduled_for

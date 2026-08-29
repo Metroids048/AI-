@@ -83,15 +83,39 @@ def _parse_datetime(value: object) -> datetime | None:
 def _process_alive(value: object, *, fallback: bool) -> bool:
     if not isinstance(value, int) or value <= 0:
         return fallback
+    if os.name == "nt":
+        return _windows_process_alive(value)
     try:
         os.kill(value, 0)
-    # On Windows, probing a stale PID with ``os.kill(pid, 0)`` can surface as
-    # ``SystemError`` (WinError 87) instead of the usual ``OSError``. A PID
-    # probe is observational only; any exception means liveness cannot be
-    # established and must not abort startup/state loading.
     except (OSError, OverflowError, SystemError, ValueError):
         return False
     return True
+
+
+def _windows_process_alive(pid: int) -> bool:
+    """Read a Windows process handle without sending a terminating signal.
+
+    ``os.kill(pid, 0)`` is not a liveness probe on Windows: CPython maps the
+    non-console signal to ``TerminateProcess``.  Runtime Truth must never
+    mutate the Supervisor or worker while it is only checking their state.
+    """
+    import ctypes
+
+    process_query_limited_information = 0x1000
+    still_active = 259
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        return False
+    try:
+        exit_code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            # An inaccessible exit code is not proof of death after a process
+            # handle was opened successfully; retain fail-closed continuity.
+            return True
+        return exit_code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def derive_engine_health_status(

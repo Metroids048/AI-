@@ -438,6 +438,7 @@ def test_scheduler_publishes_only_active_execution_scope(monkeypatch) -> None:
 
     captured = {}
     monkeypatch.setattr(scheduler_module, "write_external_scheduler_state", captured.update)
+    monkeypatch.setenv("V2_LAUNCH_INSTANCE_ID", "launch-test-123")
     scheduler = RuntimeScheduler()
     scheduler.status.last_results["market_data_heartbeat"] = {
         "checked_symbols": list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
@@ -460,6 +461,7 @@ def test_scheduler_publishes_only_active_execution_scope(monkeypatch) -> None:
     assert captured["top20_coverage_count"] == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     assert captured["execution_symbols"] == list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
     assert captured["execution_coverage_count"] == len(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    assert captured["launch_instance_id"] == "launch-test-123"
     assert captured["engine_activation"] == "ACTIVE"
     assert captured["execution_mode"] == "BINANCE_TESTNET"
     assert captured["entry_authorized"] is True

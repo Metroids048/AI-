@@ -43,6 +43,7 @@ $script:ProjectionRecoveryGap = ""
 $script:ProjectionRecoveryBootstrap = $false
 $script:StartupRecoveryResult = "NOT_REQUIRED"
 $script:StartupSafetyStop = $false
+$LaunchInstanceId = [guid]::NewGuid().ToString("D")
 
 $env:NO_PROXY = "127.0.0.1,localhost"
 $env:HTTP_PROXY = ""
@@ -250,6 +251,13 @@ $payload = [ordered]@{
 trap {
     $script:StartupSafetyStop = $true
     $message = $_.Exception.Message
+    if (Test-TradingCoreReady) {
+        $script:StartupSafetyStop = $false
+        $script:StartupStage = "DEGRADED"
+        Write-Step "launcher error after trading core readiness; preserving scheduler ($message)"
+        Write-StartupResult -Status "DEGRADED" -ReasonCode "STARTUP_DEGRADED" -Detail "Trading core is healthy; launcher auxiliary failure: $message"
+        exit 0
+    }
     $reason = if ($message -match "SYSTEM_POSITION_PROJECTION_GAP") { "SYSTEM_POSITION_PROJECTION_GAP" } else { "STARTUP_FAILED" }
     $script:StartupRecoveryResult = if ($script:ProjectionRecoveryPending) { "FAILED" } else { $script:StartupRecoveryResult }
     $cleanup = Invoke-StartupSafetyStop -Reason $reason
@@ -317,12 +325,13 @@ function Start-MicrostructureCollector {
 }
 
 function Test-SchedulerHealthy {
-    if (-not (Test-Path -LiteralPath $SchedulerPidFile) -or -not (Test-Path -LiteralPath $SchedulerStateFile)) {
+    if (-not (Test-Path -LiteralPath $SchedulerStateFile)) {
         return $false
     }
     try {
         $state = Get-Content -LiteralPath $SchedulerStateFile -Raw | ConvertFrom-Json
         if (-not $state.running -or -not $state.heartbeat_at) { return $false }
+        if ([string]$state.launch_instance_id -ne $LaunchInstanceId) { return $false }
         # The pidfile may contain a short-lived launcher shim (for example a
         # Python/PowerShell wrapper) rather than the supervisor that publishes
         # the state. Prefer the authoritative supervisor_pid from the state
@@ -366,6 +375,15 @@ function Test-SchedulerHealthy {
         }
         $heartbeat = [datetimeoffset]::Parse($state.heartbeat_at)
         return ((([datetimeoffset]::UtcNow - $heartbeat).TotalSeconds) -le 120)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Test-TradingCoreReady {
+    try {
+        return (Test-SchedulerHealthy) -and (Test-ActiveTradingModeContract)
     }
     catch {
         return $false
@@ -668,6 +686,7 @@ function Ensure-Runtime {
     else {
         Remove-Item Env:V2_NATURAL_E2E_ENABLED -ErrorAction SilentlyContinue
     }
+    $env:V2_LAUNCH_INSTANCE_ID = $LaunchInstanceId
     if ($PreserveExternalTestnetBaseline -and $AutomatedTradingEngine -ne "v2_active") {
         throw "-PreserveExternalTestnetBaseline is only valid with v2_active."
     }
@@ -937,6 +956,13 @@ if ($apiReady -and $frontendReady) {
     }
     $script:StartupStage = "READY"
     Write-StartupResult -Status "SUCCESS" -ReasonCode "STARTUP_READY" -Detail "ACTIVE runtime and recovery chain are healthy"
+    exit 0
+}
+
+if (Test-TradingCoreReady) {
+    $script:StartupStage = "DEGRADED"
+    Write-Step "console auxiliary services are not ready; trading core remains active"
+    Write-StartupResult -Status "DEGRADED" -ReasonCode "STARTUP_DEGRADED" -Detail "Trading core is healthy; API or frontend console service is unavailable"
     exit 0
 }
 

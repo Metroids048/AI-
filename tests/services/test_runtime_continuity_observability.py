@@ -72,7 +72,7 @@ def test_engine_health_status_distinguishes_runtime_liveness_from_entry_safety()
     assert status(recovery_state="FATAL_BOOT_ERROR") == "FATAL"
 
 
-def test_runtime_state_treats_windows_pid_probe_system_error_as_dead(monkeypatch, tmp_path) -> None:
+def test_runtime_state_uses_non_destructive_windows_pid_probe(monkeypatch, tmp_path) -> None:
     now = datetime.now(UTC)
     monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(tmp_path / "scheduler-state.json"))
     write_external_scheduler_state(
@@ -85,10 +85,12 @@ def test_runtime_state_treats_windows_pid_probe_system_error_as_dead(monkeypatch
         }
     )
 
-    def raise_windows_probe_error(_pid: int, _sig: int) -> None:
-        raise SystemError(87, "invalid parameter")
+    def fail_if_called(_pid: int, _sig: int) -> None:
+        raise AssertionError("Windows liveness must not call os.kill(pid, 0)")
 
-    monkeypatch.setattr(os, "kill", raise_windows_probe_error)
+    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(os, "kill", fail_if_called)
+    monkeypatch.setattr("services.execution.runtime_state._windows_process_alive", lambda _pid: False)
     state = load_external_scheduler_state(now=now)
 
     assert state.running is True
