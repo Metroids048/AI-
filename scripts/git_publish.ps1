@@ -26,6 +26,29 @@ function Invoke-Git {
     [pscustomobject]@{ ExitCode = $exitCode; Output = $text }
 }
 
+function Test-TransientGitNetworkFailure {
+    param([Parameter(Mandatory = $true)][string]$Output)
+    return $Output -match "TLS|SSL|unexpected eof|connection.*reset|connection.*timed out|could not resolve|network is unreachable|HTTP 5\d\d|502|503|504"
+}
+
+function Invoke-GitNetwork {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Operation,
+        [int]$Attempts = 5
+    )
+    $totalAttempts = [Math]::Max(1, $Attempts)
+    for ($attempt = 1; $attempt -le $totalAttempts; $attempt++) {
+        $result = Invoke-Git -Arguments $Arguments
+        if ($result.ExitCode -eq 0 -or $attempt -eq $totalAttempts -or -not (Test-TransientGitNetworkFailure -Output $result.Output)) {
+            return $result
+        }
+        $delay = [Math]::Min(40, [int](5 * [Math]::Pow(2, $attempt - 1)))
+        Write-Host "$Operation hit a transient network error; retrying in ${delay}s ($($attempt + 1)/$totalAttempts)." -ForegroundColor Yellow
+        Start-Sleep -Seconds $delay
+    }
+}
+
 function Stop-Publish {
     param([string]$Reason)
     Write-Host "PUBLISH_FAILED: $Reason" -ForegroundColor Red
@@ -169,15 +192,15 @@ if (-not [string]::IsNullOrWhiteSpace($statusBefore.Output)) {
     }
 }
 
-$remoteProbe = Invoke-Git @("ls-remote", "origin")
+$remoteProbe = Invoke-GitNetwork -Arguments @("ls-remote", "origin") -Operation "Remote probe"
 if ($remoteProbe.ExitCode -ne 0) {
     if (Repair-GitAuth) {
-        $remoteProbe = Invoke-Git @("ls-remote", "origin")
+        $remoteProbe = Invoke-GitNetwork -Arguments @("ls-remote", "origin") -Operation "Remote probe after credential repair"
     }
     if ($remoteProbe.ExitCode -ne 0) { Stop-Publish "AUTH_BLOCKED or NETWORK_BLOCKED: $($remoteProbe.Output)" }
 }
 
-$fetch = Invoke-Git @("fetch", "origin")
+$fetch = Invoke-GitNetwork -Arguments @("fetch", "origin") -Operation "Fetch"
 if ($fetch.ExitCode -ne 0) {
     Stop-Publish "fetch failed after remote authentication probe: $($fetch.Output)"
 }
@@ -200,7 +223,7 @@ for ($attempt = 1; $attempt -le [Math]::Max(1, $MaxPushAttempts); $attempt++) {
         Stop-Publish "push failed after $attempt attempts: $($push.Output)"
     }
     if ($push.Output -match "non-fast-forward|fetch first|rejected") {
-        $fetch = Invoke-Git @("fetch", "origin")
+        $fetch = Invoke-GitNetwork -Arguments @("fetch", "origin") -Operation "Fetch after push rejection"
         if ($fetch.ExitCode -ne 0) { Stop-Publish "push rejected and fetch failed: $($fetch.Output)" }
         $rebase = Invoke-Git @("rebase", $remoteRef)
         if ($rebase.ExitCode -ne 0) { Stop-Publish "push rejected and rebase has conflicts" }
@@ -209,7 +232,7 @@ for ($attempt = 1; $attempt -le [Math]::Max(1, $MaxPushAttempts); $attempt++) {
         if (-not (Repair-GitAuth)) {
             Stop-Publish "AUTH_BLOCKED: push credentials rejected and gh is unavailable"
         }
-        $probeAfterAuth = Invoke-Git @("ls-remote", "origin")
+        $probeAfterAuth = Invoke-GitNetwork -Arguments @("ls-remote", "origin") -Operation "Remote probe after credential repair"
         if ($probeAfterAuth.ExitCode -ne 0) {
             Stop-Publish "AUTH_BLOCKED or NETWORK_BLOCKED after credential repair: $($probeAfterAuth.Output)"
         }
@@ -222,7 +245,7 @@ for ($attempt = 1; $attempt -le [Math]::Max(1, $MaxPushAttempts); $attempt++) {
 
 $localResult = Invoke-Git @("rev-parse", "HEAD")
 $finalContractCheck = Assert-FrozenTransactionContract -VerifierPath $contractVerifier
-$remoteResult = Invoke-Git @("ls-remote", "origin", "refs/heads/$branch")
+$remoteResult = Invoke-GitNetwork -Arguments @("ls-remote", "origin", "refs/heads/$branch") -Operation "Final remote verification"
 $local = $localResult.Output.Trim()
 $remote = if ($remoteResult.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($remoteResult.Output)) {
     $remoteResult.Output.Split("`t")[0].Trim()
