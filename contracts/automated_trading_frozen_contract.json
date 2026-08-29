@@ -1,6 +1,6 @@
 {
   "contract_version": "automated-trading-freeze-1",
-  "baseline_sha": "1c91d27d3e736c9cc4a850a8a7f1feb067786538",
+  "baseline_sha": "6abd0bab615b3268bac5881866d488979c2c0cda",
   "canonical_owner": "contracts/automated_trading_frozen_contract.json",
   "transaction_protected_paths": {
     "services/automated_trading/application/cycle_service.py": "43a251e78c7e00ee035a841c3ba500c5689853971786d4f37900d0570dbd8d66",
@@ -12,18 +12,18 @@
     "services/automated_trading/application/reconciliation_service.py": "f403110b7c42e151baea0a60c5376784bfec3d176da149d71b817287e2f5f629",
     "services/automated_trading/application/recovery_service.py": "e70fe240669110122f26174e6ddc84b48ea0a7e3bb8fdc6d6cb5588060460ab9",
     "services/automated_trading/infrastructure/binance_adapter.py": "9fd3f8694fb19f728fe5fec248256a36dd5004ce7deb2dd8a4d47addf384c618",
-    "services/execution/scheduler.py": "954fe0851967fbde7bedf2053ec2d6198d480a62a071b4fe2e150ac95e22fa88",
+    "services/execution/scheduler.py": "b7cbb5af46503cf8c07494a3f4f9e02f03b23044c09ecb43eaa3862cff1dd415",
     "services/execution/v2_scheduler_entry.py": "cf8cb026bbe399dd1910e8a08052bbbe829e0f59d6e0266c41eb13ee5445fe01"
   },
   "runtime_protected_paths": {
     "一键启动.cmd": "4c3c28275c81e76d9072a7fb49927c26aa824e299fb286e8b3db3808767d8c24",
     "一键启动-模拟自动交易.cmd": "ba8595c765114098a645726bc99002188ef16864a3738bdc9fcdc1d7a9ebcabe",
     "scripts/launch-paper-console.ps1": "6337b1fe463e6e6c35376b0664ff9fe3c7441625c9a39014d684f3c55764953e",
-    "scripts/run-local-paper-scheduler.py": "8429d3f10086317f91568168921b4d5dc4e44b583e221a4cb6bb992e178050d9",
+    "scripts/run-local-paper-scheduler.py": "88b34e7d0cfd6a21293c1749fd6c40f978ba5053810484300cb6e6082eccba11",
     "services/execution/bootstrap.py": "188af3df19c191c0cff35f4ad4c67d605140e168e575e54e2e4bc074cb781787",
     "services/execution/natural_testnet_mode.py": "0ef5e841f2350b94245af867821e397c385a949bba36322a49c935208007eaa1",
-    "services/execution/runtime_state.py": "54176858003728985df47452c93e356f277284dff28538619630e7686203999b",
-    "services/execution/scheduler.py": "954fe0851967fbde7bedf2053ec2d6198d480a62a071b4fe2e150ac95e22fa88",
+    "services/execution/runtime_state.py": "e96348bd75e54636cc7b7e96322059bda7e00d4f0aed722083e59b451ecd8c86",
+    "services/execution/scheduler.py": "b7cbb5af46503cf8c07494a3f4f9e02f03b23044c09ecb43eaa3862cff1dd415",
     "services/execution/v2_scheduler_entry.py": "cf8cb026bbe399dd1910e8a08052bbbe829e0f59d6e0266c41eb13ee5445fe01"
   },
   "runtime_invariants": [
