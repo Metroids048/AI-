@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Message = "chore: publish Testnet Canary runtime contract",
+    [string]$Message = "chore: publish main workspace",
     [int]$MaxCommitAttempts = 3,
     [int]$MaxPushAttempts = 5,
     [int]$LargeFileBytes = 52428800
@@ -55,42 +55,58 @@ if ($branchResult.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($branchResult.
     Stop-Publish "detached HEAD is not publishable"
 }
 $branch = $branchResult.Output.Trim()
+if ($branch -ne "main") {
+    Stop-Publish "MAIN_BRANCH_REQUIRED: current branch is '$branch'. One-click publish only commits and pushes main."
+}
 
 $originResult = Invoke-Git @("remote", "get-url", "origin")
 if ($originResult.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($originResult.Output)) {
     Stop-Publish "origin remote is missing"
 }
 
-# Remove accidental worktree entries from the index while preserving every local
-# worktree directory on disk. .gitignore keeps the mistake from recurring.
-$worktreeResult = Invoke-Git @("rm", "--cached", "-r", "-f", "--ignore-unmatch", "--", ".claude/worktrees/")
-if ($worktreeResult.ExitCode -ne 0) { Stop-Publish "could not unstage .claude/worktrees" }
-
-# SQLite creates these transient sidecar files while the runtime is active.
-# They are local recovery state, never publishable artifacts; untrack them
-# without touching the live database or its sidecars on disk.
-foreach ($runtimeArtifact in @(".local_paper_console.db-journal", ".local_paper_console.db-wal", ".local_paper_console.db-shm")) {
-    $artifactResult = Invoke-Git @("rm", "--cached", "-f", "--ignore-unmatch", "--", $runtimeArtifact)
-    if ($artifactResult.ExitCode -ne 0) { Stop-Publish "could not untrack runtime artifact $runtimeArtifact" }
+# A one-click publisher must never silently mutate the index to make a push
+# succeed.  In particular, removing artifacts or worktree paths from the index
+# can create a misleading commit that drops user data from Git history.
+$contractVerifier = Join-Path $rootResult.Output "scripts\verify_v2_transaction_contract.py"
+if (-not (Test-Path -LiteralPath $contractVerifier)) {
+    Stop-Publish "transaction contract verifier is missing"
+}
+$previousErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = "Continue"
+    $contractOutput = (& python $contractVerifier --verify-baseline --verify-head 2>&1 | Out-String).Trim()
+    $contractExitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+}
+if ($contractExitCode -ne 0) {
+    Stop-Publish "FROZEN_TRANSACTION_CONTRACT_BLOCKED: $contractOutput"
 }
 
-# Generated artifacts may be untracked locally, but an unknown large file is
-# never deleted or silently ignored by this publisher.
+$unstagedPaths = Invoke-Git @("diff", "--name-only")
+$stagedPaths = Invoke-Git @("diff", "--cached", "--name-only")
+$untrackedPaths = Invoke-Git @("ls-files", "--others", "--exclude-standard")
+if ($unstagedPaths.ExitCode -ne 0 -or $stagedPaths.ExitCode -ne 0 -or $untrackedPaths.ExitCode -ne 0) {
+    Stop-Publish "could not inspect pending paths"
+}
+$pendingText = @($unstagedPaths.Output, $stagedPaths.Output, $untrackedPaths.Output)
+$pendingPaths = @($pendingText | ForEach-Object { $_ -split "`r?`n" } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim().Replace("\", "/") } | Sort-Object -Unique)
+$contract = Get-Content -Raw -LiteralPath (Join-Path $rootResult.Output "contracts\v2_transaction_contract.json") | ConvertFrom-Json
+$protectedPaths = @($contract.protected_paths.PSObject.Properties.Name | ForEach-Object { $_.Replace("\", "/") })
+$protectedPending = @($pendingPaths | Where-Object { $protectedPaths -contains $_ })
+if ($protectedPending.Count -gt 0) {
+    Stop-Publish "PROTECTED_PATHS_REQUIRE_SEPARATE_APPROVED_TRANSACTION: $($protectedPending -join ', ')"
+}
+
+# A large file is blocked before staging.  It is never untracked, deleted, or
+# hidden by this command; the operator must decide how to handle it.
 $filesResult = Invoke-Git @("ls-files", "-co", "--exclude-standard")
 if ($filesResult.ExitCode -ne 0) { Stop-Publish "could not enumerate repository files" }
-$knownGenerated = '(^|/)(artifacts|logs|raw[_ -]?testnet[_ -]?history)(/|$)|(^|/).*\.(db|sqlite|sqlite3)$'
 foreach ($path in ($filesResult.Output -split "`r?`n")) {
     if ([string]::IsNullOrWhiteSpace($path)) { continue }
     $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
     if ($null -eq $item -or $item.PSIsContainer -or $item.Length -le $LargeFileBytes) { continue }
-    $normalized = $path.Replace('\', '/')
-    if ($normalized -match $knownGenerated) {
-        $unstage = Invoke-Git @("rm", "--cached", "--ignore-unmatch", "--", $path)
-        if ($unstage.ExitCode -ne 0) { Stop-Publish "could not untrack generated large file $path" }
-        Write-Host "Untracked generated large file (kept locally): $path"
-    } else {
-        Stop-Publish "unknown large file ($([math]::Round($item.Length / 1MB, 1)) MB): $path"
-    }
+    Stop-Publish "LARGE_FILE_REQUIRES_OPERATOR_ACTION ($([math]::Round($item.Length / 1MB, 1)) MB): $path"
 }
 
 $statusBefore = Invoke-Git @("status", "--porcelain")
@@ -125,7 +141,7 @@ if ($fetch.ExitCode -ne 0) {
     Stop-Publish "fetch failed after remote authentication probe: $($fetch.Output)"
 }
 
-$remoteRef = "origin/$branch"
+$remoteRef = "origin/main"
 $remoteBranch = Invoke-Git @("rev-parse", "--verify", $remoteRef)
 if ($remoteBranch.ExitCode -eq 0) {
     $ancestor = Invoke-Git @("merge-base", "--is-ancestor", "HEAD", $remoteRef)
@@ -136,7 +152,7 @@ if ($remoteBranch.ExitCode -eq 0) {
 }
 
 for ($attempt = 1; $attempt -le [Math]::Max(1, $MaxPushAttempts); $attempt++) {
-    $push = Invoke-Git @("push", "-u", "origin", "HEAD")
+    $push = Invoke-Git @("push", "-u", "origin", "HEAD:refs/heads/main")
     if ($push.ExitCode -eq 0) { break }
     if ($attempt -eq [Math]::Max(1, $MaxPushAttempts)) {
         Stop-Publish "push failed after $attempt attempts: $($push.Output)"
