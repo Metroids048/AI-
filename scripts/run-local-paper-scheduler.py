@@ -14,8 +14,29 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-RECOVERY_BACKOFFS = (5.0, 15.0, 30.0)
-MAX_RECOVERY_ATTEMPTS = 3
+RECOVERY_BACKOFFS = (5.0, 15.0, 30.0, 60.0, 120.0, 300.0)
+FAST_RECOVERY_ATTEMPTS = 3
+RECOVERY_BUDGET_EXHAUSTED_HOLD = "RECOVERY_BUDGET_EXHAUSTED_HOLD"
+FATAL_BOOT_ERROR_PREFIX = "FATAL_BOOT_ERROR:"
+
+_EXTERNAL_FAILURE_MARKERS = (
+    "BINANCE_SERVER_TIME",
+    "BINANCE_REST",
+    "CONNECTION",
+    "PROXY",
+    "DNS",
+    "HTTP_429",
+    "HTTP_5",
+    "TIMEOUT",
+    "MARKET_DATA",
+    "EXCHANGE_INFO",
+)
+_SAFETY_HOLD_MARKERS = (
+    "EXCHANGE_UNKNOWN",
+    "UNRESOLVED",
+    "RECONCILIATION",
+    "PROJECTION",
+)
 
 
 def _state_path() -> Path:
@@ -42,14 +63,23 @@ def configure_scheduler_environment(database_url: str, engine: str = "v2_shadow"
 
 async def run_scheduler(database_url: str, engine: str = "v2_shadow") -> None:
     configure_scheduler_environment(database_url, engine)
+    try:
+        from services.execution.bootstrap import bootstrap_local_paper_runtime
+        from services.execution.scheduler import RuntimeScheduler
 
-    from services.execution.bootstrap import bootstrap_local_paper_runtime
-    from services.execution.scheduler import RuntimeScheduler
-
-    bootstrap_local_paper_runtime(seed_ohlcv=False)
-    scheduler = RuntimeScheduler()
-    scheduler.start()
-    scheduler._publish_external_state()
+        bootstrap_local_paper_runtime(seed_ohlcv=False)
+        scheduler = RuntimeScheduler()
+        scheduler.start()
+        scheduler._publish_external_state()
+    except Exception as exc:
+        _write_recovery_overlay(
+            state=_load_state(),
+            reason=f"{FATAL_BOOT_ERROR_PREFIX}{type(exc).__name__}",
+            state_name="FATAL_BOOT_ERROR",
+            attempt=0,
+            restart_count=int(os.environ.get("V2_WORKER_RESTART_COUNT", "0") or 0),
+        )
+        raise
     try:
         await asyncio.Event().wait()
     finally:
@@ -151,6 +181,20 @@ def _worker_health_reason(*, worker: subprocess.Popen[bytes], started_at: float)
     return ";".join(errors) if errors else None
 
 
+def _recovery_state_name(reason: str) -> str:
+    normalized = str(reason or "").upper()
+    if any(marker in normalized for marker in _SAFETY_HOLD_MARKERS):
+        return "SAFETY_HOLD"
+    if any(marker in normalized for marker in _EXTERNAL_FAILURE_MARKERS):
+        return "DEGRADED_EXTERNAL"
+    return "RECOVERING"
+
+
+def _recovery_backoff_seconds(attempt: int) -> float:
+    index = max(0, min(attempt - 1, len(RECOVERY_BACKOFFS) - 1))
+    return RECOVERY_BACKOFFS[index]
+
+
 def run_supervisor(database_url: str, engine: str = "v2_shadow", monitor_seconds: float = 5.0) -> int:
     """Own the worker process so a hung to_thread call cannot create a second writer."""
     from services.execution.scheduler import persist_liveness_recovery_hold
@@ -176,21 +220,32 @@ def run_supervisor(database_url: str, engine: str = "v2_shadow", monitor_seconds
                 continue
 
             healthy_since = None
+            if reason.startswith(FATAL_BOOT_ERROR_PREFIX):
+                _write_recovery_overlay(
+                    state=state,
+                    reason=reason,
+                    state_name="FATAL_BOOT_ERROR",
+                    attempt=0,
+                    restart_count=restart_count,
+                )
+                _terminate_worker(worker)
+                return 1
+
             attempt += 1
-            hold_reason = f"{reason}"
+            hold_reason = str(reason)
+            if attempt >= FAST_RECOVERY_ATTEMPTS:
+                hold_reason = f"{RECOVERY_BUDGET_EXHAUSTED_HOLD}:{hold_reason}"
             persist_liveness_recovery_hold(hold_reason)
             _write_recovery_overlay(
                 state=state,
                 reason=hold_reason,
-                state_name="ENTRY_HOLD" if attempt < MAX_RECOVERY_ATTEMPTS else "AUTO_RECOVERY_EXHAUSTED",
+                state_name=_recovery_state_name(hold_reason),
                 attempt=attempt,
                 restart_count=restart_count,
             )
             _terminate_worker(worker)
             _reclaim_stale_locks(database_url)
-            if attempt >= MAX_RECOVERY_ATTEMPTS:
-                return 2
-            time.sleep(RECOVERY_BACKOFFS[min(attempt - 1, len(RECOVERY_BACKOFFS) - 1)])
+            time.sleep(_recovery_backoff_seconds(attempt))
             restart_count += 1
             worker = _spawn_worker(database_url, engine, restart_count=restart_count)
             started_at = time.monotonic()
