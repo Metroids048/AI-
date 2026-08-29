@@ -410,6 +410,7 @@ class RuntimeScheduler:
         market_review_seconds: float | None = None,
         paper_cycle_runner: Runner | None = None,
         heartbeat_runner: Runner | None = None,
+        exchange_info_refresh_runner: Runner | None = None,
         news_poll_runner: Runner | None = None,
         macro_poll_runner: Runner | None = None,
         social_poll_runner: Runner | None = None,
@@ -439,6 +440,7 @@ class RuntimeScheduler:
         )
         self.paper_cycle_runner = paper_cycle_runner or _default_paper_cycle_runner
         self.heartbeat_runner = heartbeat_runner or _default_heartbeat_runner
+        self.exchange_info_refresh_runner = exchange_info_refresh_runner or _default_exchange_info_refresh_runner
         self.news_poll_runner = news_poll_runner or _default_news_poll_runner
         self.macro_poll_runner = macro_poll_runner or _default_macro_poll_runner
         self.social_poll_runner = social_poll_runner or _default_social_poll_runner
@@ -726,7 +728,7 @@ class RuntimeScheduler:
                     self._run_periodic(
                         name="exchange_info_refresh",
                         interval_seconds=max(self.heartbeat_seconds, 60.0),
-                        runner=_default_exchange_info_refresh_runner,
+                        runner=self.exchange_info_refresh_runner,
                     )
                 ),
                 asyncio.create_task(
@@ -1305,6 +1307,8 @@ class RuntimeScheduler:
         write_external_scheduler_state(
             {
                 "running": self.status.running,
+                "supervisor_pid": int(os.getenv("V2_SUPERVISOR_PID", "0") or 0),
+                "worker_pid": os.getpid(),
                 "heartbeat_at": datetime.now(UTC).isoformat(),
                 "started_at": self.status.started_at.isoformat() if self.status.started_at else None,
                 "top20_coverage_count": len(checked_symbols),

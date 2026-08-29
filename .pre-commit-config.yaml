@@ -46,9 +46,9 @@ repos:
   # with failing tests, and CI was the first thing to notice.
   - repo: local
     hooks:
-      - id: v2-transaction-contract
-        name: V2 transaction contract freeze
-        entry: python scripts/verify_v2_transaction_contract.py --verify-baseline --verify-head --staged
+      - id: automated-trading-frozen-contract
+        name: Automated trading product contract freeze
+        entry: python scripts/verify_automated_trading_contract.py --verify-baseline --verify-head --staged
         language: system
         pass_filenames: false
         always_run: true
@@ -60,8 +60,8 @@ repos:
       # suite: a ~75s full run on every commit gets bypassed, and a bypassed
       # gate is worth nothing.
       - id: targeted-trading-tests
-        name: pytest subset for trading-critical changes
-        entry: python scripts/precommit_targeted_tests.py
+        name: frozen fast contract gate
+        entry: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/precommit_fast_contract_gate.ps1
         language: system
         pass_filenames: true
         files: ^(services/(execution|validation|strategy_library)/|apps/api/routers/).*\.py$

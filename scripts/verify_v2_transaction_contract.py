@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -74,10 +73,6 @@ def current_head_hashes_match(contract: dict) -> list[str]:
     return failures
 
 
-def _explicit_hotpath_approval() -> bool:
-    return os.environ.get("V2_HOTPATH_FIX_APPROVED") == "1" and bool(os.environ.get("V2_HOTPATH_FIX_ID", "").strip())
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--staged", action="store_true", help="check staged paths before commit")
@@ -96,37 +91,23 @@ def main() -> int:
 
     if args.verify_head:
         failures = current_head_hashes_match(contract)
-        if failures and not _explicit_hotpath_approval():
+        if failures:
             print(HEAD_DRIFT_FAILURE_CODE, file=sys.stderr)
             for failure in failures:
                 print(f"FAIL: {failure}", file=sys.stderr)
             return 1
-        if failures:
-            print(
-                f"PASS: explicit hotpath approval {os.environ['V2_HOTPATH_FIX_ID'].strip()} covers current HEAD drift"
-            )
-        else:
-            print("PASS: current HEAD protected paths match transaction baseline")
+        print("PASS: current HEAD protected paths match transaction baseline")
 
     if args.staged:
         touched = protected_staged_paths(staged_paths(), contract["protected_paths"])
-        if touched and not _explicit_hotpath_approval():
+        if touched:
             print(FAILURE_CODE, file=sys.stderr)
             print("Protected V2 transaction paths were staged:", file=sys.stderr)
             for path in touched:
                 print(f"  - {path}", file=sys.stderr)
-            print(
-                "Dedicated hotpath fixes require V2_HOTPATH_FIX_APPROVED=1 and a non-empty V2_HOTPATH_FIX_ID.",
-                file=sys.stderr,
-            )
+            print("Use the unified automated-trading contract approval mechanism.", file=sys.stderr)
             return 1
-        if touched:
-            print(
-                f"PASS: explicit hotpath approval {os.environ['V2_HOTPATH_FIX_ID'].strip()} "
-                f"covers {len(touched)} protected path(s)"
-            )
-        else:
-            print("PASS: no protected V2 transaction paths staged")
+        print("PASS: no protected V2 transaction paths staged")
     return 0
 
 

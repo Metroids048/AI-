@@ -23,14 +23,24 @@ def _state_path() -> Path:
 @dataclass(frozen=True)
 class ExternalSchedulerState:
     running: bool = False
+    supervisor_alive: bool = False
+    worker_alive: bool = False
+    critical_cycle_alive: bool = False
     heartbeat_at: datetime | None = None
+    heartbeat_age_seconds: float | None = None
     top20_coverage_count: int = 0
     execution_coverage_count: int = 0
     execution_symbols: tuple[str, ...] = ()
     exchange_info_ready: bool = False
     data_fresh: bool = False
     last_auto_cycle_at: datetime | None = None
+    last_v2_cycle_at: datetime | None = None
+    last_v2_cycle_age_seconds: float | None = None
     scheduler_error: str | None = None
+    last_runtime_error: str | None = None
+    market_data_fresh: bool = False
+    recovery_state: str | None = None
+    engine_health_status: str = "OFFLINE"
     reason: str | None = "scheduler_state_missing"
     task_run_counts: dict[str, int] = field(default_factory=dict)
     task_failure_counts: dict[str, int] = field(default_factory=dict)
@@ -70,6 +80,44 @@ def _parse_datetime(value: object) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
+def _process_alive(value: object, *, fallback: bool) -> bool:
+    if not isinstance(value, int) or value <= 0:
+        return fallback
+    try:
+        os.kill(value, 0)
+    except OSError:
+        return False
+    return True
+
+
+def derive_engine_health_status(
+    *,
+    running: bool,
+    supervisor_alive: bool,
+    worker_alive: bool,
+    critical_cycle_alive: bool,
+    market_data_fresh: bool,
+    recovery_state: str | None,
+    last_runtime_error: str | None,
+) -> str:
+    """Classify engine liveness without changing the runtime's safety decisions."""
+    normalized_recovery = (recovery_state or "").upper()
+    normalized_error = (last_runtime_error or "").upper()
+    if normalized_recovery == "FATAL_BOOT_ERROR" or "FATAL_BOOT_ERROR" in normalized_error:
+        return "FATAL"
+    if not running or not supervisor_alive or not worker_alive or not critical_cycle_alive:
+        return "OFFLINE"
+    if normalized_recovery in {"CRASH_DETECTED", "RESTARTING", "VERIFYING"}:
+        return "RECOVERING"
+    if normalized_recovery in {"ENTRY_HOLD", "MANAGEMENT", "AUTO_RECOVERY_EXHAUSTED"}:
+        return "SAFETY_HOLD"
+    if "EXCHANGE_UNKNOWN" in normalized_error or "RECONCILIATION" in normalized_error:
+        return "SAFETY_HOLD"
+    if not market_data_fresh or normalized_error:
+        return "DEGRADED_EXTERNAL"
+    return "HEALTHY"
+
+
 def write_external_scheduler_state(payload: dict[str, Any]) -> None:
     path = _state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,16 +154,45 @@ def load_external_scheduler_state(
     startup_contract_errors = tuple(str(value) for value in raw.get("startup_contract_errors", []) if value)
     running_value = raw.get("running")
     running = running_value if isinstance(running_value, bool) else False
+    critical_jobs = {
+        str(name): dict(value)
+        for name, value in (raw.get("critical_jobs") or {}).items()
+        if isinstance(name, str) and isinstance(value, dict)
+    }
+    critical_job = critical_jobs.get("automated_trading_v2_cycle", {})
+    last_v2_cycle_at = _parse_datetime(critical_job.get("last_completed_at")) or _parse_datetime(
+        raw.get("last_auto_cycle_at")
+    )
+    heartbeat_age_seconds = max(0.0, (reference - heartbeat_at).total_seconds())
+    last_v2_cycle_age_seconds = (
+        max(0.0, (reference - last_v2_cycle_at).total_seconds()) if last_v2_cycle_at is not None else None
+    )
+    recovery = dict(raw.get("recovery") or {}) if isinstance(raw.get("recovery"), dict) else {}
+    recovery_state = recovery.get("state") if isinstance(recovery.get("state"), str) else None
+    recovery_reason = recovery.get("reason") if isinstance(recovery.get("reason"), str) else None
+    supervisor_alive = _process_alive(raw.get("supervisor_pid"), fallback=running)
+    worker_alive = _process_alive(raw.get("worker_pid"), fallback=running)
+    critical_cycle_alive = critical_job.get("task_alive") is True
+    scheduler_error = raw.get("scheduler_error") if isinstance(raw.get("scheduler_error"), str) else None
+    last_runtime_error = recovery_reason or scheduler_error
     return ExternalSchedulerState(
         running=running,
+        supervisor_alive=supervisor_alive,
+        worker_alive=worker_alive,
+        critical_cycle_alive=critical_cycle_alive,
         heartbeat_at=heartbeat_at,
+        heartbeat_age_seconds=heartbeat_age_seconds,
         top20_coverage_count=int(raw.get("top20_coverage_count", 0)),
         execution_coverage_count=execution_coverage_count,
         execution_symbols=execution_symbols,
         exchange_info_ready=bool(raw.get("exchange_info_ready")),
         data_fresh=bool(raw.get("data_fresh")),
+        market_data_fresh=bool(raw.get("data_fresh")),
         last_auto_cycle_at=_parse_datetime(raw.get("last_auto_cycle_at")),
-        scheduler_error=raw.get("scheduler_error") if isinstance(raw.get("scheduler_error"), str) else None,
+        last_v2_cycle_at=last_v2_cycle_at,
+        last_v2_cycle_age_seconds=last_v2_cycle_age_seconds,
+        scheduler_error=scheduler_error,
+        last_runtime_error=last_runtime_error,
         reason=raw.get("reason") if isinstance(raw.get("reason"), str) else None,
         task_run_counts=dict(raw.get("task_run_counts") or {}),
         task_failure_counts=dict(raw.get("task_failure_counts") or {}),
@@ -167,12 +244,18 @@ def load_external_scheduler_state(
         trading_state=raw.get("trading_state") if isinstance(raw.get("trading_state"), str) else None,
         startup_contract_errors=startup_contract_errors,
         scheduler_started_at=_parse_datetime(raw.get("started_at")),
-        critical_jobs={
-            str(name): dict(value)
-            for name, value in (raw.get("critical_jobs") or {}).items()
-            if isinstance(name, str) and isinstance(value, dict)
-        },
-        recovery=dict(raw.get("recovery") or {}) if isinstance(raw.get("recovery"), dict) else {},
+        critical_jobs=critical_jobs,
+        recovery=recovery,
+        recovery_state=recovery_state,
+        engine_health_status=derive_engine_health_status(
+            running=running,
+            supervisor_alive=supervisor_alive,
+            worker_alive=worker_alive,
+            critical_cycle_alive=critical_cycle_alive,
+            market_data_fresh=bool(raw.get("data_fresh")),
+            recovery_state=recovery_state,
+            last_runtime_error=last_runtime_error,
+        ),
     )
 
 

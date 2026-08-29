@@ -571,12 +571,18 @@ async def test_runtime_scheduler_runs_periodic_jobs_and_stops() -> None:
         edge_stats_refresh_seconds=0.03,
         volatility_risk_refresh_seconds=0.03,
         daily_review_check_seconds=0.03,
+        market_review_seconds=0,
         paper_cycle_runner=lambda: calls.__setitem__("paper", calls["paper"] + 1),
         heartbeat_runner=lambda: calls.__setitem__("heartbeat", calls["heartbeat"] + 1),
+        exchange_info_refresh_runner=lambda: None,
+        news_poll_runner=lambda: None,
+        macro_poll_runner=lambda: None,
+        social_poll_runner=lambda: None,
         risk_sweep_runner=lambda: calls.__setitem__("risk", calls["risk"] + 1),
         edge_stats_refresh_runner=lambda: calls.__setitem__("edge_stats", calls["edge_stats"] + 1),
         volatility_risk_refresh_runner=lambda: calls.__setitem__("volatility", calls["volatility"] + 1),
         notification_runner=lambda: calls.__setitem__("notification", calls["notification"] + 1),
+        market_review_runner=lambda: None,
         daily_review_runner=lambda _: calls.__setitem__("daily", calls["daily"] + 1),
     )
 
@@ -608,6 +614,17 @@ async def test_paper_cycle_does_not_run_immediately_on_process_start() -> None:
         heartbeat_seconds=0.01,
         paper_cycle_runner=lambda: calls.__setitem__("paper", calls["paper"] + 1),
         heartbeat_runner=lambda: calls.__setitem__("heartbeat", calls["heartbeat"] + 1),
+        exchange_info_refresh_runner=lambda: None,
+        news_poll_runner=lambda: None,
+        macro_poll_runner=lambda: None,
+        social_poll_runner=lambda: None,
+        risk_sweep_runner=lambda: None,
+        edge_stats_refresh_runner=lambda: None,
+        volatility_risk_refresh_runner=lambda: None,
+        notification_runner=lambda: None,
+        market_review_seconds=0,
+        market_review_runner=lambda: None,
+        daily_review_runner=lambda _date: None,
     )
 
     scheduler.start()
@@ -746,7 +763,21 @@ async def test_scheduler_respects_task_retry_after_before_next_cycle() -> None:
         calls += 1
         return {"status": "rate_limited", "retry_after_seconds": 60}
 
-    scheduler = RuntimeScheduler(heartbeat_seconds=0.01, heartbeat_runner=rate_limited_runner)
+    scheduler = RuntimeScheduler(
+        heartbeat_seconds=0.01,
+        heartbeat_runner=rate_limited_runner,
+        exchange_info_refresh_runner=lambda: None,
+        news_poll_runner=lambda: None,
+        macro_poll_runner=lambda: None,
+        social_poll_runner=lambda: None,
+        risk_sweep_runner=lambda: None,
+        edge_stats_refresh_runner=lambda: None,
+        volatility_risk_refresh_runner=lambda: None,
+        notification_runner=lambda: None,
+        market_review_seconds=0,
+        market_review_runner=lambda: None,
+        daily_review_runner=lambda _date: None,
+    )
     scheduler.start()
     await asyncio.sleep(0.05)
     await scheduler.stop()

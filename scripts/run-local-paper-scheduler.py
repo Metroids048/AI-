@@ -113,6 +113,7 @@ def _terminate_worker(worker: subprocess.Popen[bytes]) -> None:
 def _spawn_worker(database_url: str, engine: str, restart_count: int) -> subprocess.Popen[bytes]:
     environment = os.environ.copy()
     environment["V2_WORKER_RESTART_COUNT"] = str(restart_count)
+    environment["V2_SUPERVISOR_PID"] = str(os.getpid())
     return subprocess.Popen(
         [sys.executable, str(Path(__file__).resolve()), "--worker", "--database-url", database_url, "--engine", engine],
         cwd=ROOT,
