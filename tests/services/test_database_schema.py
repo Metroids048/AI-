@@ -13,6 +13,7 @@ def test_create_local_runtime_schema_includes_relational_and_runtime_tables(tmp_
         inspector = inspect(get_engine(database_url))
         assert inspector.has_table("strategies")
         assert inspector.has_table("risk_events")
+        assert inspector.has_table("telegram_trade_threads")
     finally:
         get_engine(database_url).dispose()
         reset_database_caches()

@@ -10,6 +10,8 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+import services.agents.telegram_kol.persistence.models  # noqa: F401,E402
+
 # Imported for its side effect of registering V2 tables on Base.metadata —
 # required before create_relational_schema()/create_local_runtime_schema()
 # call Base.metadata.create_all().
