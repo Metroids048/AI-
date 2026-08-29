@@ -70,3 +70,27 @@ def test_engine_health_status_distinguishes_runtime_liveness_from_entry_safety()
     assert status(recovery_state="RESTARTING") == "RECOVERING"
     assert status(worker_alive=False) == "OFFLINE"
     assert status(recovery_state="FATAL_BOOT_ERROR") == "FATAL"
+
+
+def test_runtime_state_treats_windows_pid_probe_system_error_as_dead(monkeypatch, tmp_path) -> None:
+    now = datetime.now(UTC)
+    monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(tmp_path / "scheduler-state.json"))
+    write_external_scheduler_state(
+        {
+            "running": True,
+            "heartbeat_at": now.isoformat(),
+            "supervisor_pid": 1234,
+            "worker_pid": 5678,
+            "critical_jobs": {},
+        }
+    )
+
+    def raise_windows_probe_error(_pid: int, _sig: int) -> None:
+        raise SystemError(87, "invalid parameter")
+
+    monkeypatch.setattr(os, "kill", raise_windows_probe_error)
+    state = load_external_scheduler_state(now=now)
+
+    assert state.running is True
+    assert state.supervisor_alive is False
+    assert state.worker_alive is False

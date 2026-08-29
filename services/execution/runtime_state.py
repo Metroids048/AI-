@@ -85,7 +85,11 @@ def _process_alive(value: object, *, fallback: bool) -> bool:
         return fallback
     try:
         os.kill(value, 0)
-    except OSError:
+    # On Windows, probing a stale PID with ``os.kill(pid, 0)`` can surface as
+    # ``SystemError`` (WinError 87) instead of the usual ``OSError``. A PID
+    # probe is observational only; any exception means liveness cannot be
+    # established and must not abort startup/state loading.
+    except (OSError, OverflowError, SystemError, ValueError):
         return False
     return True
 
