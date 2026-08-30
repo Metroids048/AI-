@@ -6,6 +6,7 @@ the exact strategy/package/evidence identity that the V2 runtime must consume.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
@@ -48,7 +49,7 @@ class ForwardDensityMetrics(ImmutableContract):
 class ForwardValidationHandoff(ImmutableContract):
     """A deterministic, immutable, non-Production validation handoff."""
 
-    schema_version: str = "forward-validation-handoff-v1"
+    schema_version: str = "forward-validation-handoff-v2"
     status: str = "FORWARD_CANDIDATE_READY"
     candidate_id: str
     candidate_version: str
@@ -62,7 +63,7 @@ class ForwardValidationHandoff(ImmutableContract):
     validation_evidence_hash: str
     eligible_execution_symbols: tuple[str, ...]
     strategy_rules: dict[str, Any]
-    config_snapshot_hash: str
+    runtime_config_binding_hash: str
     package_identity: dict[str, str]
     density: ForwardDensityMetrics
     profitability_recovery_passed: bool
@@ -72,6 +73,8 @@ class ForwardValidationHandoff(ImmutableContract):
 
     @model_validator(mode="after")
     def validate_integrity(self) -> ForwardValidationHandoff:
+        if self.schema_version != "forward-validation-handoff-v2":
+            raise ValueError("forward-validation-handoff-v1 is rejected due to circular snapshot binding")
         if self.status != "FORWARD_CANDIDATE_READY":
             raise ValueError("forward handoff status must be FORWARD_CANDIDATE_READY")
         if self.candidate_id != self.strategy_id or self.candidate_version != self.strategy_version:
@@ -105,6 +108,15 @@ class ForwardValidationHandoff(ImmutableContract):
         return self
 
 
+def forward_runtime_binding_hash(snapshot_config: dict[str, Any]) -> str:
+    """Hash the runtime config without the self-referential handoff field."""
+    if not isinstance(snapshot_config, dict):
+        raise ValueError("snapshot_config must be a dictionary")
+    binding_config = deepcopy(snapshot_config)
+    binding_config.pop("forward_validation", None)
+    return canonical_config_hash(binding_config)
+
+
 def build_forward_validation_handoff(
     *,
     candidate_id: str,
@@ -116,16 +128,15 @@ def build_forward_validation_handoff(
     eligible_execution_symbols: tuple[str, ...],
     density: ForwardDensityMetrics,
     profitability_recovery: PromotionResult,
-    config_snapshot: dict[str, Any] | Any | None = None,
-    config_snapshot_hash: str | None = None,
+    runtime_config: dict[str, Any],
     frozen_at: datetime,
 ) -> ForwardValidationHandoff:
     """Create the only supported validation-to-forward handoff.
 
-    ``config_snapshot_hash`` may be taken directly from the existing immutable
-    ``ConfigSnapshot``.  For pure callers, passing its config payload computes
-    the same canonical hash.  The resulting handoff can be serialised and
-    reloaded without any mutable registry or Git state.
+    The handoff binds to the strategy-relevant runtime config with its own
+    ``forward_validation`` field removed. This avoids a cryptographic
+    self-reference while allowing the active ConfigSnapshot to be validated
+    independently by the runtime.
     """
     if not profitability_recovery.eligible:
         raise ValueError("PROFITABILITY_RECOVERY_NOT_PASS")
@@ -142,15 +153,9 @@ def build_forward_validation_handoff(
         strategy_version=candidate_version,
         rules_hash=rules_hash,
     )
-    snapshot_hash = config_snapshot_hash
-    if snapshot_hash is None and config_snapshot is not None:
-        snapshot_hash = getattr(config_snapshot, "config_hash", None)
-        if snapshot_hash is None and isinstance(config_snapshot, dict):
-            snapshot_hash = canonical_config_hash(config_snapshot)
-    if not isinstance(snapshot_hash, str) or not snapshot_hash:
-        raise ValueError("an existing ConfigSnapshot hash is required")
+    runtime_binding_hash = forward_runtime_binding_hash(runtime_config)
     payload: dict[str, Any] = {
-        "schema_version": "forward-validation-handoff-v1",
+        "schema_version": "forward-validation-handoff-v2",
         "status": "FORWARD_CANDIDATE_READY",
         "candidate_id": candidate_id,
         "candidate_version": candidate_version,
@@ -164,7 +169,7 @@ def build_forward_validation_handoff(
         "validation_evidence_hash": validation_evidence_hash,
         "eligible_execution_symbols": eligible_execution_symbols,
         "strategy_rules": strategy_rules,
-        "config_snapshot_hash": snapshot_hash,
+        "runtime_config_binding_hash": runtime_binding_hash,
         "package_identity": identity.snapshot_binding(),
         "density": density,
         "profitability_recovery_passed": True,

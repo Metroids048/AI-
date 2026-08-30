@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime
 
 import pytest
@@ -15,12 +16,19 @@ from services.validation.forward_validation import (
     ForwardDensityMetrics,
     ForwardValidationHandoff,
     build_forward_validation_handoff,
+    forward_runtime_binding_hash,
 )
 from services.validation.strategy_promotion import PromotionResult
+from shared.models.trading import canonical_config_hash
 
 
 def _handoff() -> ForwardValidationHandoff:
     candidate = get_candidate("trend_momentum_v2_enriched")
+    runtime_config = {
+        "execution_profile": {"risk_profile_id": "test-risk-profile", "risk_per_trade": 0.05},
+        "strategy_rules": candidate.get_config(),
+        "risk_profile_id": "test-risk-profile",
+    }
     density = ForwardDensityMetrics(
         eligible_closed_bars=1000,
         candidate_count=80,
@@ -41,9 +49,18 @@ def _handoff() -> ForwardValidationHandoff:
         eligible_execution_symbols=("BTC/USDT", "ETH/USDT"),
         density=density,
         profitability_recovery=PromotionResult(eligible=True, failed_requirements=()),
-        config_snapshot_hash="sha256:active-snapshot",
+        runtime_config=runtime_config,
         frozen_at=datetime(2026, 8, 30, tzinfo=UTC),
     )
+
+
+def _snapshot_config(handoff: dict) -> dict:
+    return {
+        "execution_profile": {"risk_profile_id": "test-risk-profile", "risk_per_trade": 0.05},
+        "strategy_rules": handoff["strategy_rules"],
+        "risk_profile_id": "test-risk-profile",
+        "forward_validation": handoff,
+    }
 
 
 def test_forward_handoff_is_sealed_and_deterministically_reloaded() -> None:
@@ -53,6 +70,19 @@ def test_forward_handoff_is_sealed_and_deterministically_reloaded() -> None:
     assert ForwardValidationHandoff.model_validate(payload).handoff_hash == handoff.handoff_hash
     with pytest.raises(ValidationError):
         handoff.status = "APPROVED"  # type: ignore[misc]
+
+
+def test_runtime_binding_excludes_handoff_without_mutating_input() -> None:
+    handoff = _handoff().model_dump(mode="json")
+    snapshot_config = _snapshot_config(handoff)
+    original = deepcopy(snapshot_config)
+
+    binding = forward_runtime_binding_hash(snapshot_config)
+
+    assert binding == canonical_config_hash(
+        {key: value for key, value in original.items() if key != "forward_validation"}
+    )
+    assert snapshot_config == original
 
 
 def test_forward_handoff_requires_both_promotion_gates() -> None:
@@ -69,16 +99,17 @@ def test_forward_handoff_requires_both_promotion_gates() -> None:
             eligible_execution_symbols=("BTC/USDT", "ETH/USDT"),
             density=density,
             profitability_recovery=PromotionResult(eligible=False, failed_requirements=("gate",)),
-            config_snapshot_hash="sha256:active-snapshot",
+            runtime_config={"strategy_rules": candidate.get_config()},
             frozen_at=datetime(2026, 8, 30, tzinfo=UTC),
         )
 
 
 def test_valid_forward_handoff_resolves_testnet_forward() -> None:
     handoff = _handoff().model_dump(mode="json")
+    snapshot_config = _snapshot_config(handoff)
     authorization = resolve_testnet_forward_authorization(
-        snapshot_config={"forward_validation": handoff},
-        snapshot_hash="sha256:active-snapshot",
+        snapshot_config=snapshot_config,
+        snapshot_hash=canonical_config_hash(snapshot_config),
         symbol="BTC/USDT",
         execution_mode="BINANCE_TESTNET",
     )
@@ -111,10 +142,11 @@ def test_valid_forward_handoff_resolves_testnet_forward() -> None:
 def test_tampered_forward_handoff_fails_closed(field: str, value: str) -> None:
     handoff = _handoff().model_dump(mode="json")
     handoff[field] = value
+    snapshot_config = _snapshot_config(handoff)
 
     authorization = resolve_testnet_forward_authorization(
-        snapshot_config={"forward_validation": handoff},
-        snapshot_hash="sha256:active-snapshot",
+        snapshot_config=snapshot_config,
+        snapshot_hash=canonical_config_hash(snapshot_config),
         symbol="BTC/USDT",
         execution_mode="BINANCE_TESTNET",
     )
@@ -124,12 +156,86 @@ def test_tampered_forward_handoff_fails_closed(field: str, value: str) -> None:
 
 def test_forward_handoff_is_denied_on_mainnet() -> None:
     handoff = _handoff().model_dump(mode="json")
+    snapshot_config = _snapshot_config(handoff)
     authorization = resolve_testnet_forward_authorization(
-        snapshot_config={"forward_validation": handoff},
-        snapshot_hash="sha256:active-snapshot",
+        snapshot_config=snapshot_config,
+        snapshot_hash=canonical_config_hash(snapshot_config),
         symbol="BTC/USDT",
         execution_mode="BINANCE_MAINNET",
     )
 
     assert authorization.authorized is False
     assert authorization.reason == "TESTNET_FORWARD_REQUIRES_BINANCE_TESTNET"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda config: config["strategy_rules"]["entry_rules"].update({"candidate_id": "operator_heuristic_v1"}),
+        lambda config: config["forward_validation"].update({"validation_evidence_hash": "f" * 64}),
+        lambda config: config["forward_validation"].update({"runtime_config_binding_hash": "sha256:" + "f" * 64}),
+    ],
+)
+def test_runtime_or_handoff_tampering_is_denied(mutation) -> None:
+    snapshot_config = _snapshot_config(_handoff().model_dump(mode="json"))
+    mutation(snapshot_config)
+
+    authorization = resolve_testnet_forward_authorization(
+        snapshot_config=snapshot_config,
+        snapshot_hash=canonical_config_hash(snapshot_config),
+        symbol="BTC/USDT",
+        execution_mode="BINANCE_TESTNET",
+    )
+
+    assert authorization.authorized is False
+
+
+def test_v1_forward_handoff_is_explicitly_rejected() -> None:
+    handoff = _handoff().model_dump(mode="json")
+    handoff["schema_version"] = "forward-validation-handoff-v1"
+    snapshot_config = _snapshot_config(handoff)
+
+    authorization = resolve_testnet_forward_authorization(
+        snapshot_config=snapshot_config,
+        snapshot_hash=canonical_config_hash(snapshot_config),
+        symbol="BTC/USDT",
+        execution_mode="BINANCE_TESTNET",
+    )
+
+    assert authorization.authorized is False
+    assert authorization.reason == "FORWARD_VALIDATION_V1_REJECTED"
+
+
+def test_production_remains_prioritized_over_testnet_forward() -> None:
+    authority = resolve_entry_authority(
+        production_authorized=True,
+        production_strategy_id="approved-production",
+        forward_authorized=True,
+        forward_strategy_id="forward-candidate",
+        execution_mode="BINANCE_TESTNET",
+        operator_testnet_canary_enabled=True,
+        explicit_testnet_canary=True,
+    )
+
+    assert authority.authority is EntryAuthority.PRODUCTION
+
+
+@pytest.mark.parametrize(
+    ("canary_enabled", "expected"),
+    [(False, EntryAuthority.NONE), (True, EntryAuthority.TESTNET_CANARY)],
+)
+def test_no_forward_preserves_existing_none_and_canary_fallbacks(
+    canary_enabled: bool,
+    expected: EntryAuthority,
+) -> None:
+    authority = resolve_entry_authority(
+        production_authorized=False,
+        production_strategy_id=None,
+        forward_authorized=False,
+        forward_strategy_id=None,
+        execution_mode="BINANCE_TESTNET",
+        operator_testnet_canary_enabled=canary_enabled,
+        explicit_testnet_canary=canary_enabled,
+    )
+
+    assert authority.authority is expected

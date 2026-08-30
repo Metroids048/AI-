@@ -30,6 +30,7 @@ from services.strategy_library.context import MarketContextBuilder
 from services.strategy_library.proposal_pipeline import run_proposal_pipeline
 from services.strategy_library.v2_projection import project_single_target
 from shared.models import StrategyContract, StrategyRules
+from shared.models.trading import canonical_config_hash
 
 NO_AUTHORIZED_PRODUCTION_STRATEGY = "NO_AUTHORIZED_PRODUCTION_STRATEGY"
 
@@ -220,16 +221,22 @@ def resolve_testnet_forward_authorization(
     try:
         if execution_mode is not None and str(getattr(execution_mode, "value", execution_mode)) != "BINANCE_TESTNET":
             return ProductionAuthorization(False, "TESTNET_FORWARD_REQUIRES_BINANCE_TESTNET")
-        block = snapshot_config.get("forward_validation") if isinstance(snapshot_config, dict) else None
+        if not isinstance(snapshot_config, dict):
+            return ProductionAuthorization(False, "NO_FORWARD_VALIDATION_CANDIDATE")
+        block = snapshot_config.get("forward_validation")
         if not isinstance(block, dict) or block.get("status") != "FORWARD_CANDIDATE_READY":
             return ProductionAuthorization(False, "NO_FORWARD_VALIDATION_CANDIDATE")
-        from services.validation.forward_validation import ForwardValidationHandoff
+        from services.validation.forward_validation import ForwardValidationHandoff, forward_runtime_binding_hash
 
         # Re-validate the sealed artifact before reading any individual field;
         # this rejects tampering with a nested identity or density metric.
+        if block.get("schema_version") != "forward-validation-handoff-v2":
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_V1_REJECTED")
         ForwardValidationHandoff.model_validate(block)
-        if not snapshot_hash or block.get("config_snapshot_hash") != snapshot_hash:
-            return ProductionAuthorization(False, "FORWARD_VALIDATION_SNAPSHOT_MISMATCH")
+        if not snapshot_hash or canonical_config_hash(snapshot_config) != snapshot_hash:
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_SNAPSHOT_INTEGRITY_MISMATCH")
+        if block.get("runtime_config_binding_hash") != forward_runtime_binding_hash(snapshot_config):
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_RUNTIME_CONFIG_BINDING_MISMATCH")
         if block.get("production_approval") is True or block.get("authorization_state") == "APPROVED":
             return ProductionAuthorization(False, "FORWARD_VALIDATION_PRODUCTION_APPROVAL_FORBIDDEN")
         eligible_symbols = block.get("eligible_execution_symbols")

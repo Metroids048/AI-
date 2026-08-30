@@ -1,7 +1,14 @@
 from __future__ import annotations
 
-from services.execution.runtime_config_migration import stage_promoted_runtime_config
+from services.automated_trading.application.production_strategy import resolve_testnet_forward_authorization
+from services.execution.runtime_config_migration import (
+    stage_promoted_runtime_config,
+    stage_testnet_forward_runtime_config,
+)
 from services.strategy_library import ConfigSnapshotRepository, PaperRunRepository, StrategyRepository
+from services.strategy_library.candidates.registry import get_candidate
+from services.validation.forward_validation import ForwardDensityMetrics
+from services.validation.strategy_promotion import PromotionResult
 from shared.models import ConfigSnapshot, PaperRun, StrategyCreate
 
 
@@ -186,3 +193,78 @@ def test_stage_promoted_runtime_config_is_idempotent_for_same_hash(db_session) -
     assert first.config_hash == second.config_hash
     assert second.status == "already_active"
     assert len(ConfigSnapshotRepository(db_session).list_snapshots(first.paper_run_id)) == 1
+
+
+def test_persisted_forward_snapshot_activates_testnet_forward_without_self_hash(db_session) -> None:
+    """P0: a real B snapshot activates and authorizes Testnet Forward."""
+    candidate = get_candidate("trend_momentum_v2_enriched")
+    strategy_key = "forward-runtime-binding-red"
+    strategy = StrategyRepository(db_session).create_strategy(
+        StrategyCreate(
+            strategy_key=strategy_key,
+            source="test",
+            core_thesis="P0 circular snapshot binding reproduction",
+            rules=candidate.get_config(),
+        )
+    )
+    run = PaperRunRepository(db_session).create_paper_run(
+        PaperRun(
+            strategy_id=strategy.strategy_id or "",
+            symbol_scope=["BTC/USDT", "ETH/USDT"],
+            candidate_symbols=["BTC/USDT", "ETH/USDT"],
+            execution_profile={
+                "auto_paper_runtime_key": strategy_key,
+                "risk_profile_id": "test-risk-profile",
+                "risk_per_trade": 0.05,
+            },
+            paper_status="running",
+        )
+    )
+    active_result = stage_promoted_runtime_config(
+        db_session,
+        strategy_key=strategy_key,
+        promoted_rules=candidate.get_config(),
+    )
+    config_repo = ConfigSnapshotRepository(db_session)
+    active_a = config_repo.get_active(run.paper_run_id or "")
+    assert active_a is not None
+    assert active_a.config_hash == active_result.config_hash
+    staged = stage_testnet_forward_runtime_config(
+        db_session,
+        strategy_key=strategy_key,
+        candidate_id=candidate.candidate_id,
+        candidate_version=candidate.version,
+        promoted_rules=candidate.get_config(),
+        dataset_hash="d" * 64,
+        validation_evidence_ref="artifacts/v001/evidence.json",
+        validation_evidence_hash="e" * 64,
+        eligible_execution_symbols=("BTC/USDT", "ETH/USDT"),
+        density=ForwardDensityMetrics(
+            eligible_closed_bars=1000,
+            candidate_count=80,
+            closed_trade_count=80,
+            closed_trades_per_day=2.0,
+            median_inter_trade_hours=8.0,
+            p90_inter_trade_hours=24.0,
+            estimated_days_to_30_closed_trades=30.0,
+            passed=True,
+        ),
+        profitability_recovery=PromotionResult(eligible=True, failed_requirements=()),
+    )
+    assert staged.status == "staged"
+    activated_b = config_repo.activate_pending(run.paper_run_id or "", cycle_id="p0-red")
+    assert activated_b is not None
+    reloaded_b = config_repo.get_active(run.paper_run_id or "")
+    assert reloaded_b is not None
+
+    authorization = resolve_testnet_forward_authorization(
+        snapshot_config=reloaded_b.config,
+        snapshot_hash=reloaded_b.config_hash,
+        symbol="BTC/USDT",
+        execution_mode="BINANCE_TESTNET",
+    )
+
+    assert authorization.authorized is True
+    assert authorization.reason == "TESTNET_FORWARD_AUTHORIZED"
+    assert reloaded_b.config["forward_validation"]["schema_version"] == "forward-validation-handoff-v2"
+    assert reloaded_b.config["forward_validation"]["runtime_config_binding_hash"] != reloaded_b.config_hash
