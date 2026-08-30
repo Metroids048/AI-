@@ -25,6 +25,7 @@ def stage_promoted_runtime_config(
     strategy_key: str,
     promoted_rules: dict[str, Any],
     canonical_strategy_manifest: dict[str, str] | None = None,
+    forward_validation: dict[str, Any] | None = None,
     created_by: str = "runtime-config-migration",
 ) -> RuntimeConfigMigrationResult:
     """Activate or stage promoted rules without mutating the legacy Strategy row.
@@ -80,6 +81,12 @@ def stage_promoted_runtime_config(
     }
     if canonical_strategy_manifest is not None:
         config["canonical_strategy_manifest"] = dict(canonical_strategy_manifest)
+    if forward_validation is not None:
+        config["forward_validation"] = dict(forward_validation)
+    elif active is not None and isinstance(active.config.get("forward_validation"), dict):
+        # Bootstrap may refresh the ordinary manifest binding, but it must not
+        # silently discard an already active, immutable forward handoff.
+        config["forward_validation"] = dict(active.config["forward_validation"])
     snapshot = ConfigSnapshot.create(
         paper_run_id=paper_run.paper_run_id,
         config=config,

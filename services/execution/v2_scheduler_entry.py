@@ -32,6 +32,7 @@ from services.automated_trading.application.production_strategy import (
     evaluate_authorized_production_strategy,
     resolve_entry_authority,
     resolve_production_authorization,
+    resolve_testnet_forward_authorization,
 )
 from services.automated_trading.audit.forward_baseline import (
     build_decision_snapshot,
@@ -72,6 +73,29 @@ from shared.models.risk import TESTNET_CANARY_RUNTIME_CONTRACT
 logger = logging.getLogger(__name__)
 
 V2_CYCLE_TIMEFRAME = "15m"
+_STRATEGY_TERMINAL_REASONS = frozenset(
+    {
+        "NO_ENTRY_SIGNAL",
+        "MACD_DIRECTION_MISMATCH",
+        "RSI_OUTSIDE_RANGE",
+        "MULTI_TIMEFRAME_DISAGREEMENT",
+        "INSUFFICIENT_HISTORY",
+        "ATR_NOT_POSITIVE",
+        "DUPLICATE_DECISION",
+    }
+)
+_EXECUTION_BLOCKER_REASONS = frozenset(
+    {
+        "ENTRY_KILL_SWITCH_ACTIVE",
+        "POSITION_ALREADY_OPEN",
+        "MAX_OPEN_EXPOSURES",
+        "DAILY_TRADE_LIMIT_REACHED",
+        "SYMBOL_COOLDOWN_ACTIVE",
+        "PRICE_DRIFT_EXCEEDED",
+        "NO_TRADE_COST_INEFFICIENT",
+        "MANUAL_POSITION_DIRECTION_CONFLICT",
+    }
+)
 # The V2 scheduler refreshes Binance's public premium-index snapshot once per
 # ~60s cycle.  A 90s tolerance covers one delayed cycle without treating old
 # settled backfill as a live cost.  The continuous mark-price WS can still
@@ -596,8 +620,58 @@ def _load_already_evaluated_bars(
     return frozenset(
         timestamp.replace(tzinfo=UTC) if timestamp.tzinfo is None else timestamp.astimezone(UTC)
         for timestamp, payload in rows
-        if isinstance(payload, Mapping) and str(payload.get("lane") or "") == lane.value
+        if isinstance(payload, Mapping)
+        and str(payload.get("lane") or "") == lane.value
+        # Data preparation is a retryable system condition, not a terminal
+        # strategy evaluation of this closed bar.  Do not let it poison the
+        # exact-bar de-duplication set consumed by DecisionService.
+        and payload.get("system_failure_reason") != "ENTRY_DATA_NOT_READY"
+        and payload.get("entry_bar_retryable") is not True
     )
+
+
+def _latest_closed_timestamp(*, now: datetime, timeframe: str) -> datetime:
+    from services.data.binance import TIMEFRAME_TO_SECONDS
+
+    seconds = TIMEFRAME_TO_SECONDS[timeframe]
+    timestamp = int(now.astimezone(UTC).timestamp())
+    return datetime.fromtimestamp(timestamp - (timestamp % seconds), tz=UTC)
+
+
+def _entry_data_readiness(
+    *,
+    now: datetime,
+    entry_timeframe: TimeframeView,
+    direction_timeframe: TimeframeView | None,
+    state_timeframe: TimeframeView | None,
+) -> tuple[bool, str | None, dict[str, Any]]:
+    """Gate only new-entry evaluation until all required closed frames exist.
+
+    The V2 cycle continues through management before this gate is observed.
+    A loader that is behind its expected closed bar is preparation lag, not
+    ``MARKET_DATA_STALE`` and not a strategy terminal result.
+    """
+
+    required = (
+        ("15m", entry_timeframe),
+        ("1h", direction_timeframe),
+        ("4h", state_timeframe),
+    )
+    missing: list[str] = []
+    details: dict[str, Any] = {}
+    for timeframe, view in required:
+        expected = _latest_closed_timestamp(now=now, timeframe=timeframe)
+        actual = view.last_closed.timestamp.astimezone(UTC) if view and view.last_closed else None
+        details[timeframe] = {
+            "expected_closed_at": expected.isoformat(),
+            "actual_closed_at": actual.isoformat() if actual else None,
+        }
+        if actual is None or actual < expected:
+            missing.append(timeframe)
+    if missing:
+        details["missing_timeframes"] = missing
+        return False, "ENTRY_DATA_NOT_READY", details
+    return True, None, details
 
 
 def _load_v2_operator_execution_settings(*, symbol: str, cycle_id: str) -> V2ExecutionSettings:
@@ -664,6 +738,41 @@ def _load_authorized_production_decision(
     return decision.candidate, True, authorization.reason, decision.reason, decision.trace
 
 
+def _load_authorized_forward_decision(
+    *,
+    settings: V2ExecutionSettings,
+    cycle_id: str,
+    symbol: str,
+    now: datetime,
+    execution_mode: V2ExecutionMode,
+) -> tuple[Any | None, bool, str, str, dict[str, Any]]:
+    authorization = resolve_testnet_forward_authorization(
+        snapshot_config=settings.active_snapshot_config,
+        snapshot_hash=settings.active_snapshot_hash,
+        symbol=symbol,
+        execution_mode=execution_mode,
+    )
+    if not authorization.authorized:
+        return None, False, authorization.reason, authorization.reason, {}
+    from services.data.repository import DataRepository
+
+    with get_session_factory()() as session:
+        decision = evaluate_authorized_production_strategy(
+            authorization=authorization,
+            data_repo=DataRepository(session),
+            cycle_id=cycle_id,
+            symbol=symbol,
+            now=now,
+        )
+    return (
+        decision.candidate,
+        True,
+        authorization.reason,
+        decision.reason,
+        {**decision.trace, "forward_validation": True},
+    )
+
+
 def _finalize_v2_cycle_decision(
     *,
     cycle_id: str,
@@ -682,8 +791,8 @@ def _finalize_v2_cycle_decision(
         V2ExecutionDecision,
     )
 
-    terminal_stage = str(funnel_payload.get("terminal_stage") or "UNKNOWN")
-    terminal_reason = funnel_payload.get("reason_code")
+    terminal_stage = str(funnel_payload.get("terminal_stage") or "DECISION_PAYLOAD_INVALID")
+    terminal_reason = _normalize_reason_dimensions(funnel_payload)
     with get_session_factory()() as session:
         repo = AutomatedTradingRepository(session)
         if session.get(V2ExecutionCycle, cycle_id) is None:
@@ -711,6 +820,38 @@ def _finalize_v2_cycle_decision(
         repo.complete_cycle(cycle_id, decision_terminal=terminal_stage, completed_at=completed_at)
         session.commit()
     return decision_id
+
+
+def _normalize_reason_dimensions(funnel_payload: dict[str, Any]) -> str:
+    """Persist the independent strategy, system, and execution facts.
+
+    Legacy branches still emit a single terminal ``reason_code``.  Normalize
+    that fact once at the scheduler boundary; a missing fact is an explicit
+    invariant failure, never an operator-facing ``UNKNOWN``.
+    """
+
+    strategy_reason = funnel_payload.get("strategy_terminal_reason")
+    system_reason = funnel_payload.get("system_failure_reason")
+    execution_blocker = funnel_payload.get("execution_blocker")
+    legacy_reason = funnel_payload.get("reason_code")
+    if not any((strategy_reason, system_reason, execution_blocker)):
+        if legacy_reason in _STRATEGY_TERMINAL_REASONS:
+            strategy_reason = legacy_reason
+        elif legacy_reason in _EXECUTION_BLOCKER_REASONS:
+            execution_blocker = legacy_reason
+        elif legacy_reason:
+            system_reason = legacy_reason
+        else:
+            system_reason = "DECISION_REASON_MISSING"
+    funnel_payload["strategy_terminal_reason"] = strategy_reason
+    funnel_payload["system_failure_reason"] = system_reason
+    funnel_payload["execution_blocker"] = execution_blocker
+    terminal_reason = strategy_reason or system_reason or execution_blocker
+    if not terminal_reason:
+        terminal_reason = "DECISION_PAYLOAD_INVALID"
+        funnel_payload["system_failure_reason"] = terminal_reason
+    funnel_payload["reason_code"] = terminal_reason
+    return str(terminal_reason)
 
 
 def _append_research_shadow_payload(
@@ -932,6 +1073,12 @@ def _execute_v2_automated_trading_cycles(
                     symbol_results.append(symbol_result)
                     task_failed = True
                     continue
+                entry_data_ready, entry_data_reason, entry_data_details = _entry_data_readiness(
+                    now=now,
+                    entry_timeframe=entry_timeframe,
+                    direction_timeframe=direction_timeframe,
+                    state_timeframe=state_timeframe,
+                )
                 try:
                     (
                         production_candidate,
@@ -952,15 +1099,53 @@ def _execute_v2_automated_trading_cycles(
                     production_decision_reason = NO_AUTHORIZED_PRODUCTION_STRATEGY
                     production_trace = {"production_adapter_error": _safe_error_message(exc)}
 
+                (
+                    forward_candidate,
+                    forward_authorized,
+                    forward_reason,
+                    forward_decision_reason,
+                    forward_trace,
+                ) = _load_authorized_forward_decision(
+                    settings=operator_settings,
+                    cycle_id=cycle_id,
+                    symbol=symbol,
+                    now=now,
+                    execution_mode=config.execution_mode,
+                )
+                is_production_authorized = production_authorized
+                authorized_candidate = production_candidate
+                authorized_reason = production_reason
+                authorized_decision_reason = production_decision_reason
+                authorized_trace = production_trace
+                if not is_production_authorized and forward_authorized:
+                    # Keep production and forward authority independent.  The
+                    # resolver must see production_authorized=False so the
+                    # explicit TESTNET_FORWARD lane is not mislabeled PRODUCTION.
+                    authorized_candidate = forward_candidate
+                    authorized_reason = forward_reason
+                    authorized_decision_reason = forward_decision_reason
+                    authorized_trace = forward_trace
+
                 entry_authority = resolve_entry_authority(
-                    production_authorized=production_authorized,
+                    production_authorized=is_production_authorized,
                     production_strategy_id=(
                         production_candidate.strategy_id if production_candidate is not None else None
                     ),
+                    forward_authorized=forward_authorized,
+                    forward_strategy_id=forward_candidate.strategy_id if forward_candidate is not None else None,
                     execution_mode=config.execution_mode.value,
                     operator_testnet_canary_enabled=operator_settings.sampling_fallback_enabled,
                     explicit_testnet_canary=canary_acceptance,
                 )
+                production_candidate = authorized_candidate
+                production_authorized = is_production_authorized or forward_authorized
+                production_reason = authorized_reason
+                production_decision_reason = authorized_decision_reason
+                production_trace = authorized_trace
+            if management_only:
+                entry_data_ready = True
+                entry_data_reason = None
+                entry_data_details = {"management_only": True}
             operator_settings = apply_testnet_canary_runtime_contract(
                 operator_settings,
                 symbol=symbol,
@@ -1031,6 +1216,9 @@ def _execute_v2_automated_trading_cycles(
                         else CandidateLane.PRODUCTION
                     ),
                 ),
+                entry_data_ready=entry_data_ready,
+                entry_data_reason=entry_data_reason,
+                entry_data_details=entry_data_details,
                 persist_facts=config.v2_activation is EngineActivation.ACTIVE,
                 decision_id=decision_id,
                 sampling_fallback_enabled=operator_settings.sampling_fallback_enabled,

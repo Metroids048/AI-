@@ -38,6 +38,7 @@ class EntryAuthority(StrEnum):
     """The only writer allowed to create new exposure in one V2 cycle."""
 
     PRODUCTION = "PRODUCTION"
+    TESTNET_FORWARD = "TESTNET_FORWARD"
     TESTNET_CANARY = "TESTNET_CANARY"
     NONE = "NONE"
 
@@ -54,6 +55,8 @@ def resolve_entry_authority(
     *,
     production_authorized: bool,
     production_strategy_id: str | None,
+    forward_authorized: bool = False,
+    forward_strategy_id: str | None = None,
     execution_mode: str,
     operator_testnet_canary_enabled: bool,
     explicit_testnet_canary: bool = False,
@@ -71,6 +74,13 @@ def resolve_entry_authority(
             "production_approved",
             production_strategy_id,
             True,
+        )
+    if execution_mode == "BINANCE_TESTNET" and forward_authorized:
+        return EntryAuthorityResolution(
+            EntryAuthority.TESTNET_FORWARD,
+            "testnet_forward_authorized",
+            forward_strategy_id,
+            False,
         )
     if execution_mode == "BINANCE_TESTNET" and operator_testnet_canary_enabled and explicit_testnet_canary:
         return EntryAuthorityResolution(
@@ -97,6 +107,12 @@ class ProductionAuthorization:
     validation_evidence_ref: str | None = None
     approval_identity: str | None = None
     approval_time: str | None = None
+    validation_evidence_hash: str | None = None
+    dataset_hash: str | None = None
+    strategy_code_hash: str | None = None
+    strategy_package_hash: str | None = None
+    config_snapshot_hash: str | None = None
+    eligible_execution_symbols: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -184,9 +200,120 @@ def resolve_production_authorization(
             validation_evidence_ref=evidence_ref,
             approval_identity=approved_by,
             approval_time=approved_at,
+            strategy_code_hash=manifest.strategy_code_hash,
+            strategy_package_hash=manifest.strategy_package_hash,
+            config_snapshot_hash=snapshot_hash,
+            eligible_execution_symbols=tuple(manifest.eligible_execution_symbols),
         )
     except (KeyError, OSError, TypeError, ValueError, ManifestValidationError):
         return ProductionAuthorization(False, NO_AUTHORIZED_PRODUCTION_STRATEGY)
+
+
+def resolve_testnet_forward_authorization(
+    *,
+    snapshot_config: dict[str, Any] | None,
+    snapshot_hash: str | None,
+    symbol: str,
+    execution_mode: str | None = None,
+) -> ProductionAuthorization:
+    """Validate the immutable, non-production forward block in one snapshot."""
+    try:
+        if execution_mode is not None and str(getattr(execution_mode, "value", execution_mode)) != "BINANCE_TESTNET":
+            return ProductionAuthorization(False, "TESTNET_FORWARD_REQUIRES_BINANCE_TESTNET")
+        block = snapshot_config.get("forward_validation") if isinstance(snapshot_config, dict) else None
+        if not isinstance(block, dict) or block.get("status") != "FORWARD_CANDIDATE_READY":
+            return ProductionAuthorization(False, "NO_FORWARD_VALIDATION_CANDIDATE")
+        from services.validation.forward_validation import ForwardValidationHandoff
+
+        # Re-validate the sealed artifact before reading any individual field;
+        # this rejects tampering with a nested identity or density metric.
+        ForwardValidationHandoff.model_validate(block)
+        if not snapshot_hash or block.get("config_snapshot_hash") != snapshot_hash:
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_SNAPSHOT_MISMATCH")
+        if block.get("production_approval") is True or block.get("authorization_state") == "APPROVED":
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_PRODUCTION_APPROVAL_FORBIDDEN")
+        eligible_symbols = block.get("eligible_execution_symbols")
+        if (
+            not isinstance(eligible_symbols, list | tuple)
+            or tuple(eligible_symbols) != AUTO_PAPER_EXECUTION_SYMBOLS
+            or symbol not in eligible_symbols
+        ):
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_SYMBOL_NOT_ELIGIBLE")
+        candidate_id = block.get("candidate_id")
+        strategy_id = block.get("strategy_id")
+        candidate_version = block.get("candidate_version")
+        strategy_version = block.get("strategy_version")
+        if not (
+            isinstance(candidate_id, str)
+            and candidate_id
+            and isinstance(strategy_id, str)
+            and strategy_id
+            and isinstance(candidate_version, str)
+            and candidate_version
+            and isinstance(strategy_version, str)
+            and strategy_version
+        ):
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_IDENTITY_MISSING")
+        if candidate_id != strategy_id or candidate_version != strategy_version:
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_IDENTITY_MISMATCH")
+        candidate = get_candidate(candidate_id)
+        rules = StrategyRules(**block["strategy_rules"])
+        if candidate.version != candidate_version or str(rules.entry_rules.get("candidate_id")) != candidate_id:
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_IDENTITY_MISMATCH")
+        rules_hash = block.get("rules_hash")
+        if not isinstance(rules_hash, str) or strategy_rules_hash(rules) != rules_hash:
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_RULES_HASH_MISMATCH")
+        identity = strategy_package_identity(
+            strategy_id=candidate_id,
+            strategy_version=candidate_version,
+            rules_hash=rules_hash,
+        )
+        declared_identity = {
+            "strategy_id": strategy_id,
+            "strategy_version": strategy_version,
+            "rules_hash": rules_hash,
+            "strategy_code_hash": block.get("strategy_code_hash"),
+            "strategy_package_hash": block.get("strategy_package_hash"),
+        }
+        if identity.snapshot_binding() != declared_identity or declared_identity != block.get("package_identity"):
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_PACKAGE_MISMATCH")
+        evidence_ref = block.get("validation_evidence_ref")
+        evidence_hash = block.get("validation_evidence_hash")
+        dataset_hash = block.get("dataset_hash")
+        if (
+            not isinstance(evidence_ref, str)
+            or not evidence_ref.strip()
+            or not isinstance(evidence_hash, str)
+            or len(evidence_hash) != 64
+            or not isinstance(dataset_hash, str)
+            or len(dataset_hash) != 64
+        ):
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_EVIDENCE_INVALID")
+        if block.get("profitability_recovery_passed") is not True or block.get("forward_density_passed") is not True:
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_GATES_NOT_PASS")
+        density = block.get("density")
+        if not isinstance(density, dict) or density.get("passed") is not True:
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_DENSITY_NOT_PASS")
+        if density.get("target_forward_closed_trades") != 30 or density.get("max_estimated_days") != 60:
+            return ProductionAuthorization(False, "FORWARD_VALIDATION_DENSITY_CONTRACT_MISMATCH")
+        return ProductionAuthorization(
+            authorized=True,
+            reason="TESTNET_FORWARD_AUTHORIZED",
+            candidate_id=candidate_id,
+            candidate_version=candidate_version,
+            rules=rules,
+            validation_evidence_ref=evidence_ref,
+            approval_identity="forward_validation",
+            approval_time=str(block["frozen_at"]),
+            validation_evidence_hash=evidence_hash,
+            dataset_hash=dataset_hash,
+            strategy_code_hash=identity.strategy_code_hash,
+            strategy_package_hash=identity.strategy_package_hash,
+            config_snapshot_hash=snapshot_hash,
+            eligible_execution_symbols=tuple(eligible_symbols),
+        )
+    except (KeyError, TypeError, ValueError):
+        return ProductionAuthorization(False, "FORWARD_VALIDATION_PAYLOAD_INVALID")
 
 
 def _strategy_contract(authorization: ProductionAuthorization) -> StrategyContract:
@@ -226,13 +353,20 @@ def evaluate_authorized_production_strategy(
         result = run_proposal_pipeline(context)
         proposal = result.selection.selected
         trace: dict[str, Any] = {
-            "production_authorization": "APPROVED",
+            "production_authorization": (
+                "TESTNET_FORWARD" if authorization.approval_identity == "forward_validation" else "APPROVED"
+            ),
             "validation_evidence_ref": authorization.validation_evidence_ref or "",
             "approval_identity": authorization.approval_identity or "",
             "approval_time": authorization.approval_time or "",
             "candidate_id": authorization.candidate_id,
             "candidate_version": authorization.candidate_version,
             "rules_hash": strategy_rules_hash(authorization.rules),
+            "strategy_code_hash": authorization.strategy_code_hash or "",
+            "strategy_package_hash": authorization.strategy_package_hash or "",
+            "dataset_hash": authorization.dataset_hash or "",
+            "validation_evidence_hash": authorization.validation_evidence_hash or "",
+            "config_snapshot_hash": authorization.config_snapshot_hash or "",
             "proposal_pipeline": result.model_dump(mode="json"),
         }
         if proposal is None:
@@ -263,6 +397,11 @@ def evaluate_authorized_production_strategy(
                         "approval_identity": authorization.approval_identity or "",
                         "approval_time": authorization.approval_time or "",
                         "rules_hash": strategy_rules_hash(authorization.rules),
+                        "strategy_code_hash": authorization.strategy_code_hash or "",
+                        "strategy_package_hash": authorization.strategy_package_hash or "",
+                        "dataset_hash": authorization.dataset_hash or "",
+                        "validation_evidence_hash": authorization.validation_evidence_hash or "",
+                        "config_snapshot_hash": authorization.config_snapshot_hash or "",
                     }.items()
                 )
             ),
@@ -279,10 +418,20 @@ def evaluate_authorized_production_strategy(
     trace = dict(decision.trace)
     trace.update(
         {
-            "production_authorization": "APPROVED",
+            "production_authorization": (
+                "TESTNET_FORWARD" if authorization.approval_identity == "forward_validation" else "APPROVED"
+            ),
             "validation_evidence_ref": authorization.validation_evidence_ref or "",
             "approval_identity": authorization.approval_identity or "",
             "approval_time": authorization.approval_time or "",
+            "candidate_id": authorization.candidate_id,
+            "candidate_version": authorization.candidate_version,
+            "rules_hash": strategy_rules_hash(authorization.rules),
+            "strategy_code_hash": authorization.strategy_code_hash or "",
+            "strategy_package_hash": authorization.strategy_package_hash or "",
+            "dataset_hash": authorization.dataset_hash or "",
+            "validation_evidence_hash": authorization.validation_evidence_hash or "",
+            "config_snapshot_hash": authorization.config_snapshot_hash or "",
         }
     )
     if not decision.should_trade or decision.direction is None or decision.bar_time is None or decision.atr is None:

@@ -190,6 +190,21 @@ class TestForbiddenSourceDetection:
         _flag_forbidden_source(evidence, "TESTNET_CANARY", "testnet_sampling_v2")
         assert evidence.used_acceptance_shortcut is False
         assert evidence.gate17_passed is True
+        assert evidence.natural_strategy_business_recovery_passed is False
+
+    def test_canary_execution_health_cannot_pass_natural_business_recovery(self) -> None:
+        evidence = _complete_evidence()
+        evidence.entry_authority = "TESTNET_CANARY"
+
+        assert evidence.execution_contract_health_passed is True
+        assert evidence.natural_auto_trading_recovery_passed is False
+
+    def test_forward_strategy_passes_natural_business_recovery(self) -> None:
+        evidence = _complete_evidence()
+        evidence.entry_authority = "TESTNET_FORWARD"
+
+        assert evidence.natural_strategy_business_recovery_passed is True
+        assert evidence.natural_auto_trading_recovery_passed is True
 
     def test_legitimate_sampling_strategy_not_flagged(self) -> None:
         evidence = _complete_evidence()

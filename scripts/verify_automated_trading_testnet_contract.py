@@ -85,6 +85,9 @@ class ContractEvidence:
     real_exchange_orders: int = 0
     steps: list[ContractStep] = field(default_factory=list)
     overall_passed: bool = False
+    execution_contract_health: bool = False
+    natural_strategy_business_recovery: bool = False
+    natural_auto_trading_recovery: bool = False
 
     def add(self, step: ContractStep) -> None:
         self.steps.append(step)
@@ -591,6 +594,10 @@ def run_contract(symbol: str, notional_usdt: Decimal) -> ContractEvidence:
 
     evidence.completed_at = datetime.now(UTC).isoformat()
     evidence.overall_passed = all(step.passed for step in evidence.steps)
+    evidence.execution_contract_health = evidence.overall_passed
+    # Gate 16 is intentionally never a natural strategy/business proof.
+    evidence.natural_strategy_business_recovery = False
+    evidence.natural_auto_trading_recovery = False
     return evidence
 
 
@@ -607,6 +614,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Real Binance Testnet contract verification (Task 16)")
     parser.add_argument("--symbol", default="BTC/USDT")
     parser.add_argument("--notional", default="20", help="Target notional in USDT (min_notional wins if larger)")
+    parser.add_argument("--json", action="store_true", help="Emit the separated contract status as JSON")
     args = parser.parse_args()
 
     print("=" * 72)
@@ -616,6 +624,21 @@ def main() -> int:
 
     evidence = run_contract(args.symbol, Decimal(args.notional))
     path = write_evidence(evidence)
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "proof_type": evidence.proof_type,
+                    "execution_contract_health": evidence.execution_contract_health,
+                    "natural_strategy_business_recovery": evidence.natural_strategy_business_recovery,
+                    "natural_auto_trading_recovery": evidence.natural_auto_trading_recovery,
+                    "overall_passed": evidence.overall_passed,
+                    "evidence": str(path),
+                },
+                sort_keys=True,
+            )
+        )
 
     print("-" * 72)
     print(f"network_calls        : {evidence.network_calls}")

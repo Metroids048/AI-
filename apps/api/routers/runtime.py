@@ -962,7 +962,18 @@ def _v2_decision_payload(decision, cycle) -> dict:
             signal_stage.get("outcome") == "PASSED" and signal_metrics.get("strict_alignment") is True
         )
     confirmation_bars_passed = signal_metrics.get("confirmation_bars_passed")
-    return {
+    strategy_terminal_reason = payload.get("strategy_terminal_reason")
+    system_failure_reason = payload.get("system_failure_reason")
+    execution_blocker = payload.get("execution_blocker")
+    has_reason_dimensions = any(
+        key in payload for key in ("strategy_terminal_reason", "system_failure_reason", "execution_blocker")
+    )
+    terminal_reason = decision.terminal_reason or payload.get("reason_code") or "UNKNOWN"
+    if has_reason_dimensions:
+        if not any((strategy_terminal_reason, system_failure_reason, execution_blocker)):
+            system_failure_reason = terminal_reason or "DECISION_REASON_MISSING"
+        terminal_reason = strategy_terminal_reason or system_failure_reason or execution_blocker
+    result = {
         "decision_id": decision.decision_id,
         "cycle_id": cycle.cycle_id,
         "symbol": cycle.symbol,
@@ -978,13 +989,22 @@ def _v2_decision_payload(decision, cycle) -> dict:
         "candidate_created": candidate_created,
         "entry_gate_result": payload.get("terminal_stage") or cycle.decision_terminal or "UNKNOWN",
         "entry_submitted": exchange_submitted,
-        "terminal_reason": decision.terminal_reason or payload.get("reason_code") or "UNKNOWN",
+        "terminal_reason": terminal_reason,
         "effective_max_open_positions": (
             (payload.get("sizing_contract") or {}).get("effective_max_open_positions")
             if isinstance(payload.get("sizing_contract"), dict)
             else None
         ),
     }
+    if has_reason_dimensions:
+        result.update(
+            {
+                "strategy_terminal_reason": strategy_terminal_reason,
+                "system_failure_reason": system_failure_reason,
+                "execution_blocker": execution_blocker,
+            }
+        )
+    return result
 
 
 def _v2_position_payload(position: V2ManagedPosition) -> dict:
@@ -1205,6 +1225,30 @@ def _reason_category(reason: str) -> str:
     return "system_failure"
 
 
+def _decision_reason_dimensions(item: dict) -> tuple[str | None, str | None, str | None]:
+    """Return persisted reason dimensions without fabricating an UNKNOWN value."""
+
+    strategy_reason = item.get("strategy_terminal_reason")
+    system_reason = item.get("system_failure_reason")
+    execution_blocker = item.get("execution_blocker")
+    if any((strategy_reason, system_reason, execution_blocker)):
+        return (
+            str(strategy_reason) if strategy_reason else None,
+            str(system_reason) if system_reason else None,
+            str(execution_blocker) if execution_blocker else None,
+        )
+    legacy_reason = item.get("reason")
+    if not legacy_reason:
+        return None, "DECISION_REASON_MISSING", None
+    reason = str(legacy_reason)
+    category = _reason_category(reason)
+    if category == "strategy_filter":
+        return reason, None, None
+    if category == "operational_block":
+        return None, None, reason
+    return None, reason, None
+
+
 def build_no_trade_summary(
     *,
     observed_at: datetime,
@@ -1229,23 +1273,27 @@ def build_no_trade_summary(
         reverse=True,
     )
     duplicate_decisions = [item for item in normalized_decisions if item.get("reason") == "DUPLICATE_DECISION"]
-    effective_decisions = [item for item in normalized_decisions if item.get("reason") != "DUPLICATE_DECISION"]
+    management_decisions = [item for item in normalized_decisions if item.get("cycle_kind") == "MANAGEMENT"]
+    effective_decisions = [
+        item
+        for item in normalized_decisions
+        if item.get("reason") != "DUPLICATE_DECISION" and item.get("cycle_kind") != "MANAGEMENT"
+    ]
     reason_counts: dict[str, int] = {}
     strategy_filter_counts: dict[str, int] = {}
     operational_block_counts: dict[str, int] = {}
     system_failure_counts: dict[str, int] = {}
     for item in effective_decisions:
-        reason = str(item.get("reason") or "UNKNOWN")
-        if reason in {"OK", "CANDIDATE_READY", "ENTRY_INTENT_CREATED"}:
-            continue
-        reason_counts[reason] = reason_counts.get(reason, 0) + 1
-        category = _reason_category(reason)
-        target = {
-            "strategy_filter": strategy_filter_counts,
-            "operational_block": operational_block_counts,
-            "system_failure": system_failure_counts,
-        }[category]
-        target[reason] = target.get(reason, 0) + 1
+        dimensions = _decision_reason_dimensions(item)
+        for reason, target in zip(
+            dimensions,
+            (strategy_filter_counts, system_failure_counts, operational_block_counts),
+            strict=True,
+        ):
+            if reason is None or reason in {"OK", "CANDIDATE_READY", "ENTRY_INTENT_CREATED"}:
+                continue
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            target[reason] = target.get(reason, 0) + 1
     dominant_reason = next(iter(reason_counts), None)
     if reason_counts:
         dominant_reason = max(reason_counts, key=lambda reason: (reason_counts[reason], reason))
@@ -1312,6 +1360,9 @@ def build_no_trade_summary(
     elif at_capacity:
         summary_code = "ENTRY_BLOCKED"
         active_blocker = "MAX_OPEN_EXPOSURES"
+    elif entry_runtime.get("execution_blocker"):
+        summary_code = "ENTRY_BLOCKED"
+        active_blocker = str(entry_runtime["execution_blocker"])
     elif dominant_reason is not None and _entry_blocking_reason(dominant_reason):
         summary_code = "ENTRY_BLOCKED"
         active_blocker = dominant_reason
@@ -1388,6 +1439,7 @@ def build_no_trade_summary(
             "entry_authority": entry_runtime.get("entry_authority"),
             "entry_authorized": entry_authorized,
             "reason": entry_runtime.get("reason") or entry_runtime.get("entry_authority_reason"),
+            "execution_blocker": entry_runtime.get("execution_blocker"),
         },
         "current_status": {
             "runtime_health": runtime_health,
@@ -1403,6 +1455,7 @@ def build_no_trade_summary(
             "total": len(normalized_decisions),
             "effective": len(effective_decisions),
             "duplicate": len(duplicate_decisions),
+            "management": len(management_decisions),
             "latest_at": _iso_datetime(latest_decision_at),
             "reason_counts": reason_counts,
             "dominant_reason": dominant_reason,
@@ -1415,6 +1468,7 @@ def build_no_trade_summary(
             "strategy_filter_counts": strategy_filter_counts,
             "operational_block_counts": operational_block_counts,
             "system_failure_counts": system_failure_counts,
+            "recent_system_failures": system_failure_counts,
         },
         "funnel": funnel or {},
         "throughput": {
@@ -1552,6 +1606,15 @@ def runtime_no_trade_summary(
             {
                 "at": decision.created_at,
                 "reason": payload["terminal_reason"],
+                "strategy_terminal_reason": payload.get("strategy_terminal_reason"),
+                "system_failure_reason": payload.get("system_failure_reason"),
+                "execution_blocker": payload.get("execution_blocker"),
+                "cycle_kind": (
+                    "MANAGEMENT"
+                    if isinstance(payload.get("production_trace"), dict)
+                    and payload["production_trace"].get("management_only")
+                    else "ENTRY_OPPORTUNITY"
+                ),
                 "signal_generated": payload["signal_generated"],
                 "base_signal_detected": payload["base_signal_detected"],
                 "base_signal_side": payload["base_signal_side"],

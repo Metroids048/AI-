@@ -17,6 +17,7 @@ from services.automated_trading.application.cycle_service import (
     CycleRequest,
     CycleResult,
     LocalStateLoadResult,
+    _apply_runtime_entry_pause,
     _calculate_quantity,
     _project_confirmed_protection_exits,
     _recover_confirmed_margin_guard_lifecycle,
@@ -218,6 +219,68 @@ def test_pending_production_with_enabled_testnet_canary_reaches_existing_entry()
     assert result.funnel_payload["entry_authority"] == "TESTNET_CANARY"
     assert result.funnel_payload["promotion_eligible"] is False
     assert result.funnel_payload["active_entry_strategy"] == "testnet_sampling_v2"
+
+
+def test_entry_data_not_ready_does_not_submit_and_keeps_management_running() -> None:
+    """P-001: an unready entry bar is retryable, not a terminal stale strategy result."""
+    adapter = build_adapter_with_successful_cycle()
+
+    result = run_automated_trading_cycle(
+        build_request(
+            entry_authority=EntryAuthority.TESTNET_CANARY,
+            entry_data_ready=False,
+            entry_data_reason="ENTRY_DATA_NOT_READY",
+        ),
+        adapter,
+    )
+
+    adapter.submit_market_order.assert_not_called()
+    assert result.reconciliation_status.value == "HEALTHY"
+    assert result.funnel_payload["system_failure_reason"] == "ENTRY_DATA_NOT_READY"
+    assert result.funnel_payload["strategy_terminal_reason"] is None
+    assert result.funnel_payload["entry_bar_retryable"] is True
+
+
+def test_retry_same_closed_bar_evaluates_after_entry_data_becomes_ready() -> None:
+    """P-001: a previously unready bar must not enter terminal-bar de-duplication."""
+    unready_adapter = build_adapter_with_successful_cycle()
+    ready_adapter = build_adapter_with_successful_cycle()
+    common = {
+        "entry_authority": EntryAuthority.TESTNET_CANARY,
+        "already_evaluated_bars": frozenset(),
+    }
+
+    unready = run_automated_trading_cycle(
+        build_request(**common, entry_data_ready=False, entry_data_reason="ENTRY_DATA_NOT_READY"),
+        unready_adapter,
+    )
+    ready = run_automated_trading_cycle(
+        build_request(**common, entry_data_ready=True),
+        ready_adapter,
+    )
+
+    assert unready.funnel_payload["entry_bar_retryable"] is True
+    assert ready.funnel_payload["reason_code"] != "DUPLICATE_DECISION"
+    ready_adapter.submit_market_order.assert_called_once()
+
+
+def test_runtime_kill_switch_preserves_strategy_reason_as_separate_execution_blocker() -> None:
+    """P-002: a runtime pause must not rewrite an already-observed strategy fact."""
+    result = CycleResult(
+        cycle_id="kill-switch-cycle",
+        symbol="BTC/USDT",
+        funnel_payload={
+            "terminal_stage": "ENTRY_SIGNAL_EVALUATED",
+            "reason_code": "NO_ENTRY_SIGNAL",
+            "strategy_terminal_reason": "NO_ENTRY_SIGNAL",
+        },
+    )
+
+    _apply_runtime_entry_pause(result, entry_enabled=False)
+
+    assert result.funnel_payload["strategy_terminal_reason"] == "NO_ENTRY_SIGNAL"
+    assert result.funnel_payload["execution_blocker"] == "ENTRY_KILL_SWITCH_ACTIVE"
+    assert result.funnel_payload["reason_code"] == "NO_ENTRY_SIGNAL"
 
 
 def test_r2_cost_gate_is_diagnostic_for_testnet_sampling_canary() -> None:

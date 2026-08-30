@@ -136,6 +136,13 @@ class CycleRequest:
     account_equity: Decimal = Decimal("10000")
     open_position_symbols: frozenset[str] = frozenset()
     already_evaluated_bars: frozenset[datetime] = frozenset()
+    # New-entry data readiness is resolved by the scheduler before the cycle
+    # reaches DecisionService.  It is deliberately separate from the closed-bar
+    # strategy outcome: management, protection, recovery, and reconciliation
+    # must still run, while this bar remains eligible for a later retry.
+    entry_data_ready: bool = True
+    entry_data_reason: str | None = None
+    entry_data_details: dict[str, Any] = field(default_factory=dict)
     entry_kill_switch_active: bool = False
     daily_trade_limit_reached: bool = False
     symbol_cooldown_active: bool = False
@@ -577,8 +584,14 @@ def _apply_runtime_entry_pause(result: CycleResult, *, entry_enabled: bool) -> N
     result.entry_blocked_by_runtime_control = True
     if not result.funnel_payload:
         return
+    strategy_terminal_reason = result.funnel_payload.get("strategy_terminal_reason") or result.funnel_payload.get(
+        "reason_code"
+    )
     result.funnel_payload.update(
         {
+            "strategy_terminal_reason": strategy_terminal_reason,
+            "system_failure_reason": result.funnel_payload.get("system_failure_reason"),
+            "execution_blocker": DecisionReasonCode.ENTRY_KILL_SWITCH_ACTIVE.value,
             "execution_policy": "ENTRY_PAUSED",
             "entry_authority": EntryAuthority.NONE.value,
             "entry_authorized": False,
@@ -593,6 +606,7 @@ def _apply_runtime_entry_pause(result: CycleResult, *, entry_enabled: bool) -> N
         stage="ENTRY_SUBMISSION_AUTHORIZED",
         outcome="REJECTED",
         reason_code=DecisionReasonCode.ENTRY_KILL_SWITCH_ACTIVE.value,
+        update_terminal=False,
     )
 
 
@@ -873,9 +887,7 @@ def _evaluate_durable_portfolio_risk(
         candidate_initial_risk_usdt=initial_risk_usdt,
         committed=committed,
         max_open_positions=max_open_positions if max_open_positions is not None else MAX_OPEN_POSITIONS,
-        max_total_fraction=(
-            max_total_fraction if max_total_fraction is not None else MAX_TOTAL_INITIAL_RISK_FRACTION
-        ),
+        max_total_fraction=(max_total_fraction if max_total_fraction is not None else MAX_TOTAL_INITIAL_RISK_FRACTION),
     )
     return decision, decision.reason_code
 
@@ -2080,6 +2092,31 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                     except Exception as exc:  # noqa: BLE001
                         result.record_error(f"exit fill persistence failed: {exc}")
 
+    if not request.entry_data_ready:
+        entry_data_reason = request.entry_data_reason or "ENTRY_DATA_NOT_READY"
+        result.funnel_payload = {
+            "cycle_id": request.cycle_id,
+            "symbol": request.symbol,
+            "lane": CandidateLane.PRODUCTION.value,
+            "strategy_id": None,
+            "strategy_version": None,
+            "terminal_stage": "ENTRY_DATA_NOT_READY",
+            "reason_code": entry_data_reason,
+            "strategy_terminal_reason": None,
+            "system_failure_reason": entry_data_reason,
+            "execution_blocker": None,
+            "entry_bar_retryable": True,
+            "entry_data_details": dict(request.entry_data_details),
+            "execution_policy": "ENTRY_DATA_PENDING",
+            "entry_authority": request.entry_authority.value,
+            "entry_authorized": False,
+            "entry_authority_reason": request.entry_authority_reason,
+            "trading_state": "ENTRY_DATA_PENDING",
+            "active_entry_strategy": None,
+            "promotion_eligible": False,
+        }
+        return result
+
     if request.entry_authority is EntryAuthority.NONE:
         # Sampling remains observable, but a missing authority is an explicit
         # paused-entry runtime state, not a healthy no-signal decision.
@@ -2165,21 +2202,29 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             return result
         if not _sampling_execution_allowed(request, candidate):
             raise RuntimeError("TESTNET_CANARY candidate bypassed its authority contract")
-    elif request.entry_authority is EntryAuthority.PRODUCTION and request.production_authorized and candidate is None:
+    elif (
+        request.entry_authority in {EntryAuthority.PRODUCTION, EntryAuthority.TESTNET_FORWARD}
+        and request.production_authorized
+        and candidate is None
+    ):
+        is_forward = request.entry_authority is EntryAuthority.TESTNET_FORWARD
+        active_strategy = request.production_trace.get("strategy_id") or request.production_trace.get("candidate_id")
+        active_strategy = active_strategy or "production_strategy"
         result.funnel_payload = {
             "cycle_id": request.cycle_id,
             "symbol": request.symbol,
             "lane": CandidateLane.PRODUCTION.value,
-            "strategy_id": "production_strategy",
+            "strategy_id": active_strategy,
             "terminal_stage": "MANIFEST_EVALUATED",
             "reason_code": request.production_decision_reason,
-            "execution_policy": "AUTHORIZED_PRODUCTION",
-            "entry_authority": EntryAuthority.PRODUCTION.value,
+            "execution_policy": "AUTHORIZED_TESTNET_FORWARD" if is_forward else "AUTHORIZED_PRODUCTION",
+            "entry_authority": request.entry_authority.value,
             "entry_authorized": True,
             "entry_authority_reason": request.entry_authority_reason,
             "trading_state": "TRADING",
-            "active_entry_strategy": "production_strategy",
-            "promotion_eligible": True,
+            "active_entry_strategy": active_strategy,
+            "promotion_eligible": not is_forward,
+            "forward_validation": is_forward,
             "production_authorization_reason": request.production_authorization_reason,
         }
         _apply_runtime_entry_pause(result, entry_enabled=entry_enabled)
@@ -2223,14 +2268,17 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         "execution_policy": (
             "AUTHORIZED_TESTNET_CANARY"
             if request.entry_authority is EntryAuthority.TESTNET_CANARY
+            else "AUTHORIZED_TESTNET_FORWARD"
+            if request.entry_authority is EntryAuthority.TESTNET_FORWARD
             else "AUTHORIZED_PRODUCTION"
         ),
         "entry_authority": request.entry_authority.value,
         "entry_authorized": True,
         "entry_authority_reason": request.entry_authority_reason,
+        "forward_validation": request.entry_authority is EntryAuthority.TESTNET_FORWARD,
         "trading_state": "TRADING",
         "active_entry_strategy": candidate.strategy_id,
-        "promotion_eligible": not candidate.non_promotable,
+        "promotion_eligible": request.entry_authority is EntryAuthority.PRODUCTION and not candidate.non_promotable,
         "strategy_trace": dict(request.production_trace),
         "candidate": serialize_trade_candidate(candidate),
         "sizing_contract": dict(request.sizing_diagnostics),

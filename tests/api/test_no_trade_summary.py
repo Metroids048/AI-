@@ -295,3 +295,46 @@ def test_manual_direction_conflict_is_reported_as_entry_block():
 
     assert result["summary_code"] == "ENTRY_BLOCKED"
     assert result["decisions"]["dominant_reason"] == "MANUAL_POSITION_DIRECTION_CONFLICT"
+
+
+def test_missing_reason_becomes_explicit_invariant_failure_not_unknown():
+    result = build_no_trade_summary(**_facts(decisions=[{"at": datetime.now(UTC)}]))
+
+    assert result["historical_window"]["system_failure_counts"] == {"DECISION_REASON_MISSING": 1}
+    assert "UNKNOWN" not in result["decisions"]["reason_counts"]
+
+
+def test_recent_system_failures_remain_visible_when_current_blocker_is_none():
+    now = datetime.now(UTC)
+    result = build_no_trade_summary(
+        **_facts(
+            decisions=[
+                {
+                    "at": now,
+                    "reason": "NO_ENTRY_SIGNAL",
+                    "strategy_terminal_reason": "NO_ENTRY_SIGNAL",
+                    "system_failure_reason": "ENTRY_DATA_NOT_READY",
+                    "execution_blocker": None,
+                }
+            ]
+        )
+    )
+
+    assert result["current_status"]["active_blocker"] is None
+    assert result["historical_window"]["strategy_filter_counts"] == {"NO_ENTRY_SIGNAL": 1}
+    assert result["historical_window"]["recent_system_failures"] == {"ENTRY_DATA_NOT_READY": 1}
+
+
+def test_management_cycle_is_not_counted_as_strategy_opportunity():
+    now = datetime.now(UTC)
+    result = build_no_trade_summary(
+        **_facts(
+            decisions=[
+                {"at": now, "reason": "NO_ENTRY_SIGNAL", "cycle_kind": "MANAGEMENT"},
+                {"at": now - timedelta(minutes=1), "reason": "NO_ENTRY_SIGNAL", "cycle_kind": "ENTRY_OPPORTUNITY"},
+            ]
+        )
+    )
+
+    assert result["decisions"]["management"] == 1
+    assert result["decisions"]["effective"] == 1

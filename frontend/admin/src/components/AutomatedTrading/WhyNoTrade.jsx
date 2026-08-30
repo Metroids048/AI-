@@ -102,6 +102,7 @@ function SummaryCard({ summary }) {
     .slice(0, 5);
   const current = summary.current_status ?? {};
   const activeBlocker = current.active_blocker;
+  const currentFacts = summary.entry_runtime ?? {};
   return (
     <div className="why-no-trade-summary">
       <p className="why-no-trade-status">{summaryCopy(summary)}</p>
@@ -109,6 +110,7 @@ function SummaryCard({ summary }) {
         <strong>当前状态</strong>
         <span>{current.runtime_health === "healthy" ? "正常等待交易机会" : "运行状态需要关注"}</span>
         <span>当前 Active Blocker：{activeBlocker ? formatDecisionReason(activeBlocker) : "无"}</span>
+        <span>当前执行阻断：{currentFacts.execution_blocker ? formatDecisionReason(currentFacts.execution_blocker) : "无"}</span>
       </div>
       {protection.p0_unprotected ? (
         <p className="why-no-trade-p0" role="alert">
@@ -158,6 +160,7 @@ function SummaryCard({ summary }) {
         <span>有效策略判断 {decisions.effective ?? 0} 次</span>
         {rows.map(([code, count]) => <span key={code}>{formatDecisionReason(code)} {count} 次</span>)}
         <span>重复轮询 {decisions.duplicate ?? 0} 次</span>
+        <span>持仓管理轮次 {decisions.management ?? 0} 次</span>
       </div>
       {summary.funnel ? (
         <div className="why-no-trade-stats">

@@ -67,6 +67,15 @@ def v2_db(tmp_path, monkeypatch):
     engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _deterministic_testnet_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep fake-adapter scheduler tests independent from public clock DNS."""
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.fetch_binance_server_time",
+        lambda: datetime.now(UTC),
+    )
+
+
 def _bars() -> TimeframeView:
     ts = datetime(2026, 7, 28, 10, 0, tzinfo=UTC)
     bar = BarView(

@@ -368,7 +368,11 @@ def active_startup_contract_errors(
         errors.append("ENTRY_DISABLED")
     if not strategy_not_ready_pause and state.entry_authorized is not True:
         errors.append("ENTRY_NOT_AUTHORIZED")
-    if not strategy_not_ready_pause and state.entry_authority not in {"TESTNET_CANARY", "PRODUCTION"}:
+    if not strategy_not_ready_pause and state.entry_authority not in {
+        "TESTNET_CANARY",
+        "TESTNET_FORWARD",
+        "PRODUCTION",
+    }:
         errors.append("ENTRY_AUTHORITY_INVALID")
     if state.entry_authority == "TESTNET_CANARY" and state.sampling_fallback_enabled is not True:
         errors.append("CANARY_SAMPLING_FALLBACK_DISABLED")

@@ -1430,6 +1430,16 @@ def _recovery_metrics_for_result(
     one_minute = evidence.get("one_minute_fidelity", {})
     freqtrade = evidence.get("freqtrade", {})
     vectorbt = evidence.get("vectorbt", {})
+    closed_at = [
+        datetime.fromisoformat(str(trade["closed_at"]).replace("Z", "+00:00"))
+        for trade in trades
+        if isinstance(trade, dict) and trade.get("closed_at")
+    ]
+    if len(closed_at) < 2:
+        estimated_days_to_target = float("inf")
+    else:
+        observed_days = max((max(closed_at) - min(closed_at)).total_seconds() / 86400, 1.0)
+        estimated_days_to_target = observed_days * 30 / len(closed_at)
     return ProfitabilityRecoveryMetrics(
         total_trades=int(portfolio.get("total_trades", portfolio.get("trades", 0))),
         per_symbol_trades=per_symbol_trades,
@@ -1458,6 +1468,8 @@ def _recovery_metrics_for_result(
         slippage_observed=slippage_observed,
         trade_attribution_complete=bool(trades),
         expectancy_lcb=float(evidence.get("expectancy_lcb", result.get("expectancy_lcb", 0.0))),
+        forward_closed_trade_target=30,
+        estimated_days_to_forward_closed_trade_target=estimated_days_to_target,
     )
 
 

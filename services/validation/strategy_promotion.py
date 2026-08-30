@@ -68,6 +68,10 @@ class ProfitabilityRecoveryMetrics(PlatformModel):
     slippage_observed: bool = False
     trade_attribution_complete: bool = False
     expectancy_lcb: float = 0.0
+    # Additive Forward Density Gate.  These values are derived from sealed
+    # historical OOS/validation trade facts; they never tune strategy rules.
+    forward_closed_trade_target: int = Field(default=30, ge=1)
+    estimated_days_to_forward_closed_trade_target: float = float("inf")
 
 
 def evaluate_profitability_recovery(metrics: ProfitabilityRecoveryMetrics) -> PromotionResult:
@@ -115,6 +119,8 @@ def evaluate_profitability_recovery(metrics: ProfitabilityRecoveryMetrics) -> Pr
         failures.append("trade_attribution_incomplete")
     if metrics.expectancy_lcb <= 0:
         failures.append("expectancy_lcb_not_positive")
+    if metrics.estimated_days_to_forward_closed_trade_target > 60:
+        failures.append("STRATEGY_TOO_SPARSE_FOR_FORWARD_VALIDATION")
     return PromotionResult(eligible=not failures, failed_requirements=tuple(failures))
 
 

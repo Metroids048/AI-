@@ -130,6 +130,11 @@ def main() -> int:
     parser.add_argument("--staged", action="store_true", help="check staged paths before commit")
     parser.add_argument("--verify-baseline", action="store_true", help="verify hashes stored in the contract")
     parser.add_argument("--verify-head", action="store_true", help="verify protected paths in current HEAD")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a machine-readable result after the requested frozen-contract checks",
+    )
     args = parser.parse_args()
     contract = load_contract()
 
@@ -167,6 +172,24 @@ def main() -> int:
             print(f"PASS: bounded one-time approval covers {len(touched)} frozen path(s)")
         else:
             print("PASS: no automated-trading frozen paths staged")
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "contract": "automated_trading_frozen_contract",
+                    "status": "PASS",
+                    "checks_requested": {
+                        "staged": args.staged,
+                        "verify_baseline": args.verify_baseline,
+                        "verify_head": args.verify_head,
+                    },
+                    "execution_contract_health": "PASS",
+                    "natural_strategy_business_recovery": "NOT_EVALUATED",
+                    "natural_auto_trading_recovery": "NOT_EVALUATED",
+                },
+                ensure_ascii=False,
+            )
+        )
     return 0
 
 

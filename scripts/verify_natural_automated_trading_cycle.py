@@ -99,6 +99,11 @@ class NaturalCycleEvidence:
     final_local_position_state: str | None = None
     final_reconciliation_status: str | None = None
 
+    # E-005 keeps infrastructure health separate from business recovery.
+    execution_contract_health: bool = False
+    natural_strategy_business_recovery: bool = False
+    natural_auto_trading_recovery: bool = False
+
     # Integrity
     used_acceptance_shortcut: bool = False
     used_manual_intervention: bool = False
@@ -118,7 +123,7 @@ class NaturalCycleEvidence:
 
     @property
     def gate17_passed(self) -> bool:
-        """Every Gate 17 condition, evaluated strictly."""
+        """Legacy execution-contract health result, evaluated strictly."""
         if self.used_acceptance_shortcut or self.used_manual_intervention or self.used_synthetic_fill:
             return False
         if self.final_exchange_position_qty is None:
@@ -146,6 +151,30 @@ class NaturalCycleEvidence:
                 self.final_reconciliation_status == "HEALTHY",
             ]
         )
+
+    @property
+    def execution_contract_health_passed(self) -> bool:
+        return self.gate17_passed
+
+    @property
+    def natural_strategy_business_recovery_passed(self) -> bool:
+        """Only a Forward/Production natural strategy may pass E-005."""
+        return all(
+            [
+                self.gate17_passed,
+                self.natural_strategy,
+                self.entry_authority in {"TESTNET_FORWARD", "PRODUCTION"},
+                bool(self.strategy_id),
+                bool(self.take_profit_exchange_order_id),
+                not self.used_acceptance_shortcut,
+                not self.used_manual_intervention,
+                not self.used_synthetic_fill,
+            ]
+        )
+
+    @property
+    def natural_auto_trading_recovery_passed(self) -> bool:
+        return self.natural_strategy_business_recovery_passed
 
     def missing_requirements(self) -> list[str]:
         """Human-readable list of what is still absent."""
@@ -346,28 +375,7 @@ def _natural_entry_passed(evidence: NaturalCycleEvidence) -> bool:
     """Require a post-baseline natural V2 entry, fill, durable position, and protection."""
     return all(
         [
-            evidence.entry_authority == "TESTNET_CANARY",
-            bool(evidence.cycle_id),
-            bool(evidence.decision_id),
-            bool(evidence.candidate_id),
-            bool(evidence.intent_id),
-            bool(evidence.entry_exchange_order_id),
-            bool(evidence.entry_trade_ids),
-            bool(evidence.position_group_id),
-            Decimal(evidence.initial_risk_usdt or "0") > 0,
-            bool(evidence.stop_exchange_order_id),
-            not evidence.used_acceptance_shortcut,
-            not evidence.used_manual_intervention,
-            not evidence.used_synthetic_fill,
-        ]
-    )
-
-
-def _natural_entry_passed(evidence: NaturalCycleEvidence) -> bool:
-    """Require a post-baseline natural V2 entry, fill, durable position, and protection."""
-    return all(
-        [
-            evidence.entry_authority == "TESTNET_CANARY",
+            evidence.entry_authority in {"TESTNET_FORWARD", "PRODUCTION", "TESTNET_CANARY"},
             bool(evidence.cycle_id),
             bool(evidence.decision_id),
             bool(evidence.candidate_id),
@@ -557,6 +565,9 @@ def observe_natural_cycle(symbol_filter: str | None, timeout_minutes: int, poll_
 
 
 def write_evidence(evidence: NaturalCycleEvidence) -> Path:
+    evidence.execution_contract_health = evidence.gate17_passed
+    evidence.natural_strategy_business_recovery = evidence.natural_strategy_business_recovery_passed
+    evidence.natural_auto_trading_recovery = evidence.natural_auto_trading_recovery_passed
     EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = EVIDENCE_DIR / f"natural_cycle_{stamp}.json"
@@ -583,10 +594,15 @@ def main() -> int:
     print("-" * 72)
     print(f"evidence: {path}")
 
-    if evidence.gate17_passed:
-        print("\nRESULT: GATE 17 PASSED")
-        print("Binance Testnet 自然自动开平单链路已打通。")
+    if evidence.natural_auto_trading_recovery_passed:
+        print("\nRESULT: NATURAL_AUTO_TRADING_RECOVERY PASSED")
+        print("TESTNET_FORWARD/PRODUCTION 自然策略自动开平单链路已打通。")
         return 0
+
+    if evidence.execution_contract_health:
+        print("\nRESULT: EXECUTION_CONTRACT_HEALTH PASSED")
+        print("基础执行链健康，但 NATURAL_STRATEGY_BUSINESS_RECOVERY 未通过。")
+        return 1
 
     print("\nRESULT: GATE 17 NOT PASSED")
     print("missing / invalid:")

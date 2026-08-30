@@ -129,6 +129,8 @@ def _recovery_metrics(**overrides: object) -> ProfitabilityRecoveryMetrics:
         "slippage_observed": True,
         "trade_attribution_complete": True,
         "expectancy_lcb": 0.0001,
+        "forward_closed_trade_target": 30,
+        "estimated_days_to_forward_closed_trade_target": 30.0,
     }
     payload.update(overrides)
     return ProfitabilityRecoveryMetrics.model_validate(payload)
@@ -139,6 +141,18 @@ def test_profitability_recovery_gate_accepts_complete_evidence() -> None:
 
     assert result.eligible is True
     assert result.failed_requirements == ()
+
+
+def test_profitability_recovery_rejects_profitable_strategy_too_sparse_for_forward_validation() -> None:
+    result = evaluate_profitability_recovery(
+        _recovery_metrics(
+            forward_closed_trade_target=30,
+            estimated_days_to_forward_closed_trade_target=61.0,
+        )
+    )
+
+    assert result.eligible is False
+    assert "STRATEGY_TOO_SPARSE_FOR_FORWARD_VALIDATION" in result.failed_requirements
 
 
 @pytest.mark.parametrize(
@@ -153,9 +167,7 @@ def test_profitability_recovery_gate_accepts_complete_evidence() -> None:
         ("vectorbt_neighborhood_passed", False, "vectorbt_neighborhood_not_stable"),
     ],
 )
-def test_profitability_recovery_gate_rejects_each_hard_requirement(
-    field: str, value: object, reason: str
-) -> None:
+def test_profitability_recovery_gate_rejects_each_hard_requirement(field: str, value: object, reason: str) -> None:
     result = evaluate_profitability_recovery(_recovery_metrics(**{field: value}))
 
     assert result.eligible is False
