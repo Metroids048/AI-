@@ -895,6 +895,16 @@ class RuntimeScheduler:
                             str(result.get("scheduler_cycle_id")) if result.get("scheduler_cycle_id") else None
                         )
                     if name == V2_CRITICAL_JOB:
+                        durable_recovery_hold = str(_runtime_entry_control_reason() or "").startswith(
+                            LIVENESS_RECOVERY_HOLD_PREFIX
+                        )
+                        if durable_recovery_hold and not self.status.recovery.entry_hold:
+                            # The process supervisor can persist a hold after
+                            # this worker has started. Hydrate that durable
+                            # safety state before deciding whether it may be
+                            # cleared by an authoritative healthy cycle.
+                            self.status.recovery.entry_hold = True
+                            self.status.recovery.state = RECOVERY_ENTRY_HOLD
                         if self.status.recovery.entry_hold:
                             self.status.recovery.state = RECOVERY_MANAGEMENT
                             self._maybe_clear_recovery_hold(result)

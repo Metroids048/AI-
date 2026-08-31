@@ -977,7 +977,7 @@ def _prepare_archives(
             if period in existing_agg:
                 item.update({"status": "CHECKSUM_VALID", "cached": True, "bytes": destination.stat().st_size})
                 downloaded["aggTrades"][symbol].append(item.copy())
-            elif not audit_only and symbol == "ETHUSDT":
+            elif not audit_only:
                 agg_jobs.append((symbol, item, destination))
             remote["aggTrades"][symbol].append(item)
         remote["metrics"][symbol] = []

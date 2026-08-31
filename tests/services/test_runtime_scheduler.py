@@ -16,6 +16,8 @@ from services.execution.runtime_state import (
 )
 from services.execution.scheduler import (
     LIVENESS_RECOVERY_HOLD_PREFIX,
+    V2_CRITICAL_JOB,
+    CriticalJobLiveness,
     RuntimeScheduler,
     _aligned_run_delay_seconds,
     _default_exchange_info_refresh_runner,
@@ -938,5 +940,40 @@ def test_recovery_hold_auto_clears_after_authoritative_healthy_cycle(monkeypatch
     }
 
     assert scheduler._maybe_clear_recovery_hold(result) is True
+    assert scheduler.status.recovery.entry_hold is False
+    assert scheduler.status.recovery.state == "RECOVERED"
+
+
+@pytest.mark.asyncio
+async def test_v2_periodic_cycle_hydrates_and_clears_external_recovery_hold(monkeypatch) -> None:
+    """A supervisor hold written after worker start must not remain stale."""
+    scheduler = RuntimeScheduler()
+    scheduler._stop_event = asyncio.Event()
+    scheduler.status.critical_jobs[V2_CRITICAL_JOB] = CriticalJobLiveness()
+    persisted: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        "services.execution.scheduler._runtime_entry_control_reason",
+        lambda: f"{LIVENESS_RECOVERY_HOLD_PREFIX}RECOVERY_BUDGET_EXHAUSTED_HOLD:WORKER_EXITED:1",
+    )
+    monkeypatch.setattr(
+        "services.execution.scheduler._persist_runtime_entry_control",
+        lambda **kwargs: persisted.append(kwargs) or True,
+    )
+    monkeypatch.setattr(scheduler, "_safe_v2_recovery_check", lambda: {"safe_to_restart": True})
+
+    def runner() -> dict[str, object]:
+        assert scheduler._stop_event is not None
+        scheduler._stop_event.set()
+        return {"status": "completed", "results": [{"reconciliation_status": "HEALTHY"}]}
+
+    await scheduler._run_periodic(
+        name=V2_CRITICAL_JOB,
+        interval_seconds=0.01,
+        runner=runner,
+        affects_scheduler_health=True,
+    )
+
+    assert persisted == [{"entry_enabled": True, "reason": "LIVENESS_RECOVERY_RECOVERED"}]
     assert scheduler.status.recovery.entry_hold is False
     assert scheduler.status.recovery.state == "RECOVERED"

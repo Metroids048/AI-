@@ -160,6 +160,28 @@ def test_btc_failure_does_not_block_eth(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert len(downloaded["metrics"]["ETHUSDT"]) == 2
 
 
+def test_prepare_archives_downloads_aggtrades_for_each_execution_symbol(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(v3, "SYMBOLS", ("BTCUSDT", "ETHUSDT"))
+    monkeypatch.setattr(v3, "_months", lambda _start, _end: ["2023-01"])
+    monkeypatch.setattr(v3, "_days", lambda _start, _end: [])
+    downloaded_urls: list[str] = []
+
+    def fake_download(url: str, destination: Path, **_kwargs: object) -> dict[str, object]:
+        downloaded_urls.append(url)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"ok")
+        return {"url": url, "path": str(destination), "status": "CHECKSUM_VALID", "bytes": 2}
+
+    monkeypatch.setattr(v3, "_download", fake_download)
+    remote, downloaded = v3._prepare_archives(tmp_path, v3.START, v3.HOLDOUT_START, False)
+
+    assert {"BTCUSDT", "ETHUSDT"} == {url.split("/")[-2] for url in downloaded_urls}
+    assert all(row["status"] == "CHECKSUM_VALID" for symbol in v3.SYMBOLS for row in remote["aggTrades"][symbol])
+    assert all(len(downloaded["aggTrades"][symbol]) == 1 for symbol in v3.SYMBOLS)
+
+
 def test_future_holdout_date_is_not_in_daily_targets() -> None:
     periods = v3._days(v3.START, v3.HOLDOUT_START)
     assert "2026-01-28" in periods
