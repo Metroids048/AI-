@@ -216,7 +216,7 @@ def test_launcher_checks_scheduler_natural_mode_truth() -> None:
         source.index("function Test-SchedulerHealthy") : source.index("function Test-TradingCoreReady")
     ]
     assert "natural_testnet_enabled" in health_check
-    assert '"TESTNET_CANARY"' in health_check
+    assert '"PRODUCTION", "TESTNET_FORWARD", "TESTNET_CANARY"' in health_check
     assert "reconciliation_healthy" in health_check
     assert '"TRADING_READY"' in health_check
     assert "Continuous Canary is not a launcher mode" not in source
