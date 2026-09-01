@@ -15,10 +15,6 @@ $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location -LiteralPath $Root
 
-if ($EnableNaturalTestnet) {
-    throw "Continuous Canary is not a launcher mode. Use scripts/run_testnet_canary_acceptance.py --confirm-testnet-canary for an explicit one-shot acceptance cycle."
-}
-
 $ApiHealthUrl = "http://127.0.0.1:$ApiPort/health"
 $FrontendUrl = "http://127.0.0.1:$FrontendPort/trading"
 $LogsDir = Join-Path $Root "logs"
@@ -412,7 +408,8 @@ function Test-SchedulerHealthy {
             if ([string]$state.entry_authority -ne "TESTNET_CANARY") { return $false }
             if (-not [bool]$state.entry_authorized) { return $false }
             if (-not [bool]$state.entry_enabled) { return $false }
-            if ([string]$state.trading_state -ne "TRADING") { return $false }
+            if (-not [bool]$state.reconciliation_healthy) { return $false }
+            if ([string]$state.trading_state -ne "TRADING_READY") { return $false }
             if ($state.startup_contract_errors -and $state.startup_contract_errors.Count -gt 0) { return $false }
         }
         $heartbeat = [datetimeoffset]::Parse($state.heartbeat_at)

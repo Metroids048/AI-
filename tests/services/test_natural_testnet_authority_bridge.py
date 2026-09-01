@@ -24,7 +24,7 @@ def test_natural_mode_is_off_without_process_flag(monkeypatch) -> None:
     assert natural_testnet_mode_requested() is False
 
 
-def test_normal_scheduler_entry_never_uses_process_canary_authority(monkeypatch) -> None:
+def test_normal_scheduler_entry_uses_trusted_process_canary_authority(monkeypatch) -> None:
     from services.execution import v2_scheduler_entry
 
     captured: dict[str, object] = {}
@@ -38,10 +38,10 @@ def test_normal_scheduler_entry_never_uses_process_canary_authority(monkeypatch)
     monkeypatch.setenv("BINANCE_USE_TESTNET", "true")
     monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
 
-    result = v2_scheduler_entry.execute_v2_automated_trading_cycles({"enable_natural_testnet": True})
+    result = v2_scheduler_entry.execute_v2_automated_trading_cycles()
 
     assert result == {"status": "captured"}
-    assert captured["canary_acceptance"] is False
+    assert captured["canary_acceptance"] is True
     assert captured["cycle_source"] == "automated_trading_v2"
 
 
@@ -66,7 +66,7 @@ def test_request_payload_cannot_enable_natural_authority(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_runtime_scheduler_does_not_publish_canary_for_normal_start(monkeypatch) -> None:
+async def test_runtime_scheduler_publishes_trusted_canary_for_normal_start(monkeypatch) -> None:
     from services.automated_trading.application.production_strategy import EntryAuthority, EntryAuthorityResolution
     from services.automated_trading.domain.enums import V2ExecutionMode
     from services.automated_trading.infrastructure import runtime_lock
@@ -111,9 +111,9 @@ async def test_runtime_scheduler_does_not_publish_canary_for_normal_start(monkey
     scheduler.start()
     try:
         assert scheduler.status.natural_testnet_enabled is True
-        assert scheduler.status.entry_authority == "NONE"
+        assert scheduler.status.entry_authority == "TESTNET_CANARY"
         assert scheduler.status.entry_authorized is False
-        assert scheduler.status.active_entry_strategy is None
+        assert scheduler.status.active_entry_strategy == "testnet_sampling_v2"
         assert scheduler.status.production_authorization_state == "PENDING"
         assert scheduler.status.promotion_eligible is False
         assert scheduler.status.trading_state == "ENTRY_BLOCKED"
@@ -136,6 +136,9 @@ async def test_runtime_scheduler_publishes_forward_snapshot_authority(monkeypatc
         allow_legacy_writer=False,
         warnings=[],
     )
+    monkeypatch.setenv("V2_NATURAL_E2E_ENABLED", "true")
+    monkeypatch.setenv("BINANCE_USE_TESTNET", "true")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
     monkeypatch.setattr(runtime_lock, "resolve_engine_activation", lambda _settings: config)
     monkeypatch.setattr(
         scheduler_module,
@@ -209,24 +212,22 @@ def test_launcher_checks_scheduler_natural_mode_truth() -> None:
     source = Path("scripts/launch-paper-console.ps1").read_text(encoding="utf-8")
     assert "natural_testnet_enabled" in source
     assert "targetNaturalTestnet" in source
-    assert "natural_testnet_enabled" in source[source.index("function Test-SchedulerHealthy") :]
+    health_check = source[
+        source.index("function Test-SchedulerHealthy") : source.index("function Test-TradingCoreReady")
+    ]
+    assert "natural_testnet_enabled" in health_check
+    assert '"TESTNET_CANARY"' in health_check
+    assert "reconciliation_healthy" in health_check
+    assert '"TRADING_READY"' in health_check
+    assert "Continuous Canary is not a launcher mode" not in source
 
 
-def test_one_click_launcher_does_not_enable_canary() -> None:
+def test_one_click_launcher_enables_trusted_continuous_canary() -> None:
     from pathlib import Path
 
     source = Path("一键启动.cmd").read_text(encoding="utf-8")
     assert "-AutomatedTradingEngine v2_active" in source
-    assert "-EnableNaturalTestnet" not in source
-
-
-def test_legacy_canary_shortcut_runs_only_explicit_one_shot_acceptance() -> None:
-    from pathlib import Path
-
-    source = Path("一键启动-模拟自动交易.cmd").read_text(encoding="utf-8")
-    assert "run_testnet_canary_acceptance.py" in source
-    assert "--confirm-testnet-canary" in source
-    assert "launch-paper-console.ps1" not in source
+    assert source.count("-EnableNaturalTestnet") == 2
 
 
 def test_launcher_safety_stop_recovery_is_not_natural_only() -> None:

@@ -603,9 +603,9 @@ def _active_strategy_authorization_state(*, execution_mode: str) -> ActiveStrate
 
             production_ids = {item.candidate_id for item in production if item.authorized and item.candidate_id}
             forward_ids = {item.candidate_id for item in forward if item.authorized and item.candidate_id}
-            production_authorized = bool(production) and all(item.authorized for item in production) and len(
-                production_ids
-            ) == 1
+            production_authorized = (
+                bool(production) and all(item.authorized for item in production) and len(production_ids) == 1
+            )
             forward_authorized = bool(forward) and all(item.authorized for item in forward) and len(forward_ids) == 1
             production_reason = (
                 "AUTHORIZED"
@@ -747,11 +747,7 @@ class RuntimeScheduler:
         )
         recovery = self.status.recovery
         recovery.state = (
-            RECOVERY_ENTRY_HOLD
-            if persisted
-            else RECOVERY_HEALTHY
-            if manual_pause_preserved
-            else RECOVERY_BLOCKED
+            RECOVERY_ENTRY_HOLD if persisted else RECOVERY_HEALTHY if manual_pause_preserved else RECOVERY_BLOCKED
         )
         recovery.reason = (
             hold_reason
@@ -803,8 +799,7 @@ class RuntimeScheduler:
             self.status.trading_state == "DEGRADED"
             or self.status.reconciliation_healthy is not True
             or (
-                self.status.entry_authority
-                in {EntryAuthority.TESTNET_FORWARD.value, EntryAuthority.PRODUCTION.value}
+                self.status.entry_authority in {EntryAuthority.TESTNET_FORWARD.value, EntryAuthority.PRODUCTION.value}
                 and (
                     self.status.active_snapshot_valid is not True
                     or not self.status.active_config_snapshot_id
@@ -903,6 +898,21 @@ class RuntimeScheduler:
                 execution_mode=v2_activation.execution_mode.value,
             )
             authority = authorization.resolution
+            if (
+                authority.authority is EntryAuthority.NONE
+                and v2_activation.execution_mode.value == "BINANCE_TESTNET"
+                and self.status.natural_testnet_enabled
+                and sampling_enabled
+            ):
+                authority = resolve_entry_authority(
+                    production_authorized=authorization.production_authorized,
+                    production_strategy_id=None,
+                    forward_authorized=authorization.forward_authorized,
+                    forward_strategy_id=None,
+                    execution_mode=v2_activation.execution_mode.value,
+                    operator_testnet_canary_enabled=self.status.natural_testnet_enabled,
+                    explicit_testnet_canary=True,
+                )
             if recovery_hold_active:
                 entry_enabled = False
             baseline_captured, baseline_value, baseline_source = _external_baseline_capture()
@@ -1586,9 +1596,7 @@ class RuntimeScheduler:
         """Publish the authority actually resolved by the just-completed V2 cycle."""
         all_results = [item for item in cycle_result.get("results", []) if isinstance(item, dict)]
         completed_symbols = {
-            str(item.get("symbol"))
-            for item in all_results
-            if item.get("status") == "completed" and item.get("symbol")
+            str(item.get("symbol")) for item in all_results if item.get("status") == "completed" and item.get("symbol")
         }
         if cycle_result.get("status") != "completed" or completed_symbols != set(AUTO_SIMULATION_EXECUTION_SYMBOLS):
             error_codes = {
@@ -1606,11 +1614,7 @@ class RuntimeScheduler:
                 self.status.forward_authorization_reason = failure_reason
             self.status.trading_state = "DEGRADED"
             return
-        resolved = [
-            item
-            for item in all_results
-            if isinstance(item, dict) and item.get("status") == "completed"
-        ]
+        resolved = [item for item in all_results if isinstance(item, dict) and item.get("status") == "completed"]
         if not resolved:
             return
         reconciliation = [
@@ -1644,13 +1648,9 @@ class RuntimeScheduler:
         self.status.active_entry_strategy = first.get("active_entry_strategy")
         self.status.promotion_eligible = bool(first.get("promotion_eligible"))
         snapshot_ids = {
-            str(item.get("active_config_snapshot_id"))
-            for item in resolved
-            if item.get("active_config_snapshot_id")
+            str(item.get("active_config_snapshot_id")) for item in resolved if item.get("active_config_snapshot_id")
         }
-        snapshot_hashes = {
-            str(item.get("active_config_hash")) for item in resolved if item.get("active_config_hash")
-        }
+        snapshot_hashes = {str(item.get("active_config_hash")) for item in resolved if item.get("active_config_hash")}
         active_strategies = {
             str(item.get("active_entry_strategy")) for item in resolved if item.get("active_entry_strategy")
         }

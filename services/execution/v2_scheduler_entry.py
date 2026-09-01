@@ -58,6 +58,7 @@ from services.data.binance_clock import BinanceClockUnavailable, fetch_binance_s
 from services.data.repository import DataRepository
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.database import get_session_factory
+from services.execution.natural_testnet_mode import natural_testnet_mode_requested
 from services.execution.scheduler_coordination import SchedulerCoordinator
 from services.strategy_library.canonical import canonical_hash
 from services.strategy_library.context import TIMEFRAME_DELTAS, MarketContext, MarketContextBuilder
@@ -747,10 +748,7 @@ def _load_v2_operator_execution_settings_for_symbols(
     cycle_id: str,
 ) -> dict[str, V2ExecutionSettings]:
     snapshot = _load_v2_operator_snapshot(cycle_id=cycle_id)
-    return {
-        symbol: _resolve_v2_operator_execution_settings(symbol=symbol, snapshot=snapshot)
-        for symbol in symbols
-    }
+    return {symbol: _resolve_v2_operator_execution_settings(symbol=symbol, snapshot=snapshot) for symbol in symbols}
 
 
 def _load_v2_operator_execution_settings(*, symbol: str, cycle_id: str) -> V2ExecutionSettings:
@@ -928,18 +926,17 @@ def execute_v2_automated_trading_cycles(
     timeframe_loader: Callable[[str, str], TimeframeView] | None = None,
     market_context_loader: MarketContextLoader | None = None,
 ) -> dict[str, Any]:
-    """Run the normal scheduler pass without granting Canary authority.
+    """Run the normal scheduler pass with process-scoped Canary authority only.
 
-    Canary is an explicit acceptance capability.  A process-level observation
-    flag may enable evidence collection, but it must never select the normal
-    scheduler's new-exposure writer.
+    Request payloads never grant Canary authority. The trusted process-level
+    Testnet/non-live switch enables the non-promotable continuity fallback.
     """
     return _execute_v2_automated_trading_cycles(
         request_payload,
         adapter_factory=adapter_factory,
         timeframe_loader=timeframe_loader,
         market_context_loader=market_context_loader,
-        canary_acceptance=False,
+        canary_acceptance=natural_testnet_mode_requested(),
         cycle_source="automated_trading_v2",
     )
 
