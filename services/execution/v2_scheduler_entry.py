@@ -29,6 +29,7 @@ from services.automated_trading.application.operator_profile import (
 from services.automated_trading.application.production_strategy import (
     NO_AUTHORIZED_PRODUCTION_STRATEGY,
     EntryAuthority,
+    EntryAuthorityResolution,
     evaluate_authorized_production_strategy,
     resolve_entry_authority,
     resolve_production_authorization,
@@ -57,7 +58,6 @@ from services.data.binance_clock import BinanceClockUnavailable, fetch_binance_s
 from services.data.repository import DataRepository
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.database import get_session_factory
-from services.execution.natural_testnet_mode import natural_testnet_mode_requested
 from services.execution.scheduler_coordination import SchedulerCoordinator
 from services.strategy_library.canonical import canonical_hash
 from services.strategy_library.context import TIMEFRAME_DELTAS, MarketContext, MarketContextBuilder
@@ -73,6 +73,7 @@ from shared.models.risk import TESTNET_CANARY_RUNTIME_CONTRACT
 logger = logging.getLogger(__name__)
 
 V2_CYCLE_TIMEFRAME = "15m"
+ACTIVE_CONFIG_SNAPSHOT_CAPTURE_FAILED = "ACTIVE_CONFIG_SNAPSHOT_CAPTURE_FAILED"
 _STRATEGY_TERMINAL_REASONS = frozenset(
     {
         "NO_ENTRY_SIGNAL",
@@ -94,6 +95,8 @@ _EXECUTION_BLOCKER_REASONS = frozenset(
         "PRICE_DRIFT_EXCEEDED",
         "NO_TRADE_COST_INEFFICIENT",
         "MANUAL_POSITION_DIRECTION_CONFLICT",
+        "NO_AUTHORIZED_PRODUCTION_STRATEGY",
+        "NO_FORWARD_VALIDATION_CANDIDATE",
     }
 )
 # The V2 scheduler refreshes Binance's public premium-index snapshot once per
@@ -674,12 +677,21 @@ def _entry_data_readiness(
     return True, None, details
 
 
-def _load_v2_operator_execution_settings(*, symbol: str, cycle_id: str) -> V2ExecutionSettings:
-    """Load the single running directional profile and activate NEXT_CYCLE once.
+@dataclass(frozen=True)
+class _V2OperatorSnapshot:
+    execution_profile: Mapping[str, Any] | None
+    active_snapshot_id: str | None
+    active_snapshot_config: dict[str, Any] | None
+    active_snapshot_hash: str | None
+
+
+def _load_v2_operator_snapshot(*, cycle_id: str) -> _V2OperatorSnapshot:
+    """Capture the single Active ConfigSnapshot once for a scheduler Cycle.
 
     The existing PaperRun/ConfigSnapshot pair remains the sole operator-facing
     store. V2 only consumes it; it never regenerates, overwrites, or mirrors a
-    second profile.
+    second profile. Pending activation is deliberately outside the symbol loop
+    so BTC and ETH cannot observe different Active snapshots in one Cycle.
     """
     from services.strategy_library import ConfigSnapshotRepository, PaperRunRepository
 
@@ -691,7 +703,12 @@ def _load_v2_operator_execution_settings(*, symbol: str, cycle_id: str) -> V2Exe
             if run.paper_status == "running" and run.execution_profile.get("strategy_lane") == "directional"
         ]
         if not running_directional:
-            return resolve_v2_execution_settings(symbol, None)
+            return _V2OperatorSnapshot(
+                execution_profile=None,
+                active_snapshot_id=None,
+                active_snapshot_config=None,
+                active_snapshot_hash=None,
+            )
         if len(running_directional) != 1:
             raise RuntimeError("ambiguous running directional PaperRun; V2 entry configuration is fail-closed")
 
@@ -702,12 +719,43 @@ def _load_v2_operator_execution_settings(*, symbol: str, cycle_id: str) -> V2Exe
         active = snapshots.get_active(run.paper_run_id)
         active_profile = active.config.get("execution_profile") if active is not None else None
         profile = active_profile if isinstance(active_profile, Mapping) else run.execution_profile
-        settings = resolve_v2_execution_settings(symbol, profile)
-        return replace(
-            settings,
+        return _V2OperatorSnapshot(
+            execution_profile=dict(profile),
+            active_snapshot_id=active.config_snapshot_id if active is not None else None,
             active_snapshot_config=dict(active.config) if active is not None else None,
             active_snapshot_hash=active.config_hash if active is not None else None,
         )
+
+
+def _resolve_v2_operator_execution_settings(
+    *,
+    symbol: str,
+    snapshot: _V2OperatorSnapshot,
+) -> V2ExecutionSettings:
+    settings = resolve_v2_execution_settings(symbol, snapshot.execution_profile)
+    return replace(
+        settings,
+        active_snapshot_id=snapshot.active_snapshot_id,
+        active_snapshot_config=snapshot.active_snapshot_config,
+        active_snapshot_hash=snapshot.active_snapshot_hash,
+    )
+
+
+def _load_v2_operator_execution_settings_for_symbols(
+    *,
+    symbols: tuple[str, ...] | list[str],
+    cycle_id: str,
+) -> dict[str, V2ExecutionSettings]:
+    snapshot = _load_v2_operator_snapshot(cycle_id=cycle_id)
+    return {
+        symbol: _resolve_v2_operator_execution_settings(symbol=symbol, snapshot=snapshot)
+        for symbol in symbols
+    }
+
+
+def _load_v2_operator_execution_settings(*, symbol: str, cycle_id: str) -> V2ExecutionSettings:
+    """Compatibility wrapper for one-symbol diagnostic/acceptance callers."""
+    return _load_v2_operator_execution_settings_for_symbols(symbols=(symbol,), cycle_id=cycle_id)[symbol]
 
 
 def _load_authorized_production_decision(
@@ -880,15 +928,19 @@ def execute_v2_automated_trading_cycles(
     timeframe_loader: Callable[[str, str], TimeframeView] | None = None,
     market_context_loader: MarketContextLoader | None = None,
 ) -> dict[str, Any]:
-    """Run the normal scheduler pass with trusted process-level mode only."""
-    natural_testnet = natural_testnet_mode_requested()
+    """Run the normal scheduler pass without granting Canary authority.
+
+    Canary is an explicit acceptance capability.  A process-level observation
+    flag may enable evidence collection, but it must never select the normal
+    scheduler's new-exposure writer.
+    """
     return _execute_v2_automated_trading_cycles(
         request_payload,
         adapter_factory=adapter_factory,
         timeframe_loader=timeframe_loader,
         market_context_loader=market_context_loader,
-        canary_acceptance=natural_testnet,
-        cycle_source=("natural_testnet_sampling" if natural_testnet else "automated_trading_v2"),
+        canary_acceptance=False,
+        cycle_source="automated_trading_v2",
     )
 
 
@@ -1030,19 +1082,33 @@ def _execute_v2_automated_trading_cycles(
     symbol_results: list[dict[str, Any]] = []
     pending_research: list[dict[str, Any]] = []
     task_failed = False
+    operator_settings_by_symbol: dict[str, V2ExecutionSettings] = {}
+    operator_settings_error: str | None = None
+    try:
+        operator_settings_by_symbol = _load_v2_operator_execution_settings_for_symbols(
+            symbols=symbols,
+            cycle_id=scheduler_cycle_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        operator_settings_error = f"operator_profile_unavailable: {exc}"
     try:
         adapter = build_adapter(config.execution_mode)
         for symbol in symbols:
             cycle_id = str(uuid.uuid4())
             cycle_fencing_token = f"{lease_name}:{fencing_token}:{symbol}:{cycle_id}"
             symbol_result: dict[str, Any] = {"symbol": symbol, "cycle_id": cycle_id}
-            try:
-                operator_settings = _load_v2_operator_execution_settings(symbol=symbol, cycle_id=cycle_id)
-            except Exception as exc:  # noqa: BLE001
-                symbol_result.update({"status": "error", "error": f"operator_profile_unavailable: {exc}"})
+            if operator_settings_error is not None:
+                symbol_result.update(
+                    {
+                        "status": "error",
+                        "error_code": ACTIVE_CONFIG_SNAPSHOT_CAPTURE_FAILED,
+                        "error": operator_settings_error,
+                    }
+                )
                 symbol_results.append(symbol_result)
                 task_failed = True
                 continue
+            operator_settings = operator_settings_by_symbol[symbol]
             management_only = symbol not in AUTO_SIMULATION_EXECUTION_SYMBOLS
             if management_only:
                 # Existing managed exposure must reconcile and recover even if
@@ -1137,6 +1203,13 @@ def _execute_v2_automated_trading_cycles(
                     operator_testnet_canary_enabled=operator_settings.sampling_fallback_enabled,
                     explicit_testnet_canary=canary_acceptance,
                 )
+                if entry_authority.authority is EntryAuthority.NONE:
+                    entry_authority = EntryAuthorityResolution(
+                        EntryAuthority.NONE,
+                        forward_reason,
+                        None,
+                        False,
+                    )
                 production_candidate = authorized_candidate
                 production_authorized = is_production_authorized or forward_authorized
                 production_reason = authorized_reason
@@ -1360,6 +1433,8 @@ def _execute_v2_automated_trading_cycles(
             symbol_result.update(
                 {
                     "status": "completed",
+                    "active_config_snapshot_id": operator_settings.active_snapshot_id,
+                    "active_config_hash": operator_settings.active_snapshot_hash,
                     "decision_id": decision_id,
                     "reconciliation_status": result.reconciliation_status.value,
                     "terminal_stage": result.funnel_payload.get("terminal_stage"),

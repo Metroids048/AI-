@@ -19,7 +19,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from services.automated_trading.application.production_strategy import EntryAuthority, resolve_entry_authority
+from services.automated_trading.application.production_strategy import (
+    EntryAuthority,
+    EntryAuthorityResolution,
+    resolve_entry_authority,
+)
 from services.data.binance_clock import BinanceClockUnavailable, fetch_binance_server_time
 from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS, execution_baseline_keys
 from services.execution.natural_testnet_mode import natural_testnet_mode_requested
@@ -33,6 +37,10 @@ Runner = Callable[[], Any]
 V2_CYCLE_WATCHDOG_SECONDS = 25 * 60
 V2_CRITICAL_JOB = "automated_trading_v2_cycle"
 LIVENESS_RECOVERY_HOLD_PREFIX = "LIVENESS_RECOVERY_HOLD:"
+ACTIVE_CONFIG_SNAPSHOT_CAPTURE_FAILED = "ACTIVE_CONFIG_SNAPSHOT_CAPTURE_FAILED"
+ACTIVE_CONFIG_SNAPSHOT_SCOPE_INCONSISTENT = "ACTIVE_CONFIG_SNAPSHOT_SCOPE_INCONSISTENT"
+ENTRY_AUTHORITY_SCOPE_INCONSISTENT = "ENTRY_AUTHORITY_SCOPE_INCONSISTENT"
+V2_CYCLE_INCOMPLETE = "V2_CYCLE_INCOMPLETE"
 MAX_INPROCESS_RECOVERY_ATTEMPTS = 3
 
 RECOVERY_HEALTHY = "HEALTHY"
@@ -72,6 +80,22 @@ class RecoveryLiveness:
     entry_hold: bool = False
     worker_restart_count: int = 0
     last_recovery_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ActiveStrategyAuthorizationState:
+    """Read-only projection of the Active ConfigSnapshot authorization chain."""
+
+    resolution: EntryAuthorityResolution
+    active_config_snapshot_id: str | None = None
+    active_config_hash: str | None = None
+    pending_config_snapshot_id: str | None = None
+    pending_config_hash: str | None = None
+    active_snapshot_valid: bool = False
+    production_authorized: bool = False
+    production_authorization_reason: str = "NO_AUTHORIZED_PRODUCTION_STRATEGY"
+    forward_authorized: bool = False
+    forward_authorization_reason: str = "NO_FORWARD_VALIDATION_CANDIDATE"
 
 
 def _aligned_run_delay_seconds(
@@ -137,11 +161,22 @@ class RuntimeSchedulerStatus:
     production_authorization_state: str = "PENDING"
     active_entry_strategy: str | None = None
     promotion_eligible: bool = False
-    trading_state: str = "ENTRY_PAUSED"
+    trading_state: str = "ENTRY_BLOCKED"
     startup_contract_errors: tuple[str, ...] = ()
     natural_testnet_enabled: bool = False
     critical_jobs: dict[str, CriticalJobLiveness] = field(default_factory=dict)
     recovery: RecoveryLiveness = field(default_factory=RecoveryLiveness)
+    active_config_snapshot_id: str | None = None
+    active_config_hash: str | None = None
+    pending_config_snapshot_id: str | None = None
+    pending_config_hash: str | None = None
+    active_snapshot_valid: bool = False
+    production_authorized: bool = False
+    production_authorization_reason: str = "NO_AUTHORIZED_PRODUCTION_STRATEGY"
+    forward_authorized: bool = False
+    forward_authorization_reason: str = "NO_FORWARD_VALIDATION_CANDIDATE"
+    entry_control_reason: str | None = None
+    reconciliation_healthy: bool | None = None
 
     def model_dump(self) -> dict[str, Any]:
         return {
@@ -203,6 +238,17 @@ class RuntimeSchedulerStatus:
                 "worker_restart_count": self.recovery.worker_restart_count,
                 "last_recovery_at": self.recovery.last_recovery_at,
             },
+            "active_config_snapshot_id": self.active_config_snapshot_id,
+            "active_config_hash": self.active_config_hash,
+            "pending_config_snapshot_id": self.pending_config_snapshot_id,
+            "pending_config_hash": self.pending_config_hash,
+            "active_snapshot_valid": self.active_snapshot_valid,
+            "production_authorized": self.production_authorized,
+            "production_authorization_reason": self.production_authorization_reason,
+            "forward_authorized": self.forward_authorized,
+            "forward_authorization_reason": self.forward_authorization_reason,
+            "entry_control_reason": self.entry_control_reason,
+            "reconciliation_healthy": self.reconciliation_healthy,
         }
 
 
@@ -307,20 +353,88 @@ def _active_entry_authorization() -> tuple[bool, bool, tuple[str, ...]]:
         return False, False, ("ENTRY_CONTRACT_STATE_UNAVAILABLE",)
 
 
-def _runtime_entry_control_reason() -> str | None:
+def _runtime_entry_control_state() -> tuple[bool | None, str | None]:
     from services.automated_trading.infrastructure.models import V2RuntimeControl
     from services.database import get_session_factory
 
     try:
         with get_session_factory()() as session:
             control = session.get(V2RuntimeControl, "global")
-            return str(control.reason) if control is not None and control.reason else None
+            if control is None:
+                return None, None
+            reason = str(control.reason) if control.reason else None
+            return bool(control.entry_enabled), reason
     except Exception:  # noqa: BLE001
-        return None
+        return None, None
 
 
-def _persist_runtime_entry_control(*, entry_enabled: bool, reason: str) -> bool:
-    """Persist the shared V2 entry kill switch without touching management rights."""
+def _runtime_entry_control_reason() -> str | None:
+    return _runtime_entry_control_state()[1]
+
+
+def initialize_standard_runtime_entry_control() -> None:
+    """Arm only an absent RuntimeControl row for the standard Testnet worker.
+
+    Existing rows are durable operator/recovery state and are never changed by
+    startup. Authority remains independently derived from the Active
+    ConfigSnapshot, so this initializer cannot grant strategy permission.
+    """
+    from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
+    from services.database import get_session_factory
+
+    with get_session_factory()() as session:
+        repository = AutomatedTradingRepository(session)
+        repository.ensure_runtime_control(
+            scope="global",
+            entry_enabled=True,
+            reason="STANDARD_RUNTIME_ENABLED",
+            updated_by="runtime-bootstrap",
+        )
+        repository.commit()
+
+
+def _claim_liveness_recovery_hold(*, hold_reason: str) -> bool:
+    """Atomically claim RuntimeControl without overwriting an operator-owned pause."""
+    from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
+    from services.database import get_session_factory
+
+    try:
+        with get_session_factory()() as session:
+            repository = AutomatedTradingRepository(session)
+            control = repository.ensure_runtime_control(
+                scope="global",
+                entry_enabled=False,
+                reason=hold_reason,
+                updated_by="liveness-supervisor",
+            )
+            observed_enabled = bool(control.entry_enabled)
+            observed_reason = str(control.reason) if control.reason else None
+            observed_version = int(control.version)
+            if not observed_enabled and not str(observed_reason or "").startswith(LIVENESS_RECOVERY_HOLD_PREFIX):
+                return False
+            if not observed_enabled and observed_reason == hold_reason:
+                repository.commit()
+                return True
+            claimed = repository.compare_and_set_runtime_control(
+                scope="global",
+                expected_version=observed_version,
+                expected_entry_enabled=observed_enabled,
+                expected_reason=observed_reason,
+                entry_enabled=False,
+                reason=hold_reason,
+                updated_by="liveness-supervisor",
+            )
+            if not claimed:
+                session.rollback()
+                return False
+            repository.commit()
+        return True
+    except Exception:  # noqa: BLE001 - fail closed if the durable control is unavailable
+        return False
+
+
+def _clear_liveness_recovery_hold() -> tuple[bool, str | None]:
+    """Atomically clear only the exact system-owned hold that was observed."""
     from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
     from services.database import get_session_factory
 
@@ -328,19 +442,27 @@ def _persist_runtime_entry_control(*, entry_enabled: bool, reason: str) -> bool:
         with get_session_factory()() as session:
             repository = AutomatedTradingRepository(session)
             control = repository.get_runtime_control("global")
-            if bool(control.entry_enabled) == entry_enabled and control.reason == reason:
-                return True
-            repository.set_runtime_control(
+            observed_enabled = bool(control.entry_enabled)
+            observed_reason = str(control.reason) if control.reason else None
+            observed_version = int(control.version)
+            if observed_enabled or not str(observed_reason or "").startswith(LIVENESS_RECOVERY_HOLD_PREFIX):
+                return False, observed_reason
+            cleared = repository.compare_and_set_runtime_control(
                 scope="global",
-                entry_enabled=entry_enabled,
-                reason=reason,
+                expected_version=observed_version,
+                expected_entry_enabled=False,
+                expected_reason=observed_reason,
+                entry_enabled=True,
+                reason="LIVENESS_RECOVERY_RECOVERED",
                 updated_by="liveness-supervisor",
-                expected_version=int(control.version),
             )
+            if not cleared:
+                session.rollback()
+                return False, _runtime_entry_control_reason()
             repository.commit()
-        return True
-    except Exception:  # noqa: BLE001 - fail closed if the durable control is unavailable
-        return False
+        return True, "LIVENESS_RECOVERY_RECOVERED"
+    except Exception:  # noqa: BLE001 - fail closed if ownership changes or storage fails
+        return False, _runtime_entry_control_reason()
 
 
 def persist_liveness_recovery_hold(reason: str) -> bool:
@@ -351,7 +473,7 @@ def persist_liveness_recovery_hold(reason: str) -> bool:
         if normalized.startswith(LIVENESS_RECOVERY_HOLD_PREFIX)
         else f"{LIVENESS_RECOVERY_HOLD_PREFIX}{normalized}"
     )
-    return _persist_runtime_entry_control(entry_enabled=False, reason=hold_reason)
+    return _claim_liveness_recovery_hold(hold_reason=hold_reason)
 
 
 def _active_execution_strategy_identity() -> tuple[str, bool]:
@@ -389,6 +511,137 @@ def _active_execution_strategy_identity() -> tuple[str, bool]:
             return candidate_id, True
     except Exception:  # noqa: BLE001
         return "production_strategy_pending", False
+
+
+def _active_strategy_authorization_state(*, execution_mode: str) -> ActiveStrategyAuthorizationState:
+    """Resolve Production/Forward from one immutable Active ConfigSnapshot.
+
+    The scheduler consumes the same exact-scope authorization facts as the V2
+    cycle.  RuntimeControl and launcher flags are deliberately absent here.
+    """
+    from services.automated_trading.application.production_strategy import (
+        resolve_production_authorization,
+        resolve_testnet_forward_authorization,
+    )
+    from services.database import get_session_factory
+    from services.strategy_library import ConfigSnapshotRepository, PaperRunRepository
+    from shared.models.trading import canonical_config_hash
+
+    unavailable = EntryAuthorityResolution(
+        EntryAuthority.NONE,
+        "ENTRY_CONTRACT_STATE_UNAVAILABLE",
+        None,
+        False,
+    )
+    try:
+        with get_session_factory()() as session:
+            runs = [
+                run
+                for run in PaperRunRepository(session).list_paper_runs()
+                if run.paper_status == "running" and run.execution_profile.get("strategy_lane") == "directional"
+            ]
+            if len(runs) != 1 or runs[0].paper_run_id is None:
+                return ActiveStrategyAuthorizationState(
+                    resolution=EntryAuthorityResolution(
+                        EntryAuthority.NONE,
+                        "DIRECTIONAL_PROFILE_UNAVAILABLE",
+                        None,
+                        False,
+                    )
+                )
+            run = runs[0]
+            run_id = run.paper_run_id
+            assert run_id is not None
+            snapshots = ConfigSnapshotRepository(session)
+            active = snapshots.get_active(run_id)
+            pending = snapshots.get_pending(run_id)
+            if active is None:
+                return ActiveStrategyAuthorizationState(
+                    resolution=EntryAuthorityResolution(
+                        EntryAuthority.NONE,
+                        "NO_ACTIVE_CONFIG_SNAPSHOT",
+                        None,
+                        False,
+                    ),
+                    pending_config_snapshot_id=(pending.config_snapshot_id if pending is not None else None),
+                    pending_config_hash=(pending.config_hash if pending is not None else None),
+                )
+            snapshot_valid = canonical_config_hash(active.config) == active.config_hash
+            if not snapshot_valid:
+                return ActiveStrategyAuthorizationState(
+                    resolution=EntryAuthorityResolution(
+                        EntryAuthority.NONE,
+                        "CONFIG_SNAPSHOT_HASH_MISMATCH",
+                        None,
+                        False,
+                    ),
+                    active_config_snapshot_id=active.config_snapshot_id,
+                    active_config_hash=active.config_hash,
+                    pending_config_snapshot_id=(pending.config_snapshot_id if pending is not None else None),
+                    pending_config_hash=(pending.config_hash if pending is not None else None),
+                    active_snapshot_valid=False,
+                    production_authorization_reason="CONFIG_SNAPSHOT_HASH_MISMATCH",
+                    forward_authorization_reason="CONFIG_SNAPSHOT_HASH_MISMATCH",
+                )
+            production = tuple(
+                resolve_production_authorization(
+                    snapshot_config=active.config,
+                    snapshot_hash=active.config_hash,
+                    symbol=symbol,
+                )
+                for symbol in AUTO_SIMULATION_EXECUTION_SYMBOLS
+            )
+            forward = tuple(
+                resolve_testnet_forward_authorization(
+                    snapshot_config=active.config,
+                    snapshot_hash=active.config_hash,
+                    symbol=symbol,
+                    execution_mode=execution_mode,
+                )
+                for symbol in AUTO_SIMULATION_EXECUTION_SYMBOLS
+            )
+
+            production_ids = {item.candidate_id for item in production if item.authorized and item.candidate_id}
+            forward_ids = {item.candidate_id for item in forward if item.authorized and item.candidate_id}
+            production_authorized = bool(production) and all(item.authorized for item in production) and len(
+                production_ids
+            ) == 1
+            forward_authorized = bool(forward) and all(item.authorized for item in forward) and len(forward_ids) == 1
+            production_reason = (
+                "AUTHORIZED"
+                if production_authorized
+                else next((item.reason for item in production if not item.authorized), "PRODUCTION_SCOPE_INCONSISTENT")
+            )
+            forward_reason = (
+                "TESTNET_FORWARD_AUTHORIZED"
+                if forward_authorized
+                else next((item.reason for item in forward if not item.authorized), "FORWARD_SCOPE_INCONSISTENT")
+            )
+            resolution = resolve_entry_authority(
+                production_authorized=production_authorized,
+                production_strategy_id=next(iter(production_ids), None),
+                forward_authorized=forward_authorized,
+                forward_strategy_id=next(iter(forward_ids), None),
+                execution_mode=execution_mode,
+                operator_testnet_canary_enabled=False,
+                explicit_testnet_canary=False,
+            )
+            if resolution.authority is EntryAuthority.NONE:
+                resolution = EntryAuthorityResolution(EntryAuthority.NONE, forward_reason, None, False)
+            return ActiveStrategyAuthorizationState(
+                resolution=resolution,
+                active_config_snapshot_id=active.config_snapshot_id,
+                active_config_hash=active.config_hash,
+                pending_config_snapshot_id=(pending.config_snapshot_id if pending is not None else None),
+                pending_config_hash=(pending.config_hash if pending is not None else None),
+                active_snapshot_valid=snapshot_valid,
+                production_authorized=production_authorized,
+                production_authorization_reason=production_reason,
+                forward_authorized=forward_authorized,
+                forward_authorization_reason=forward_reason,
+            )
+    except Exception:  # noqa: BLE001 - runtime authorization must fail closed
+        return ActiveStrategyAuthorizationState(resolution=unavailable)
 
 
 class RuntimeScheduler:
@@ -465,6 +718,20 @@ class RuntimeScheduler:
         self._critical_tasks: dict[str, asyncio.Task] = {}
         self._critical_task_backoffs = (5.0, 15.0, 30.0)
 
+    def _refresh_snapshot_lifecycle_from_store(self) -> bool:
+        """Publish current Active/Pending IDs after a background config stage."""
+        lifecycle = _active_strategy_authorization_state(
+            execution_mode=str(self.status.execution_mode or "BINANCE_TESTNET"),
+        )
+        if lifecycle.active_config_snapshot_id is None or lifecycle.active_config_hash is None:
+            return False
+        self.status.active_config_snapshot_id = lifecycle.active_config_snapshot_id
+        self.status.active_config_hash = lifecycle.active_config_hash
+        self.status.active_snapshot_valid = lifecycle.active_snapshot_valid
+        self.status.pending_config_snapshot_id = lifecycle.pending_config_snapshot_id
+        self.status.pending_config_hash = lifecycle.pending_config_hash
+        return True
+
     def _set_recovery_hold(self, reason: str) -> None:
         """Freeze new exposure durably while leaving the V2 management loop alive."""
         normalized = str(reason or "unknown").strip()
@@ -473,19 +740,36 @@ class RuntimeScheduler:
             if normalized.startswith(LIVENESS_RECOVERY_HOLD_PREFIX)
             else f"{LIVENESS_RECOVERY_HOLD_PREFIX}{normalized}"
         )
-        persisted = _persist_runtime_entry_control(entry_enabled=False, reason=hold_reason)
+        persisted = persist_liveness_recovery_hold(hold_reason)
+        current_enabled, current_reason = _runtime_entry_control_state()
+        manual_pause_preserved = current_enabled is False and not str(current_reason or "").startswith(
+            LIVENESS_RECOVERY_HOLD_PREFIX
+        )
         recovery = self.status.recovery
-        recovery.state = RECOVERY_ENTRY_HOLD if persisted else RECOVERY_BLOCKED
-        recovery.reason = hold_reason if persisted else f"{hold_reason}:PERSIST_FAILED"
-        recovery.entry_hold = True
+        recovery.state = (
+            RECOVERY_ENTRY_HOLD
+            if persisted
+            else RECOVERY_HEALTHY
+            if manual_pause_preserved
+            else RECOVERY_BLOCKED
+        )
+        recovery.reason = (
+            hold_reason
+            if persisted
+            else str(current_reason)
+            if manual_pause_preserved
+            else f"{hold_reason}:PERSIST_FAILED"
+        )
+        recovery.entry_hold = persisted
         recovery.last_recovery_at = datetime.now(UTC)
         self.status.entry_enabled = False
         self.status.entry_authorized = False
-        self.status.entry_authority = EntryAuthority.NONE.value
-        self.status.entry_authority_reason = recovery.reason
-        self.status.active_entry_strategy = None
-        self.status.promotion_eligible = False
-        self.status.trading_state = "ENTRY_PAUSED"
+        if manual_pause_preserved:
+            self.status.entry_control_reason = str(current_reason)
+        # RuntimeControl owns only the temporary new-entry switch.  Keep the
+        # strategy/snapshot authority visible while management and
+        # reconciliation continue under the hold.
+        self.status.trading_state = "MANAGEMENT_ONLY"
         self._publish_external_state()
 
     def _maybe_clear_recovery_hold(self, cycle_result: object) -> bool:
@@ -515,15 +799,33 @@ class RuntimeScheduler:
             recovery.reason = str(preflight.get("reason") or recovery.reason or "recovery_pending")
             self._publish_external_state()
             return False
-        control_reason = _runtime_entry_control_reason()
-        if not str(control_reason or "").startswith(LIVENESS_RECOVERY_HOLD_PREFIX):
+        if (
+            self.status.trading_state == "DEGRADED"
+            or self.status.reconciliation_healthy is not True
+            or (
+                self.status.entry_authority
+                in {EntryAuthority.TESTNET_FORWARD.value, EntryAuthority.PRODUCTION.value}
+                and (
+                    self.status.active_snapshot_valid is not True
+                    or not self.status.active_config_snapshot_id
+                    or not self.status.active_config_hash
+                    or not self.status.active_entry_strategy
+                )
+            )
+        ):
+            recovery.state = RECOVERY_MANAGEMENT
+            recovery.reason = "recovery_readiness_incomplete"
+            self._publish_external_state()
+            return False
+        cleared, control_reason = _clear_liveness_recovery_hold()
+        if not cleared and not str(control_reason or "").startswith(LIVENESS_RECOVERY_HOLD_PREFIX):
             # A manual/operator pause owns the switch and must never be overridden.
             recovery.entry_hold = False
             recovery.state = RECOVERY_HEALTHY
             recovery.reason = str(control_reason or "operator_control")
             self._publish_external_state()
             return False
-        if not _persist_runtime_entry_control(entry_enabled=True, reason="LIVENESS_RECOVERY_RECOVERED"):
+        if not cleared:
             recovery.state = RECOVERY_MANAGEMENT
             recovery.reason = "hold_clear_failed"
             self._publish_external_state()
@@ -534,21 +836,9 @@ class RuntimeScheduler:
         recovery.attempt = 0
         recovery.last_recovery_at = datetime.now(UTC)
         self.status.entry_enabled = True
-        authority = resolve_entry_authority(
-            production_authorized=self.status.production_authorization_state == "APPROVED",
-            production_strategy_id=(
-                self.status.execution_strategy_id if self.status.production_authorization_state == "APPROVED" else None
-            ),
-            execution_mode=self.status.execution_mode or "",
-            operator_testnet_canary_enabled=bool(self.status.sampling_fallback_enabled),
-            explicit_testnet_canary=self.status.natural_testnet_enabled,
-        )
-        self.status.entry_authorized = authority.authority is not EntryAuthority.NONE
-        self.status.entry_authority = authority.authority.value
-        self.status.entry_authority_reason = authority.reason
-        self.status.active_entry_strategy = authority.active_strategy_id
-        self.status.promotion_eligible = authority.promotion_eligible
-        self.status.trading_state = "TRADING" if self.status.entry_authorized else "ENTRY_PAUSED"
+        self.status.entry_authorized = self.status.entry_authority != EntryAuthority.NONE.value
+        self.status.entry_control_reason = "LIVENESS_RECOVERY_RECOVERED"
+        self.status.trading_state = "TRADING_READY" if self.status.entry_authorized else "ENTRY_BLOCKED"
         self._publish_external_state()
         return True
 
@@ -592,29 +882,29 @@ class RuntimeScheduler:
         self.status.production_authorization_state = "PENDING"
         self.status.active_entry_strategy = None
         self.status.promotion_eligible = False
-        self.status.trading_state = "ENTRY_PAUSED"
+        self.status.trading_state = "ENTRY_BLOCKED"
         self.status.natural_testnet_enabled = natural_testnet_mode_requested()
+        self.status.active_config_snapshot_id = None
+        self.status.active_config_hash = None
+        self.status.pending_config_snapshot_id = None
+        self.status.pending_config_hash = None
+        self.status.active_snapshot_valid = False
+        self.status.production_authorized = False
+        self.status.production_authorization_reason = "NO_AUTHORIZED_PRODUCTION_STRATEGY"
+        self.status.forward_authorized = False
+        self.status.forward_authorization_reason = "NO_FORWARD_VALIDATION_CANDIDATE"
+        self.status.entry_control_reason = None
+        self.status.reconciliation_healthy = None
         if v2_activation.v2_activation.value == "ACTIVE":
             entry_enabled, sampling_enabled, contract_errors = _active_entry_authorization()
             control_reason = _runtime_entry_control_reason()
             recovery_hold_active = str(control_reason or "").startswith(LIVENESS_RECOVERY_HOLD_PREFIX)
-            strategy_id, production_authorized = _active_execution_strategy_identity()
-            authority = resolve_entry_authority(
-                production_authorized=production_authorized,
-                production_strategy_id=(strategy_id if production_authorized else None),
+            authorization = _active_strategy_authorization_state(
                 execution_mode=v2_activation.execution_mode.value,
-                operator_testnet_canary_enabled=sampling_enabled,
-                explicit_testnet_canary=self.status.natural_testnet_enabled,
             )
+            authority = authorization.resolution
             if recovery_hold_active:
                 entry_enabled = False
-                authority = resolve_entry_authority(
-                    production_authorized=False,
-                    production_strategy_id=None,
-                    execution_mode=v2_activation.execution_mode.value,
-                    operator_testnet_canary_enabled=False,
-                    explicit_testnet_canary=False,
-                )
             baseline_captured, baseline_value, baseline_source = _external_baseline_capture()
             errors = list(contract_errors)
             if v2_activation.execution_mode.value != "BINANCE_TESTNET":
@@ -631,8 +921,18 @@ class RuntimeScheduler:
                 self.status.recovery.reason = control_reason
                 self.status.recovery.entry_hold = True
                 self.status.recovery.worker_restart_count = int(os.getenv("V2_WORKER_RESTART_COUNT", "0") or 0)
-            self.status.execution_strategy_id = strategy_id
+            self.status.execution_strategy_id = authority.active_strategy_id or "production_strategy_pending"
             self.status.sampling_fallback_enabled = sampling_enabled
+            self.status.entry_control_reason = control_reason
+            self.status.active_config_snapshot_id = authorization.active_config_snapshot_id
+            self.status.active_config_hash = authorization.active_config_hash
+            self.status.pending_config_snapshot_id = authorization.pending_config_snapshot_id
+            self.status.pending_config_hash = authorization.pending_config_hash
+            self.status.active_snapshot_valid = authorization.active_snapshot_valid
+            self.status.production_authorized = authorization.production_authorized
+            self.status.production_authorization_reason = authorization.production_authorization_reason
+            self.status.forward_authorized = authorization.forward_authorized
+            self.status.forward_authorization_reason = authorization.forward_authorization_reason
             self.status.external_baseline_captured = baseline_captured
             self.status.external_baseline_value = baseline_value
             self.status.external_baseline_source = baseline_source
@@ -650,14 +950,24 @@ class RuntimeScheduler:
             # ACTIVE can keep reconciling/protecting existing V2 positions with
             # entries paused.  Candidate-level authorization is checked inside
             # each cycle against the immutable ConfigSnapshot and manifest.
-            self.status.entry_authorized = bool(entry_enabled and authority.authority is not EntryAuthority.NONE)
+            self.status.entry_authorized = bool(
+                entry_enabled
+                and authority.authority is not EntryAuthority.NONE
+                and self.status.reconciliation_healthy is True
+            )
             self.status.entry_authority = authority.authority.value
             self.status.entry_authority_reason = authority.reason
-            self.status.production_authorization_state = "APPROVED" if production_authorized else "PENDING"
+            self.status.production_authorization_state = (
+                "APPROVED" if authorization.production_authorized else "PENDING"
+            )
             self.status.active_entry_strategy = authority.active_strategy_id
             self.status.promotion_eligible = authority.promotion_eligible
             self.status.trading_state = (
-                "TRADING" if entry_enabled and authority.authority is not EntryAuthority.NONE else "ENTRY_PAUSED"
+                "MANAGEMENT_ONLY"
+                if not entry_enabled
+                else "TRADING_READY"
+                if self.status.entry_authorized
+                else "ENTRY_BLOCKED"
             )
             if self.status.startup_contract_errors:
                 self.status.running = False
@@ -698,6 +1008,12 @@ class RuntimeScheduler:
                 )
             )
         if "automated_trading_v2_cycle" in scheduled_jobs:
+            # Publish the created task as alive immediately.  The process
+            # supervisor can inspect state before the event loop first schedules
+            # _supervise_critical_task; leaving the initialized value False in
+            # that window creates a false V2_CRITICAL_TASK_NOT_ALIVE hold.
+            critical_job = self.status.critical_jobs[V2_CRITICAL_JOB]
+            critical_job.task_alive = True
             self._tasks.append(
                 asyncio.create_task(
                     self._supervise_critical_task(
@@ -707,7 +1023,11 @@ class RuntimeScheduler:
                             interval_seconds=self.paper_cycle_seconds,
                             runner=_default_v2_automated_trading_runner,
                             records_auto_cycle=True,
-                            run_immediately=False,
+                            run_immediately=(
+                                self.status.recovery.entry_hold
+                                or self.status.entry_authority != EntryAuthority.NONE.value
+                                or self.status.pending_config_snapshot_id is not None
+                            ),
                             coordinated=True,
                             align_to_interval=True,
                             interval_offset_seconds=self.paper_cycle_offset_seconds,
@@ -1255,6 +1575,8 @@ class RuntimeScheduler:
         self.status.scheduler_error = (
             "; ".join(f"{task_name}: {error}" for task_name, error in sorted(self._scheduler_errors.items())) or None
         )
+        if name == "exchange_info_refresh" and isinstance(self.status.last_results[name], dict):
+            self._refresh_snapshot_lifecycle_from_store()
         if name == "automated_trading_v2_cycle" and isinstance(self.status.last_results[name], dict):
             self._refresh_entry_authority_from_v2_cycle(self.status.last_results[name])
         self._publish_external_state()
@@ -1262,32 +1584,54 @@ class RuntimeScheduler:
 
     def _refresh_entry_authority_from_v2_cycle(self, cycle_result: dict[str, Any]) -> None:
         """Publish the authority actually resolved by the just-completed V2 cycle."""
-        # The persisted V2 runtime control is the kill switch.  A cycle may
-        # still report a strategy/canary authority for diagnostic purposes,
-        # but it may never turn a paused scheduler back into a writer.
-        if self.status.entry_enabled is False:
-            self.status.entry_authority = EntryAuthority.NONE.value
+        all_results = [item for item in cycle_result.get("results", []) if isinstance(item, dict)]
+        completed_symbols = {
+            str(item.get("symbol"))
+            for item in all_results
+            if item.get("status") == "completed" and item.get("symbol")
+        }
+        if cycle_result.get("status") != "completed" or completed_symbols != set(AUTO_SIMULATION_EXECUTION_SYMBOLS):
+            error_codes = {
+                str(item.get("error_code"))
+                for item in all_results
+                if item.get("status") == "error" and item.get("error_code")
+            }
+            failure_reason = error_codes.pop() if len(error_codes) == 1 else V2_CYCLE_INCOMPLETE
+            self.status.reconciliation_healthy = False
             self.status.entry_authorized = False
-            self.status.entry_authority_reason = "runtime_entry_disabled"
-            self.status.active_entry_strategy = None
-            self.status.promotion_eligible = False
-            self.status.trading_state = "ENTRY_PAUSED"
+            self.status.scheduler_error = failure_reason
+            if failure_reason == ACTIVE_CONFIG_SNAPSHOT_CAPTURE_FAILED:
+                self.status.active_snapshot_valid = False
+                self.status.forward_authorized = False
+                self.status.forward_authorization_reason = failure_reason
+            self.status.trading_state = "DEGRADED"
             return
         resolved = [
             item
-            for item in cycle_result.get("results", [])
+            for item in all_results
             if isinstance(item, dict) and item.get("status") == "completed"
         ]
         if not resolved:
             return
+        reconciliation = [
+            str(item.get("reconciliation_status") or "").upper()
+            for item in resolved
+            if item.get("reconciliation_status") is not None
+        ]
+        if reconciliation:
+            self.status.reconciliation_healthy = all(value == "HEALTHY" for value in reconciliation)
         authorities = {str(item.get("entry_authority") or "NONE") for item in resolved}
         if len(authorities) != 1:
             self.status.entry_authority = EntryAuthority.NONE.value
             self.status.entry_authorized = False
-            self.status.entry_authority_reason = "cycle_authority_inconsistent"
+            self.status.entry_authority_reason = ENTRY_AUTHORITY_SCOPE_INCONSISTENT
             self.status.active_entry_strategy = None
             self.status.promotion_eligible = False
-            self.status.trading_state = "ENTRY_PAUSED"
+            self.status.active_snapshot_valid = False
+            self.status.production_authorized = False
+            self.status.forward_authorized = False
+            self.status.scheduler_error = ENTRY_AUTHORITY_SCOPE_INCONSISTENT
+            self.status.trading_state = "DEGRADED"
             return
         authority = authorities.pop()
         first = resolved[0]
@@ -1299,7 +1643,93 @@ class RuntimeScheduler:
         )
         self.status.active_entry_strategy = first.get("active_entry_strategy")
         self.status.promotion_eligible = bool(first.get("promotion_eligible"))
-        self.status.trading_state = str(first.get("trading_state") or "ENTRY_PAUSED")
+        snapshot_ids = {
+            str(item.get("active_config_snapshot_id"))
+            for item in resolved
+            if item.get("active_config_snapshot_id")
+        }
+        snapshot_hashes = {
+            str(item.get("active_config_hash")) for item in resolved if item.get("active_config_hash")
+        }
+        active_strategies = {
+            str(item.get("active_entry_strategy")) for item in resolved if item.get("active_entry_strategy")
+        }
+        authorized_authority = authority in {EntryAuthority.TESTNET_FORWARD.value, EntryAuthority.PRODUCTION.value}
+        complete_snapshot_binding = (
+            len(snapshot_ids) == 1
+            and len(snapshot_hashes) == 1
+            and all(item.get("active_config_snapshot_id") and item.get("active_config_hash") for item in resolved)
+        )
+        complete_strategy_binding = len(active_strategies) == 1 and all(
+            item.get("active_entry_strategy") for item in resolved
+        )
+        snapshot_bindings = {
+            (item.get("active_config_snapshot_id"), item.get("active_config_hash")) for item in resolved
+        }
+        if len(snapshot_bindings) != 1:
+            self.status.active_snapshot_valid = False
+            self.status.forward_authorized = False
+            self.status.entry_authorized = False
+            self.status.active_config_snapshot_id = None
+            self.status.active_config_hash = None
+            self.status.entry_authority_reason = ACTIVE_CONFIG_SNAPSHOT_SCOPE_INCONSISTENT
+            self.status.forward_authorization_reason = ACTIVE_CONFIG_SNAPSHOT_SCOPE_INCONSISTENT
+            self.status.scheduler_error = ACTIVE_CONFIG_SNAPSHOT_SCOPE_INCONSISTENT
+            self.status.trading_state = "DEGRADED"
+            return
+        if authorized_authority and (not complete_snapshot_binding or not complete_strategy_binding):
+            self.status.active_snapshot_valid = False
+            self.status.forward_authorized = False
+            self.status.entry_authorized = False
+            self.status.active_config_snapshot_id = None
+            self.status.active_config_hash = None
+            self.status.entry_authority_reason = ACTIVE_CONFIG_SNAPSHOT_SCOPE_INCONSISTENT
+            self.status.forward_authorization_reason = ACTIVE_CONFIG_SNAPSHOT_SCOPE_INCONSISTENT
+            self.status.scheduler_error = ACTIVE_CONFIG_SNAPSHOT_SCOPE_INCONSISTENT
+            self.status.trading_state = "DEGRADED"
+            return
+        if complete_snapshot_binding:
+            active_snapshot_id = snapshot_ids.pop()
+            active_snapshot_hash = snapshot_hashes.pop()
+            self.status.active_config_snapshot_id = active_snapshot_id
+            self.status.active_config_hash = active_snapshot_hash
+            self.status.active_snapshot_valid = True
+            if self.status.pending_config_snapshot_id == active_snapshot_id:
+                self.status.pending_config_snapshot_id = None
+                self.status.pending_config_hash = None
+        else:
+            # A data-preparation cycle may have no snapshot payload even while
+            # the durable Active ConfigSnapshot remains valid.  Preserve that
+            # source-of-truth fact for an unauthorized runtime; only clear
+            # genuinely stale facts when the store has no active snapshot.
+            if not self._refresh_snapshot_lifecycle_from_store():
+                self.status.active_config_snapshot_id = None
+                self.status.active_config_hash = None
+                self.status.active_snapshot_valid = False
+        self.status.production_authorized = authority == EntryAuthority.PRODUCTION.value
+        self.status.forward_authorized = authority == EntryAuthority.TESTNET_FORWARD.value
+        if self.status.forward_authorized:
+            self.status.forward_authorization_reason = "TESTNET_FORWARD_AUTHORIZED"
+        # RuntimeControl remains the only new-entry switch.  Refreshing the
+        # authority/snapshot facts above is required during a recovery cycle,
+        # but those facts must not turn a paused scheduler back into a writer.
+        if self.status.entry_enabled is False:
+            self.status.entry_authorized = False
+            self.status.trading_state = "DEGRADED" if self.status.reconciliation_healthy is False else "MANAGEMENT_ONLY"
+            return
+        if self.status.reconciliation_healthy is False:
+            self.status.entry_authorized = False
+            self.status.trading_state = "DEGRADED"
+        elif authority == EntryAuthority.NONE.value:
+            self.status.entry_authorized = False
+            self.status.trading_state = "ENTRY_BLOCKED"
+        else:
+            cycle_trading_state = str(first.get("trading_state") or "ENTRY_BLOCKED")
+            self.status.trading_state = (
+                cycle_trading_state
+                if cycle_trading_state in {"TRADING_READY", "MANAGEMENT_ONLY", "ENTRY_BLOCKED", "DEGRADED"}
+                else "DEGRADED"
+            )
 
     def _publish_external_state(self) -> None:
         """Persist scheduler health for the separately hosted desktop API."""
@@ -1360,6 +1790,17 @@ class RuntimeScheduler:
                 "trading_state": self.status.trading_state,
                 "startup_contract_errors": list(self.status.startup_contract_errors),
                 "natural_testnet_enabled": self.status.natural_testnet_enabled,
+                "active_config_snapshot_id": self.status.active_config_snapshot_id,
+                "active_config_hash": self.status.active_config_hash,
+                "pending_config_snapshot_id": self.status.pending_config_snapshot_id,
+                "pending_config_hash": self.status.pending_config_hash,
+                "active_snapshot_valid": self.status.active_snapshot_valid,
+                "production_authorized": self.status.production_authorized,
+                "production_authorization_reason": self.status.production_authorization_reason,
+                "forward_authorized": self.status.forward_authorized,
+                "forward_authorization_reason": self.status.forward_authorization_reason,
+                "entry_control_reason": self.status.entry_control_reason,
+                "reconciliation_healthy": self.status.reconciliation_healthy,
                 "critical_jobs": {
                     name: {
                         "registered": job.registered,

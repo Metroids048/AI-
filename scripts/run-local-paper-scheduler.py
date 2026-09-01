@@ -65,9 +65,10 @@ async def run_scheduler(database_url: str, engine: str = "v2_shadow") -> None:
     configure_scheduler_environment(database_url, engine)
     try:
         from services.execution.bootstrap import bootstrap_local_paper_runtime
-        from services.execution.scheduler import RuntimeScheduler
+        from services.execution.scheduler import RuntimeScheduler, initialize_standard_runtime_entry_control
 
         bootstrap_local_paper_runtime(seed_ohlcv=False)
+        initialize_standard_runtime_entry_control()
         scheduler = RuntimeScheduler()
         scheduler.start()
         scheduler._publish_external_state()
@@ -123,14 +124,22 @@ def _spawn_worker(database_url: str, engine: str, restart_count: int) -> subproc
     )
 
 
-def _write_recovery_overlay(*, state: dict, reason: str, state_name: str, attempt: int, restart_count: int) -> None:
+def _write_recovery_overlay(
+    *,
+    state: dict,
+    reason: str,
+    state_name: str,
+    attempt: int,
+    restart_count: int,
+    entry_hold_owned: bool = True,
+) -> None:
     recovery = dict(state.get("recovery") or {})
     recovery.update(
         {
             "state": state_name,
             "reason": reason,
             "attempt": attempt,
-            "entry_hold": True,
+            "entry_hold": entry_hold_owned,
             "worker_restart_count": restart_count,
             "last_recovery_at": datetime.now(UTC).isoformat(),
         }
@@ -138,9 +147,9 @@ def _write_recovery_overlay(*, state: dict, reason: str, state_name: str, attemp
     state["recovery"] = recovery
     state["entry_enabled"] = False
     state["entry_authorized"] = False
-    state["entry_authority"] = "NONE"
-    state["entry_authority_reason"] = f"LIVENESS_RECOVERY_HOLD:{reason}"
-    state["trading_state"] = "ENTRY_PAUSED"
+    if entry_hold_owned:
+        state["entry_control_reason"] = f"LIVENESS_RECOVERY_HOLD:{reason}"
+    state["trading_state"] = "MANAGEMENT_ONLY"
     state_path = _state_path()
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(state, ensure_ascii=False, default=str), encoding="utf-8")
@@ -236,13 +245,14 @@ def run_supervisor(database_url: str, engine: str = "v2_shadow", monitor_seconds
             hold_reason = str(reason)
             if attempt >= FAST_RECOVERY_ATTEMPTS:
                 hold_reason = f"{RECOVERY_BUDGET_EXHAUSTED_HOLD}:{hold_reason}"
-            persist_liveness_recovery_hold(hold_reason)
+            entry_hold_owned = persist_liveness_recovery_hold(hold_reason)
             _write_recovery_overlay(
                 state=state,
                 reason=hold_reason,
                 state_name=_recovery_state_name(hold_reason),
                 attempt=attempt,
                 restart_count=restart_count,
+                entry_hold_owned=entry_hold_owned,
             )
             _terminate_worker(worker)
             _reclaim_stale_locks(database_url)

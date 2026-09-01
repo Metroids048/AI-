@@ -12,7 +12,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from services.automated_trading.domain.invariants import (
@@ -1267,6 +1268,80 @@ class AutomatedTradingRepository:
         control.updated_at = datetime.now(UTC)
         self.session.flush()
         return control
+
+    def ensure_runtime_control(
+        self,
+        *,
+        scope: str,
+        entry_enabled: bool,
+        reason: str | None,
+        updated_by: str | None,
+    ) -> V2RuntimeControl:
+        """Insert an initial control without overwriting an existing owner.
+
+        ``get_runtime_control`` intentionally remains fail-closed for generic
+        callers. The standard runtime bootstrap uses this method to arm a
+        genuinely new installation while preserving every existing operator
+        pause or liveness-owned recovery hold.
+        """
+        existing = self.session.get(V2RuntimeControl, scope)
+        if existing is not None:
+            return existing
+        try:
+            with self.session.begin_nested():
+                created = V2RuntimeControl(
+                    scope=scope,
+                    entry_enabled=entry_enabled,
+                    reason=reason,
+                    updated_by=updated_by,
+                    version=0,
+                )
+                self.session.add(created)
+                self.session.flush()
+        except IntegrityError:
+            self.session.expire_all()
+            concurrent = self.session.get(V2RuntimeControl, scope)
+            if concurrent is None:  # pragma: no cover - defensive database isolation guard
+                raise
+            return concurrent
+        return created
+
+    def compare_and_set_runtime_control(
+        self,
+        *,
+        scope: str,
+        expected_version: int,
+        expected_entry_enabled: bool,
+        expected_reason: str | None,
+        entry_enabled: bool,
+        reason: str | None,
+        updated_by: str | None,
+    ) -> bool:
+        """Atomically change RuntimeControl only while the observed owner still matches."""
+        reason_predicate = (
+            V2RuntimeControl.reason.is_(None)
+            if expected_reason is None
+            else V2RuntimeControl.reason == expected_reason
+        )
+        result = self.session.execute(
+            update(V2RuntimeControl)
+            .where(
+                V2RuntimeControl.scope == scope,
+                V2RuntimeControl.version == expected_version,
+                V2RuntimeControl.entry_enabled == expected_entry_enabled,
+                reason_predicate,
+            )
+            .values(
+                entry_enabled=entry_enabled,
+                reason=reason,
+                updated_by=updated_by,
+                version=V2RuntimeControl.version + 1,
+                updated_at=datetime.now(UTC),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        self.session.flush()
+        return int(getattr(result, "rowcount", 0)) == 1
 
     def get_open_positions(self, execution_mode: V2ExecutionMode, symbol: str | None = None) -> list[V2ManagedPosition]:
         stmt = select(V2ManagedPosition).where(

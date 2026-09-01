@@ -551,6 +551,11 @@ def test_console_launcher_migrates_database_without_relaying_api_streams() -> No
     assert "frontend[/" in script and "]+admin" in script
     assert "量化项目.*vite" not in script
     assert "py -3" not in script
+    assert "$rootForward = [regex]::Escape($Root.Replace('\\', '/'))" in script
+    assert "$commandLine -match $rootForward" in script
+    assert "function Stop-SchedulerProcessTree" in script
+    assert "Stop-SchedulerProcessTree -RootPid ([int]$recordedPid)" in script
+    assert "Stop-SchedulerProcessTree -RootPid ([int]$orphan.ProcessId)" in script
 
 
 def test_local_api_runner_starts_uvicorn_without_powershell_stream_relay() -> None:

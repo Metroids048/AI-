@@ -19,8 +19,8 @@ def _facts(**overrides):
         "data": {"fresh": True, "exchange_info_ready": True},
         "reconciliation": {"status": "healthy", "blocked_symbols": []},
         "entry_runtime": {
-            "trading_state": "TRADING",
-            "entry_authority": "TESTNET_CANARY",
+            "trading_state": "TRADING_READY",
+            "entry_authority": "TESTNET_FORWARD",
             "entry_authorized": True,
             "reason": None,
         },
@@ -35,7 +35,26 @@ def test_scheduler_offline_has_priority_over_waiting_for_signal():
     result = build_no_trade_summary(**_facts(scheduler={"running": False}))
 
     assert result["summary_code"] == "SCHEDULER_OFFLINE"
+    assert result["summary_category"] == "SYSTEM_BLOCKED"
+    assert result["reasons"]["system_failure_reason"] == "SCHEDULER_OFFLINE"
     assert result["runtime_status"] == "异常"
+
+
+def test_degraded_runtime_exposes_stable_scheduler_failure_reason():
+    result = build_no_trade_summary(
+        **_facts(
+            scheduler={"running": True, "scheduler_error": "ACTIVE_CONFIG_SNAPSHOT_CAPTURE_FAILED"},
+            entry_runtime={
+                "trading_state": "DEGRADED",
+                "entry_authority": "TESTNET_FORWARD",
+                "entry_authorized": False,
+                "system_failure_reason": "ACTIVE_CONFIG_SNAPSHOT_CAPTURE_FAILED",
+            },
+        )
+    )
+
+    assert result["summary_category"] == "SYSTEM_BLOCKED"
+    assert result["reasons"]["system_failure_reason"] == "ACTIVE_CONFIG_SNAPSHOT_CAPTURE_FAILED"
 
 
 def test_exchange_unavailable_has_priority_over_data_and_strategy():
@@ -43,6 +62,23 @@ def test_exchange_unavailable_has_priority_over_data_and_strategy():
     result = build_no_trade_summary(**facts)
 
     assert result["summary_code"] == "EXCHANGE_UNAVAILABLE"
+
+
+def test_exchange_reconciliation_probe_is_not_labelled_as_an_outage():
+    result = build_no_trade_summary(
+        **_facts(
+            exchange={
+                "status": "unavailable",
+                "value": None,
+                "error": "exchange truth probe in progress",
+            }
+        )
+    )
+
+    assert result["summary_code"] == "EXCHANGE_RECONCILIATION_IN_PROGRESS"
+    assert result["summary_category"] == "SYSTEM_BLOCKED"
+    assert result["runtime_status"] == "同步中"
+    assert result["current_status"]["runtime_health"] == "checking"
 
 
 def test_stale_market_data_is_not_reported_as_waiting_for_signal():
@@ -91,7 +127,78 @@ def test_entry_paused_is_reported_when_system_facts_are_healthy():
     result = build_no_trade_summary(**facts)
 
     assert result["summary_code"] == "ENTRY_PAUSED"
+    assert result["summary_category"] == "AUTHORIZATION_BLOCKED"
+    assert result["reasons"]["authorization_reason"] == "ENTRY_KILL_SWITCH_ACTIVE"
     assert result["entry_runtime"]["reason"] == "ENTRY_KILL_SWITCH_ACTIVE"
+
+
+def test_management_only_reports_runtime_control_reason_not_authority_success():
+    result = build_no_trade_summary(
+        **_facts(
+            entry_runtime={
+                "trading_state": "MANAGEMENT_ONLY",
+                "entry_authority": "TESTNET_FORWARD",
+                "entry_authorized": False,
+                "reason": "TESTNET_FORWARD_AUTHORIZED",
+                "entry_control_reason": "ENTRY_PAUSED:operator",
+            }
+        )
+    )
+
+    assert result["summary_category"] == "AUTHORIZATION_BLOCKED"
+    assert result["current_status"]["active_blocker"] == "ENTRY_PAUSED:operator"
+    assert result["reasons"]["authorization_reason"] == "ENTRY_PAUSED:operator"
+    assert result["entry_runtime"]["reason"] == "ENTRY_PAUSED:operator"
+
+
+def test_candidate_timestamp_is_not_reported_as_entry_attempt_without_intent():
+    now = datetime.now(UTC)
+    result = build_no_trade_summary(
+        **_facts(
+            decisions=[
+                {
+                    "at": now,
+                    "symbol": "BTC/USDT",
+                    "reason": "PRICE_DRIFT_EXCEEDED",
+                    "candidate_created": True,
+                }
+            ]
+        )
+    )
+
+    assert result["timeline"]["last_candidate_at"] == now.isoformat()
+    assert result["timeline"]["last_entry_attempt_at"] is None
+    assert result["symbols"]["BTC/USDT"]["last_entry_attempt_at"] is None
+
+
+def test_forward_authorization_failure_is_not_counted_as_system_failure():
+    now = datetime.now(UTC)
+    facts = _facts(
+        entry_runtime={
+            "trading_state": "ENTRY_BLOCKED",
+            "entry_authority": "NONE",
+            "entry_authorized": False,
+            "entry_authority_reason": "NO_FORWARD_VALIDATION_CANDIDATE",
+        },
+        decisions=[
+            {
+                "at": now,
+                "reason": "NO_FORWARD_VALIDATION_CANDIDATE",
+                "strategy_terminal_reason": None,
+                "system_failure_reason": None,
+                "execution_blocker": "NO_FORWARD_VALIDATION_CANDIDATE",
+            }
+        ],
+    )
+
+    result = build_no_trade_summary(**facts)
+
+    assert result["summary_code"] == "NO_FORWARD_VALIDATION_CANDIDATE"
+    assert result["summary_category"] == "AUTHORIZATION_BLOCKED"
+    assert result["historical_window"]["operational_block_counts"] == {
+        "NO_FORWARD_VALIDATION_CANDIDATE": 1
+    }
+    assert result["historical_window"]["system_failure_counts"] == {}
 
 
 def test_canary_trading_with_production_pending_is_not_entry_paused():
@@ -176,6 +283,7 @@ def test_recent_effective_decisions_with_no_entry_fill_are_healthy_waiting():
     )
 
     assert result["summary_code"] == "HEALTHY_WAITING_FOR_SIGNAL"
+    assert result["summary_category"] == "STRATEGY_NO_SIGNAL"
 
 
 def test_entry_fill_outside_window_is_not_reported_as_recent_entry():
@@ -193,6 +301,8 @@ def test_entry_blocked_is_operational_block_not_runtime_failure():
     )
 
     assert result["summary_code"] == "ENTRY_BLOCKED"
+    assert result["summary_category"] == "RISK_REJECTED"
+    assert result["reasons"]["execution_blocker"] == "PRICE_DRIFT_EXCEEDED"
     assert result["runtime_status"] == "正常"
 
 
@@ -338,3 +448,36 @@ def test_management_cycle_is_not_counted_as_strategy_opportunity():
 
     assert result["decisions"]["management"] == 1
     assert result["decisions"]["effective"] == 1
+
+
+def test_no_trade_summary_reports_per_symbol_candidate_gate_and_timeline():
+    now = datetime.now(UTC)
+    result = build_no_trade_summary(
+        **_facts(
+            observed_at=now,
+            decisions=[
+                {
+                    "at": now - timedelta(minutes=2),
+                    "symbol": "BTC/USDT",
+                    "reason": "PRICE_DRIFT_EXCEEDED",
+                    "candidate_created": True,
+                    "entry_gate_result": "ENTRY_GATE_REJECTED",
+                    "entry_submitted": False,
+                },
+                {
+                    "at": now - timedelta(minutes=3),
+                    "symbol": "ETH/USDT",
+                    "reason": "NO_ENTRY_SIGNAL",
+                    "candidate_created": False,
+                    "entry_gate_result": "ENTRY_SIGNAL_EVALUATED",
+                    "entry_submitted": False,
+                },
+            ],
+        )
+    )
+
+    assert result["timeline"]["last_candidate_at"] == (now - timedelta(minutes=2)).isoformat()
+    assert result["timeline"]["last_entry_attempt_at"] is None
+    assert result["symbols"]["BTC/USDT"]["candidate_created"] is True
+    assert result["symbols"]["BTC/USDT"]["gatekeeper_result"] == "ENTRY_GATE_REJECTED"
+    assert result["symbols"]["ETH/USDT"]["candidate_created"] is False

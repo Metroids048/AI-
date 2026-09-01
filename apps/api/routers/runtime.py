@@ -6,7 +6,6 @@ import asyncio
 import hashlib
 import json
 from concurrent.futures import Future, ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from threading import Lock
@@ -41,6 +40,7 @@ from services.automated_trading.infrastructure.models import (
     V2ProtectionRecord,
 )
 from services.automated_trading.infrastructure.repository import AutomatedTradingRepository
+from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
 from services.database import get_db_session, get_session_factory
 from services.execution.bootstrap import AUTO_PAPER_TECHNICAL_KEY, CANONICAL_MANIFEST_ROOT
 from services.execution.gateway import configured_gateways
@@ -68,19 +68,17 @@ _EXCHANGE_BACKGROUND_REFRESH_SECONDS = 20.0
 # for a live probe instead.
 _EXCHANGE_MAX_SERVE_SECONDS = 90.0
 # One reconcile is ~6 sequential authenticated Binance calls, and the first probe in
-# a fresh API process also pays CCXT load_markets(). Measured cold cost on this host
-# exceeded the previous 8s budget, so every probe timed out and the console stayed
-# permanently "unavailable". This value is a request-side responsiveness budget, not a
-# probe deadline: a probe that outlives its waiter keeps running and caches its own
-# result, so the next poll is served from real exchange data instead of restarting
-# the work from scratch.
-_EXCHANGE_TRUTH_TIMEOUT_SECONDS = 20.0
+# a fresh API process also pays CCXT load_markets().  It must never occupy FastAPI's
+# synchronous request workers: even the health route shares that worker pool.  Cold
+# callers therefore start a single background probe and receive an explicit
+# unavailable datum until that probe has cached authoritative exchange facts.
 _exchange_cache_lock = Lock()
 _exchange_probe_lock = Lock()
 _exchange_cache: tuple[datetime, dict] | None = None
 _exchange_inflight: Future | None = None
 _exchange_truth_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="runtime-exchange-truth")
 _runtime_projection_lock = Lock()
+_runtime_projection_build_lock = Lock()
 _runtime_projection_cache: tuple[datetime, dict] | None = None
 _RUNTIME_PROJECTION_CACHE_SECONDS = 10.0
 
@@ -210,6 +208,7 @@ def _ensure_exchange_probe() -> Future:
 
 
 def _exchange_truth() -> dict:
+    global _exchange_cache
     age = _cached_exchange_age_seconds()
     if age is not None and age < _EXCHANGE_MAX_SERVE_SECONDS:
         cached = _cached_exchange_truth(allow_stale=True)
@@ -224,22 +223,29 @@ def _exchange_truth() -> dict:
     if fresh is not None:
         return fresh
     future = _ensure_exchange_probe()
-    try:
-        return future.result(timeout=_EXCHANGE_TRUTH_TIMEOUT_SECONDS)
-    except FutureTimeoutError:
-        # Deliberately do not cancel: the probe keeps running and caches its own
-        # result, so the next poll is served from real exchange data. Cancelling here
-        # is what previously made every probe restart from zero and time out forever.
-        stale = _cached_exchange_truth(allow_stale=True)
-        if stale is not None:
-            return stale
-        return _datum(
-            value=None,
-            source="BINANCE_USDT_M_TESTNET",
-            observed_at=datetime.now(UTC),
-            status="unavailable",
-            error=f"exchange truth probe exceeded {_EXCHANGE_TRUTH_TIMEOUT_SECONDS:.0f}s",
-        )
+    if future.done():
+        # A trivial/fake gateway can complete before the first caller reaches
+        # this branch.  Preserve the fresh fact without imposing a wait on real
+        # Testnet reconciliation.
+        return future.result()
+    # Deliberately do not cancel or wait: the probe keeps running and caches its
+    # own result.  Waiting here allowed a cold page's concurrent Runtime requests
+    # to exhaust FastAPI workers, making even /health unresponsive.
+    stale = _cached_exchange_truth(allow_stale=True)
+    if stale is not None:
+        return stale
+    probing = _datum(
+        value=None,
+        source="BINANCE_USDT_M_TESTNET",
+        observed_at=datetime.now(UTC),
+        status="unavailable",
+        error="exchange truth probe in progress",
+    )
+    with _exchange_cache_lock:
+        if _exchange_cache is None:
+            _exchange_cache = (datetime.now(UTC), probing)
+            return probing
+        return dict(_exchange_cache[1])
 
 
 def _platform_symbol(value: object) -> str:
@@ -801,6 +807,23 @@ def _canonical_strategy_manifest_truth() -> dict:
 
 
 def _runtime_projection(db: Session, *, observed_at: datetime | None = None) -> dict:
+    """Return a cached projection while ensuring one cold build at a time.
+
+    The console requests several Runtime endpoints concurrently.  Without this
+    outer single-flight boundary, every endpoint repeated the same exchange and
+    SQLite projection work before any of them reached the old late cache check.
+    """
+    observed = observed_at or datetime.now(UTC)
+    with _runtime_projection_build_lock:
+        with _runtime_projection_lock:
+            if _runtime_projection_cache is not None:
+                cached_at, cached = _runtime_projection_cache
+                if (observed - cached_at).total_seconds() < _RUNTIME_PROJECTION_CACHE_SECONDS:
+                    return cached
+        return _build_runtime_projection(db, observed_at=observed)
+
+
+def _build_runtime_projection(db: Session, *, observed_at: datetime | None = None) -> dict:
     """Return one immutable server-side Runtime Truth projection.
 
     The exchange probe is already single-flight; this layer additionally freezes
@@ -905,10 +928,24 @@ def _runtime_projection(db: Session, *, observed_at: datetime | None = None) -> 
         "entry_authority": scheduler.entry_authority or "NONE",
         "entry_authorized": bool(scheduler.entry_authorized),
         "entry_authority_reason": scheduler.entry_authority_reason or scheduler.reason,
+        "entry_enabled": scheduler.entry_enabled,
+        "entry_control_reason": scheduler.entry_control_reason,
         "production_authorization_state": scheduler.production_authorization_state or "PENDING",
+        "production_authorized": scheduler.production_authorized,
+        "production_authorization_reason": scheduler.production_authorization_reason,
+        "forward_authorized": scheduler.forward_authorized,
+        "forward_authorization_reason": scheduler.forward_authorization_reason,
         "active_entry_strategy": scheduler.active_entry_strategy,
         "promotion_eligible": bool(scheduler.promotion_eligible),
-        "trading_state": scheduler.trading_state or "ENTRY_PAUSED",
+        "trading_state": scheduler.trading_state or "ENTRY_BLOCKED",
+        "active_config_snapshot_id": scheduler.active_config_snapshot_id,
+        "active_config_hash": scheduler.active_config_hash,
+        "pending_config_snapshot_id": scheduler.pending_config_snapshot_id,
+        "pending_config_hash": scheduler.pending_config_hash,
+        "active_snapshot_valid": scheduler.active_snapshot_valid,
+        "reconciliation_healthy": scheduler.reconciliation_healthy,
+        "system_failure_reason": scheduler.scheduler_error if scheduler.trading_state == "DEGRADED" else None,
+        "recovery_reason": scheduler.recovery.get("reason") if scheduler.recovery else None,
     }
     strategy_manifest = _canonical_strategy_manifest_truth()
     projection = {
@@ -1219,6 +1256,7 @@ def _reason_category(reason: str) -> str:
         "CANDIDATE_EXPIRED",
         "ENTRY_PAUSED",
         "NO_AUTHORIZED_PRODUCTION_STRATEGY",
+        "NO_FORWARD_VALIDATION_CANDIDATE",
         "RECONCILIATION_BLOCKED",
     }:
         return "operational_block"
@@ -1330,10 +1368,16 @@ def build_no_trade_summary(
     last_auto_cycle_at = scheduler.get("last_auto_cycle_at")
     exchange_status = str(exchange.get("status") or "unavailable")
     reconciliation_status = str(reconciliation.get("status") or "unavailable")
-    trading_state = str(entry_runtime.get("trading_state") or "ENTRY_PAUSED")
+    trading_state = str(entry_runtime.get("trading_state") or "ENTRY_BLOCKED")
     entry_authorized = bool(entry_runtime.get("entry_authorized"))
+    entry_pause_reason = (
+        entry_runtime.get("entry_control_reason") or entry_runtime.get("reason")
+        if trading_state == "MANAGEMENT_ONLY"
+        else entry_runtime.get("reason") or entry_runtime.get("entry_authority_reason")
+    )
     latest_decision_at = normalized_decisions[0]["at"] if normalized_decisions else None
     active_blocker: str | None = None
+    authorization_blocked = False
 
     at_capacity = (
         effective_max_open_positions is not None
@@ -1342,8 +1386,17 @@ def build_no_trade_summary(
     )
     if not bool(scheduler.get("running")):
         summary_code = "SCHEDULER_OFFLINE"
+    elif trading_state == "DEGRADED":
+        summary_code = "RUNTIME_DEGRADED"
     elif exchange_status == "unavailable" or exchange.get("value") is None:
-        summary_code = "EXCHANGE_UNAVAILABLE"
+        # A cold API process starts reconciliation in the background so it
+        # cannot starve request workers.  That temporary safety block is not
+        # an exchange outage and must not be rendered as one.
+        summary_code = (
+            "EXCHANGE_RECONCILIATION_IN_PROGRESS"
+            if str(exchange.get("error") or "") == "exchange truth probe in progress"
+            else "EXCHANGE_UNAVAILABLE"
+        )
     elif not bool(data.get("fresh")) or not bool(data.get("exchange_info_ready")):
         summary_code = "MARKET_DATA_STALE"
     elif (
@@ -1353,8 +1406,13 @@ def build_no_trade_summary(
         or reconciliation_status == "blocked"
     ):
         summary_code = "RECONCILIATION_BLOCKED"
-    elif trading_state == "ENTRY_PAUSED" or not entry_authorized:
+    elif trading_state in {"ENTRY_PAUSED", "MANAGEMENT_ONLY"} or entry_runtime.get("entry_enabled") is False:
         summary_code = "ENTRY_PAUSED"
+        authorization_blocked = True
+    elif trading_state == "ENTRY_BLOCKED" or not entry_authorized:
+        summary_code = str(entry_pause_reason or "ENTRY_AUTHORIZATION_BLOCKED")
+        active_blocker = summary_code
+        authorization_blocked = True
     elif latest_decision_at is None or observed_at - latest_decision_at > _DECISION_PIPELINE_MAX_AGE:
         summary_code = "DECISION_PIPELINE_STALLED"
     elif at_capacity:
@@ -1373,13 +1431,18 @@ def build_no_trade_summary(
         active_blocker = {
             "SCHEDULER_OFFLINE": "SCHEDULER_OFFLINE",
             "EXCHANGE_UNAVAILABLE": "EXCHANGE_UNAVAILABLE",
+            "EXCHANGE_RECONCILIATION_IN_PROGRESS": "EXCHANGE_RECONCILIATION_IN_PROGRESS",
             "MARKET_DATA_STALE": "MARKET_DATA_STALE",
             "RECONCILIATION_BLOCKED": "RECONCILIATION_BLOCKED",
             "DECISION_PIPELINE_STALLED": "DECISION_PIPELINE_STALLED",
-            "ENTRY_PAUSED": entry_runtime.get("reason") or "ENTRY_PAUSED",
+            "RUNTIME_DEGRADED": entry_runtime.get("system_failure_reason") or "RUNTIME_DEGRADED",
+            "ENTRY_PAUSED": entry_pause_reason or "ENTRY_PAUSED",
         }.get(summary_code)
     active_blocker_category = _reason_category(active_blocker) if active_blocker else None
     runtime_health = (
+        "checking"
+        if summary_code == "EXCHANGE_RECONCILIATION_IN_PROGRESS"
+        else
         "degraded"
         if summary_code
         in {
@@ -1388,9 +1451,75 @@ def build_no_trade_summary(
             "MARKET_DATA_STALE",
             "RECONCILIATION_BLOCKED",
             "DECISION_PIPELINE_STALLED",
+            "RUNTIME_DEGRADED",
         }
         else "healthy"
     )
+    system_block_codes = {
+        "SCHEDULER_OFFLINE",
+        "EXCHANGE_UNAVAILABLE",
+        "EXCHANGE_RECONCILIATION_IN_PROGRESS",
+        "MARKET_DATA_STALE",
+        "RECONCILIATION_BLOCKED",
+        "DECISION_PIPELINE_STALLED",
+        "RUNTIME_DEGRADED",
+    }
+    if summary_code in system_block_codes:
+        summary_category = "SYSTEM_BLOCKED"
+    elif authorization_blocked:
+        summary_category = "AUTHORIZATION_BLOCKED"
+    elif summary_code == "ENTRY_BLOCKED":
+        summary_category = "RISK_REJECTED"
+    else:
+        summary_category = "STRATEGY_NO_SIGNAL"
+
+    def _most_recent_time(predicate) -> datetime | None:  # noqa: ANN001
+        return max((item["at"] for item in normalized_decisions if predicate(item)), default=None)
+
+    last_candidate_at = _most_recent_time(lambda item: bool(item.get("candidate_created")))
+    # Intent creation is the first durable entry attempt.  Candidate creation
+    # alone is strategy output and must remain a separate timestamp.
+    last_entry_attempt_at = None
+    last_exchange_submission_at = _most_recent_time(lambda item: bool(item.get("entry_submitted")))
+    observed_symbols = {str(item.get("symbol")) for item in normalized_decisions if item.get("symbol")}
+    symbol_summaries: dict[str, dict] = {}
+    for symbol in sorted(set(AUTO_SIMULATION_EXECUTION_SYMBOLS) | observed_symbols):
+        latest = next((item for item in normalized_decisions if item.get("symbol") == symbol), None)
+        latest_candidate = next(
+            (item for item in normalized_decisions if item.get("symbol") == symbol and item.get("candidate_created")),
+            None,
+        )
+        symbol_summaries[symbol] = {
+            "last_decision_at": _iso_datetime(latest.get("at")) if latest else None,
+            "candidate_created": bool(latest_candidate),
+            "last_candidate_at": _iso_datetime(latest_candidate.get("at")) if latest_candidate else None,
+            "last_entry_attempt_at": None,
+            "gatekeeper_result": latest_candidate.get("entry_gate_result") if latest_candidate else None,
+            "strategy_reason": latest.get("strategy_terminal_reason") if latest else None,
+            "system_failure_reason": latest.get("system_failure_reason") if latest else None,
+            "execution_blocker": latest.get("execution_blocker") if latest else None,
+            "terminal_reason": latest.get("reason") if latest else None,
+            "entry_submitted": bool(latest_candidate and latest_candidate.get("entry_submitted")),
+            "last_exchange_submission_at": (
+                _iso_datetime(latest_candidate.get("at"))
+                if latest_candidate and latest_candidate.get("entry_submitted")
+                else None
+            ),
+            "last_fill_at": None,
+        }
+
+    authorization_reason = (
+        entry_pause_reason
+        if summary_category == "AUTHORIZATION_BLOCKED"
+        else None
+    )
+    system_failure_reason = active_blocker if summary_category == "SYSTEM_BLOCKED" else None
+    strategy_reason = (
+        max(strategy_filter_counts, key=lambda reason: (strategy_filter_counts[reason], reason))
+        if strategy_filter_counts
+        else None
+    )
+    execution_blocker = active_blocker if summary_category == "RISK_REJECTED" else None
 
     return {
         "window_hours": window_hours,
@@ -1398,7 +1527,9 @@ def build_no_trade_summary(
         "observed_at": observed_at.isoformat(),
         "last_entry_at": _iso_datetime(last_entry),
         "hours_since_last_entry": hours_since_last_entry,
-        "runtime_status": "异常"
+        "runtime_status": "同步中"
+        if summary_code == "EXCHANGE_RECONCILIATION_IN_PROGRESS"
+        else "异常"
         if summary_code
         in {
             "SCHEDULER_OFFLINE",
@@ -1406,6 +1537,7 @@ def build_no_trade_summary(
             "MARKET_DATA_STALE",
             "RECONCILIATION_BLOCKED",
             "DECISION_PIPELINE_STALLED",
+            "RUNTIME_DEGRADED",
         }
         else "正常",
         "scheduler": {
@@ -1417,6 +1549,12 @@ def build_no_trade_summary(
             "critical_jobs": scheduler.get("critical_jobs") or {},
             "scheduler_error": scheduler.get("scheduler_error"),
             "recovery": scheduler.get("recovery") or {},
+            "active_config_snapshot_id": scheduler.get("active_config_snapshot_id"),
+            "active_config_hash": scheduler.get("active_config_hash"),
+            "pending_config_snapshot_id": scheduler.get("pending_config_snapshot_id"),
+            "pending_config_hash": scheduler.get("pending_config_hash"),
+            "active_snapshot_valid": scheduler.get("active_snapshot_valid"),
+            "reconciliation_healthy": scheduler.get("reconciliation_healthy"),
         },
         "exchange": {"status": exchange_status},
         "data": {
@@ -1438,9 +1576,25 @@ def build_no_trade_summary(
             "trading_state": trading_state,
             "entry_authority": entry_runtime.get("entry_authority"),
             "entry_authorized": entry_authorized,
-            "reason": entry_runtime.get("reason") or entry_runtime.get("entry_authority_reason"),
+            "reason": entry_pause_reason,
             "execution_blocker": entry_runtime.get("execution_blocker"),
+            "entry_enabled": entry_runtime.get("entry_enabled"),
+            "entry_control_reason": entry_runtime.get("entry_control_reason"),
         },
+        "reasons": {
+            "system_failure_reason": system_failure_reason,
+            "authorization_reason": authorization_reason,
+            "strategy_reason": strategy_reason,
+            "execution_blocker": execution_blocker,
+            "recovery_reason": entry_runtime.get("recovery_reason"),
+        },
+        "timeline": {
+            "last_candidate_at": _iso_datetime(last_candidate_at),
+            "last_entry_attempt_at": _iso_datetime(last_entry_attempt_at),
+            "last_exchange_submission_at": _iso_datetime(last_exchange_submission_at),
+            "last_fill_at": _iso_datetime(last_entry),
+        },
+        "symbols": symbol_summaries,
         "current_status": {
             "runtime_health": runtime_health,
             "active_blocker": active_blocker,
@@ -1495,6 +1649,7 @@ def build_no_trade_summary(
             "p0_unprotected": False,
         },
         "summary_code": summary_code,
+        "summary_category": summary_category,
     }
 
 
@@ -1605,6 +1760,7 @@ def runtime_no_trade_summary(
         decisions.append(
             {
                 "at": decision.created_at,
+                "symbol": payload["symbol"],
                 "reason": payload["terminal_reason"],
                 "strategy_terminal_reason": payload.get("strategy_terminal_reason"),
                 "system_failure_reason": payload.get("system_failure_reason"),
@@ -1627,8 +1783,8 @@ def runtime_no_trade_summary(
             }
         )
     fills = [
-        {"at": fill.received_at, "reduce_only": fill.reduce_only}
-        for fill, _intent in v2_repo.list_exchange_fills(
+        {"at": fill.received_at, "reduce_only": fill.reduce_only, "symbol": intent.symbol}
+        for fill, intent in v2_repo.list_exchange_fills(
             execution_mode=V2ExecutionMode.BINANCE_TESTNET,
             limit=500,
         )
@@ -1643,6 +1799,12 @@ def runtime_no_trade_summary(
             "scheduler_error": scheduler.scheduler_error,
             "critical_jobs": scheduler.critical_jobs,
             "recovery": scheduler.recovery,
+            "active_config_snapshot_id": scheduler.active_config_snapshot_id,
+            "active_config_hash": scheduler.active_config_hash,
+            "pending_config_snapshot_id": scheduler.pending_config_snapshot_id,
+            "pending_config_hash": scheduler.pending_config_hash,
+            "active_snapshot_valid": scheduler.active_snapshot_valid,
+            "reconciliation_healthy": scheduler.reconciliation_healthy,
         },
         exchange=exchange,
         data={"fresh": scheduler.data_fresh, "exchange_info_ready": scheduler.exchange_info_ready},
@@ -1655,10 +1817,27 @@ def runtime_no_trade_summary(
             "last_healthy_at": reconciliation["last_healthy_at"],
         },
         entry_runtime={
-            "trading_state": scheduler.trading_state or "ENTRY_PAUSED",
+            "trading_state": scheduler.trading_state or "ENTRY_BLOCKED",
             "entry_authority": scheduler.entry_authority or "NONE",
             "entry_authorized": bool(scheduler.entry_authorized),
-            "reason": scheduler.entry_authority_reason or scheduler.reason,
+            "reason": (
+                scheduler.entry_control_reason
+                if (scheduler.trading_state or "") == "MANAGEMENT_ONLY" and scheduler.entry_control_reason
+                else scheduler.entry_authority_reason or scheduler.reason
+            ),
+            "entry_enabled": scheduler.entry_enabled,
+            "entry_control_reason": scheduler.entry_control_reason,
+            "production_authorized": scheduler.production_authorized,
+            "production_authorization_reason": scheduler.production_authorization_reason,
+            "forward_authorized": scheduler.forward_authorized,
+            "forward_authorization_reason": scheduler.forward_authorization_reason,
+            "active_config_snapshot_id": scheduler.active_config_snapshot_id,
+            "active_config_hash": scheduler.active_config_hash,
+            "pending_config_snapshot_id": scheduler.pending_config_snapshot_id,
+            "pending_config_hash": scheduler.pending_config_hash,
+            "active_snapshot_valid": scheduler.active_snapshot_valid,
+            "reconciliation_healthy": scheduler.reconciliation_healthy,
+            "recovery_reason": scheduler.recovery.get("reason") if scheduler.recovery else None,
         },
         decisions=decisions,
         entry_fills=fills,
@@ -1704,6 +1883,38 @@ def runtime_no_trade_summary(
         if (created_at := intent.created_at) is not None
         and (created_at if created_at.tzinfo else created_at.replace(tzinfo=UTC)) >= window_start
     ]
+    submitted_rows = [
+        (order.submitted_at if order.submitted_at.tzinfo else order.submitted_at.replace(tzinfo=UTC), intent.symbol)
+        for order, intent in order_rows
+        if order.submitted_at is not None
+    ]
+    received_fill_rows = [
+        (fill.received_at if fill.received_at.tzinfo else fill.received_at.replace(tzinfo=UTC), intent.symbol)
+        for fill, intent in fill_rows
+        if fill.received_at is not None
+    ]
+    intent_created_rows = [
+        (intent.created_at if intent.created_at.tzinfo else intent.created_at.replace(tzinfo=UTC), intent.symbol)
+        for intent in intent_rows
+        if intent.created_at is not None
+    ]
+    if intent_created_rows:
+        summary["timeline"]["last_entry_attempt_at"] = max(item[0] for item in intent_created_rows).isoformat()
+    if submitted_rows:
+        summary["timeline"]["last_exchange_submission_at"] = max(item[0] for item in submitted_rows).isoformat()
+    if received_fill_rows:
+        summary["timeline"]["last_fill_at"] = max(item[0] for item in received_fill_rows).isoformat()
+    for symbol in AUTO_SIMULATION_EXECUTION_SYMBOLS:
+        symbol_summary = summary["symbols"].setdefault(symbol, {})
+        symbol_submissions = [at for at, row_symbol in submitted_rows if row_symbol == symbol]
+        symbol_fills = [at for at, row_symbol in received_fill_rows if row_symbol == symbol]
+        symbol_attempts = [at for at, row_symbol in intent_created_rows if row_symbol == symbol]
+        if symbol_attempts:
+            symbol_summary["last_entry_attempt_at"] = max(symbol_attempts).isoformat()
+        if symbol_submissions:
+            symbol_summary["last_exchange_submission_at"] = max(symbol_submissions).isoformat()
+        if symbol_fills:
+            symbol_summary["last_fill_at"] = max(symbol_fills).isoformat()
     summary["funnel"] = {
         "decision_cycles": len(effective),
         "signal_generated": sum(bool(item.get("base_signal_detected")) for item in effective),

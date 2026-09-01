@@ -128,6 +128,79 @@ class TestGate1DatabaseIntegrity:
         assert control is not None
         assert control.entry_enabled is False
 
+    def test_standard_runtime_control_initialization_arms_only_an_absent_row(
+        self,
+        repo: AutomatedTradingRepository,
+    ) -> None:
+        control = repo.ensure_runtime_control(
+            scope="global",
+            entry_enabled=True,
+            reason="STANDARD_RUNTIME_ENABLED",
+            updated_by="runtime-bootstrap",
+        )
+        repo.commit()
+
+        assert control.entry_enabled is True
+        assert control.reason == "STANDARD_RUNTIME_ENABLED"
+        assert control.updated_by == "runtime-bootstrap"
+
+    @pytest.mark.parametrize(
+        "reason",
+        ["ENTRY_PAUSED:operator", "LIVENESS_RECOVERY_HOLD:WORKER_EXITED:1"],
+    )
+    def test_standard_runtime_control_initialization_preserves_existing_pause(
+        self,
+        repo: AutomatedTradingRepository,
+        reason: str,
+    ) -> None:
+        repo.set_runtime_control(
+            scope="global",
+            entry_enabled=False,
+            reason=reason,
+            updated_by="operator" if reason.startswith("ENTRY_PAUSED") else "liveness-supervisor",
+        )
+        repo.commit()
+
+        control = repo.ensure_runtime_control(
+            scope="global",
+            entry_enabled=True,
+            reason="STANDARD_RUNTIME_ENABLED",
+            updated_by="runtime-bootstrap",
+        )
+        repo.commit()
+
+        assert control.entry_enabled is False
+        assert control.reason == reason
+
+    def test_runtime_control_cas_rejects_stale_owner(self, repo: AutomatedTradingRepository) -> None:
+        control = repo.get_runtime_control("global")
+        observed_version = int(control.version)
+        observed_reason = control.reason
+        repo.set_runtime_control(
+            scope="global",
+            entry_enabled=False,
+            reason="ENTRY_PAUSED:operator",
+            updated_by="operator",
+            expected_version=observed_version,
+        )
+        repo.commit()
+
+        changed = repo.compare_and_set_runtime_control(
+            scope="global",
+            expected_version=observed_version,
+            expected_entry_enabled=False,
+            expected_reason=observed_reason,
+            entry_enabled=True,
+            reason="LIVENESS_RECOVERY_RECOVERED",
+            updated_by="liveness-supervisor",
+        )
+        repo.commit()
+
+        current = repo.get_runtime_control("global")
+        assert changed is False
+        assert current.entry_enabled is False
+        assert current.reason == "ENTRY_PAUSED:operator"
+
     def test_illegal_terminal_transitions_rejected(self, repo: AutomatedTradingRepository) -> None:
         repo.create_cycle(
             cycle_id="c2",

@@ -61,6 +61,9 @@ describe("presentation mapping", () => {
     expect(formatNoTradeSummary("SCHEDULER_OFFLINE")).toBe("自动交易程序异常：调度器心跳中断");
     expect(formatNoTradeSummary("HEALTHY_WAITING_FOR_SIGNAL")).toBe("策略正在等待交易机会");
     expect(formatNoTradeSummary("ENTRY_BLOCKED", "PRICE_DRIFT_EXCEEDED", 4)).toBe("新开仓被拦截：价格漂移超限（4 次）");
+    expect(formatNoTradeSummary("NO_FORWARD_VALIDATION_CANDIDATE")).toBe(
+      "新开仓授权阻塞：暂无通过 Forward Validation 的候选",
+    );
   });
 
   it("preserves professional terms and proper nouns verbatim", () => {

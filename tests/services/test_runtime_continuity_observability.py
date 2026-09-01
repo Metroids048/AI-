@@ -24,6 +24,17 @@ def test_runtime_state_exposes_distinct_supervisor_worker_and_cycle_liveness(mon
             "data_fresh": True,
             "critical_jobs": {"automated_trading_v2_cycle": {"registered": True, "task_alive": True}},
             "recovery": {"state": "HEALTHY"},
+            "active_config_snapshot_id": "snapshot-active",
+            "active_config_hash": "sha256:active",
+            "pending_config_snapshot_id": "snapshot-pending",
+            "pending_config_hash": "sha256:pending",
+            "active_snapshot_valid": True,
+            "production_authorized": False,
+            "production_authorization_reason": "NO_VALIDATED_EDGE",
+            "forward_authorized": True,
+            "forward_authorization_reason": "TESTNET_FORWARD_AUTHORIZED",
+            "entry_control_reason": "operator_enabled",
+            "reconciliation_healthy": True,
         }
     )
 
@@ -38,6 +49,17 @@ def test_runtime_state_exposes_distinct_supervisor_worker_and_cycle_liveness(mon
     assert state.last_runtime_error is None
     assert state.recovery_state == "HEALTHY"
     assert state.engine_health_status == "HEALTHY"
+    assert state.active_config_snapshot_id == "snapshot-active"
+    assert state.active_config_hash == "sha256:active"
+    assert state.pending_config_snapshot_id == "snapshot-pending"
+    assert state.pending_config_hash == "sha256:pending"
+    assert state.active_snapshot_valid is True
+    assert state.production_authorized is False
+    assert state.production_authorization_reason == "NO_VALIDATED_EDGE"
+    assert state.forward_authorized is True
+    assert state.forward_authorization_reason == "TESTNET_FORWARD_AUTHORIZED"
+    assert state.entry_control_reason == "operator_enabled"
+    assert state.reconciliation_healthy is True
 
 
 def test_engine_health_status_distinguishes_runtime_liveness_from_entry_safety() -> None:

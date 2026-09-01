@@ -23,11 +23,11 @@ def test_explicit_development_scheduler_keeps_v2_shadow_default(relative_path: s
     assert re.findall(pattern, source) == ["v2_shadow"]
 
 
-def test_one_click_launcher_requests_active_management_with_natural_canary_entry() -> None:
+def test_one_click_launcher_requests_active_runtime_without_implicit_canary() -> None:
     source = (ROOT / "一键启动.cmd").read_text(encoding="utf-8")
 
     assert source.count("-AutomatedTradingEngine v2_active") == 2
-    assert source.count("-EnableNaturalTestnet") == 2
+    assert "-EnableNaturalTestnet" not in source
     assert source.count("-PreserveExternalTestnetBaseline") == 2
 
 
@@ -40,3 +40,8 @@ def test_powershell_launcher_keeps_shadow_default_and_checks_actual_state() -> N
     assert "Test-ActiveTradingModeContract" in source
     assert "Remove-Item -LiteralPath $SchedulerStateFile" in source
     assert "if (-not (Test-SchedulerHealthy))" in source
+    assert "trading_state = $runtimeFacts.trading_state" in source
+    assert "entry_authority = $runtimeFacts.entry_authority" in source
+    assert "entry_enabled = $runtimeFacts.entry_enabled" in source
+    assert "forward_authorization_reason = $runtimeFacts.forward_authorization_reason" in source
+    assert "$schedulerDeadline = (Get-Date).AddSeconds(120)" in source

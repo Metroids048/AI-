@@ -31,6 +31,14 @@ from shared.models import (
 from shared.models.execution_truth import ExecutionMode
 
 
+@pytest.fixture(autouse=True)
+def _reset_runtime_projection_cache(monkeypatch):
+    """Keep the process-wide production cache from leaking facts across tests."""
+    monkeypatch.setattr(runtime, "_runtime_projection_cache", None)
+    yield
+    runtime._runtime_projection_cache = None
+
+
 def _v2_position(*, position_id: str, symbol: str, direction: str, quantity: float) -> V2ManagedPosition:
     observed_at = datetime.now(UTC)
     return V2ManagedPosition(
@@ -123,6 +131,49 @@ def test_runtime_projection_id_ignores_observation_times_but_changes_with_facts(
     assert same_facts == first
     assert changed != first
     assert identity_changed != first
+
+
+def test_runtime_projection_build_is_single_flight(monkeypatch) -> None:
+    """Concurrent Runtime endpoints must share one cold projection build."""
+    started = Event()
+    release = Event()
+    calls: list[object] = []
+    results: list[dict] = []
+    errors: list[BaseException] = []
+
+    monkeypatch.setattr(runtime, "_runtime_projection_cache", None)
+
+    def slow_build(db, *, observed_at=None):
+        calls.append(db)
+        started.set()
+        assert release.wait(timeout=5)
+        projection = {"projection_id": "shared-cold-build"}
+        runtime._runtime_projection_cache = (observed_at or datetime.now(UTC), projection)
+        return projection
+
+    monkeypatch.setattr(runtime, "_build_runtime_projection", slow_build)
+
+    def invoke() -> None:
+        try:
+            results.append(runtime._runtime_projection(object()))
+        except BaseException as exc:  # noqa: BLE001 - preserve worker failure for the assertion
+            errors.append(exc)
+
+    first = Thread(target=invoke)
+    second = Thread(target=invoke)
+    first.start()
+    assert started.wait(timeout=5)
+    second.start()
+    release.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert errors == []
+    assert len(calls) == 1
+    assert results == [
+        {"projection_id": "shared-cold-build"},
+        {"projection_id": "shared-cold-build"},
+    ]
 
 
 def test_runtime_snapshot_exposes_shared_reconciliation_and_live_protection_truth(
@@ -364,7 +415,7 @@ def test_current_protection_truth_accepts_raw_binance_algo_order_fields() -> Non
     assert position["take_profit_exchange_order_id"] == "1002"
 
 
-def test_runtime_snapshot_exposes_entry_paused_as_an_explicit_runtime_state(api_client, monkeypatch, tmp_path) -> None:
+def test_runtime_snapshot_exposes_entry_blocked_with_authorization_details(api_client, monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(tmp_path / "scheduler-state.json"))
     now = datetime.now(UTC)
     write_external_scheduler_state(
@@ -377,22 +428,25 @@ def test_runtime_snapshot_exposes_entry_paused_as_an_explicit_runtime_state(api_
             "production_authorization_state": "PENDING",
             "active_entry_strategy": None,
             "promotion_eligible": False,
-            "trading_state": "ENTRY_PAUSED",
+            "entry_enabled": True,
+            "trading_state": "ENTRY_BLOCKED",
         }
     )
 
     body = api_client.get("/api/v1/runtime/snapshot").json()
 
     assert body["entry_runtime"]["status"] == "available"
-    assert body["entry_runtime"]["value"] == {
-        "entry_authority": "NONE",
-        "entry_authorized": False,
-        "entry_authority_reason": "production_pending",
-        "production_authorization_state": "PENDING",
-        "active_entry_strategy": None,
-        "promotion_eligible": False,
-        "trading_state": "ENTRY_PAUSED",
-    }
+    value = body["entry_runtime"]["value"]
+    assert value["entry_authority"] == "NONE"
+    assert value["entry_authorized"] is False
+    assert value["entry_enabled"] is True
+    assert value["entry_authority_reason"] == "production_pending"
+    assert value["production_authorization_state"] == "PENDING"
+    assert value["active_entry_strategy"] is None
+    assert value["promotion_eligible"] is False
+    assert value["trading_state"] == "ENTRY_BLOCKED"
+    assert value["active_config_snapshot_id"] is None
+    assert value["forward_authorized"] is None
     manifest = body["strategy_manifest"]
     assert manifest["source"] == "CANONICAL_STRATEGY_MANIFEST_V4"
     assert manifest["value"]["configured_execution_scope"] == ["BTC/USDT", "ETH/USDT"]
@@ -403,6 +457,26 @@ def test_runtime_snapshot_exposes_entry_paused_as_an_explicit_runtime_state(api_
         "XRP/USDT",
         "BNB/USDT",
     ]
+
+
+def test_runtime_snapshot_projects_stable_degraded_system_reason(api_client, monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(tmp_path / "scheduler-state.json"))
+    write_external_scheduler_state(
+        {
+            "running": True,
+            "heartbeat_at": datetime.now(UTC).isoformat(),
+            "entry_authority": "TESTNET_FORWARD",
+            "entry_authorized": False,
+            "entry_enabled": True,
+            "trading_state": "DEGRADED",
+            "scheduler_error": "ACTIVE_CONFIG_SNAPSHOT_CAPTURE_FAILED",
+        }
+    )
+
+    value = api_client.get("/api/v1/runtime/snapshot").json()["entry_runtime"]["value"]
+
+    assert value["trading_state"] == "DEGRADED"
+    assert value["system_failure_reason"] == "ACTIVE_CONFIG_SNAPSHOT_CAPTURE_FAILED"
 
 
 def test_runtime_decisions_reads_persisted_v2_canary_fact(api_client, db_session) -> None:
@@ -477,9 +551,13 @@ def test_runtime_exchange_truth_reuses_one_snapshot_for_parallel_endpoint_reads(
     monkeypatch.setattr(runtime, "configured_gateways", lambda: [gateway])
 
     first = runtime._exchange_truth()
+    inflight = runtime._exchange_inflight
+    assert inflight is not None
+    inflight.result(timeout=5)
     second = runtime._exchange_truth()
 
-    assert first == second
+    assert first["status"] in {"available", "unavailable"}
+    assert second["status"] == "available"
     assert gateway.calls == 1
 
 
@@ -504,8 +582,13 @@ def test_runtime_exchange_truth_includes_account_summary_in_exchange_value(monke
     monkeypatch.setattr(runtime, "_exchange_cache", None)
     monkeypatch.setattr(runtime, "configured_gateways", lambda: [Gateway()])
 
+    first = runtime._exchange_truth()
+    inflight = runtime._exchange_inflight
+    assert inflight is not None
+    inflight.result(timeout=5)
     result = runtime._exchange_truth()
 
+    assert first["status"] == "unavailable"
     assert result["status"] == "available"
     assert result["value"]["account"] == {
         "wallet_balance": 12345.67,
@@ -516,7 +599,7 @@ def test_runtime_exchange_truth_includes_account_summary_in_exchange_value(monke
     }
 
 
-def test_runtime_exchange_truth_times_out_as_unavailable(monkeypatch) -> None:
+def test_runtime_exchange_truth_cold_probe_never_blocks_a_request_worker(monkeypatch) -> None:
     class SlowGateway:
         def reconcile(self, *, live_run_id: str, include_account_summary: bool = False) -> dict:
             del live_run_id
@@ -525,14 +608,26 @@ def test_runtime_exchange_truth_times_out_as_unavailable(monkeypatch) -> None:
             return {"open_positions": [], "open_orders": []}
 
     monkeypatch.setattr(runtime, "_exchange_cache", None)
-    monkeypatch.setattr(runtime, "_EXCHANGE_TRUTH_TIMEOUT_SECONDS", 0.01)
     monkeypatch.setattr(runtime, "configured_gateways", lambda: [SlowGateway()])
 
+    started_at = monotonic()
     result = runtime._exchange_truth()
+    elapsed = monotonic() - started_at
 
+    assert elapsed < 0.01, "a cold exchange probe must not block a request worker"
     assert result["status"] == "unavailable"
     assert result["value"] is None
-    assert "exchange truth probe exceeded" in result["error"]
+    assert result["error"] == "exchange truth probe in progress"
+
+    second_started_at = monotonic()
+    second = runtime._exchange_truth()
+    second_elapsed = monotonic() - second_started_at
+    assert second_elapsed < 0.01, "an in-flight probe must not consume another request worker"
+    assert second["status"] == "unavailable"
+
+    inflight = runtime._exchange_inflight
+    assert inflight is not None
+    inflight.result(timeout=5)
 
 
 def test_runtime_exchange_truth_returns_stale_when_probe_busy(monkeypatch) -> None:
@@ -544,7 +639,6 @@ def test_runtime_exchange_truth_returns_stale_when_probe_busy(monkeypatch) -> No
     )
     monkeypatch.setattr(runtime, "_exchange_cache", (observed_at, cached))
     monkeypatch.setattr(runtime, "_EXCHANGE_CACHE_SECONDS", 0.0)
-    monkeypatch.setattr(runtime, "_EXCHANGE_TRUTH_TIMEOUT_SECONDS", 0.05)
     release = Event()
 
     class BlockedGateway:
@@ -602,7 +696,11 @@ def test_runtime_exchange_truth_shares_one_probe_between_concurrent_callers(monk
 
     assert SlowGateway.calls == 1
     assert len(results) == 3
-    assert [item["status"] for item in results] == ["available"] * 3
+    assert [item["status"] for item in results] == ["unavailable"] * 3
+    inflight = runtime._exchange_inflight
+    assert inflight is not None
+    inflight.result(timeout=5)
+    assert runtime._exchange_truth()["status"] == "available"
 
 
 def test_exchange_cache_window_outlives_the_console_poll_interval() -> None:
@@ -677,12 +775,11 @@ def test_runtime_exchange_truth_recovers_after_a_waiter_times_out(monkeypatch) -
 
     monkeypatch.setattr(runtime, "_exchange_cache", None)
     monkeypatch.setattr(runtime, "_exchange_inflight", None)
-    monkeypatch.setattr(runtime, "_EXCHANGE_TRUTH_TIMEOUT_SECONDS", 0.05)
     monkeypatch.setattr(runtime, "configured_gateways", lambda: [SlowGateway()])
 
-    timed_out = runtime._exchange_truth()
-    assert timed_out["status"] == "unavailable"
-    assert "exceeded" in timed_out["error"]
+    probing = runtime._exchange_truth()
+    assert probing["status"] == "unavailable"
+    assert probing["error"] == "exchange truth probe in progress"
 
     release.set()
     inflight = runtime._exchange_inflight
@@ -917,28 +1014,32 @@ def test_runtime_reconciliation_reports_v2_exchange_unknown_intent(
             fencing_token="runtime-unknown-fence",
         )
     )
-    db_session.add(
-        V2ExecutionIntent(
-            intent_id="runtime-v2-unknown",
-            cycle_id="runtime-unknown-cycle",
-            symbol="BTC/USDT",
-            direction="long",
-            candidate_key="production-candidate",
-            candidate_type="PRIMARY",
-            execution_mode="BINANCE_TESTNET",
-            decision_bar_timestamp=observed_at,
-            state="EXCHANGE_UNKNOWN",
-            version=0,
-        )
+    intent = V2ExecutionIntent(
+        intent_id="runtime-v2-unknown",
+        cycle_id="runtime-unknown-cycle",
+        symbol="BTC/USDT",
+        direction="long",
+        candidate_key="production-candidate",
+        candidate_type="PRIMARY",
+        execution_mode="BINANCE_TESTNET",
+        decision_bar_timestamp=observed_at,
+        state="EXCHANGE_UNKNOWN",
+        version=0,
     )
+    db_session.add(intent)
     db_session.commit()
 
     body = api_client.get("/api/v1/runtime/reconciliation").json()
+    no_trade = api_client.get("/api/v1/runtime/no-trade-summary").json()
 
     assert body["status"] == "degraded"
     assert body["entry_blocked_symbols"] == ["BTC/USDT"]
     assert body["actions"] == ["EXCHANGE_UNKNOWN_REQUIRES_RECONCILIATION"]
     assert body["unresolved_exchange_order_ids"] == ["runtime-v2-unknown"]
+    assert no_trade["timeline"]["last_entry_attempt_at"] == intent.created_at.replace(tzinfo=UTC).isoformat()
+    assert no_trade["symbols"]["BTC/USDT"]["last_entry_attempt_at"] == intent.created_at.replace(
+        tzinfo=UTC
+    ).isoformat()
 
 
 def test_runtime_reconciliation_stale_cache_does_not_force_full_entry_block(

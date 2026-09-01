@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from pathlib import Path
 
-from services.data.universe import AUTO_SIMULATION_EXECUTION_SYMBOLS
-from services.execution.v2_scheduler_entry import execute_explicit_testnet_canary_acceptance
+ROOT = Path(__file__).resolve().parents[1]
+AUTO_SIMULATION_EXECUTION_SYMBOLS = ("BTC/USDT", "ETH/USDT")
 
 
 def main() -> int:
@@ -27,11 +29,17 @@ def main() -> int:
     if not args.confirm_testnet_canary:
         parser.error("--confirm-testnet-canary is required; standard runtime must not invoke the Canary")
 
+    os.environ["POSTGRES_URL"] = f"sqlite:///{(ROOT / '.local_paper_console.db').as_posix()}"
+    os.environ["AUTOMATED_TRADING_ENGINE"] = "v2_active"
+    os.environ["BINANCE_USE_TESTNET"] = "true"
+    os.environ["LIVE_TRADING_ENABLED"] = "false"
+    from services.execution.v2_scheduler_entry import execute_explicit_testnet_canary_acceptance
+
     result = execute_explicit_testnet_canary_acceptance(
         symbols=args.symbol or list(AUTO_SIMULATION_EXECUTION_SYMBOLS),
     )
     print(json.dumps(result, default=str, ensure_ascii=True))
-    return 0 if result.get("status") not in {"error", "skipped"} else 1
+    return 0 if result.get("status") == "completed" else 1
 
 
 if __name__ == "__main__":

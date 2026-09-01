@@ -106,6 +106,7 @@ describe("WhyNoTrade", () => {
         decisions={[]}
         noTradeSummary={{
           summary_code: "HEALTHY_WAITING_FOR_SIGNAL",
+          summary_category: "STRATEGY_NO_SIGNAL",
           runtime_status: "正常",
           window_hours: 3,
           hours_since_last_entry: 3.25,
@@ -117,7 +118,26 @@ describe("WhyNoTrade", () => {
     expect(screen.getByText("有效策略判断 5 次")).toBeTruthy();
     expect(screen.getByText("重复轮询 7 次")).toBeTruthy();
     expect(screen.getByText("策略正在等待交易机会")).toBeTruthy();
+    expect(screen.getByText("INFRASTRUCTURE: PASS / WAITING_FOR_SIGNAL")).toBeTruthy();
     expect(screen.queryByText("DUPLICATE_DECISION")).toBeNull();
+  });
+
+  it("does not describe an authorization block as healthy waiting", () => {
+    render(
+      <WhyNoTrade
+        decisions={[]}
+        noTradeSummary={{
+          summary_code: "ENTRY_PAUSED",
+          summary_category: "AUTHORIZATION_BLOCKED",
+          runtime_status: "正常",
+          current_status: { runtime_health: "healthy", active_blocker: "NO_FORWARD_VALIDATION_CANDIDATE" },
+          entry_runtime: { entry_authority: "NONE", entry_authorized: false },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("开仓授权阻塞")).toBeTruthy();
+    expect(screen.queryByText("正常等待交易机会")).toBeNull();
   });
 
   it("shows the deterministic entry-block reason in Chinese", () => {

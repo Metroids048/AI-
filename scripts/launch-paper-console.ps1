@@ -15,6 +15,10 @@ $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location -LiteralPath $Root
 
+if ($EnableNaturalTestnet) {
+    throw "Continuous Canary is not a launcher mode. Use scripts/run_testnet_canary_acceptance.py --confirm-testnet-canary for an explicit one-shot acceptance cycle."
+}
+
 $ApiHealthUrl = "http://127.0.0.1:$ApiPort/health"
 $FrontendUrl = "http://127.0.0.1:$FrontendPort/trading"
 $LogsDir = Join-Path $Root "logs"
@@ -116,6 +120,17 @@ function Stop-ProcessTree([int]$RootPid) {
     Stop-Process -Id $RootPid -Force -ErrorAction SilentlyContinue
 }
 
+function Stop-SchedulerProcessTree([int]$RootPid) {
+    # Stop the supervisor before its worker.  Child-first shutdown makes the
+    # live supervisor classify an intentional launcher restart as WORKER_EXITED
+    # and persist a false Recovery Hold.
+    $children = Get-CimInstance Win32_Process -Filter "ParentProcessId = $RootPid" -ErrorAction SilentlyContinue
+    Stop-Process -Id $RootPid -Force -ErrorAction SilentlyContinue
+    foreach ($child in $children) {
+        Stop-SchedulerProcessTree -RootPid $child.ProcessId
+    }
+}
+
 function Save-ListenerPid([int]$Port, [string]$PidFile) {
     $listener = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
         Select-Object -First 1
@@ -151,7 +166,7 @@ function Stop-RecordedScheduler {
             $ownerInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $recordedPid" -ErrorAction SilentlyContinue
             if ([string]$ownerInfo.CommandLine -match "run-local-paper-scheduler\.py") {
                 Write-Step "stopping prior local scheduler (pid $recordedPid)"
-                Stop-ProcessTree -RootPid ([int]$recordedPid)
+                Stop-SchedulerProcessTree -RootPid ([int]$recordedPid)
             }
         }
         Remove-Item -LiteralPath $SchedulerPidFile -Force -ErrorAction SilentlyContinue
@@ -159,15 +174,18 @@ function Stop-RecordedScheduler {
     # A previous launcher can leave a child scheduler alive after its recorded
     # parent exits. Reclaim every process for this exact command so only one
     # writer can publish scheduler-state.json.
+    $rootBackward = [regex]::Escape($Root)
+    $rootForward = [regex]::Escape($Root.Replace('\', '/'))
     $orphanSchedulers = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
+            $commandLine = [string]$_.CommandLine
             $_.ProcessId -ne $PID -and
-            [string]$_.CommandLine -match "run-local-paper-scheduler\.py" -and
-            [string]$_.CommandLine -match [regex]::Escape($Root)
+            $commandLine -match "run-local-paper-scheduler\.py" -and
+            ($commandLine -match $rootBackward -or $commandLine -match $rootForward)
         }
     foreach ($orphan in $orphanSchedulers) {
         Write-Step "stopping orphan local scheduler (pid $($orphan.ProcessId))"
-        Stop-ProcessTree -RootPid ([int]$orphan.ProcessId)
+        Stop-SchedulerProcessTree -RootPid ([int]$orphan.ProcessId)
     }
     # Expire same-host leases/claims owned by dead PIDs so the next launch is not
     # stuck in standby_not_leader / duplicate_slot_skipped until TTL elapses.
@@ -222,7 +240,16 @@ function Write-StartupResult {
     if (-not (Test-Path -LiteralPath $LogsDir)) {
         New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
     }
-$payload = [ordered]@{
+    $runtimeFacts = $null
+    if (Test-Path -LiteralPath $SchedulerStateFile) {
+        try {
+            $runtimeFacts = Get-Content -LiteralPath $SchedulerStateFile -Raw | ConvertFrom-Json
+        }
+        catch {
+            $runtimeFacts = $null
+        }
+    }
+    $payload = [ordered]@{
         schema_version = 1
         status = $Status
         stage = $script:StartupStage
@@ -231,6 +258,21 @@ $payload = [ordered]@{
         symbol = $script:ProjectionRecoveryGap
         safety_stop = [bool]$script:StartupSafetyStop
         automatic_recovery = $script:StartupRecoveryResult
+        runtime = [ordered]@{
+            trading_state = $runtimeFacts.trading_state
+            entry_authority = $runtimeFacts.entry_authority
+            entry_authority_reason = $runtimeFacts.entry_authority_reason
+            entry_enabled = $runtimeFacts.entry_enabled
+            entry_authorized = $runtimeFacts.entry_authorized
+            active_snapshot_valid = $runtimeFacts.active_snapshot_valid
+            active_config_snapshot_id = $runtimeFacts.active_config_snapshot_id
+            pending_config_snapshot_id = $runtimeFacts.pending_config_snapshot_id
+            production_authorized = $runtimeFacts.production_authorized
+            production_authorization_reason = $runtimeFacts.production_authorization_reason
+            forward_authorized = $runtimeFacts.forward_authorized
+            forward_authorization_reason = $runtimeFacts.forward_authorization_reason
+            reconciliation_healthy = $runtimeFacts.reconciliation_healthy
+        }
         log_paths = [ordered]@{
             startup = $StartupLog
             api = $ApiLog
@@ -545,7 +587,8 @@ function Restore-EntryAfterStartupSafetyStop {
     # A failed ACTIVE launch leaves the durable gate disabled as a launcher
     # safety stop. Re-arm it after the persisted baseline/projection checks
     # above have succeeded. A normal operator pause is never overridden:
-    # restoration requires the previous run to have ended with safety_stop=true.
+    # restoration requires the durable control itself to remain owned by the
+    # launcher safety stop. A stale startup-result file is never ownership.
     if ($AutomatedTradingEngine -ne "v2_active" -or -not $PreserveExternalTestnetBaseline) {
         return
     }
@@ -556,19 +599,7 @@ function Restore-EntryAfterStartupSafetyStop {
     $controlSafetyStop = $null -ne $control -and
         -not [bool]$control.entry_enabled -and
         ([string]$control.reason -like "STARTUP_SAFETY_STOP:*")
-    $previousSafetyStop = $false
-    if (Test-Path -LiteralPath $StartupResultPath) {
-        try {
-            $previous = Get-Content -LiteralPath $StartupResultPath -Raw | ConvertFrom-Json
-            $previousSafetyStop = $previous.status -eq "FAILED" -and
-                $previous.reason_code -eq "STARTUP_FAILED" -and
-                $previous.safety_stop -eq $true
-        }
-        catch {
-            Write-Step "startup recovery record could not be parsed; relying on persisted entry-control reason"
-        }
-    }
-    if (-not $previousSafetyStop -and -not $controlSafetyStop) {
+    if (-not $controlSafetyStop) {
         return
     }
     try {
@@ -928,7 +959,10 @@ while ((Get-Date) -lt $deadline) {
 }
 
 if ($apiReady -and $frontendReady) {
-    $schedulerDeadline = (Get-Date).AddSeconds(30)
+    # A durable Recovery Hold is cleared only after a complete exchange-first
+    # management/reconciliation cycle.  That cycle can legitimately exceed
+    # 30 seconds on Windows, so do not fail startup while recovery is working.
+    $schedulerDeadline = (Get-Date).AddSeconds(120)
     while (
         ((-not (Test-SchedulerHealthy)) -or (-not (Test-ActiveTradingModeContract))) -and
         (Get-Date) -lt $schedulerDeadline

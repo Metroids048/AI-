@@ -1,5 +1,28 @@
 # Decisions Log
 
+## ADR-2026-09-01: R3 authority and runtime-control ownership closeout
+
+- Decision: standard startup never opts into Canary. New exposure authority is
+  Production first, then a fully bound Active Testnet Forward snapshot, else
+  None. Canary remains a one-shot acceptance/diagnostic lane.
+- Decision: Manifest owns Production approval; Active ConfigSnapshot owns
+  strategy rules/identity and Forward authorization; RuntimeControl owns only
+  temporary entry enablement; Scheduler publishes facts and cannot grant
+  authority.
+- Decision: Recovery Hold claim and clear use atomic CAS over version, enabled
+  state and exact owner reason. Only a system-owned hold may clear after a full
+  healthy reconciliation/readiness predicate; an operator pause and a degraded
+  snapshot remain fail-closed.
+- Decision: Pending ConfigSnapshot activation and Active snapshot capture occur
+  exactly once per scheduler Cycle, before the BTC/ETH loop. Standard startup
+  may insert a missing RuntimeControl as enabled, but never updates an existing
+  manual pause or recovery hold.
+- Decision: frozen validation failure is not an execution defect. No strategy,
+  threshold, sizing, leverage, geometry or Production Manifest value may be
+  changed to manufacture R3 acceptance.
+- Consequence: current correct state is `ENTRY_BLOCKED / Authority NONE /
+  NO_FORWARD_VALIDATION_CANDIDATE`; final natural-trade acceptance remains open.
+
 ## ADR-2026-08-22: Profitability Recovery is a separate gate from execution health
 
 - Decision: Keep V2 Scheduler/Binance/Protection/Reconciliation semantics frozen; put the

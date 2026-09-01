@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -136,7 +137,7 @@ def test_external_scheduler_state_exposes_actual_active_mode_contract(monkeypatc
             "external_baseline_captured": True,
             "entry_authorized": False,
             "entry_authority": "NONE",
-            "trading_state": "ENTRY_PAUSED",
+            "trading_state": "MANAGEMENT_ONLY",
             "startup_contract_errors": [],
         }
     )
@@ -167,10 +168,13 @@ def test_active_startup_contract_accepts_testnet_canary_entry_ready_state() -> N
         external_baseline_captured=True,
         entry_authorized=True,
         entry_authority="TESTNET_CANARY",
-        trading_state="TRADING",
+        trading_state="TRADING_READY",
+        reconciliation_healthy=True,
     )
 
     assert runtime_state.active_startup_contract_errors(state) == ()
+    not_reconciled = replace(state, reconciliation_healthy=None)
+    assert "TRADING_STATE_INCONSISTENT" in runtime_state.active_startup_contract_errors(not_reconciled)
 
 
 def test_active_startup_contract_accepts_sampling_strategy_when_canary_is_authority() -> None:
@@ -192,7 +196,8 @@ def test_active_startup_contract_accepts_sampling_strategy_when_canary_is_author
         entry_authority="TESTNET_CANARY",
         production_authorization_state="PENDING",
         active_entry_strategy="testnet_sampling_v2",
-        trading_state="TRADING",
+        trading_state="TRADING_READY",
+        reconciliation_healthy=True,
     )
 
     assert runtime_state.active_startup_contract_errors(state) == ()
@@ -215,7 +220,8 @@ def test_active_startup_contract_accepts_approved_production_state() -> None:
         entry_authorized=True,
         entry_authority="PRODUCTION",
         production_authorization_state="APPROVED",
-        trading_state="TRADING",
+        trading_state="TRADING_READY",
+        reconciliation_healthy=True,
     )
 
     assert runtime_state.active_startup_contract_errors(state) == ()
@@ -237,7 +243,7 @@ def test_active_startup_contract_rejects_canary_without_sampling_fallback() -> N
         external_baseline_captured=True,
         entry_authorized=True,
         entry_authority="TESTNET_CANARY",
-        trading_state="TRADING",
+        trading_state="TRADING_READY",
     )
 
     assert "CANARY_SAMPLING_FALLBACK_DISABLED" in runtime_state.active_startup_contract_errors(state)
@@ -309,6 +315,60 @@ def test_active_strategy_identity_requires_full_execution_scope_approval(monkeyp
     assert scheduler_module._active_execution_strategy_identity() == ("trend_momentum_v2_enriched", True)
 
 
+def test_scheduler_authority_rejects_active_snapshot_hash_mismatch(monkeypatch) -> None:
+    from services.automated_trading.application.production_strategy import EntryAuthority
+    from services.execution import scheduler as scheduler_module
+
+    class _Run:
+        paper_run_id = "run-1"
+        paper_status = "running"
+        execution_profile = {"strategy_lane": "directional"}
+
+    class _Snapshot:
+        config_snapshot_id = "snapshot-corrupt"
+        config = {"strategy_rules": {"strategy_id": "candidate"}}
+        config_hash = "sha256:not-the-canonical-hash"
+
+    class _PaperRunRepository:
+        def __init__(self, _session) -> None:  # noqa: ANN001
+            pass
+
+        def list_paper_runs(self) -> list[_Run]:
+            return [_Run()]
+
+    class _ConfigSnapshotRepository:
+        def __init__(self, _session) -> None:  # noqa: ANN001
+            pass
+
+        def get_active(self, _run_id: str) -> _Snapshot:
+            return _Snapshot()
+
+        def get_pending(self, _run_id: str) -> None:
+            return None
+
+    class _Session:
+        def __enter__(self) -> _Session:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    import services.strategy_library as strategy_library
+    from services import database
+
+    monkeypatch.setattr(database, "get_session_factory", lambda: lambda: _Session())
+    monkeypatch.setattr(strategy_library, "PaperRunRepository", _PaperRunRepository)
+    monkeypatch.setattr(strategy_library, "ConfigSnapshotRepository", _ConfigSnapshotRepository)
+
+    state = scheduler_module._active_strategy_authorization_state(execution_mode="BINANCE_TESTNET")
+
+    assert state.resolution.authority is EntryAuthority.NONE
+    assert state.resolution.reason == "CONFIG_SNAPSHOT_HASH_MISMATCH"
+    assert state.active_config_snapshot_id == "snapshot-corrupt"
+    assert state.active_snapshot_valid is False
+    assert state.forward_authorization_reason == "CONFIG_SNAPSHOT_HASH_MISMATCH"
+
+
 def test_pending_production_pauses_standard_runtime_and_keeps_canary_explicit() -> None:
     from services.automated_trading.application.production_strategy import EntryAuthority, resolve_entry_authority
 
@@ -348,7 +408,7 @@ def test_pending_production_pauses_standard_runtime_and_keeps_canary_explicit() 
         entry_authorized=False,
         entry_authority=standard.authority.value,
         production_authorization_state="PENDING",
-        trading_state="ENTRY_PAUSED",
+        trading_state="ENTRY_BLOCKED",
     )
     paused_state = ExternalSchedulerState(
         running=True,
@@ -366,7 +426,7 @@ def test_pending_production_pauses_standard_runtime_and_keeps_canary_explicit() 
         entry_authorized=False,
         entry_authority=disabled.authority.value,
         production_authorization_state="PENDING",
-        trading_state="ENTRY_PAUSED",
+        trading_state="ENTRY_BLOCKED",
     )
 
     assert standard.authority is EntryAuthority.NONE
@@ -697,23 +757,31 @@ async def test_v2_cycle_refreshes_runtime_truth_with_cycle_resolved_authority() 
             "results": [
                 {
                     "status": "completed",
+                    "symbol": "BTC/USDT",
+                    "reconciliation_status": "HEALTHY",
                     "entry_authority": "PRODUCTION",
                     "entry_authorized": True,
                     "entry_authority_reason": "production_approved",
                     "production_authorization_state": "APPROVED",
                     "active_entry_strategy": "approved_primary_v1",
+                    "active_config_snapshot_id": "production-config",
+                    "active_config_hash": "sha256:production",
                     "promotion_eligible": True,
-                    "trading_state": "TRADING",
+                    "trading_state": "TRADING_READY",
                 },
                 {
                     "status": "completed",
+                    "symbol": "ETH/USDT",
+                    "reconciliation_status": "HEALTHY",
                     "entry_authority": "PRODUCTION",
                     "entry_authorized": True,
                     "entry_authority_reason": "production_approved",
                     "production_authorization_state": "APPROVED",
                     "active_entry_strategy": "approved_primary_v1",
+                    "active_config_snapshot_id": "production-config",
+                    "active_config_hash": "sha256:production",
                     "promotion_eligible": True,
-                    "trading_state": "TRADING",
+                    "trading_state": "TRADING_READY",
                 },
             ],
         },
@@ -734,7 +802,11 @@ async def test_v2_cycle_cannot_override_persisted_entry_pause() -> None:
     scheduler = RuntimeScheduler()
     scheduler.status.entry_enabled = False
     scheduler.status.entry_authorized = False
-    scheduler.status.trading_state = "ENTRY_PAUSED"
+    scheduler.status.entry_authority = "TESTNET_FORWARD"
+    scheduler.status.entry_authority_reason = "testnet_forward_authorized"
+    scheduler.status.active_entry_strategy = "validated_forward_v1"
+    scheduler.status.entry_control_reason = f"{LIVENESS_RECOVERY_HOLD_PREFIX}EXCHANGE_UNKNOWN"
+    scheduler.status.trading_state = "MANAGEMENT_ONLY"
 
     await scheduler._run_once(
         name="automated_trading_v2_cycle",
@@ -743,19 +815,538 @@ async def test_v2_cycle_cannot_override_persisted_entry_pause() -> None:
             "results": [
                 {
                     "status": "completed",
-                    "entry_authority": "TESTNET_CANARY",
+                    "symbol": symbol,
+                    "reconciliation_status": "HEALTHY",
+                    "entry_authority": "TESTNET_FORWARD",
                     "entry_authorized": True,
-                    "entry_authority_reason": "testnet_canary_enabled",
-                    "trading_state": "TRADING",
+                    "entry_authority_reason": "testnet_forward_authorized",
+                    "active_entry_strategy": "validated_forward_v1",
+                    "active_config_snapshot_id": "forward-config",
+                    "active_config_hash": "sha256:forward",
+                    "trading_state": "TRADING_READY",
                 }
+                for symbol in ("BTC/USDT", "ETH/USDT")
             ],
         },
     )
 
+    assert scheduler.status.entry_authority == "TESTNET_FORWARD"
+    assert scheduler.status.entry_authorized is False
+    assert scheduler.status.entry_authority_reason == "testnet_forward_authorized"
+    assert scheduler.status.active_entry_strategy == "validated_forward_v1"
+    assert scheduler.status.trading_state == "MANAGEMENT_ONLY"
+    assert scheduler.status.reconciliation_healthy is True
+
+
+def test_liveness_hold_does_not_take_ownership_of_manual_pause(monkeypatch) -> None:
+    from services.execution import scheduler as scheduler_module
+
+    monkeypatch.setattr(
+        scheduler_module,
+        "_claim_liveness_recovery_hold",
+        lambda **_: False,
+    )
+
+    assert scheduler_module.persist_liveness_recovery_hold("WORKER_EXITED:1") is False
+
+
+def test_liveness_hold_is_persisted_when_runtime_control_is_absent(monkeypatch, tmp_path) -> None:
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from services.automated_trading.infrastructure.models import Base, V2RuntimeControl
+    from services.execution import scheduler as scheduler_module
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'runtime-control.db'}")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    monkeypatch.setattr("services.database.get_session_factory", lambda: factory)
+
+    assert scheduler_module.persist_liveness_recovery_hold("WORKER_EXITED:1") is True
+
+    with factory() as session:
+        control = session.get(V2RuntimeControl, "global")
+        assert control is not None
+        assert control.entry_enabled is False
+        assert control.reason == f"{LIVENESS_RECOVERY_HOLD_PREFIX}WORKER_EXITED:1"
+        assert control.updated_by == "liveness-supervisor"
+
+
+def test_inprocess_recovery_hold_preserves_manual_pause(monkeypatch) -> None:
+    from services.execution import scheduler as scheduler_module
+
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_enabled = False
+    scheduler.status.entry_control_reason = "ENTRY_PAUSED:operator"
+    monkeypatch.setattr(scheduler_module, "persist_liveness_recovery_hold", lambda _reason: False)
+    monkeypatch.setattr(
+        scheduler_module,
+        "_runtime_entry_control_state",
+        lambda: (False, "ENTRY_PAUSED:operator"),
+    )
+
+    scheduler._set_recovery_hold("critical task crashed")
+
+    assert scheduler.status.entry_enabled is False
+    assert scheduler.status.entry_control_reason == "ENTRY_PAUSED:operator"
+    assert scheduler.status.recovery.entry_hold is False
+    assert scheduler.status.recovery.reason == "ENTRY_PAUSED:operator"
+    assert scheduler.status.trading_state == "MANAGEMENT_ONLY"
+
+
+def test_partial_symbol_failure_never_publishes_trading_ready() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_enabled = True
+    scheduler.status.entry_authority = "TESTNET_FORWARD"
+    scheduler.status.entry_authorized = True
+    scheduler.status.trading_state = "TRADING_READY"
+
+    scheduler._refresh_entry_authority_from_v2_cycle(
+        {
+            "status": "partial_failure",
+            "results": [
+                {
+                    "status": "completed",
+                    "symbol": "BTC/USDT",
+                    "reconciliation_status": "HEALTHY",
+                    "entry_authority": "TESTNET_FORWARD",
+                    "entry_authorized": True,
+                    "trading_state": "TRADING_READY",
+                },
+                {"status": "error", "symbol": "ETH/USDT"},
+            ],
+        }
+    )
+
+    assert scheduler.status.reconciliation_healthy is False
+    assert scheduler.status.entry_authority == "TESTNET_FORWARD"
+    assert scheduler.status.entry_authorized is False
+    assert scheduler.status.trading_state == "DEGRADED"
+
+
+def test_snapshot_capture_failure_publishes_stable_system_reason() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_enabled = True
+    scheduler.status.entry_authority = "TESTNET_FORWARD"
+    scheduler.status.active_snapshot_valid = True
+
+    scheduler._refresh_entry_authority_from_v2_cycle(
+        {
+            "status": "partial_failure",
+            "results": [
+                {
+                    "status": "error",
+                    "symbol": symbol,
+                    "error_code": "ACTIVE_CONFIG_SNAPSHOT_CAPTURE_FAILED",
+                    "error": "operator_profile_unavailable: transient database detail",
+                }
+                for symbol in ("BTC/USDT", "ETH/USDT")
+            ],
+        }
+    )
+
+    assert scheduler.status.entry_authority == "TESTNET_FORWARD"
+    assert scheduler.status.entry_authorized is False
+    assert scheduler.status.active_snapshot_valid is False
+    assert scheduler.status.scheduler_error == "ACTIVE_CONFIG_SNAPSHOT_CAPTURE_FAILED"
+    assert scheduler.status.trading_state == "DEGRADED"
+
+
+def test_cycle_authority_scope_inconsistency_is_degraded() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_enabled = True
+    scheduler.status.active_snapshot_valid = True
+
+    scheduler._refresh_entry_authority_from_v2_cycle(
+        {
+            "status": "completed",
+            "results": [
+                {
+                    "status": "completed",
+                    "symbol": "BTC/USDT",
+                    "reconciliation_status": "HEALTHY",
+                    "entry_authority": "TESTNET_FORWARD",
+                    "entry_authorized": True,
+                    "active_config_snapshot_id": "snapshot-1",
+                    "active_config_hash": "sha256:one",
+                },
+                {
+                    "status": "completed",
+                    "symbol": "ETH/USDT",
+                    "reconciliation_status": "HEALTHY",
+                    "entry_authority": "NONE",
+                    "entry_authorized": False,
+                    "active_config_snapshot_id": "snapshot-1",
+                    "active_config_hash": "sha256:one",
+                },
+            ],
+        }
+    )
+
     assert scheduler.status.entry_authority == "NONE"
     assert scheduler.status.entry_authorized is False
-    assert scheduler.status.entry_authority_reason == "runtime_entry_disabled"
-    assert scheduler.status.trading_state == "ENTRY_PAUSED"
+    assert scheduler.status.active_snapshot_valid is False
+    assert scheduler.status.scheduler_error == "ENTRY_AUTHORITY_SCOPE_INCONSISTENT"
+    assert scheduler.status.trading_state == "DEGRADED"
+
+
+def test_none_authority_with_empty_binding_clears_stale_snapshot_facts() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_enabled = True
+    scheduler.status.active_config_snapshot_id = "stale-snapshot"
+    scheduler.status.active_config_hash = "sha256:stale"
+    scheduler.status.active_snapshot_valid = True
+
+    scheduler._refresh_entry_authority_from_v2_cycle(
+        {
+            "status": "completed",
+            "results": [
+                {
+                    "status": "completed",
+                    "symbol": symbol,
+                    "reconciliation_status": "HEALTHY",
+                    "entry_authority": "NONE",
+                    "entry_authorized": False,
+                    "entry_authority_reason": "NO_FORWARD_VALIDATION_CANDIDATE",
+                    "active_config_snapshot_id": None,
+                    "active_config_hash": None,
+                    "trading_state": "ENTRY_BLOCKED",
+                }
+                for symbol in ("BTC/USDT", "ETH/USDT")
+            ],
+        }
+    )
+
+    assert scheduler.status.active_config_snapshot_id is None
+    assert scheduler.status.active_config_hash is None
+    assert scheduler.status.active_snapshot_valid is False
+    assert scheduler.status.trading_state == "ENTRY_BLOCKED"
+
+
+def test_none_authority_empty_cycle_binding_retains_durable_active_snapshot(monkeypatch) -> None:
+    from services.automated_trading.application.production_strategy import (
+        EntryAuthority,
+        EntryAuthorityResolution,
+    )
+    from services.execution import scheduler as scheduler_module
+
+    scheduler = RuntimeScheduler()
+    scheduler.status.execution_mode = "BINANCE_TESTNET"
+    scheduler.status.entry_enabled = True
+    monkeypatch.setattr(
+        scheduler_module,
+        "_active_strategy_authorization_state",
+        lambda **_: scheduler_module.ActiveStrategyAuthorizationState(
+            resolution=EntryAuthorityResolution(EntryAuthority.NONE, "NO_FORWARD_VALIDATION_CANDIDATE", None, False),
+            active_config_snapshot_id="durable-active",
+            active_config_hash="sha256:durable",
+            active_snapshot_valid=True,
+        ),
+    )
+
+    scheduler._refresh_entry_authority_from_v2_cycle(
+        {
+            "status": "completed",
+            "results": [
+                {
+                    "status": "completed",
+                    "symbol": symbol,
+                    "reconciliation_status": "HEALTHY",
+                    "entry_authority": "NONE",
+                    "entry_authorized": False,
+                    "entry_authority_reason": "NO_FORWARD_VALIDATION_CANDIDATE",
+                    "active_config_snapshot_id": None,
+                    "active_config_hash": None,
+                    "trading_state": "ENTRY_DATA_PENDING",
+                }
+                for symbol in ("BTC/USDT", "ETH/USDT")
+            ],
+        }
+    )
+
+    assert scheduler.status.active_config_snapshot_id == "durable-active"
+    assert scheduler.status.active_config_hash == "sha256:durable"
+    assert scheduler.status.active_snapshot_valid is True
+    assert scheduler.status.trading_state == "ENTRY_BLOCKED"
+
+
+def test_scheduler_top_level_normalizes_cycle_data_pending_when_authority_is_none() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_enabled = True
+
+    scheduler._refresh_entry_authority_from_v2_cycle(
+        {
+            "status": "completed",
+            "results": [
+                {
+                    "status": "completed",
+                    "symbol": symbol,
+                    "reconciliation_status": "HEALTHY",
+                    "entry_authority": "NONE",
+                    "entry_authorized": False,
+                    "entry_authority_reason": "NO_FORWARD_VALIDATION_CANDIDATE",
+                    "trading_state": "ENTRY_DATA_PENDING",
+                    "active_config_snapshot_id": "config-active",
+                    "active_config_hash": "sha256:active",
+                }
+                for symbol in ("BTC/USDT", "ETH/USDT")
+            ],
+        }
+    )
+
+    assert scheduler.status.reconciliation_healthy is True
+    assert scheduler.status.entry_authority == "NONE"
+    assert scheduler.status.trading_state == "ENTRY_BLOCKED"
+
+
+def test_cycle_refresh_uses_active_config_snapshot_not_decision_baseline_snapshot() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_enabled = True
+    scheduler.status.active_config_snapshot_id = "config-before"
+    scheduler.status.active_config_hash = "sha256:before"
+
+    scheduler._refresh_entry_authority_from_v2_cycle(
+        {
+            "status": "completed",
+            "results": [
+                {
+                    "status": "completed",
+                    "symbol": symbol,
+                    "reconciliation_status": "HEALTHY",
+                    "entry_authority": "TESTNET_FORWARD",
+                    "entry_authorized": True,
+                    "entry_authority_reason": "TESTNET_FORWARD_AUTHORIZED",
+                    "active_entry_strategy": "forward-v1",
+                    "trading_state": "TRADING_READY",
+                    "active_config_snapshot_id": "config-after",
+                    "active_config_hash": "sha256:after",
+                    "forward_snapshot_id": f"decision-{symbol}",
+                    "forward_snapshot_hash": f"sha256:decision-{symbol}",
+                }
+                for symbol in ("BTC/USDT", "ETH/USDT")
+            ],
+        }
+    )
+
+    assert scheduler.status.active_config_snapshot_id == "config-after"
+    assert scheduler.status.active_config_hash == "sha256:after"
+    assert scheduler.status.active_snapshot_valid is True
+
+
+def test_forward_snapshot_scope_inconsistency_fails_closed() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_enabled = True
+
+    scheduler._refresh_entry_authority_from_v2_cycle(
+        {
+            "status": "completed",
+            "results": [
+                {
+                    "status": "completed",
+                    "symbol": symbol,
+                    "reconciliation_status": "HEALTHY",
+                    "entry_authority": "TESTNET_FORWARD",
+                    "entry_authorized": True,
+                    "entry_authority_reason": "TESTNET_FORWARD_AUTHORIZED",
+                    "active_entry_strategy": "forward-v1",
+                    "trading_state": "TRADING_READY",
+                    "active_config_snapshot_id": f"config-{symbol}",
+                    "active_config_hash": f"sha256:{symbol}",
+                }
+                for symbol in ("BTC/USDT", "ETH/USDT")
+            ],
+        }
+    )
+
+    assert scheduler.status.entry_authority == "TESTNET_FORWARD"
+    assert scheduler.status.entry_authorized is False
+    assert scheduler.status.forward_authorized is False
+    assert scheduler.status.active_snapshot_valid is False
+    assert scheduler.status.entry_authority_reason == "ACTIVE_CONFIG_SNAPSHOT_SCOPE_INCONSISTENT"
+    assert scheduler.status.trading_state == "DEGRADED"
+
+
+def test_none_authority_snapshot_scope_inconsistency_also_fails_closed() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_enabled = True
+
+    scheduler._refresh_entry_authority_from_v2_cycle(
+        {
+            "status": "completed",
+            "results": [
+                {
+                    "status": "completed",
+                    "symbol": symbol,
+                    "reconciliation_status": "HEALTHY",
+                    "entry_authority": "NONE",
+                    "entry_authorized": False,
+                    "entry_authority_reason": "NO_FORWARD_VALIDATION_CANDIDATE",
+                    "trading_state": "ENTRY_BLOCKED",
+                    "active_config_snapshot_id": f"config-{symbol}",
+                    "active_config_hash": f"sha256:{symbol}",
+                }
+                for symbol in ("BTC/USDT", "ETH/USDT")
+            ],
+        }
+    )
+
+    assert scheduler.status.entry_authority == "NONE"
+    assert scheduler.status.entry_authorized is False
+    assert scheduler.status.active_snapshot_valid is False
+    assert scheduler.status.entry_authority_reason == "ACTIVE_CONFIG_SNAPSHOT_SCOPE_INCONSISTENT"
+    assert scheduler.status.scheduler_error == "ACTIVE_CONFIG_SNAPSHOT_SCOPE_INCONSISTENT"
+    assert scheduler.status.trading_state == "DEGRADED"
+
+
+def test_cycle_refresh_does_not_clear_concurrently_staged_pending_snapshot() -> None:
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_enabled = True
+    scheduler.status.pending_config_snapshot_id = "pending-next"
+    scheduler.status.pending_config_hash = "sha256:pending"
+
+    scheduler._refresh_entry_authority_from_v2_cycle(
+        {
+            "status": "completed",
+            "results": [
+                {
+                    "status": "completed",
+                    "symbol": symbol,
+                    "reconciliation_status": "HEALTHY",
+                    "entry_authority": "NONE",
+                    "entry_authorized": False,
+                    "entry_authority_reason": "NO_FORWARD_VALIDATION_CANDIDATE",
+                    "active_config_snapshot_id": "active-shared",
+                    "active_config_hash": "sha256:active",
+                    "trading_state": "ENTRY_BLOCKED",
+                }
+                for symbol in ("BTC/USDT", "ETH/USDT")
+            ],
+        }
+    )
+
+    assert scheduler.status.pending_config_snapshot_id == "pending-next"
+    assert scheduler.status.pending_config_hash == "sha256:pending"
+
+
+def test_exchange_info_refresh_updates_pending_snapshot_facts(monkeypatch) -> None:
+    from services.automated_trading.application.production_strategy import (
+        EntryAuthority,
+        EntryAuthorityResolution,
+    )
+    from services.execution import scheduler as scheduler_module
+
+    scheduler = RuntimeScheduler()
+    scheduler.status.execution_mode = "BINANCE_TESTNET"
+    scheduler.status.active_config_snapshot_id = "active-shared"
+    scheduler.status.active_config_hash = "sha256:active"
+    monkeypatch.setattr(
+        scheduler_module,
+        "_active_strategy_authorization_state",
+        lambda **_: scheduler_module.ActiveStrategyAuthorizationState(
+            resolution=EntryAuthorityResolution(EntryAuthority.NONE, "NO_FORWARD_VALIDATION_CANDIDATE", None, False),
+            active_config_snapshot_id="active-shared",
+            active_config_hash="sha256:active",
+            pending_config_snapshot_id="pending-next",
+            pending_config_hash="sha256:pending",
+            active_snapshot_valid=True,
+        ),
+    )
+
+    assert scheduler._refresh_snapshot_lifecycle_from_store() is True
+    assert scheduler.status.pending_config_snapshot_id == "pending-next"
+    assert scheduler.status.pending_config_hash == "sha256:pending"
+
+
+def test_management_cycle_refreshes_pending_forward_before_hold_clear(monkeypatch) -> None:
+    from services.execution import scheduler as scheduler_module
+
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_enabled = False
+    scheduler.status.entry_authority = "NONE"
+    scheduler.status.recovery.entry_hold = True
+    scheduler.status.recovery.state = "MANAGEMENT_RECOVERY"
+    monkeypatch.setattr(
+        scheduler_module,
+        "_runtime_entry_control_reason",
+        lambda: f"{LIVENESS_RECOVERY_HOLD_PREFIX}WORKER_EXITED:1",
+    )
+    monkeypatch.setattr(
+        scheduler_module,
+        "_clear_liveness_recovery_hold",
+        lambda: (True, "LIVENESS_RECOVERY_RECOVERED"),
+    )
+    monkeypatch.setattr(scheduler, "_safe_v2_recovery_check", lambda: {"safe_to_restart": True})
+    result = {
+        "status": "completed",
+        "results": [
+            {
+                "status": "completed",
+                "symbol": symbol,
+                "reconciliation_status": "HEALTHY",
+                "entry_authority": "TESTNET_FORWARD",
+                "entry_authorized": False,
+                "entry_authority_reason": "TESTNET_FORWARD_AUTHORIZED",
+                "active_entry_strategy": "forward-v1",
+                "trading_state": "MANAGEMENT_ONLY",
+                "active_config_snapshot_id": "config-forward",
+                "active_config_hash": "sha256:forward",
+            }
+            for symbol in ("BTC/USDT", "ETH/USDT")
+        ],
+    }
+
+    scheduler._refresh_entry_authority_from_v2_cycle(result)
+    assert scheduler.status.entry_authority == "TESTNET_FORWARD"
+    assert scheduler.status.active_config_snapshot_id == "config-forward"
+    assert scheduler.status.trading_state == "MANAGEMENT_ONLY"
+
+    assert scheduler._maybe_clear_recovery_hold(result) is True
+    assert scheduler.status.entry_enabled is True
+    assert scheduler.status.entry_authorized is True
+    assert scheduler.status.trading_state == "TRADING_READY"
+
+
+def test_recovery_hold_does_not_clear_after_snapshot_scope_degrades(monkeypatch) -> None:
+    from services.execution import scheduler as scheduler_module
+
+    scheduler = RuntimeScheduler()
+    scheduler.status.entry_enabled = False
+    scheduler.status.recovery.entry_hold = True
+    scheduler.status.recovery.state = "MANAGEMENT_RECOVERY"
+    clear_attempts: list[bool] = []
+    monkeypatch.setattr(scheduler, "_safe_v2_recovery_check", lambda: {"safe_to_restart": True})
+    monkeypatch.setattr(
+        scheduler_module,
+        "_clear_liveness_recovery_hold",
+        lambda: (clear_attempts.append(True) or True, "LIVENESS_RECOVERY_RECOVERED"),
+    )
+    result = {
+        "status": "completed",
+        "results": [
+            {
+                "status": "completed",
+                "symbol": symbol,
+                "reconciliation_status": "HEALTHY",
+                "entry_authority": "TESTNET_FORWARD",
+                "entry_authorized": False,
+                "entry_authority_reason": "TESTNET_FORWARD_AUTHORIZED",
+                "active_entry_strategy": "forward-v1",
+                "trading_state": "MANAGEMENT_ONLY",
+                "active_config_snapshot_id": f"config-{symbol}",
+                "active_config_hash": f"sha256:{symbol}",
+            }
+            for symbol in ("BTC/USDT", "ETH/USDT")
+        ],
+    }
+
+    scheduler._refresh_entry_authority_from_v2_cycle(result)
+
+    assert scheduler.status.trading_state == "DEGRADED"
+    assert scheduler._maybe_clear_recovery_hold(result) is False
+    assert scheduler.status.entry_enabled is False
+    assert scheduler.status.recovery.entry_hold is True
+    assert scheduler.status.recovery.reason == "recovery_readiness_incomplete"
+    assert clear_attempts == []
 
 
 @pytest.mark.asyncio
@@ -874,13 +1465,16 @@ async def test_critical_supervisor_does_not_restart_during_shutdown() -> None:
 @pytest.mark.asyncio
 async def test_critical_supervisor_keeps_management_loop_after_unknown_exchange_state(monkeypatch) -> None:
     scheduler = RuntimeScheduler()
+    scheduler.status.entry_authority = "TESTNET_FORWARD"
+    scheduler.status.entry_authority_reason = "testnet_forward_authorized"
+    scheduler.status.active_entry_strategy = "validated_forward_v1"
     scheduler._stop_event = asyncio.Event()
     monkeypatch.setattr(
         scheduler,
         "_safe_v2_recovery_check",
         lambda: {"safe_to_restart": False, "reason": "EXCHANGE_UNKNOWN"},
     )
-    monkeypatch.setattr("services.execution.scheduler._persist_runtime_entry_control", lambda **_: True)
+    monkeypatch.setattr("services.execution.scheduler._claim_liveness_recovery_hold", lambda **_: True)
     calls = 0
 
     async def factory() -> None:
@@ -903,13 +1497,16 @@ async def test_critical_supervisor_keeps_management_loop_after_unknown_exchange_
     assert scheduler.status.recovery.entry_hold is True
     assert scheduler.status.recovery.state == "MANAGEMENT_RECOVERY"
     assert scheduler.status.entry_authorized is False
-    assert scheduler.status.entry_authority == "NONE"
-    assert scheduler.status.entry_authority_reason == f"{LIVENESS_RECOVERY_HOLD_PREFIX}EXCHANGE_UNKNOWN"
-    assert scheduler.status.trading_state == "ENTRY_PAUSED"
+    assert scheduler.status.entry_authority == "TESTNET_FORWARD"
+    assert scheduler.status.entry_authority_reason == "testnet_forward_authorized"
+    assert scheduler.status.active_entry_strategy == "validated_forward_v1"
+    assert scheduler.status.trading_state == "MANAGEMENT_ONLY"
 
 
 def test_recovery_hold_clears_only_for_system_owned_reason(monkeypatch) -> None:
     scheduler = RuntimeScheduler()
+    scheduler.status.reconciliation_healthy = True
+    scheduler.status.trading_state = "MANAGEMENT_ONLY"
     scheduler.status.recovery.entry_hold = True
     scheduler.status.recovery.state = "MANAGEMENT_RECOVERY"
     scheduler.status.last_results["automated_trading_v2_cycle"] = {
@@ -917,7 +1514,10 @@ def test_recovery_hold_clears_only_for_system_owned_reason(monkeypatch) -> None:
         "results": [{"reconciliation_status": "HEALTHY"}],
     }
     monkeypatch.setattr(scheduler, "_safe_v2_recovery_check", lambda: {"safe_to_restart": True})
-    monkeypatch.setattr("services.execution.scheduler._runtime_entry_control_reason", lambda: "ENTRY_PAUSED:user")
+    monkeypatch.setattr(
+        "services.execution.scheduler._clear_liveness_recovery_hold",
+        lambda: (False, "ENTRY_PAUSED:user"),
+    )
 
     assert scheduler._maybe_clear_recovery_hold(scheduler.status.last_results["automated_trading_v2_cycle"]) is False
     assert scheduler.status.recovery.entry_hold is False
@@ -925,13 +1525,24 @@ def test_recovery_hold_clears_only_for_system_owned_reason(monkeypatch) -> None:
 
 def test_recovery_hold_auto_clears_after_authoritative_healthy_cycle(monkeypatch) -> None:
     scheduler = RuntimeScheduler()
+    scheduler.status.entry_authority = "TESTNET_FORWARD"
+    scheduler.status.entry_authority_reason = "testnet_forward_authorized"
+    scheduler.status.active_entry_strategy = "validated_forward_v1"
+    scheduler.status.active_snapshot_valid = True
+    scheduler.status.active_config_snapshot_id = "forward-config"
+    scheduler.status.active_config_hash = "sha256:forward"
+    scheduler.status.reconciliation_healthy = True
+    scheduler.status.trading_state = "MANAGEMENT_ONLY"
     scheduler.status.recovery.entry_hold = True
     scheduler.status.recovery.state = "MANAGEMENT_RECOVERY"
     monkeypatch.setattr(
         "services.execution.scheduler._runtime_entry_control_reason",
         lambda: f"{LIVENESS_RECOVERY_HOLD_PREFIX}EXCHANGE_UNKNOWN",
     )
-    monkeypatch.setattr("services.execution.scheduler._persist_runtime_entry_control", lambda **_: True)
+    monkeypatch.setattr(
+        "services.execution.scheduler._clear_liveness_recovery_hold",
+        lambda: (True, "LIVENESS_RECOVERY_RECOVERED"),
+    )
     monkeypatch.setattr(scheduler, "_safe_v2_recovery_check", lambda: {"safe_to_restart": True})
 
     result = {
@@ -942,6 +1553,21 @@ def test_recovery_hold_auto_clears_after_authoritative_healthy_cycle(monkeypatch
     assert scheduler._maybe_clear_recovery_hold(result) is True
     assert scheduler.status.recovery.entry_hold is False
     assert scheduler.status.recovery.state == "RECOVERED"
+    assert scheduler.status.entry_authority == "TESTNET_FORWARD"
+    assert scheduler.status.entry_authorized is True
+    assert scheduler.status.trading_state == "TRADING_READY"
+    assert scheduler.status.entry_control_reason == "LIVENESS_RECOVERY_RECOVERED"
+
+
+def test_worker_start_runs_recovery_management_cycle_immediately() -> None:
+    import inspect
+
+    source = inspect.getsource(RuntimeScheduler.start)
+
+    assert "self.status.recovery.entry_hold" in source
+    assert "self.status.entry_authority != EntryAuthority.NONE.value" in source
+    assert "self.status.pending_config_snapshot_id is not None" in source
+    assert "critical_job.task_alive = True" in source
 
 
 @pytest.mark.asyncio
@@ -950,22 +1576,35 @@ async def test_v2_periodic_cycle_hydrates_and_clears_external_recovery_hold(monk
     scheduler = RuntimeScheduler()
     scheduler._stop_event = asyncio.Event()
     scheduler.status.critical_jobs[V2_CRITICAL_JOB] = CriticalJobLiveness()
-    persisted: list[dict[str, object]] = []
-
     monkeypatch.setattr(
         "services.execution.scheduler._runtime_entry_control_reason",
         lambda: f"{LIVENESS_RECOVERY_HOLD_PREFIX}RECOVERY_BUDGET_EXHAUSTED_HOLD:WORKER_EXITED:1",
     )
+    clears: list[bool] = []
     monkeypatch.setattr(
-        "services.execution.scheduler._persist_runtime_entry_control",
-        lambda **kwargs: persisted.append(kwargs) or True,
+        "services.execution.scheduler._clear_liveness_recovery_hold",
+        lambda: (clears.append(True) or True, "LIVENESS_RECOVERY_RECOVERED"),
     )
     monkeypatch.setattr(scheduler, "_safe_v2_recovery_check", lambda: {"safe_to_restart": True})
 
     def runner() -> dict[str, object]:
         assert scheduler._stop_event is not None
         scheduler._stop_event.set()
-        return {"status": "completed", "results": [{"reconciliation_status": "HEALTHY"}]}
+        return {
+            "status": "completed",
+            "results": [
+                {
+                    "status": "completed",
+                    "symbol": symbol,
+                    "reconciliation_status": "HEALTHY",
+                    "entry_authority": "NONE",
+                    "entry_authorized": False,
+                    "entry_authority_reason": "NO_FORWARD_VALIDATION_CANDIDATE",
+                    "trading_state": "ENTRY_BLOCKED",
+                }
+                for symbol in ("BTC/USDT", "ETH/USDT")
+            ],
+        }
 
     await scheduler._run_periodic(
         name=V2_CRITICAL_JOB,
@@ -974,6 +1613,6 @@ async def test_v2_periodic_cycle_hydrates_and_clears_external_recovery_hold(monk
         affects_scheduler_health=True,
     )
 
-    assert persisted == [{"entry_enabled": True, "reason": "LIVENESS_RECOVERY_RECOVERED"}]
+    assert clears == [True]
     assert scheduler.status.recovery.entry_hold is False
     assert scheduler.status.recovery.state == "RECOVERED"

@@ -6,7 +6,7 @@ import { RuntimeTruthPanel } from "./RuntimeTruthPanel";
 afterEach(cleanup);
 
 describe("RuntimeTruthPanel", () => {
-  it("makes an active scheduler with no entry authority visibly paused", () => {
+  it("makes an active scheduler with no entry authority visibly blocked", () => {
     render(
       <RuntimeTruthPanel
         symbol="BTC/USDT"
@@ -17,7 +17,7 @@ describe("RuntimeTruthPanel", () => {
             entry_runtime: {
               status: "available",
               value: {
-                trading_state: "ENTRY_PAUSED",
+                trading_state: "ENTRY_BLOCKED",
                 entry_authority: "NONE",
                 entry_authority_reason: "production_pending",
                 production_authorization_state: "PENDING",
@@ -30,7 +30,7 @@ describe("RuntimeTruthPanel", () => {
       />,
     );
 
-    expect(screen.getByText("自动新开仓：暂停")).toBeTruthy();
+    expect(screen.getByText("自动新开仓：权限阻塞")).toBeTruthy();
     expect(screen.getByText(/暂无通过验证的生产策略/)).toBeTruthy();
     expect(screen.getByText("自动平仓")).toBeTruthy();
   });
@@ -46,7 +46,7 @@ describe("RuntimeTruthPanel", () => {
             entry_runtime: {
               status: "available",
               value: {
-                trading_state: "TRADING",
+                trading_state: "TRADING_READY",
                 entry_authority: "TESTNET_CANARY",
                 active_entry_strategy: "testnet_sampling_v2",
                 production_authorization_state: "PENDING",
@@ -61,6 +61,37 @@ describe("RuntimeTruthPanel", () => {
 
     expect(screen.getByText("Testnet Canary 自动交易中")).toBeTruthy();
     expect(screen.getByText(/不进入 Production 晋升证据/)).toBeTruthy();
+  });
+
+  it("shows Testnet Forward readiness and active snapshot validity", () => {
+    render(
+      <RuntimeTruthPanel
+        symbol="BTC/USDT"
+        runtime={{
+          snapshot: {
+            exchange: { status: "available" },
+            scheduler: { status: "available" },
+            entry_runtime: {
+              status: "available",
+              value: {
+                trading_state: "TRADING_READY",
+                entry_authority: "TESTNET_FORWARD",
+                active_entry_strategy: "validated-forward-v1",
+                active_config_snapshot_id: "snapshot-1",
+                active_snapshot_valid: true,
+                forward_authorized: true,
+              },
+            },
+          },
+          decisions: [],
+          streamStatus: "live",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Testnet Forward 自动交易就绪")).toBeTruthy();
+    expect(screen.getByText("Active Snapshot：snapshot-1")).toBeTruthy();
+    expect(screen.getByText("可自动交易")).toBeTruthy();
   });
 
   it("shows the terminal no-trade reason and explicit unavailable exchange state", () => {

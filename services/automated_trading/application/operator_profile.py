@@ -35,6 +35,7 @@ class V2ExecutionSettings:
     max_open_positions: int
     max_total_exposure: Decimal
     sampling_fallback_enabled: bool
+    active_snapshot_id: str | None = None
     active_snapshot_config: dict[str, Any] | None = None
     active_snapshot_hash: str | None = None
     volatility_multiplier: Decimal = Decimal("1")

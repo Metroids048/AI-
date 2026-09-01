@@ -35,10 +35,14 @@ export function TradingSummaryHero({
 
   // 策略运行状态
   const isStrategyActive = tradingStatus?.is_active === true;
-  const strategyStatusText = tradingStatus?.entry_paused
-    ? "暂无通过验证的生产策略"
-    : tradingStatus?.is_active === true
-      ? "运行中"
+  const strategyStatusText = tradingStatus?.trading_state === "MANAGEMENT_ONLY"
+    ? "仅管理已有仓位"
+    : tradingStatus?.trading_state === "ENTRY_BLOCKED"
+      ? "开仓权限阻塞"
+      : tradingStatus?.trading_state === "DEGRADED"
+        ? "运行故障"
+        : tradingStatus?.is_active === true
+          ? "运行中"
     : tradingStatus?.is_active === false
       ? "已暂停"
       : "状态未知";
@@ -86,6 +90,14 @@ export function TradingSummaryHero({
     ? Number(noTradeSummary?.decisions?.reason_counts?.[noTradeReason] ?? 0)
     : 0;
   const noTradeConclusion = formatNoTradeSummary(noTradeSummary?.summary_code, noTradeReason, noTradeCount);
+  const infrastructureConclusion = {
+    STRATEGY_NO_SIGNAL: "INFRASTRUCTURE: PASS / WAITING_FOR_SIGNAL",
+    RISK_REJECTED: "INFRASTRUCTURE: PASS / RISK_REJECTED",
+    AUTHORIZATION_BLOCKED: "INFRASTRUCTURE: BLOCKED / AUTHORIZATION_BLOCKED",
+    SYSTEM_BLOCKED: noTradeSummary?.summary_code === "EXCHANGE_RECONCILIATION_IN_PROGRESS"
+      ? "INFRASTRUCTURE: CHECKING / RECONCILIATION_IN_PROGRESS"
+      : "INFRASTRUCTURE: FAIL / SYSTEM_BLOCKED",
+  }[noTradeSummary?.summary_category];
   const noTradeHours = noTradeSummary?.hours_since_last_entry;
 
   return (
@@ -167,6 +179,7 @@ export function TradingSummaryHero({
         <section className="trading-summary-no-trade" aria-label="不开单监控">
           <h3>不开单监控</h3>
           <p>{noTradeHours != null ? `已 ${formatNumber(noTradeHours, 1)} 小时未产生新开仓` : "当前查询窗口内没有新开仓成交记录"}</p>
+          {infrastructureConclusion ? <p>{infrastructureConclusion}</p> : null}
           <strong>{noTradeConclusion}</strong>
         </section>
       ) : null}

@@ -592,13 +592,10 @@ def _apply_runtime_entry_pause(result: CycleResult, *, entry_enabled: bool) -> N
             "strategy_terminal_reason": strategy_terminal_reason,
             "system_failure_reason": result.funnel_payload.get("system_failure_reason"),
             "execution_blocker": DecisionReasonCode.ENTRY_KILL_SWITCH_ACTIVE.value,
-            "execution_policy": "ENTRY_PAUSED",
-            "entry_authority": EntryAuthority.NONE.value,
+            "execution_policy": "MANAGEMENT_ONLY",
             "entry_authorized": False,
-            "entry_authority_reason": "runtime_entry_disabled",
-            "trading_state": "ENTRY_PAUSED",
-            "active_entry_strategy": None,
-            "promotion_eligible": False,
+            "runtime_control_reason": "runtime_entry_disabled",
+            "trading_state": "MANAGEMENT_ONLY",
         }
     )
     _append_funnel_stage(
@@ -2139,7 +2136,8 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         terminal_reason = (
             request.production_decision_reason
             if request.production_authorized
-            else DecisionReasonCode.NO_AUTHORIZED_PRODUCTION_STRATEGY.value
+            else request.entry_authority_reason
+            or DecisionReasonCode.NO_AUTHORIZED_PRODUCTION_STRATEGY.value
         )
         result.funnel_payload = {
             "cycle_id": request.cycle_id,
@@ -2149,11 +2147,14 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             "strategy_version": None,
             "terminal_stage": "RISK_APPROVED",
             "reason_code": terminal_reason,
+            "strategy_terminal_reason": None,
+            "system_failure_reason": None,
+            "execution_blocker": terminal_reason,
             "execution_policy": "ENTRY_PAUSED",
             "entry_authority": EntryAuthority.NONE.value,
             "entry_authorized": False,
             "entry_authority_reason": request.entry_authority_reason,
-            "trading_state": "ENTRY_PAUSED",
+            "trading_state": "ENTRY_BLOCKED",
             "active_entry_strategy": None,
             "promotion_eligible": False,
             "production_authorization_reason": request.production_authorization_reason,
@@ -2193,7 +2194,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
                 "entry_authority": EntryAuthority.TESTNET_CANARY.value,
                 "entry_authorized": True,
                 "entry_authority_reason": request.entry_authority_reason,
-                "trading_state": "TRADING",
+                "trading_state": "TRADING_READY",
                 "active_entry_strategy": "testnet_sampling_v2",
                 "promotion_eligible": False,
                 "production_authorization_reason": request.production_authorization_reason,
@@ -2221,7 +2222,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             "entry_authority": request.entry_authority.value,
             "entry_authorized": True,
             "entry_authority_reason": request.entry_authority_reason,
-            "trading_state": "TRADING",
+            "trading_state": "TRADING_READY",
             "active_entry_strategy": active_strategy,
             "promotion_eligible": not is_forward,
             "forward_validation": is_forward,
@@ -2247,7 +2248,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             "entry_authority": EntryAuthority.NONE.value,
             "entry_authorized": False,
             "entry_authority_reason": request.entry_authority_reason,
-            "trading_state": "ENTRY_PAUSED",
+            "trading_state": "ENTRY_BLOCKED",
             "active_entry_strategy": None,
             "promotion_eligible": False,
             "production_authorization_reason": request.production_authorization_reason,
@@ -2276,7 +2277,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         "entry_authorized": True,
         "entry_authority_reason": request.entry_authority_reason,
         "forward_validation": request.entry_authority is EntryAuthority.TESTNET_FORWARD,
-        "trading_state": "TRADING",
+        "trading_state": "TRADING_READY",
         "active_entry_strategy": candidate.strategy_id,
         "promotion_eligible": request.entry_authority is EntryAuthority.PRODUCTION and not candidate.non_promotable,
         "strategy_trace": dict(request.production_trace),

@@ -84,11 +84,18 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
           交易所数据暂时陈旧，当前展示最后一次可信快照；不会用它授予新开仓权限。
         </div>
       ) : null}
-      {entryRuntimeValue?.trading_state === "ENTRY_PAUSED" ? (
+      {entryRuntimeValue?.trading_state === "ENTRY_BLOCKED" ? (
         <div className="truth-blocker" role="alert">
-          <strong>自动新开仓：暂停</strong>
+          <strong>自动新开仓：权限阻塞</strong>
           <p>{entryPauseExplanation(entryRuntimeValue.entry_authority_reason)}</p>
           <p>调度、已有仓位保护、恢复与 reduce-only 平仓仍正常运行。</p>
+        </div>
+      ) : null}
+      {entryRuntimeValue?.trading_state === "MANAGEMENT_ONLY" ? (
+        <div className="truth-stale" role="status">
+          <strong>自动新开仓：仅管理模式</strong>
+          <p>Authority：{entryRuntimeValue.entry_authority || "NONE"}（保留）</p>
+          <p>控制原因：{entryRuntimeValue.entry_control_reason || entryRuntimeValue.entry_authority_reason || "未记录"}</p>
         </div>
       ) : null}
       {recovery.entry_hold ? (
@@ -104,14 +111,30 @@ export function RuntimeTruthPanel({ runtime, symbol }) {
           <p>Production Strategy 尚未授权；Canary 交易不进入 Production 晋升证据。</p>
         </div>
       ) : null}
+      {entryRuntimeValue?.entry_authority === "TESTNET_FORWARD" ? (
+        <div className="truth-canary" role="status">
+          <strong>Testnet Forward 自动交易就绪</strong>
+          <p>Active Snapshot：{entryRuntimeValue.active_config_snapshot_id || "未记录"}</p>
+          <p>Forward 授权：{entryRuntimeValue.forward_authorized ? "有效" : "无效"}</p>
+        </div>
+      ) : null}
 
       <div className="runtime-truth-grid">
         <article>
           <h3>自动开仓</h3>
-          <strong>{entryRuntimeValue?.trading_state === "TRADING" ? "运行中" : "已暂停"}</strong>
+          <strong>
+            {entryRuntimeValue?.trading_state === "TRADING_READY"
+              ? "可自动交易"
+              : entryRuntimeValue?.trading_state === "MANAGEMENT_ONLY"
+                ? "仅管理"
+                : entryRuntimeValue?.trading_state === "DEGRADED"
+                  ? "故障降级"
+                  : "开仓阻塞"}
+          </strong>
           <p>Authority：{entryRuntimeValue?.entry_authority || "NONE"}</p>
           <p>策略：{entryRuntimeValue?.active_entry_strategy || "无"}</p>
           <p>Production：{entryRuntimeValue?.production_authorization_state || "PENDING"}</p>
+          <p>Snapshot：{entryRuntimeValue?.active_snapshot_valid ? "有效" : "无效"}</p>
         </article>
         <article>
           <h3>生产策略</h3>

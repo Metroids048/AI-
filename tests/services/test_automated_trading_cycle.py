@@ -604,9 +604,54 @@ def test_pending_production_with_disabled_canary_is_explicitly_entry_paused() ->
     assert result.funnel_payload["execution_policy"] == "ENTRY_PAUSED"
     assert result.funnel_payload["production_authorization_reason"] == "NO_AUTHORIZED_PRODUCTION_STRATEGY"
     assert result.funnel_payload["reason_code"] == "NO_AUTHORIZED_PRODUCTION_STRATEGY"
-    assert result.funnel_payload["trading_state"] == "ENTRY_PAUSED"
+    assert result.funnel_payload["trading_state"] == "ENTRY_BLOCKED"
     assert result.funnel_payload["entry_authority"] == "NONE"
     assert result.funnel_payload["sampling_decision"]["strategy_id"] == "testnet_sampling_v2"
+
+
+def test_missing_forward_candidate_is_the_terminal_authorization_reason() -> None:
+    adapter = build_adapter_with_successful_cycle()
+
+    result = run_automated_trading_cycle(
+        build_request(
+            sampling_fallback_enabled=False,
+            entry_authority=EntryAuthority.NONE,
+            entry_authority_reason="NO_FORWARD_VALIDATION_CANDIDATE",
+        ),
+        adapter,
+    )
+
+    assert result.funnel_payload["reason_code"] == "NO_FORWARD_VALIDATION_CANDIDATE"
+    assert result.funnel_payload["entry_authority_reason"] == "NO_FORWARD_VALIDATION_CANDIDATE"
+    assert result.funnel_payload["strategy_terminal_reason"] is None
+    assert result.funnel_payload["system_failure_reason"] is None
+    assert result.funnel_payload["execution_blocker"] == "NO_FORWARD_VALIDATION_CANDIDATE"
+
+
+def test_runtime_hold_preserves_forward_authority_in_cycle_payload() -> None:
+    result = CycleResult(
+        cycle_id="forward-hold-cycle",
+        symbol="BTC/USDT",
+        funnel_payload={
+            "entry_authority": "TESTNET_FORWARD",
+            "entry_authorized": True,
+            "entry_authority_reason": "testnet_forward_authorized",
+            "active_entry_strategy": "validated_forward_v1",
+            "promotion_eligible": False,
+            "trading_state": "TRADING_READY",
+            "reason_code": "multi_timeframe_disagreement",
+        }
+    )
+
+    _apply_runtime_entry_pause(result, entry_enabled=False)
+
+    assert result.entry_blocked_by_runtime_control is True
+    assert result.funnel_payload["entry_authority"] == "TESTNET_FORWARD"
+    assert result.funnel_payload["entry_authorized"] is False
+    assert result.funnel_payload["entry_authority_reason"] == "testnet_forward_authorized"
+    assert result.funnel_payload["active_entry_strategy"] == "validated_forward_v1"
+    assert result.funnel_payload["trading_state"] == "MANAGEMENT_ONLY"
+    assert result.funnel_payload["execution_blocker"] == "ENTRY_KILL_SWITCH_ACTIVE"
 
 
 def test_authorized_production_silence_is_not_reported_as_missing_authority() -> None:
@@ -721,11 +766,12 @@ def test_runtime_entry_pause_overrides_cycle_authority_in_funnel(monkeypatch) ->
     result = run_automated_trading_cycle(build_request(persist_facts=True), adapter)
 
     assert result.entry_blocked_by_runtime_control is True
-    assert result.funnel_payload["execution_policy"] == "ENTRY_PAUSED"
+    assert result.funnel_payload["execution_policy"] == "MANAGEMENT_ONLY"
     assert result.funnel_payload["entry_authority"] == "NONE"
     assert result.funnel_payload["entry_authorized"] is False
-    assert result.funnel_payload["entry_authority_reason"] == "runtime_entry_disabled"
-    assert result.funnel_payload["trading_state"] == "ENTRY_PAUSED"
+    assert result.funnel_payload["entry_authority_reason"] == "NO_AUTHORIZED_PRODUCTION_STRATEGY"
+    assert result.funnel_payload["runtime_control_reason"] == "runtime_entry_disabled"
+    assert result.funnel_payload["trading_state"] == "MANAGEMENT_ONLY"
 
 
 def test_failed_entry_never_projects_position() -> None:

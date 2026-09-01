@@ -31,13 +31,29 @@ def test_isolated_scheduler_enforces_v2_shadow_environment(
     assert os.environ["BINANCE_LIVE_WS_ENABLED"] == "false"
 
 
+def test_worker_initializes_absent_runtime_control_before_scheduler_start() -> None:
+    source = (Path(__file__).resolve().parents[2] / "scripts" / "run-local-paper-scheduler.py").read_text(
+        encoding="utf-8"
+    )
+
+    bootstrap_call = source.index("bootstrap_local_paper_runtime(seed_ohlcv=False)")
+    control_call = source.index("initialize_standard_runtime_entry_control()")
+    scheduler_start = source.index("scheduler.start()")
+
+    assert bootstrap_call < control_call < scheduler_start
+
+
 def test_scheduler_supervisor_uses_configured_state_path(monkeypatch, tmp_path) -> None:
     namespace = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts" / "run-local-paper-scheduler.py"))
     state_path = tmp_path / "nested" / "scheduler-state.json"
     monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(state_path))
 
     namespace["_write_recovery_overlay"](
-        state={},
+        state={
+            "entry_authority": "TESTNET_FORWARD",
+            "entry_authority_reason": "TESTNET_FORWARD_AUTHORIZED",
+            "active_entry_strategy": "validated-forward-v1",
+        },
         reason="V2_DECISION_STREAM_STALLED",
         state_name="ENTRY_HOLD",
         attempt=1,
@@ -45,8 +61,35 @@ def test_scheduler_supervisor_uses_configured_state_path(monkeypatch, tmp_path) 
     )
 
     assert state_path.exists()
-    assert namespace["_load_state"]()["entry_authority"] == "NONE"
-    assert namespace["_load_state"]()["entry_authority_reason"].startswith("LIVENESS_RECOVERY_HOLD:")
+    state = namespace["_load_state"]()
+    assert state["entry_authority"] == "TESTNET_FORWARD"
+    assert state["entry_authority_reason"] == "TESTNET_FORWARD_AUTHORIZED"
+    assert state["active_entry_strategy"] == "validated-forward-v1"
+    assert state["entry_control_reason"].startswith("LIVENESS_RECOVERY_HOLD:")
+    assert state["trading_state"] == "MANAGEMENT_ONLY"
+
+
+def test_recovery_overlay_preserves_manual_control_ownership(monkeypatch, tmp_path) -> None:
+    namespace = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts" / "run-local-paper-scheduler.py"))
+    state_path = tmp_path / "scheduler-state.json"
+    monkeypatch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(state_path))
+
+    namespace["_write_recovery_overlay"](
+        state={
+            "entry_authority": "TESTNET_FORWARD",
+            "entry_control_reason": "ENTRY_PAUSED:operator",
+        },
+        reason="WORKER_EXITED:1",
+        state_name="RECOVERING",
+        attempt=1,
+        restart_count=0,
+        entry_hold_owned=False,
+    )
+
+    state = namespace["_load_state"]()
+    assert state["entry_authority"] == "TESTNET_FORWARD"
+    assert state["entry_control_reason"] == "ENTRY_PAUSED:operator"
+    assert state["recovery"]["entry_hold"] is False
 
 
 def test_scheduler_supervisor_detects_stalled_critical_task(monkeypatch, tmp_path) -> None:

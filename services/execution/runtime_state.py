@@ -64,6 +64,17 @@ class ExternalSchedulerState:
     active_entry_strategy: str | None = None
     promotion_eligible: bool | None = None
     trading_state: str | None = None
+    active_config_snapshot_id: str | None = None
+    active_config_hash: str | None = None
+    pending_config_snapshot_id: str | None = None
+    pending_config_hash: str | None = None
+    active_snapshot_valid: bool | None = None
+    production_authorized: bool | None = None
+    production_authorization_reason: str | None = None
+    forward_authorized: bool | None = None
+    forward_authorization_reason: str | None = None
+    entry_control_reason: str | None = None
+    reconciliation_healthy: bool | None = None
     startup_contract_errors: tuple[str, ...] = ()
     scheduler_started_at: datetime | None = None
     critical_jobs: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -270,6 +281,41 @@ def load_external_scheduler_state(
         ),
         promotion_eligible=(raw.get("promotion_eligible") if isinstance(raw.get("promotion_eligible"), bool) else None),
         trading_state=raw.get("trading_state") if isinstance(raw.get("trading_state"), str) else None,
+        active_config_snapshot_id=(
+            raw.get("active_config_snapshot_id") if isinstance(raw.get("active_config_snapshot_id"), str) else None
+        ),
+        active_config_hash=raw.get("active_config_hash") if isinstance(raw.get("active_config_hash"), str) else None,
+        pending_config_snapshot_id=(
+            raw.get("pending_config_snapshot_id") if isinstance(raw.get("pending_config_snapshot_id"), str) else None
+        ),
+        pending_config_hash=(
+            raw.get("pending_config_hash") if isinstance(raw.get("pending_config_hash"), str) else None
+        ),
+        active_snapshot_valid=(
+            raw.get("active_snapshot_valid") if isinstance(raw.get("active_snapshot_valid"), bool) else None
+        ),
+        production_authorized=(
+            raw.get("production_authorized") if isinstance(raw.get("production_authorized"), bool) else None
+        ),
+        production_authorization_reason=(
+            raw.get("production_authorization_reason")
+            if isinstance(raw.get("production_authorization_reason"), str)
+            else None
+        ),
+        forward_authorized=(
+            raw.get("forward_authorized") if isinstance(raw.get("forward_authorized"), bool) else None
+        ),
+        forward_authorization_reason=(
+            raw.get("forward_authorization_reason")
+            if isinstance(raw.get("forward_authorization_reason"), str)
+            else None
+        ),
+        entry_control_reason=(
+            raw.get("entry_control_reason") if isinstance(raw.get("entry_control_reason"), str) else None
+        ),
+        reconciliation_healthy=(
+            raw.get("reconciliation_healthy") if isinstance(raw.get("reconciliation_healthy"), bool) else None
+        ),
         startup_contract_errors=startup_contract_errors,
         scheduler_started_at=_parse_datetime(raw.get("started_at")),
         critical_jobs=critical_jobs,
@@ -358,17 +404,29 @@ def active_startup_contract_errors(
         errors.append("LEGACY_WRITER_ENABLED")
     if state.external_baseline_captured is not True:
         errors.append("EXTERNAL_BASELINE_NOT_CAPTURED")
-    strategy_not_ready_pause = (
+    strategy_not_ready_blocked = (
         state.production_authorization_state != "APPROVED"
         and state.entry_authority == "NONE"
         and state.entry_authorized is False
-        and state.trading_state == "ENTRY_PAUSED"
+        and state.entry_enabled is True
+        and state.trading_state == "ENTRY_BLOCKED"
     )
-    if not strategy_not_ready_pause and state.entry_enabled is not True:
-        errors.append("ENTRY_DISABLED")
-    if not strategy_not_ready_pause and state.entry_authorized is not True:
-        errors.append("ENTRY_NOT_AUTHORIZED")
-    if not strategy_not_ready_pause and state.entry_authority not in {
+    management_only = (
+        state.entry_enabled is False
+        and state.entry_authorized is False
+        and state.trading_state == "MANAGEMENT_ONLY"
+    )
+    trading_ready = (
+        state.entry_enabled is True
+        and state.entry_authorized is True
+        and state.entry_authority in {"TESTNET_CANARY", "TESTNET_FORWARD", "PRODUCTION"}
+        and state.trading_state == "TRADING_READY"
+        and state.reconciliation_healthy is True
+    )
+    if not any((strategy_not_ready_blocked, management_only, trading_ready)):
+        errors.append("TRADING_STATE_INCONSISTENT")
+    if state.entry_authority not in {
+        "NONE",
         "TESTNET_CANARY",
         "TESTNET_FORWARD",
         "PRODUCTION",
@@ -378,8 +436,12 @@ def active_startup_contract_errors(
         errors.append("CANARY_SAMPLING_FALLBACK_DISABLED")
     if state.entry_authority == "PRODUCTION" and state.production_authorization_state != "APPROVED":
         errors.append("PRODUCTION_AUTHORIZATION_INVALID")
-    if not strategy_not_ready_pause and state.trading_state != "TRADING":
-        errors.append("TRADING_STATE_NOT_TRADING")
+    if state.entry_authority == "TESTNET_FORWARD" and (
+        state.active_snapshot_valid is not True or state.forward_authorized is not True
+    ):
+        errors.append("FORWARD_AUTHORIZATION_INVALID")
+    if state.trading_state == "DEGRADED":
+        errors.append("TRADING_STATE_DEGRADED")
     errors.extend(error for error in state.startup_contract_errors if error not in errors)
     return tuple(errors)
 

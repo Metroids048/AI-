@@ -1,5 +1,30 @@
 # Task History
 
+## [TASK-2026-09-01-AUTO-TRADING-R3-CLOSEOUT]
+
+- Implemented the R3 authority/snapshot/recovery/supervisor/runtime-truth
+  closeout without changing strategy or risk parameters. Standard launcher is
+  non-Canary; explicit Canary is one-shot acceptance only.
+- Added atomic RuntimeControl owner CAS, recovery readiness protection,
+  Active/Pending snapshot and authorization facts, four-state top-level runtime,
+  four-category no-trade reporting and frontend infrastructure conclusions.
+- Frozen Forward validation returned
+  `NO_PROMOTABLE_ALPHA_AFTER_BOUNDED_SEARCH`; no Pending Snapshot was staged,
+  Production remained `PENDING/NO_VALIDATED_EDGE`, and Authority remained None.
+- Final latest-code one-click runtime: ACTIVE/BINANCE_TESTNET, one V2 writer,
+  Active Snapshot valid, Pending null, reconciliation healthy,
+  exchange/local/open orders 0/0/0, `ENTRY_BLOCKED` with exact code
+  `NO_FORWARD_VALIDATION_CANDIDATE`.
+- Final restart also proved one Active Snapshot ID/hash across both BTC and ETH
+  in the same scheduler Cycle, and absent-only RuntimeControl initialization
+  produced `entry_enabled=true` without changing Authority.
+- Verification: targeted `99 passed, 2 warnings`; scheduler/CAS audit `53
+  passed`; full `1993 passed, 7 skipped, 7 warnings`; frontend `118 passed`;
+  Ruff and mypy passed; browser `/ops` and `/trading` had no console errors.
+- Independent read-only review completed three rounds and ended with no
+  actionable findings. Natural trade/protection/exit and protected-position
+  recovery were not proven; final R3 acceptance was not claimed.
+
 ## [TASK-2026-08-23-P0-RUNTIME-ENTRY-GATE]
 
 - Read-only audit confirmed the user's six `ENTRY_KILL_SWITCH_ACTIVE` counts

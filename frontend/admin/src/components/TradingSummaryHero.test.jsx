@@ -16,6 +16,7 @@ describe("TradingSummaryHero", () => {
         decisions={[]}
         noTradeSummary={{
           summary_code: "HEALTHY_WAITING_FOR_SIGNAL",
+          summary_category: "STRATEGY_NO_SIGNAL",
           hours_since_last_entry: 3.25,
           decisions: { effective: 5, duplicate: 7, reason_counts: { NO_ENTRY_SIGNAL: 5 } },
         }}
@@ -29,6 +30,7 @@ describe("TradingSummaryHero", () => {
     expect(screen.getByText("不开单监控")).toBeTruthy();
     expect(screen.getByText("已 3.3 小时未产生新开仓")).toBeTruthy();
     expect(screen.getByText("策略正在等待交易机会")).toBeTruthy();
+    expect(screen.getByText("INFRASTRUCTURE: PASS / WAITING_FOR_SIGNAL")).toBeTruthy();
   });
 
   it("renders main heading in Chinese", () => {

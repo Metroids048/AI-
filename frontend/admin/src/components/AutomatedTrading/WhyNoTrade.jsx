@@ -103,12 +103,27 @@ function SummaryCard({ summary }) {
   const current = summary.current_status ?? {};
   const activeBlocker = current.active_blocker;
   const currentFacts = summary.entry_runtime ?? {};
+  const infrastructureConclusion = {
+    STRATEGY_NO_SIGNAL: "INFRASTRUCTURE: PASS / WAITING_FOR_SIGNAL",
+    RISK_REJECTED: "INFRASTRUCTURE: PASS / RISK_REJECTED",
+    AUTHORIZATION_BLOCKED: "INFRASTRUCTURE: BLOCKED / AUTHORIZATION_BLOCKED",
+    SYSTEM_BLOCKED: summary.summary_code === "EXCHANGE_RECONCILIATION_IN_PROGRESS"
+      ? "INFRASTRUCTURE: CHECKING / RECONCILIATION_IN_PROGRESS"
+      : "INFRASTRUCTURE: FAIL / SYSTEM_BLOCKED",
+  }[summary.summary_category];
+  const currentStateCopy = {
+    STRATEGY_NO_SIGNAL: "正常等待交易机会",
+    RISK_REJECTED: "基础设施正常，候选被风险门禁拒绝",
+    AUTHORIZATION_BLOCKED: "开仓授权阻塞",
+    SYSTEM_BLOCKED: "运行状态需要关注",
+  }[summary.summary_category] ?? (current.runtime_health === "healthy" ? "正常等待交易机会" : "运行状态需要关注");
   return (
     <div className="why-no-trade-summary">
+      {infrastructureConclusion ? <p className="why-no-trade-status">{infrastructureConclusion}</p> : null}
       <p className="why-no-trade-status">{summaryCopy(summary)}</p>
       <div className="why-no-trade-current-status">
         <strong>当前状态</strong>
-        <span>{current.runtime_health === "healthy" ? "正常等待交易机会" : "运行状态需要关注"}</span>
+        <span>{currentStateCopy}</span>
         <span>当前 Active Blocker：{activeBlocker ? formatDecisionReason(activeBlocker) : "无"}</span>
         <span>当前执行阻断：{currentFacts.execution_blocker ? formatDecisionReason(currentFacts.execution_blocker) : "无"}</span>
       </div>

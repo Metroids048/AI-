@@ -1,5 +1,33 @@
 # Project Memory
 
+## AUTO_TRADING_R3_RUNTIME_CLOSEOUT (2026-09-01)
+
+- VERIFIED: the standard one-click runtime no longer enables Canary. Normal
+  scheduler/Cycle authority is Production -> sealed Testnet Forward -> None;
+  explicit Canary is acceptance-only.
+- VERIFIED: Active ConfigSnapshot, Forward/Production authorization,
+  RuntimeControl and Scheduler facts have separate ownership. Recovery changes
+  only `entry_enabled`; operator/system hold ownership is protected by an atomic
+  version+enabled+reason conditional update.
+- VERIFIED: top-level runtime state is limited to `TRADING_READY`,
+  `MANAGEMENT_ONLY`, `ENTRY_BLOCKED`, `DEGRADED`; no-trade output distinguishes
+  system, authorization, strategy-no-signal and risk rejection.
+- VERIFIED runtime: latest-code one-click startup succeeded; one V2 writer,
+  `ACTIVE/BINANCE_TESTNET`, Active Snapshot valid, Pending absent,
+  reconciliation healthy, exchange/local/open orders `0/0/0`.
+- VERIFIED: NEXT_CYCLE activation and Active Snapshot capture occur once per
+  scheduler Cycle, so BTC/ETH cannot split across a background refresh. A
+  missing RuntimeControl row is initialized enabled only for standard startup;
+  existing manual/recovery ownership is preserved.
+- FROZEN VALIDATION RESULT: no candidate passed the profitability+density
+  contract. Production remains `PENDING/NO_VALIDATED_EDGE`, Forward is false,
+  Authority is correctly `NONE`, and no Canary fallback occurred.
+- FINAL BOUNDARY: infrastructure regression gates passed, but natural Forward
+  entry/protection/exit and protected-position crash recovery were impossible
+  without a sealed candidate. Verdict is `AUTO_TRADING_R3: FAIL /
+  NO_FORWARD_VALIDATION_CANDIDATE / OUT_OF_SCOPE_R3`; do not claim final
+  acceptance.
+
 ## ALPHA_RESEARCH_RECOVERY_V3_1 (2026-08-25)
 
 - VERIFIED: Binance Vision USD-M daily Metrics acquisition recovered using the existing

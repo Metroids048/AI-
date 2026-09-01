@@ -31,8 +31,7 @@ def test_canary_command_marks_cycle_as_explicit_and_non_default(monkeypatch, cap
         ["run_testnet_canary_acceptance.py", "--confirm-testnet-canary", "--symbol", "BTC/USDT"],
     )
     monkeypatch.setattr(
-        module,
-        "execute_explicit_testnet_canary_acceptance",
+        "services.execution.v2_scheduler_entry.execute_explicit_testnet_canary_acceptance",
         lambda *, symbols: captured.update({"symbols": symbols}) or {"status": "completed"},
     )
 
@@ -40,3 +39,15 @@ def test_canary_command_marks_cycle_as_explicit_and_non_default(monkeypatch, cap
 
     assert captured == {"symbols": ["BTC/USDT"]}
     assert '"status": "completed"' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("status", ["partial_failure", "duplicate_slot_skipped", "standby_not_leader", "skipped"])
+def test_canary_command_fails_when_cycle_did_not_complete(monkeypatch, status) -> None:
+    module = _module()
+    monkeypatch.setattr("sys.argv", ["run_testnet_canary_acceptance.py", "--confirm-testnet-canary"])
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.execute_explicit_testnet_canary_acceptance",
+        lambda **_: {"status": status},
+    )
+
+    assert module.main() == 1

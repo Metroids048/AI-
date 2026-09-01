@@ -226,9 +226,10 @@ function tradingStatusFromRuntimeSnapshot(snapshot) {
   const manifest = snapshot?.strategy_manifest?.value;
   if (scheduler?.status !== "available" || !scheduler.value) return null;
   return {
-    is_active: scheduler.value.running === true && entryRuntime?.trading_state === "TRADING",
+    is_active: scheduler.value.running === true && entryRuntime?.trading_state === "TRADING_READY",
     scheduler_running: scheduler.value.running === true,
-    entry_paused: entryRuntime?.trading_state === "ENTRY_PAUSED",
+    entry_paused: ["ENTRY_BLOCKED", "MANAGEMENT_ONLY", "DEGRADED"].includes(entryRuntime?.trading_state),
+    trading_state: entryRuntime?.trading_state,
     entry_reason: entryRuntime?.entry_authority_reason,
     strategy_authorization: manifest?.authorization_state,
     strategy_conclusion: manifest?.validation_evidence?.conclusion,
