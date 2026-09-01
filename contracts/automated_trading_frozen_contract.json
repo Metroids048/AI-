@@ -1,6 +1,6 @@
 {
   "contract_version": "automated-trading-freeze-1",
-  "baseline_sha": "19bfead",
+  "baseline_sha": "8ab7c33",
   "canonical_owner": "contracts/automated_trading_frozen_contract.json",
   "transaction_protected_paths": {
     "services/automated_trading/application/cycle_service.py": "99eec5bb8d5c060080548649458974f01d3d6bcbffd40ce3c3ff1260b5dd3365",
@@ -17,7 +17,7 @@
   },
   "runtime_protected_paths": {
     "一键启动.cmd": "4c3c28275c81e76d9072a7fb49927c26aa824e299fb286e8b3db3808767d8c24",
-    "scripts/launch-paper-console.ps1": "a19a0b2c324385f58350e72f15bb2e7d5c8cf74be001eca238f0c4484e47c406",
+    "scripts/launch-paper-console.ps1": "901cb9dac7f6b809a2517079eeb923c175f927bb23e1fad73b449e7dcf09f550",
     "scripts/run-local-paper-scheduler.py": "8fc2051af21bc7747de1a3deea862b133dff0bc2a3c2999e1726e4d1ffaeb9e7",
     "services/execution/bootstrap.py": "188af3df19c191c0cff35f4ad4c67d605140e168e575e54e2e4bc074cb781787",
     "services/execution/natural_testnet_mode.py": "0ef5e841f2350b94245af867821e397c385a949bba36322a49c935208007eaa1",
