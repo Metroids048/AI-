@@ -5,6 +5,7 @@ from pathlib import Path
 from scripts.verify_automated_trading_contract import (
     CONTRACT_PATH,
     baseline_hashes_match,
+    current_head_hashes_match,
     load_contract,
     protected_paths,
     protected_staged_paths,
@@ -18,6 +19,7 @@ def test_unified_contract_is_machine_readable_and_matches_its_baseline() -> None
     assert contract["contract_version"].startswith("automated-trading-freeze-")
     assert contract["canonical_owner"] == "contracts/automated_trading_frozen_contract.json"
     assert baseline_hashes_match(contract) == []
+    assert current_head_hashes_match(contract) == []
 
 
 def test_runtime_continuity_paths_are_frozen_with_transaction_semantics() -> None:
@@ -26,7 +28,6 @@ def test_runtime_continuity_paths_are_frozen_with_transaction_semantics() -> Non
 
     assert {
         "一键启动.cmd",
-        "一键启动-模拟自动交易.cmd",
         "scripts/launch-paper-console.ps1",
         "scripts/run-local-paper-scheduler.py",
         "services/execution/runtime_state.py",

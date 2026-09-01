@@ -1,9 +1,9 @@
 {
   "contract_version": "automated-trading-freeze-1",
-  "baseline_sha": "8f1b368549109b9c4d1ccedad2c966f5d6c6c5b0",
+  "baseline_sha": "19bfead",
   "canonical_owner": "contracts/automated_trading_frozen_contract.json",
   "transaction_protected_paths": {
-    "services/automated_trading/application/cycle_service.py": "43a251e78c7e00ee035a841c3ba500c5689853971786d4f37900d0570dbd8d66",
+    "services/automated_trading/application/cycle_service.py": "99eec5bb8d5c060080548649458974f01d3d6bcbffd40ce3c3ff1260b5dd3365",
     "services/automated_trading/application/decision_service.py": "907994cf5a5eb639b1f0f52ed12083ffee1e83318eac534528caf1172c4367da",
     "services/automated_trading/application/entry_service.py": "c7a388fbef5df8075d2ecc7588def9352d71abb301127c5d83d222a2aaff68f4",
     "services/automated_trading/application/exit_service.py": "fe5a636380dafd7db798310aed0b29d079b135d455b20f5f55fada033376d11c",
@@ -12,19 +12,18 @@
     "services/automated_trading/application/reconciliation_service.py": "f403110b7c42e151baea0a60c5376784bfec3d176da149d71b817287e2f5f629",
     "services/automated_trading/application/recovery_service.py": "e70fe240669110122f26174e6ddc84b48ea0a7e3bb8fdc6d6cb5588060460ab9",
     "services/automated_trading/infrastructure/binance_adapter.py": "9fd3f8694fb19f728fe5fec248256a36dd5004ce7deb2dd8a4d47addf384c618",
-    "services/execution/scheduler.py": "429a04b852cf66bf05fa9606df37de3be32c9b6d7f4ef900930a5aa32e152e7e",
-    "services/execution/v2_scheduler_entry.py": "cf8cb026bbe399dd1910e8a08052bbbe829e0f59d6e0266c41eb13ee5445fe01"
+    "services/execution/scheduler.py": "8f2857dd2031fd6d236ae5a8669eb16dee234a35315a9efa26e72cc7959dcb79",
+    "services/execution/v2_scheduler_entry.py": "cce33c2be762523cbe7efb167f4970e3dd823de42542ace98d0a16facec47dec"
   },
   "runtime_protected_paths": {
     "一键启动.cmd": "4c3c28275c81e76d9072a7fb49927c26aa824e299fb286e8b3db3808767d8c24",
-    "一键启动-模拟自动交易.cmd": "ba8595c765114098a645726bc99002188ef16864a3738bdc9fcdc1d7a9ebcabe",
-    "scripts/launch-paper-console.ps1": "137cfca1116987d74bad2fe0952b5652350df82d5b6aebdefb09a242aca31362",
-    "scripts/run-local-paper-scheduler.py": "88b34e7d0cfd6a21293c1749fd6c40f978ba5053810484300cb6e6082eccba11",
+    "scripts/launch-paper-console.ps1": "a19a0b2c324385f58350e72f15bb2e7d5c8cf74be001eca238f0c4484e47c406",
+    "scripts/run-local-paper-scheduler.py": "8fc2051af21bc7747de1a3deea862b133dff0bc2a3c2999e1726e4d1ffaeb9e7",
     "services/execution/bootstrap.py": "188af3df19c191c0cff35f4ad4c67d605140e168e575e54e2e4bc074cb781787",
     "services/execution/natural_testnet_mode.py": "0ef5e841f2350b94245af867821e397c385a949bba36322a49c935208007eaa1",
-    "services/execution/runtime_state.py": "3cd7cf7dbf064039bb984c8eca512e3e7d9ccc8c0af5481cb4969388d04f1c0c",
-    "services/execution/scheduler.py": "429a04b852cf66bf05fa9606df37de3be32c9b6d7f4ef900930a5aa32e152e7e",
-    "services/execution/v2_scheduler_entry.py": "cf8cb026bbe399dd1910e8a08052bbbe829e0f59d6e0266c41eb13ee5445fe01"
+    "services/execution/runtime_state.py": "da4a17901b33a0fa25148891f4d815901fb8c3bb9f35778b7d9c769da2221151",
+    "services/execution/scheduler.py": "8f2857dd2031fd6d236ae5a8669eb16dee234a35315a9efa26e72cc7959dcb79",
+    "services/execution/v2_scheduler_entry.py": "cce33c2be762523cbe7efb167f4970e3dd823de42542ace98d0a16facec47dec"
   },
   "runtime_invariants": [
     {"id": "AT-RUNTIME-001", "requirement": "v2_active is the only automated-trading writer."},
