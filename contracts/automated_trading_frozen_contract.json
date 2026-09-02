@@ -1,6 +1,6 @@
 {
   "contract_version": "automated-trading-freeze-1",
-  "baseline_sha": "8ab7c33",
+  "baseline_sha": "19a337f",
   "canonical_owner": "contracts/automated_trading_frozen_contract.json",
   "transaction_protected_paths": {
     "services/automated_trading/application/cycle_service.py": "99eec5bb8d5c060080548649458974f01d3d6bcbffd40ce3c3ff1260b5dd3365",
@@ -12,7 +12,7 @@
     "services/automated_trading/application/reconciliation_service.py": "f403110b7c42e151baea0a60c5376784bfec3d176da149d71b817287e2f5f629",
     "services/automated_trading/application/recovery_service.py": "e70fe240669110122f26174e6ddc84b48ea0a7e3bb8fdc6d6cb5588060460ab9",
     "services/automated_trading/infrastructure/binance_adapter.py": "9fd3f8694fb19f728fe5fec248256a36dd5004ce7deb2dd8a4d47addf384c618",
-    "services/execution/scheduler.py": "8f2857dd2031fd6d236ae5a8669eb16dee234a35315a9efa26e72cc7959dcb79",
+    "services/execution/scheduler.py": "9f883f32834a58e74daa8ebbe76735e1597593952398370dca44d885f3160924",
     "services/execution/v2_scheduler_entry.py": "cce33c2be762523cbe7efb167f4970e3dd823de42542ace98d0a16facec47dec"
   },
   "runtime_protected_paths": {
@@ -22,7 +22,7 @@
     "services/execution/bootstrap.py": "188af3df19c191c0cff35f4ad4c67d605140e168e575e54e2e4bc074cb781787",
     "services/execution/natural_testnet_mode.py": "0ef5e841f2350b94245af867821e397c385a949bba36322a49c935208007eaa1",
     "services/execution/runtime_state.py": "da4a17901b33a0fa25148891f4d815901fb8c3bb9f35778b7d9c769da2221151",
-    "services/execution/scheduler.py": "8f2857dd2031fd6d236ae5a8669eb16dee234a35315a9efa26e72cc7959dcb79",
+    "services/execution/scheduler.py": "9f883f32834a58e74daa8ebbe76735e1597593952398370dca44d885f3160924",
     "services/execution/v2_scheduler_entry.py": "cce33c2be762523cbe7efb167f4970e3dd823de42542ace98d0a16facec47dec"
   },
   "runtime_invariants": [
