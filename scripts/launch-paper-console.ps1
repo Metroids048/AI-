@@ -959,7 +959,11 @@ if ($apiReady -and $frontendReady) {
     # A durable Recovery Hold is cleared only after a complete exchange-first
     # management/reconciliation cycle.  That cycle can legitimately exceed
     # 30 seconds on Windows, so do not fail startup while recovery is working.
-    $schedulerDeadline = (Get-Date).AddSeconds(120)
+    # The first ACTIVE V2 cycle may hydrate the required closed 15m/1h/4h
+    # Binance Testnet frames before evaluating entry.  Keep the launcher alive
+    # through that bounded data-preparation step instead of killing a healthy
+    # scheduler at the old two-minute boundary.
+    $schedulerDeadline = (Get-Date).AddSeconds(300)
     while (
         ((-not (Test-SchedulerHealthy)) -or (-not (Test-ActiveTradingModeContract))) -and
         (Get-Date) -lt $schedulerDeadline
