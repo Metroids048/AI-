@@ -44,4 +44,4 @@ def test_powershell_launcher_keeps_shadow_default_and_checks_actual_state() -> N
     assert "entry_authority = $runtimeFacts.entry_authority" in source
     assert "entry_enabled = $runtimeFacts.entry_enabled" in source
     assert "forward_authorization_reason = $runtimeFacts.forward_authorization_reason" in source
-    assert "$schedulerDeadline = (Get-Date).AddSeconds(120)" in source
+    assert "$schedulerDeadline = (Get-Date).AddSeconds(300)" in source
