@@ -22,6 +22,7 @@ from services.execution.scheduler import (
     RuntimeScheduler,
     _aligned_run_delay_seconds,
     _default_exchange_info_refresh_runner,
+    _hydrate_v2_entry_timeframes,
     _preload_celery_task_api,
 )
 
@@ -37,6 +38,27 @@ def _raise_runtime_error(message: str) -> None:
 
 def test_scheduler_preloads_celery_task_api_before_starting_threads() -> None:
     _preload_celery_task_api()
+
+
+def test_v2_entry_timeframe_hydration_fetches_all_required_closed_frames(monkeypatch) -> None:
+    """A fresh one-click database must hydrate every V2 entry frame before its first cycle."""
+    from services.data import tasks as data_tasks
+
+    calls: list[tuple[list[str], str, bool]] = []
+
+    def hydrate(symbols: list[str], timeframe: str, *, include_secondary: bool) -> dict[str, str]:
+        calls.append((symbols, timeframe, include_secondary))
+        return {"status": "ok"}
+
+    monkeypatch.setattr(data_tasks.market_data_heartbeat, "run", hydrate)
+
+    _hydrate_v2_entry_timeframes()
+
+    assert calls == [
+        (list(AUTO_SIMULATION_EXECUTION_SYMBOLS), "15m", False),
+        (list(AUTO_SIMULATION_EXECUTION_SYMBOLS), "1h", False),
+        (list(AUTO_SIMULATION_EXECUTION_SYMBOLS), "4h", False),
+    ]
 
 
 def test_paper_cycle_alignment_stays_inside_pretrade_decision_age_window() -> None:

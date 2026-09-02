@@ -210,7 +210,12 @@ def _rate_limit_retry_after_seconds(error: Exception) -> int | None:
 
 
 @shared_task(name="services.data.tasks.market_data_heartbeat", queue="ops_queue")
-def market_data_heartbeat(symbols: list[str] | None = None, timeframe: str = "1m") -> dict:
+def market_data_heartbeat(
+    symbols: list[str] | None = None,
+    timeframe: str = "1m",
+    *,
+    include_secondary: bool = True,
+) -> dict:
     from services.data.binance import BinanceCcxtClient, resolve_usdm_public_rest_base
 
     session = get_session_factory()()
@@ -219,10 +224,12 @@ def market_data_heartbeat(symbols: list[str] | None = None, timeframe: str = "1m
         from services.data.service import DEFAULT_BINANCE_TOP20
 
         target_symbols = list(symbols or DEFAULT_BINANCE_TOP20)
-        global _SECONDARY_TIMEFRAME_INDEX
-        secondary_candidates = [candidate for candidate in _HEARTBEAT_TIMEFRAMES if candidate != timeframe]
-        secondary_timeframe = secondary_candidates[_SECONDARY_TIMEFRAME_INDEX % len(secondary_candidates)]
-        _SECONDARY_TIMEFRAME_INDEX += 1
+        secondary_timeframe: str | None = None
+        if include_secondary:
+            global _SECONDARY_TIMEFRAME_INDEX
+            secondary_candidates = [candidate for candidate in _HEARTBEAT_TIMEFRAMES if candidate != timeframe]
+            secondary_timeframe = secondary_candidates[_SECONDARY_TIMEFRAME_INDEX % len(secondary_candidates)]
+            _SECONDARY_TIMEFRAME_INDEX += 1
         client = BinanceCcxtClient(usdm_base_url=resolve_usdm_public_rest_base())
         # Real Binance clients must use the exchange clock for freshness.  The
         # lightweight fake clients used by offline/unit tests have no USD-M

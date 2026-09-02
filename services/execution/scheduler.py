@@ -1916,12 +1916,30 @@ def _resolve_runtime_scheduler_jobs(v2_activation_config) -> frozenset[str]:
 def _default_v2_automated_trading_runner(provenance: dict[str, Any] | None = None) -> dict:
     from services.execution.tasks import run_v2_automated_trading_cycles
 
+    _hydrate_v2_entry_timeframes()
     payload = {
         "timeframe": "15m",
         "scheduler_instance_id": (provenance or {}).get("scheduler_instance_id"),
         **(provenance or {}),
     }
     return run_v2_automated_trading_cycles.run(payload)
+
+
+def _hydrate_v2_entry_timeframes() -> None:
+    """Store the closed V2 entry frames before the normal Scheduler evaluates them.
+
+    The V2 decision path requires 15m, 1h, and 4h bars.  A new local database
+    previously started the V2 cycle before the asynchronous rotating heartbeat
+    had reached the 1h/4h frames, which made an otherwise healthy ACTIVE
+    Testnet run fail its startup contract as ``ENTRY_DATA_PENDING``.  Reuse
+    the authoritative market-data heartbeat and its Binance/Testnet handling;
+    this is data preparation only and never creates a decision or order.
+    """
+    from services.data.tasks import market_data_heartbeat
+
+    symbols = list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    for timeframe in ("15m", "1h", "4h"):
+        market_data_heartbeat.run(symbols, timeframe, include_secondary=False)
 
 
 def _default_paper_cycle_runner(provenance: dict[str, Any] | None = None) -> dict:
