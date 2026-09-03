@@ -637,6 +637,8 @@ def test_launcher_namespaces_alternate_database_and_port_runtime_artifacts() -> 
     assert "$env:LOCAL_SCHEDULER_STATE_PATH = $SchedulerStateFile" in launcher
     assert "api:{1}|frontend:{2}" in launcher
     assert "$defaultNamespace" in launcher
+    assert "$databaseBackward = [regex]::Escape($SqliteUrl)" in launcher
+    assert "($commandLine -match $databaseBackward -or $commandLine -match $databaseForward)" in launcher
 
 
 def test_bootstrap_stages_manifest_rules_when_active_runtime_snapshot_is_stale(db_session, monkeypatch) -> None:

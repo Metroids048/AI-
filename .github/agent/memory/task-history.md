@@ -2412,3 +2412,15 @@
   `runtime_recovery_resilience=PASS`, `natural_testnet_execution=BLOCKED`
   (`BLOCKED_NO_NATURAL_SIGNAL`), strategy recovery/profitability remain
   `NOT_VERIFIED`.
+
+# 2026-09-03 CANDIDATE_MATRIX_NAMESPACE_BLOCKER
+
+- Fresh acceptance on alternate DB/ports exposed a real P1 namespace failure:
+  `Stop-RecordedScheduler` matched every scheduler process for this repository
+  and terminated the primary Supervisor (`7852`) while launching the isolated
+  Fresh instance. This invalidated candidate `25209560...` evidence.
+- Root cause: orphan scheduler reclamation filtered by repository path but not
+  the exact `--database-url` identity. Minimal next fix is database-scoped
+  filtering; no strategy, scheduler transaction, or authority semantics change.
+- Acceptance ledger was invalidated; six-case matrix must restart after the new
+  executable candidate is refrozen.

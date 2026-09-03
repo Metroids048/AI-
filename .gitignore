@@ -53,6 +53,7 @@ Thumbs.db
 /.cache/strategy_refactor_history/
 /.cache/quantdinger/
 *.db.backup*
+/runtime.db
 *.sqlite
 *.sqlite3
 *.egg-info/

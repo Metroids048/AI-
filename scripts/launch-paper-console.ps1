@@ -183,16 +183,19 @@ function Stop-RecordedScheduler {
         Remove-Item -LiteralPath $SchedulerPidFile -Force -ErrorAction SilentlyContinue
     }
     # A previous launcher can leave a child scheduler alive after its recorded
-    # parent exits. Reclaim every process for this exact command so only one
-    # writer can publish scheduler-state.json.
+    # parent exits. Reclaim only schedulers for this exact database identity;
+    # another DB/port namespace must never be terminated by this launcher.
     $rootBackward = [regex]::Escape($Root)
     $rootForward = [regex]::Escape($Root.Replace('\', '/'))
+    $databaseBackward = [regex]::Escape($SqliteUrl)
+    $databaseForward = [regex]::Escape($SqliteUrl.Replace('\', '/'))
     $orphanSchedulers = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
             $commandLine = [string]$_.CommandLine
             $_.ProcessId -ne $PID -and
             $commandLine -match "run-local-paper-scheduler\.py" -and
-            ($commandLine -match $rootBackward -or $commandLine -match $rootForward)
+            ($commandLine -match $rootBackward -or $commandLine -match $rootForward) -and
+            ($commandLine -match $databaseBackward -or $commandLine -match $databaseForward)
         }
     foreach ($orphan in $orphanSchedulers) {
         Write-Step "stopping orphan local scheduler (pid $($orphan.ProcessId))"
