@@ -1694,6 +1694,13 @@ class RuntimeScheduler:
             self.status.active_config_snapshot_id = active_snapshot_id
             self.status.active_config_hash = active_snapshot_hash
             self.status.active_snapshot_valid = True
+            if self.status.natural_testnet_enabled:
+                # Snapshot activation can happen on the first cycle after
+                # startup. Keep Runtime Truth aligned with the active
+                # immutable profile so the launcher cannot report Canary
+                # readiness while sampling is still disabled in its state.
+                _, sampling_enabled, _ = _active_entry_authorization()
+                self.status.sampling_fallback_enabled = sampling_enabled
             if self.status.pending_config_snapshot_id == active_snapshot_id:
                 self.status.pending_config_snapshot_id = None
                 self.status.pending_config_hash = None

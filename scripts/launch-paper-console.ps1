@@ -405,6 +405,7 @@ function Test-SchedulerHealthy {
         }
         if ($EnableNaturalTestnet) {
             if ([string]$state.execution_mode -ne "BINANCE_TESTNET") { return $false }
+            if (-not [bool]$state.sampling_fallback_enabled) { return $false }
             if ([string]$state.entry_authority -notin @("PRODUCTION", "TESTNET_FORWARD", "TESTNET_CANARY")) { return $false }
             if (-not [bool]$state.entry_authorized) { return $false }
             if (-not [bool]$state.entry_enabled) { return $false }
