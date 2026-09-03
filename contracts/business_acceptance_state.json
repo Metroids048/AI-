@@ -1,18 +1,22 @@
 {
   "schema_version": "business-acceptance-state-1",
-  "validated_code_sha": null,
-  "validated_at": null,
-  "runtime_readiness": "NOT_VERIFIED",
-  "runtime_recovery_resilience": "NOT_VERIFIED",
+  "validated_code_sha": "fa442ab126b8e213833a49b902a0fa87f8c3f5bb",
+  "validated_at": "2026-09-03T08:44:30Z",
+  "runtime_readiness": "PASS",
+  "runtime_recovery_resilience": "PASS",
   "natural_testnet_execution": "BLOCKED",
   "strategy_business_recovery": "NOT_VERIFIED",
   "profitability_validation": "NOT_VERIFIED",
   "evidence_refs": [
-    ".local_paper_console.db",
-    "logs/startup-last.log",
-    "logs/scheduler-state.json",
-    "Worker Recovery #1: pid 12116 -> 23268",
-    "Worker Recovery #2: pid 23268 -> 25748"
+    "logs/instances/a9a670837cce71d5/startup-result.json",
+    "logs/instances/a9a670837cce71d5/scheduler-state.json",
+    "Fresh: PASS (acceptance-fresh-2.db, 8027/5184, namespace a9a670837cce71d5)",
+    "Existing: PASS (active snapshot df975c07-56ce-4b5c-90a9-35905e2180c4, pending null)",
+    "Restart: PASS (snapshot stable, pending null, sampling true)",
+    "Single Supervisor: PASS (second process returned ALREADY_RUNNING; supervisor remained alive)",
+    "Worker Recovery #1: PASS (pid 21104 -> 1512, RECOVERED)",
+    "Worker Recovery #2: PASS (pid 1512 -> 28512, RECOVERED)",
+    "Frozen contract baseline/head verification: PASS"
   ],
-  "notes": "Fresh matrix exposed a process-namespace defect: alternate launcher orphan cleanup matched all schedulers in the repository and terminated the primary Supervisor. Candidate invalidated; recovery and full six-case matrix must be rerun after database-scoped orphan filtering."
+  "notes": "Validated candidate fa442ab126b8e213833a49b902a0fa87f8c3f5bb. Six-case runtime matrix passed on the same executable candidate. Natural Testnet L2 remains blocked only because no natural strategy signal was observed; no strategy or transaction semantics were changed."
 }
