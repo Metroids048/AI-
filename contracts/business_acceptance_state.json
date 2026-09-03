@@ -18,5 +18,5 @@
     "Worker Recovery #2: PASS (pid 1512 -> 28512, RECOVERED)",
     "Frozen contract baseline/head verification: PASS"
   ],
-  "notes": "Validated candidate fa442ab126b8e213833a49b902a0fa87f8c3f5bb. Six-case runtime matrix passed on the same executable candidate. Natural Testnet L2 remains blocked only because no natural strategy signal was observed; no strategy or transaction semantics were changed."
+  "notes": "Validated candidate fa442ab126b8e213833a49b902a0fa87f8c3f5bb. Six-case runtime matrix passed on the same executable candidate. Subsequent read-only monitoring detected the pre-existing ETH/USDT QUARANTINED managed-position lifecycle (quantity 0.02), so reconciliation correctly entered RECOVERY_REQUIRED and entry is currently fail-closed; this state was not cleared or rewritten. Natural Testnet L2 has no qualifying natural candidate, and no strategy or transaction semantics were changed."
 }
