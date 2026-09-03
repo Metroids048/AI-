@@ -2356,3 +2356,20 @@
   (`2002 passed, 16 skipped, 2 warnings`), with final focused acceptance tests `44 passed`.
 - Business acceptance is intentionally split: runtime_readiness `PASS`, natural_testnet_execution
   `BLOCKED` (`BLOCKED_NO_NATURAL_SIGNAL`), strategy recovery and profitability `NOT_VERIFIED`.
+
+# 2026-09-03 CANDIDATE_CONSISTENCY_SINGLE_SUPERVISOR_CLOSEOUT
+
+- Gate A verified: `105537..1d7475` contains only acceptance/documentation metadata; no
+  executable runtime change. Gate B added the database+execution-mode supervisor lease,
+  TTL heartbeat, fencing-token takeover, stale-release protection, and bounded monitor interval.
+- Executable candidate remains `166b0bad860a863a286cdb1907a9d2d9978ce92d`; HEAD `6a20b1cb`
+  only refreezes the frozen-contract metadata. Acceptance ledger is bound to the executable
+  candidate and does not inherit evidence from `105537`.
+- Fresh/existing/restart one-click runtime observations reached ACTIVE/BINANCE_TESTNET,
+  TESTNET_CANARY, sampling fallback true, no pending snapshot, TRADING_READY, fresh data,
+  and HEALTHY reconciliation. A second supervisor was rejected with `ALREADY_RUNNING`.
+- Natural closed-bar observation produced no candidate or exchange order; Natural L2 remains
+  `BLOCKED_NO_NATURAL_SIGNAL`. Strategy, risk, authority, verifier, and transaction semantics
+  were not changed.
+- Final gates: Ruff PASS, mypy PASS (313 files), full pytest `2017 passed, 7 skipped, 7 warnings`;
+  focused lease/authority/acceptance tests `32 passed`.
