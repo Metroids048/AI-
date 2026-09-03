@@ -1,11 +1,15 @@
 {
   "schema_version": "business-acceptance-state-1",
-  "validated_code_sha": null,
-  "validated_at": null,
-  "runtime_readiness": "NOT_VERIFIED",
-  "natural_testnet_execution": "NOT_VERIFIED",
+  "validated_code_sha": "10553708288e3ac2ea505924ad62ae93a2790d73",
+  "validated_at": "2026-09-03T03:50:24Z",
+  "runtime_readiness": "PASS",
+  "natural_testnet_execution": "BLOCKED",
   "strategy_business_recovery": "NOT_VERIFIED",
   "profitability_validation": "NOT_VERIFIED",
-  "evidence_refs": [],
-  "notes": "Code/frozen-contract verification is independent from business acceptance."
+  "evidence_refs": [
+    ".local/candidate-runtime.db",
+    "logs/startup-last.log",
+    "logs/scheduler-state.json"
+  ],
+  "notes": "Runtime L1 passed on a real one-click Fresh Testnet launch. Natural L2 remains blocked because no natural candidate signal was observed; this does not assert strategy recovery or profitability."
 }
