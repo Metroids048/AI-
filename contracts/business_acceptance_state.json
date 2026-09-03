@@ -2,7 +2,7 @@
   "schema_version": "business-acceptance-state-1",
   "validated_code_sha": "25209560da4fb7206cc127d341341c1009cd3877",
   "validated_at": "2026-09-03T07:53:17Z",
-  "runtime_readiness": "PASS",
+  "runtime_readiness": "NOT_VERIFIED",
   "runtime_recovery_resilience": "PASS",
   "natural_testnet_execution": "BLOCKED",
   "strategy_business_recovery": "NOT_VERIFIED",
@@ -14,5 +14,5 @@
     "Worker Recovery #1: pid 12116 -> 23268",
     "Worker Recovery #2: pid 23268 -> 25748"
   ],
-  "notes": "Startup L1 and Recovery L1.5 were freshly validated against executable candidate 25209560da4fb7206cc127d341341c1009cd3877. Two exact-worker crash recoveries returned RECOVERED with Active snapshot, sampling=true, TESTNET_CANARY, TRADING_READY, and HEALTHY reconciliation. Natural L2 remains BLOCKED_NO_NATURAL_SIGNAL; no strategy or profitability claim."
+  "notes": "Startup and Recovery L1.5 were freshly validated against executable candidate 25209560da4fb7206cc127d341341c1009cd3877. Two exact-worker crash recoveries returned RECOVERED with Active snapshot, sampling=true, TESTNET_CANARY, TRADING_READY, and HEALTHY reconciliation. Fresh/Existing/Restart matrix was not rerun after this executable change and therefore runtime_readiness remains NOT_VERIFIED. Natural L2 remains BLOCKED_NO_NATURAL_SIGNAL; no strategy or profitability claim."
 }
