@@ -2339,3 +2339,20 @@
   remained untouched and Production remains `NOT_GRANTED`.
 - VERIFIED: Ruff, mypy, frontend tests (`116 passed`), frontend build, JSON parsing and
   `git diff --check` all passed.
+
+# 2026-09-03 AUTO_TRADING_RUNTIME_TRUTH_CLOSURE
+
+- Fixed Fresh one-click natural Testnet startup ordering: `Initialize-LocalDatabase`
+  now runs after `POSTGRES_URL` is set and before baseline/API paths read V2 tables.
+- Fresh natural startup may re-arm only the default `default_disabled_until_gate5`
+  runtime control through the existing API/snapshot flow; operator pauses and safety
+  stops retain ownership. Added regression coverage for schema ordering and control
+  scope. Existing/restart snapshot behavior remains one-field and idempotent.
+- Final candidate code was frozen at validated SHA `10553708288e3ac2ea505924ad62ae93a2790d73`;
+  frozen contract baseline is `e042edb`. Runtime evidence on `.local/candidate-runtime.db`
+  reached ACTIVE/BINANCE_TESTNET/TESTNET_CANARY, sampling=true, TRADING_READY, healthy
+  reconciliation, and no pending snapshot after activation.
+- Static verification: Ruff passed; mypy passed (`313 source files`); full pytest passed
+  (`2002 passed, 16 skipped, 2 warnings`), with final focused acceptance tests `44 passed`.
+- Business acceptance is intentionally split: runtime_readiness `PASS`, natural_testnet_execution
+  `BLOCKED` (`BLOCKED_NO_NATURAL_SIGNAL`), strategy recovery and profitability `NOT_VERIFIED`.
