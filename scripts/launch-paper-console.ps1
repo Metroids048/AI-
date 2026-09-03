@@ -597,8 +597,14 @@ function Restore-EntryAfterStartupSafetyStop {
     $controlSafetyStop = $null -ne $control -and
         -not [bool]$control.entry_enabled -and
         ([string]$control.reason -like "STARTUP_SAFETY_STOP:*")
+    $freshNaturalControl = $null -ne $control -and
+        [bool]$EnableNaturalTestnet -and
+        -not [bool]$control.entry_enabled -and
+        [string]$control.reason -eq "default_disabled_until_gate5"
     if (-not $controlSafetyStop) {
-        return
+        if (-not $freshNaturalControl) {
+            return
+        }
     }
     try {
         $reason = if ($EnableNaturalTestnet) {
@@ -694,6 +700,10 @@ function Ensure-Runtime {
         $env:PAPER_CONSOLE_SKIP_BACKGROUND_BOOTSTRAP = "false"
     }
     $env:POSTGRES_URL = $SqliteUrl
+    # Fresh databases must have the V2 projection tables before the external
+    # baseline reader runs.  Keep schema preparation inside Ensure-Runtime so
+    # every path that captures a Testnet baseline observes a complete schema.
+    Initialize-LocalDatabase
     $env:VITE_API_BASE_URL = "http://127.0.0.1:$ApiPort"
     $env:VITE_ADMIN_API_TOKEN = "dev-admin-token"
     $env:CORS_ALLOWED_ORIGINS = "http://127.0.0.1:$FrontendPort,http://localhost:$FrontendPort"
@@ -880,7 +890,6 @@ if ($apiReady -and $frontendReady -and (Test-ProjectListener $ApiPort) -and (Tes
 }
 
 Ensure-Runtime
-Initialize-LocalDatabase
 
 if (-not $apiReady) { Stop-RecordedProcess $ApiPidFile $ApiPort }
 if (-not $frontendReady) { Stop-RecordedProcess $FrontendPidFile $FrontendPort }

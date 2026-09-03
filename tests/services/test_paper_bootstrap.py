@@ -525,6 +525,9 @@ def test_console_launcher_migrates_database_without_relaying_api_streams() -> No
     script = (Path(__file__).resolve().parents[2] / "scripts" / "launch-paper-console.ps1").read_text(encoding="utf-8")
 
     assert "scripts/prepare_database.py --database-url $SqliteUrl" in script
+    database_env_start = script.index("$env:POSTGRES_URL = $SqliteUrl")
+    database_env_end = script.index("$env:VITE_API_BASE_URL =", database_env_start)
+    assert "Initialize-LocalDatabase" in script[database_env_start:database_env_end]
     api_start = script.index('"-m", "apps.api.local_server"')
     assert script.index("scripts/prepare_database.py --database-url $SqliteUrl") < script.index(
         "Start-Process -FilePath $env:AGENT_PYTHON", api_start
@@ -588,6 +591,16 @@ def test_console_launches_v2_in_shadow_mode() -> None:
     assert '$env:BINANCE_USE_TESTNET = "true"' in launcher
     assert '$env:LIVE_TRADING_ENABLED = "false"' in launcher
     assert '$env:AUTOMATED_TRADING_ENGINE = "v2_shadow"' in launcher
+
+
+def test_natural_fresh_launcher_rearms_only_default_runtime_control() -> None:
+    launcher = (Path(__file__).resolve().parents[2] / "scripts" / "launch-paper-console.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert '[string]$control.reason -eq "default_disabled_until_gate5"' in launcher
+    assert "[bool]$EnableNaturalTestnet" in launcher
+    assert '"AUTONOMOUS_TESTNET_STARTUP_RECOVERY"' in launcher
 
 
 def test_console_defaults_to_a_nonblocked_api_port_and_forwards_it_to_vite() -> None:
