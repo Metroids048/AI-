@@ -11,5 +11,5 @@
     "logs/startup-last.log",
     "logs/scheduler-state.json"
   ],
-  "notes": "Runtime L1 and the single-supervisor lease gate were freshly validated against this code candidate. Natural L2 remains blocked because no natural candidate signal was observed; this does not assert strategy recovery or profitability. HEAD 6a20b1cb only refreezes contract metadata and has no executable runtime changes."
+  "notes": "Runtime L1 and the single-supervisor lease gate were freshly validated against this code candidate. Natural L2 remains blocked because no natural candidate signal was observed; this does not assert strategy recovery or profitability. Commits after 166b0bad contain only frozen-contract and acceptance/task-history metadata; no executable runtime changes."
 }
