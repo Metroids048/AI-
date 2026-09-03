@@ -17,7 +17,23 @@ Set-Location -LiteralPath $Root
 
 $ApiHealthUrl = "http://127.0.0.1:$ApiPort/health"
 $FrontendUrl = "http://127.0.0.1:$FrontendPort/trading"
-$LogsDir = Join-Path $Root "logs"
+$DbPath = Join-Path $Root $DatabasePath
+$defaultDatabasePath = (Join-Path $Root ".local_paper_console.db")
+$defaultNamespace = ($DbPath -eq $defaultDatabasePath -and $ApiPort -eq 8016 -and $FrontendPort -eq 5173)
+if ($defaultNamespace) {
+    $LogsDir = Join-Path $Root "logs"
+} else {
+    $identity = "{0}|api:{1}|frontend:{2}" -f ([IO.Path]::GetFullPath($DbPath).ToLowerInvariant()), $ApiPort, $FrontendPort
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes($identity)
+        $digest = $sha.ComputeHash($bytes)
+        $suffix = ([BitConverter]::ToString($digest) -replace "-", "").Substring(0, 16).ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+    }
+    $LogsDir = Join-Path (Join-Path $Root "logs\instances") $suffix
+}
 $ApiLog = Join-Path $LogsDir "api.log"
 $FrontendLog = Join-Path $LogsDir "frontend.log"
 $StartupLog = Join-Path $LogsDir "startup-last.log"
@@ -34,7 +50,6 @@ $ResearchWorkerLog = Join-Path $LogsDir "research-worker.log"
 $ResearchWorkerErrorLog = Join-Path $LogsDir "research-worker-error.log"
 $ResearchRuntimeStateFile = Join-Path $LogsDir "research-runtime-state.json"
 $FrontendPidFile = Join-Path $LogsDir "frontend.pid"
-$DbPath = Join-Path $Root $DatabasePath
 $SqliteUrl = "sqlite:///$($DbPath.Replace('\', '/'))"
 $StartupResultPath = Join-Path $LogsDir "startup-result.json"
 $script:StartupStage = "INITIALIZING"
@@ -726,6 +741,10 @@ function Ensure-Runtime {
         Remove-Item Env:V2_NATURAL_E2E_ENABLED -ErrorAction SilentlyContinue
     }
     $env:V2_LAUNCH_INSTANCE_ID = $LaunchInstanceId
+    # Keep every launcher instance's scheduler state in its own namespace.
+    # The default one-click paths remain backward-compatible; alternate DB or
+    # port combinations cannot overwrite/kill the primary runtime evidence.
+    $env:LOCAL_SCHEDULER_STATE_PATH = $SchedulerStateFile
     if ($PreserveExternalTestnetBaseline -and $AutomatedTradingEngine -ne "v2_active") {
         throw "-PreserveExternalTestnetBaseline is only valid with v2_active."
     }

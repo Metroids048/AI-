@@ -12,6 +12,7 @@ def test_business_acceptance_state_keeps_runtime_and_business_stages_distinct() 
     state = BusinessAcceptanceState.runtime_pass(validated_code_sha="a" * 40)
     payload = state.to_dict()
     assert payload["runtime_readiness"] == "PASS"
+    assert payload["runtime_recovery_resilience"] == "NOT_VERIFIED"
     assert payload["natural_testnet_execution"] == "BLOCKED"
     assert payload["strategy_business_recovery"] == "NOT_VERIFIED"
     assert payload["profitability_validation"] == "NOT_VERIFIED"

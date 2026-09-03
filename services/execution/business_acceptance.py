@@ -8,6 +8,7 @@ from typing import Any
 
 ACCEPTANCE_STAGES = (
     "runtime_readiness",
+    "runtime_recovery_resilience",
     "natural_testnet_execution",
     "strategy_business_recovery",
     "profitability_validation",
@@ -21,6 +22,7 @@ class BusinessAcceptanceState:
 
     validated_code_sha: str | None
     runtime_readiness: str = "NOT_VERIFIED"
+    runtime_recovery_resilience: str = "NOT_VERIFIED"
     natural_testnet_execution: str = "NOT_VERIFIED"
     strategy_business_recovery: str = "NOT_VERIFIED"
     profitability_validation: str = "NOT_VERIFIED"

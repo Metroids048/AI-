@@ -1592,6 +1592,39 @@ def test_worker_start_runs_recovery_management_cycle_immediately() -> None:
     assert "critical_job.task_alive = True" in source
 
 
+def test_worker_recovery_rehydrates_active_config_and_canary_authority(monkeypatch) -> None:
+    from services.automated_trading.application.production_strategy import EntryAuthority, EntryAuthorityResolution
+    from services.execution import scheduler as scheduler_module
+
+    scheduler = RuntimeScheduler(coordinator=object())
+    scheduler.status.execution_mode = "BINANCE_TESTNET"
+    scheduler.status.natural_testnet_enabled = True
+    scheduler.status.reconciliation_healthy = True
+    monkeypatch.setattr(
+        scheduler_module,
+        "_active_strategy_authorization_state",
+        lambda **_: scheduler_module.ActiveStrategyAuthorizationState(
+            resolution=EntryAuthorityResolution(EntryAuthority.NONE, "NO_FORWARD_VALIDATION_CANDIDATE", None, False),
+            active_config_snapshot_id="durable-active",
+            active_config_hash="sha256:durable",
+            active_snapshot_valid=True,
+            pending_config_snapshot_id=None,
+            pending_config_hash=None,
+        ),
+    )
+    monkeypatch.setattr(scheduler_module, "_active_entry_authorization", lambda: (True, True, ()))
+    monkeypatch.setattr(scheduler_module, "_runtime_entry_control_reason", lambda: None)
+    monkeypatch.setattr(scheduler, "_publish_external_state", lambda: None)
+
+    assert scheduler._rehydrate_runtime_contract_for_recovery() is True
+    assert scheduler.status.active_config_snapshot_id == "durable-active"
+    assert scheduler.status.active_config_hash == "sha256:durable"
+    assert scheduler.status.sampling_fallback_enabled is True
+    assert scheduler.status.entry_authority == "TESTNET_CANARY"
+    assert scheduler.status.entry_authorized is True
+    assert scheduler.status.trading_state == "TRADING_READY"
+
+
 @pytest.mark.asyncio
 async def test_v2_periodic_cycle_hydrates_and_clears_external_recovery_hold(monkeypatch) -> None:
     """A supervisor hold written after worker start must not remain stale."""

@@ -732,6 +732,71 @@ class RuntimeScheduler:
         self.status.pending_config_hash = lifecycle.pending_config_hash
         return True
 
+    def _rehydrate_runtime_contract_for_recovery(self) -> bool:
+        """Reload durable authority/config facts before restarting a V2 task.
+
+        A critical task restart is not a fresh launcher bootstrap.  Re-read the
+        immutable Active snapshot and the durable RuntimeControl so a recovered
+        worker cannot continue with cleared in-memory fields (or silently lose
+        the trusted Testnet sampling contract).  This method is read-only with
+        respect to snapshots; an absent/invalid snapshot remains fail-closed.
+        """
+        execution_mode = str(self.status.execution_mode or "BINANCE_TESTNET")
+        authorization = _active_strategy_authorization_state(execution_mode=execution_mode)
+        entry_enabled, sampling_enabled, contract_errors = _active_entry_authorization()
+        authority = authorization.resolution
+        if (
+            authority.authority is EntryAuthority.NONE
+            and execution_mode == "BINANCE_TESTNET"
+            and self.status.natural_testnet_enabled
+            and sampling_enabled
+        ):
+            authority = resolve_entry_authority(
+                production_authorized=authorization.production_authorized,
+                production_strategy_id=None,
+                forward_authorized=authorization.forward_authorized,
+                forward_strategy_id=None,
+                execution_mode=execution_mode,
+                operator_testnet_canary_enabled=self.status.natural_testnet_enabled,
+                explicit_testnet_canary=True,
+            )
+        self.status.active_config_snapshot_id = authorization.active_config_snapshot_id
+        self.status.active_config_hash = authorization.active_config_hash
+        self.status.pending_config_snapshot_id = authorization.pending_config_snapshot_id
+        self.status.pending_config_hash = authorization.pending_config_hash
+        self.status.active_snapshot_valid = authorization.active_snapshot_valid
+        self.status.sampling_fallback_enabled = sampling_enabled
+        self.status.entry_enabled = entry_enabled
+        self.status.entry_authority = authority.authority.value
+        self.status.entry_authority_reason = authority.reason
+        self.status.active_entry_strategy = authority.active_strategy_id
+        self.status.promotion_eligible = authority.promotion_eligible
+        self.status.production_authorized = authorization.production_authorized
+        self.status.production_authorization_state = "APPROVED" if authorization.production_authorized else "PENDING"
+        self.status.forward_authorized = authorization.forward_authorized
+        self.status.forward_authorization_reason = authorization.forward_authorization_reason
+        self.status.startup_contract_errors = tuple(dict.fromkeys(contract_errors))
+        hold_active = str(_runtime_entry_control_reason() or "").startswith(LIVENESS_RECOVERY_HOLD_PREFIX)
+        self.status.entry_control_reason = _runtime_entry_control_reason()
+        self.status.entry_authorized = bool(
+            entry_enabled
+            and authority.authority is not EntryAuthority.NONE
+            and self.status.reconciliation_healthy is not False
+        )
+        self.status.trading_state = (
+            "MANAGEMENT_ONLY"
+            if hold_active or not entry_enabled
+            else "TRADING_READY"
+            if self.status.entry_authorized
+            else "ENTRY_BLOCKED"
+        )
+        self._publish_external_state()
+        if not authorization.active_snapshot_valid or not authorization.active_config_snapshot_id:
+            return False
+        if execution_mode == "BINANCE_TESTNET" and self.status.natural_testnet_enabled:
+            return bool(sampling_enabled)
+        return authority.authority is not EntryAuthority.NONE
+
     def _set_recovery_hold(self, reason: str) -> None:
         """Freeze new exposure durably while leaving the V2 management loop alive."""
         normalized = str(reason or "unknown").strip()
@@ -1290,6 +1355,22 @@ class RuntimeScheduler:
             job = self.status.critical_jobs.setdefault(name, CriticalJobLiveness())
             job.registered = True
             job.task_alive = True
+            # In-process task recovery does not execute the launcher bootstrap.
+            # Rehydrate the durable config/authority contract before allowing
+            # the replacement task to run.
+            if (
+                name == V2_CRITICAL_JOB
+                and self.coordinator is not None
+                and self.status.recovery.state
+                in {
+                    RECOVERY_RESTARTING,
+                    RECOVERY_VERIFYING,
+                    RECOVERY_MANAGEMENT,
+                }
+                and not self._rehydrate_runtime_contract_for_recovery()
+            ):
+                self._set_recovery_hold("RECOVERY_CONFIG_REHYDRATION_FAILED")
+                self.status.recovery.state = RECOVERY_MANAGEMENT
             try:
                 await factory()
                 if self._stop_event.is_set():

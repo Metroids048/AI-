@@ -2373,3 +2373,23 @@
   were not changed.
 - Final gates: Ruff PASS, mypy PASS (313 files), full pytest `2017 passed, 7 skipped, 7 warnings`;
   focused lease/authority/acceptance tests `32 passed`.
+
+# 2026-09-03 WORKER_RECOVERY_RESILIENCE_NAMESPACE_ISOLATION
+
+- P0 root cause: worker/task recovery restarted execution without a durable
+  Active ConfigSnapshot rehydration boundary; in-memory authority/config fields
+  could remain empty and publish `ENTRY_BLOCKED` despite a live supervisor.
+- Minimal fix: V2 critical-task recovery now re-reads Active/Pending snapshot,
+  sampling flag, RuntimeControl, and authority before replacement execution;
+  invalid/missing state remains fail-closed. Added regression coverage for
+  Testnet Canary recovery preserving Active snapshot and `TRADING_READY`.
+- P1 fix: alternate launcher database/port combinations use hashed
+  `logs/instances/<namespace>` artifacts and propagate
+  `LOCAL_SCHEDULER_STATE_PATH`; default one-click paths remain compatible.
+- Acceptance ledger now includes `runtime_recovery_resilience: BLOCKED` and no
+  longer carries superseded SHA evidence after executable changes.
+- Verification: Ruff PASS, touched-file mypy PASS, full pytest `2019 passed,
+  7 skipped, 7 warnings`; focused runtime/bootstrap/acceptance tests `103 passed`.
+- Natural L2 was intentionally not run; no strategy or transaction semantics
+  changed. Recovery L1.5 still requires two real worker-recovery observations
+  before any Natural L2 claim.

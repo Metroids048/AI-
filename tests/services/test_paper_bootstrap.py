@@ -629,6 +629,16 @@ def test_console_startup_preserves_operator_auto_execute_setting_and_rotates_log
     assert "py -3" not in console_script
 
 
+def test_launcher_namespaces_alternate_database_and_port_runtime_artifacts() -> None:
+    launcher = (Path(__file__).resolve().parents[2] / "scripts" / "launch-paper-console.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert '$LogsDir = Join-Path (Join-Path $Root "logs\\instances") $suffix' in launcher
+    assert "$env:LOCAL_SCHEDULER_STATE_PATH = $SchedulerStateFile" in launcher
+    assert "api:{1}|frontend:{2}" in launcher
+    assert "$defaultNamespace" in launcher
+
+
 def test_bootstrap_stages_manifest_rules_when_active_runtime_snapshot_is_stale(db_session, monkeypatch) -> None:
     import services.execution.bootstrap as bootstrap_module
     from services.strategy_library import ConfigSnapshotRepository, PaperRunRepository

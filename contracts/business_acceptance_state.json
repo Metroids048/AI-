@@ -1,8 +1,9 @@
 {
   "schema_version": "business-acceptance-state-1",
-  "validated_code_sha": "166b0bad860a863a286cdb1907a9d2d9978ce92d",
-  "validated_at": "2026-09-03T06:22:30Z",
-  "runtime_readiness": "PASS",
+  "validated_code_sha": null,
+  "validated_at": null,
+  "runtime_readiness": "NOT_VERIFIED",
+  "runtime_recovery_resilience": "BLOCKED",
   "natural_testnet_execution": "BLOCKED",
   "strategy_business_recovery": "NOT_VERIFIED",
   "profitability_validation": "NOT_VERIFIED",
@@ -11,5 +12,5 @@
     "logs/startup-last.log",
     "logs/scheduler-state.json"
   ],
-  "notes": "Runtime L1 and the single-supervisor lease gate were freshly validated against this code candidate. Natural L2 remains blocked because no natural candidate signal was observed; this does not assert strategy recovery or profitability. Commits after 166b0bad contain only frozen-contract and acceptance/task-history metadata; no executable runtime changes."
+  "notes": "Previous Runtime L1 evidence belonged to superseded code 166b0bad860a863a286cdb1907a9d2d9978ce92d. This candidate changes worker recovery and launcher namespace behavior; revalidation is required before binding a validated_code_sha."
 }
