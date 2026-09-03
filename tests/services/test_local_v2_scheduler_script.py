@@ -4,6 +4,8 @@ import os
 import runpy
 from pathlib import Path
 
+from services.strategy_library import models
+
 
 def test_isolated_scheduler_enforces_v2_shadow_environment(
     monkeypatch,
@@ -67,6 +69,60 @@ def test_scheduler_supervisor_uses_configured_state_path(monkeypatch, tmp_path) 
     assert state["active_entry_strategy"] == "validated-forward-v1"
     assert state["entry_control_reason"].startswith("LIVENESS_RECOVERY_HOLD:")
     assert state["trading_state"] == "MANAGEMENT_ONLY"
+
+
+def test_supervisor_lease_blocks_second_owner_for_same_database_and_mode(tmp_path) -> None:
+    namespace = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts" / "run-local-paper-scheduler.py"))
+    db_url = f"sqlite:///{(tmp_path / 'supervisor.db').as_posix()}"
+
+    first = namespace["_acquire_supervisor_lease"](db_url, "v2_active")
+    assert first is not None
+    try:
+        second = namespace["_acquire_supervisor_lease"](db_url, "v2_active")
+        assert second is None
+        assert namespace["_renew_supervisor_lease"](first) is True
+    finally:
+        first.coordinator.release_lease(lease_name=first.lease_name, fencing_token=first.fencing_token)
+
+    takeover = namespace["_acquire_supervisor_lease"](db_url, "v2_active")
+    assert takeover is not None
+    takeover.coordinator.release_lease(lease_name=takeover.lease_name, fencing_token=takeover.fencing_token)
+
+
+def test_stale_supervisor_owner_cannot_renew_after_fenced_takeover(tmp_path) -> None:
+    namespace = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts" / "run-local-paper-scheduler.py"))
+    db_url = f"sqlite:///{(tmp_path / 'fencing.db').as_posix()}"
+    first = namespace["_acquire_supervisor_lease"](db_url, "v2_active")
+    assert first is not None
+    second = None
+    try:
+        with first.coordinator.session_factory() as session:
+            lease = session.get(models.SchedulerLease, first.lease_name)
+            lease.expires_at = lease.acquired_at
+            session.commit()
+        second = namespace["_acquire_supervisor_lease"](db_url, "v2_active")
+        assert second is not None
+        assert namespace["_renew_supervisor_lease"](first) is False
+    finally:
+        if second is not None:
+            second.coordinator.release_lease(lease_name=second.lease_name, fencing_token=second.fencing_token)
+        first.coordinator.release_lease(lease_name=first.lease_name, fencing_token=first.fencing_token)
+
+
+def test_run_supervisor_fails_closed_before_worker_when_lease_is_held(monkeypatch) -> None:
+    namespace = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts" / "run-local-paper-scheduler.py"))
+    called = False
+
+    def unexpected_spawn(*_args, **_kwargs):  # noqa: ANN001
+        nonlocal called
+        called = True
+        raise AssertionError("worker must not start while another supervisor owns the lease")
+
+    monkeypatch.setitem(namespace["run_supervisor"].__globals__, "_acquire_supervisor_lease", lambda *_args: None)
+    monkeypatch.setitem(namespace["run_supervisor"].__globals__, "_spawn_worker", unexpected_spawn)
+
+    assert namespace["run_supervisor"]("sqlite:///held.db", "v2_active", monitor_seconds=0.1) == 2
+    assert called is False
 
 
 def test_recovery_overlay_preserves_manual_control_ownership(monkeypatch, tmp_path) -> None:

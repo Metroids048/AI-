@@ -6,6 +6,7 @@ import os
 import socket
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from typing import Any
 
 from sqlalchemy import or_
@@ -19,6 +20,12 @@ from shared.config import settings
 def _db_time(value: datetime) -> datetime:
     value = value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
     return value.replace(tzinfo=None)
+
+
+def supervisor_lease_name(database_url: str, execution_mode: str) -> str:
+    """Return a stable, non-sensitive lease key for one runtime boundary."""
+    identity = f"{database_url.strip()}|{execution_mode.strip()}"
+    return f"automated_trading_supervisor:{sha256(identity.encode('utf-8')).hexdigest()}"
 
 
 def _local_pid_is_alive(pid: int | None) -> bool:

@@ -10,14 +10,18 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 RECOVERY_BACKOFFS = (5.0, 15.0, 30.0, 60.0, 120.0, 300.0)
 FAST_RECOVERY_ATTEMPTS = 3
 RECOVERY_BUDGET_EXHAUSTED_HOLD = "RECOVERY_BUDGET_EXHAUSTED_HOLD"
 FATAL_BOOT_ERROR_PREFIX = "FATAL_BOOT_ERROR:"
+SUPERVISOR_LEASE_TTL_SECONDS = 360.0
 
 _EXTERNAL_FAILURE_MARKERS = (
     "BINANCE_SERVER_TIME",
@@ -205,18 +209,80 @@ def _recovery_backoff_seconds(attempt: int) -> float:
     return RECOVERY_BACKOFFS[index]
 
 
+@dataclass
+class _SupervisorLease:
+    coordinator: Any
+    lease_name: str
+    fencing_token: int
+
+
+def _acquire_supervisor_lease(database_url: str, engine: str) -> _SupervisorLease | None:
+    """Acquire the one-owner lease before a RuntimeScheduler worker is spawned."""
+    from services.database import create_relational_schema, get_session_factory
+    from services.execution.scheduler_coordination import SchedulerCoordinator, supervisor_lease_name
+
+    # The launcher normally prepares this schema first; keeping this check here
+    # makes direct supervisor invocation fail closed instead of racing schema setup.
+    create_relational_schema(database_url)
+    lease_name = supervisor_lease_name(database_url, engine)
+    coordinator = SchedulerCoordinator(
+        session_factory=get_session_factory(database_url),
+        instance_id=f"supervisor:{uuid.uuid4()}",
+    )
+    acquired = coordinator.acquire_or_renew_lease(
+        lease_name=lease_name,
+        ttl_seconds=SUPERVISOR_LEASE_TTL_SECONDS,
+    )
+    if not acquired:
+        return None
+    fencing_token = coordinator.fencing_token(lease_name=lease_name)
+    if fencing_token is None:
+        coordinator.release_lease(lease_name=lease_name)
+        raise RuntimeError("SUPERVISOR_LEASE_TOKEN_UNAVAILABLE")
+    return _SupervisorLease(coordinator=coordinator, lease_name=lease_name, fencing_token=fencing_token)
+
+
+def _renew_supervisor_lease(lease: _SupervisorLease) -> bool:
+    """Heartbeat without allowing an expired/stale owner to reclaim the lease."""
+    renewed = lease.coordinator.acquire_or_renew_lease(
+        lease_name=lease.lease_name,
+        ttl_seconds=SUPERVISOR_LEASE_TTL_SECONDS,
+        fencing_token=lease.fencing_token,
+    )
+    current_token = lease.coordinator.fencing_token(lease_name=lease.lease_name)
+    return bool(renewed and current_token == lease.fencing_token)
+
+
 def run_supervisor(database_url: str, engine: str = "v2_shadow", monitor_seconds: float = 5.0) -> int:
     """Own the worker process so a hung to_thread call cannot create a second writer."""
     from services.execution.scheduler import persist_liveness_recovery_hold
 
-    worker = _spawn_worker(database_url, engine, restart_count=0)
+    lease = _acquire_supervisor_lease(database_url, engine)
+    if lease is None:
+        print("ALREADY_RUNNING: supervisor lease is held", file=sys.stderr)
+        return 2
+    worker: subprocess.Popen[bytes] | None = None
     started_at = time.monotonic()
     attempt = 0
     restart_count = 0
     healthy_since: float | None = None
     try:
+        worker = _spawn_worker(database_url, engine, restart_count=0)
+        started_at = time.monotonic()
         while True:
             time.sleep(max(monitor_seconds, 0.1))
+            if worker is None:
+                return 1
+            try:
+                lease_healthy = _renew_supervisor_lease(lease)
+            except Exception as exc:  # noqa: BLE001
+                _terminate_worker(worker)
+                print(f"SUPERVISOR_LEASE_ERROR: {type(exc).__name__}", file=sys.stderr)
+                return 1
+            if not lease_healthy:
+                _terminate_worker(worker)
+                print("SUPERVISOR_LEASE_LOST: worker stopped", file=sys.stderr)
+                return 1
             state = _load_state()
             reason = _worker_health_reason(worker=worker, started_at=started_at)
             if reason is None:
@@ -261,8 +327,11 @@ def run_supervisor(database_url: str, engine: str = "v2_shadow", monitor_seconds
             worker = _spawn_worker(database_url, engine, restart_count=restart_count)
             started_at = time.monotonic()
     except KeyboardInterrupt:
-        _terminate_worker(worker)
+        if worker is not None:
+            _terminate_worker(worker)
         return 0
+    finally:
+        lease.coordinator.release_lease(lease_name=lease.lease_name, fencing_token=lease.fencing_token)
 
 
 def main() -> None:
