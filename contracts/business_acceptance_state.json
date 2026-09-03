@@ -1,16 +1,18 @@
 {
   "schema_version": "business-acceptance-state-1",
-  "validated_code_sha": null,
-  "validated_at": null,
-  "runtime_readiness": "NOT_VERIFIED",
-  "runtime_recovery_resilience": "BLOCKED",
+  "validated_code_sha": "25209560da4fb7206cc127d341341c1009cd3877",
+  "validated_at": "2026-09-03T07:53:17Z",
+  "runtime_readiness": "PASS",
+  "runtime_recovery_resilience": "PASS",
   "natural_testnet_execution": "BLOCKED",
   "strategy_business_recovery": "NOT_VERIFIED",
   "profitability_validation": "NOT_VERIFIED",
   "evidence_refs": [
-    ".local/candidate-runtime.db",
+    ".local_paper_console.db",
     "logs/startup-last.log",
-    "logs/scheduler-state.json"
+    "logs/scheduler-state.json",
+    "Worker Recovery #1: pid 12116 -> 23268",
+    "Worker Recovery #2: pid 23268 -> 25748"
   ],
-  "notes": "Previous Runtime L1 evidence belonged to superseded code 166b0bad860a863a286cdb1907a9d2d9978ce92d. This candidate changes worker recovery and launcher namespace behavior; revalidation is required before binding a validated_code_sha."
+  "notes": "Startup L1 and Recovery L1.5 were freshly validated against executable candidate 25209560da4fb7206cc127d341341c1009cd3877. Two exact-worker crash recoveries returned RECOVERED with Active snapshot, sampling=true, TESTNET_CANARY, TRADING_READY, and HEALTHY reconciliation. Natural L2 remains BLOCKED_NO_NATURAL_SIGNAL; no strategy or profitability claim."
 }

@@ -2393,3 +2393,22 @@
 - Natural L2 was intentionally not run; no strategy or transaction semantics
   changed. Recovery L1.5 still requires two real worker-recovery observations
   before any Natural L2 claim.
+
+# 2026-09-03 RECOVERY_L1_5_RUNTIME_VALIDATION
+
+- Executable candidate `25209560da4fb7206cc127d341341c1009cd3877` was started
+  through the real v2_active + EnableNaturalTestnet launcher.
+- Worker Recovery #1: exact worker PID `12116` was terminated; Supervisor
+  `7852` stayed alive, replacement worker `23268` started, and the next natural
+  cycle returned `RECOVERED`, `TESTNET_CANARY`, sampling=true,
+  `TRADING_READY`, entry_authorized=true, reconciliation=HEALTHY.
+- Worker Recovery #2: exact worker PID `23268` was terminated; replacement
+  worker `25748` returned the same recovered state at `2026-09-03T07:53:17Z`.
+- Final runtime facts: Active snapshot `a140dcc9-6f5d-4627-83e0-ef15eeb895fb`
+  (`sha256:254a8504...`), Pending=None. The active snapshot's only observed
+  diff from its prior snapshot was exchange-info `universe_assets` freshness;
+  no operator risk/strategy field was changed by this task.
+- Business acceptance: `runtime_readiness=PASS`,
+  `runtime_recovery_resilience=PASS`, `natural_testnet_execution=BLOCKED`
+  (`BLOCKED_NO_NATURAL_SIGNAL`), strategy recovery/profitability remain
+  `NOT_VERIFIED`.
