@@ -1,0 +1,11 @@
+{
+  "schema_version": "business-acceptance-state-1",
+  "validated_code_sha": null,
+  "validated_at": null,
+  "runtime_readiness": "NOT_VERIFIED",
+  "natural_testnet_execution": "NOT_VERIFIED",
+  "strategy_business_recovery": "NOT_VERIFIED",
+  "profitability_validation": "NOT_VERIFIED",
+  "evidence_refs": [],
+  "notes": "Code/frozen-contract verification is independent from business acceptance."
+}

@@ -14,7 +14,7 @@ import uuid
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -1916,24 +1916,69 @@ def _resolve_runtime_scheduler_jobs(v2_activation_config) -> frozenset[str]:
 def _default_v2_automated_trading_runner(provenance: dict[str, Any] | None = None) -> dict:
     from services.execution.tasks import run_v2_automated_trading_cycles
 
-    _hydrate_v2_entry_timeframes()
+    # Entry hydration is a bounded data-preparation step.  Failures are
+    # represented as readiness details so the V2 cycle can still manage and
+    # reconcile existing exposure.
+    entry_data = ensure_v2_entry_data_ready()
     payload = {
         "timeframe": "15m",
+        "entry_data_readiness": entry_data,
         "scheduler_instance_id": (provenance or {}).get("scheduler_instance_id"),
         **(provenance or {}),
     }
     return run_v2_automated_trading_cycles.run(payload)
 
 
-def _hydrate_v2_entry_timeframes() -> None:
-    """Store the closed V2 entry frames before the normal Scheduler evaluates them.
+def ensure_v2_entry_data_ready(*, now: datetime | None = None) -> dict[str, Any]:
+    """Refresh only missing/stale closed entry frames for the execution scope.
 
-    The V2 decision path requires 15m, 1h, and 4h bars.  A new local database
-    previously started the V2 cycle before the asynchronous rotating heartbeat
-    had reached the 1h/4h frames, which made an otherwise healthy ACTIVE
-    Testnet run fail its startup contract as ``ENTRY_DATA_PENDING``.  Reuse
-    the authoritative market-data heartbeat and its Binance/Testnet handling;
-    this is data preparation only and never creates a decision or order.
+    This is intentionally separate from the recurring cycle.  Fresh frames do
+    not trigger REST calls; an exchange/network failure is reported as pending
+    and never raises into the supervisor, leaving management/reconciliation
+    available for existing positions.
+    """
+    from services.data.repository import DataRepository
+    from services.data.tasks import market_data_heartbeat
+    from services.database import get_session_factory
+
+    reference_time = (now or datetime.now(UTC)).astimezone(UTC)
+    symbols = list(AUTO_SIMULATION_EXECUTION_SYMBOLS)
+    max_delays = {"15m": timedelta(minutes=20), "1h": timedelta(minutes=80), "4h": timedelta(hours=5)}
+    details: dict[str, dict[str, Any]] = {}
+    for symbol in symbols:
+        for timeframe, max_delay in max_delays.items():
+            key = f"{symbol}:{timeframe}"
+            try:
+                with get_session_factory()() as session:
+                    freshness = DataRepository(session).check_freshness(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        reference_time=reference_time,
+                        max_delay=max_delay,
+                    )
+                if freshness.get("is_fresh"):
+                    details[key] = {"status": "fresh", **freshness}
+                    continue
+                result = market_data_heartbeat.run([symbol], timeframe, include_secondary=False)
+                status = "refreshed" if not isinstance(result, dict) or result.get("status") != "error" else "pending"
+                details[key] = {"status": status, "refresh": result}
+            except Exception as exc:  # noqa: BLE001 - management must continue
+                details[key] = {"status": "pending", "error": str(exc)}
+    pending = [key for key, value in details.items() if value.get("status") == "pending"]
+    return {
+        "ready": not pending,
+        "pending": pending,
+        "details": details,
+        "checked_at": reference_time.isoformat(),
+    }
+
+
+def _hydrate_v2_entry_timeframes() -> None:
+    """Compatibility helper for explicit cold-start diagnostics.
+
+    Recurring V2 cycles must call :func:`ensure_v2_entry_data_ready` instead;
+    this legacy helper remains available to older operators/tests that
+    explicitly request a complete hydration pass.
     """
     from services.data.tasks import market_data_heartbeat
 

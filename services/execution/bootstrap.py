@@ -769,7 +769,11 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
         # while preserving the existing exchange authorization and fixed risk
         # profile in the run's execution_profile.
         from services.database import get_session_factory
-        from services.execution.runtime_config_migration import stage_promoted_runtime_config
+        from services.execution.natural_testnet_mode import natural_testnet_mode_requested
+        from services.execution.runtime_config_migration import (
+            stage_natural_testnet_sampling_snapshot,
+            stage_promoted_runtime_config,
+        )
 
         with get_session_factory()() as sync_session:
             staged = stage_promoted_runtime_config(
@@ -779,6 +783,17 @@ def bootstrap_auto_trading_technical_paper_run() -> str | None:
                 canonical_strategy_manifest=manifest_binding,
                 created_by="bootstrap-active-manifest-sync",
             )
+            if natural_testnet_mode_requested():
+                sampling = stage_natural_testnet_sampling_snapshot(
+                    sync_session,
+                    strategy_key=AUTO_PAPER_TECHNICAL_KEY,
+                )
+                logger.info(
+                    "trusted natural Testnet sampling contract: run=%s status=%s hash=%s",
+                    sampling.paper_run_id,
+                    sampling.status,
+                    sampling.config_hash,
+                )
         logger.info(
             "directional runtime config sync: run=%s status=%s hash=%s",
             staged.paper_run_id,

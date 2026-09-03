@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from services.automated_trading.application.production_strategy import resolve_testnet_forward_authorization
 from services.execution.runtime_config_migration import (
+    stage_natural_testnet_sampling_snapshot,
     stage_promoted_runtime_config,
     stage_testnet_forward_runtime_config,
 )
@@ -193,6 +194,96 @@ def test_stage_promoted_runtime_config_is_idempotent_for_same_hash(db_session) -
     assert first.config_hash == second.config_hash
     assert second.status == "already_active"
     assert len(ConfigSnapshotRepository(db_session).list_snapshots(first.paper_run_id)) == 1
+
+
+def _natural_sampling_run(db_session, *, with_active: bool = True):
+    strategy = StrategyRepository(db_session).create_strategy(
+        StrategyCreate(
+            strategy_key="natural_sampling_runtime",
+            source="test",
+            core_thesis="natural sampling",
+            rules={
+                "entry_rules": {},
+                "exit_rules": {},
+                "stoploss_rules": {},
+                "takeprofit_rules": {},
+                "position_rules": {},
+            },
+        )
+    )
+    run = PaperRunRepository(db_session).create_paper_run(
+        PaperRun(
+            strategy_id=strategy.strategy_id or "",
+            execution_profile={
+                "auto_paper_runtime_key": "natural_sampling_runtime",
+                "risk_per_trade": 0.05,
+                "operator_flag": "preserve-me",
+                "simulation_sampling_fallback_enabled": False,
+            },
+            paper_status="running",
+        )
+    )
+    if with_active:
+        ConfigSnapshotRepository(db_session).create_snapshot(
+            ConfigSnapshot.create(
+                paper_run_id=run.paper_run_id or "",
+                config={"execution_profile": dict(run.execution_profile), "strategy_rules": {"candidate": "stable"}},
+                created_by="test",
+                effective_cycle_id="MIGRATION_BASELINE",
+            ),
+            base_config_hash=None,
+        )
+    return run
+
+
+def test_natural_sampling_stages_exactly_one_field_and_is_idempotent(db_session) -> None:
+    run = _natural_sampling_run(db_session)
+    repo = ConfigSnapshotRepository(db_session)
+
+    first = stage_natural_testnet_sampling_snapshot(db_session, strategy_key="natural_sampling_runtime")
+    pending = repo.get_pending(run.paper_run_id or "")
+    assert first.status == "staged"
+    assert pending is not None
+    before = repo.get_active(run.paper_run_id or "")
+    assert before is not None
+    assert pending.config["strategy_rules"] == before.config["strategy_rules"]
+    assert pending.config["execution_profile"]["operator_flag"] == "preserve-me"
+    assert pending.config["execution_profile"]["simulation_sampling_fallback_enabled"] is True
+
+    second = stage_natural_testnet_sampling_snapshot(db_session, strategy_key="natural_sampling_runtime")
+    assert second.status == "pending_reused"
+    assert second.config_snapshot_id == first.config_snapshot_id
+
+    activated = repo.activate_pending(run.paper_run_id or "", cycle_id="natural-cycle")
+    assert activated is not None
+    third = stage_natural_testnet_sampling_snapshot(db_session, strategy_key="natural_sampling_runtime")
+    assert third.status == "already_active"
+    assert repo.get_pending(run.paper_run_id or "") is None
+
+
+def test_natural_sampling_refuses_unrelated_pending_change(db_session) -> None:
+    run = _natural_sampling_run(db_session)
+    repo = ConfigSnapshotRepository(db_session)
+    active = repo.get_active(run.paper_run_id or "")
+    assert active is not None
+    operator_pending = ConfigSnapshot.create(
+        paper_run_id=run.paper_run_id or "",
+        config={
+            **active.config,
+            "execution_profile": {**active.config["execution_profile"], "risk_per_trade": 0.01},
+        },
+        created_by="operator",
+        effective_cycle_id="NEXT_CYCLE",
+        previous_snapshot_id=active.config_snapshot_id,
+    )
+    repo.create_snapshot(operator_pending, base_config_hash=active.config_hash)
+
+    try:
+        stage_natural_testnet_sampling_snapshot(db_session, strategy_key="natural_sampling_runtime")
+    except ValueError as exc:
+        assert str(exc) == "CONFIG_PENDING_CONFLICT"
+    else:
+        raise AssertionError("expected CONFIG_PENDING_CONFLICT")
 
 
 def test_persisted_forward_snapshot_activates_testnet_forward_without_self_hash(db_session) -> None:

@@ -29,6 +29,87 @@ class RuntimeConfigMigrationResult:
     status: str
 
 
+def stage_natural_testnet_sampling_snapshot(
+    session: Session,
+    *,
+    strategy_key: str,
+    created_by: str = "trusted-natural-testnet-launcher",
+) -> RuntimeConfigMigrationResult:
+    """Stage the single trusted-process Canary toggle through ConfigSnapshot.
+
+    The launcher may arm sampling only for the exact process-level natural
+    Testnet intent.  This helper copies the active snapshot and changes one
+    execution-profile field.  A different pending operator change is never
+    overwritten; callers must surface ``CONFIG_PENDING_CONFLICT``.
+    """
+
+    paper_run, config_repo, active, pending = _runtime_config_context(session, strategy_key=strategy_key)
+    if active is None:
+        strategy = next(
+            (item for item in StrategyRepository(session).list_strategies() if item.strategy_key == strategy_key),
+            None,
+        )
+        config = {
+            "execution_profile": {**paper_run.execution_profile, "simulation_sampling_fallback_enabled": True},
+            "strategy_rules": strategy.rules.model_dump(mode="json") if strategy is not None else {},
+            "risk_profile_id": paper_run.execution_profile.get("risk_profile_id"),
+        }
+        snapshot = ConfigSnapshot.create(
+            paper_run_id=paper_run.paper_run_id,
+            config=config,
+            created_by=created_by,
+            effective_cycle_id="MIGRATION_BASELINE",
+        )
+        created = config_repo.create_snapshot(snapshot, base_config_hash=paper_run.active_config_hash)
+        return RuntimeConfigMigrationResult(
+            paper_run_id=paper_run.paper_run_id,
+            config_snapshot_id=created.config_snapshot_id or "",
+            config_hash=created.config_hash,
+            status="activated",
+        )
+
+    active_profile = active.config.get("execution_profile")
+    if not isinstance(active_profile, dict):
+        active_profile = dict(paper_run.execution_profile)
+    if bool(active_profile.get("simulation_sampling_fallback_enabled", False)):
+        return RuntimeConfigMigrationResult(
+            paper_run_id=paper_run.paper_run_id,
+            config_snapshot_id=active.config_snapshot_id or "",
+            config_hash=active.config_hash,
+            status="already_active",
+        )
+
+    target_config = deepcopy(active.config)
+    target_profile = dict(active_profile)
+    target_profile["simulation_sampling_fallback_enabled"] = True
+    target_config["execution_profile"] = target_profile
+
+    if pending is not None:
+        if pending.config == target_config:
+            return RuntimeConfigMigrationResult(
+                paper_run_id=paper_run.paper_run_id,
+                config_snapshot_id=pending.config_snapshot_id or "",
+                config_hash=pending.config_hash,
+                status="pending_reused",
+            )
+        raise ValueError("CONFIG_PENDING_CONFLICT")
+
+    snapshot = ConfigSnapshot.create(
+        paper_run_id=paper_run.paper_run_id,
+        config=target_config,
+        created_by=created_by,
+        effective_cycle_id="NEXT_CYCLE",
+        previous_snapshot_id=active.config_snapshot_id,
+    )
+    created = config_repo.create_snapshot(snapshot, base_config_hash=paper_run.active_config_hash)
+    return RuntimeConfigMigrationResult(
+        paper_run_id=paper_run.paper_run_id,
+        config_snapshot_id=created.config_snapshot_id or "",
+        config_hash=created.config_hash,
+        status="staged",
+    )
+
+
 def _runtime_config_base(
     *,
     paper_run,
