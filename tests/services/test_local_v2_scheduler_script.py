@@ -125,6 +125,14 @@ def test_run_supervisor_fails_closed_before_worker_when_lease_is_held(monkeypatc
     assert called is False
 
 
+def test_supervisor_monitor_interval_is_bounded_by_lease_ttl() -> None:
+    namespace = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts" / "run-local-paper-scheduler.py"))
+
+    assert namespace["_supervisor_monitor_interval"](0.01) == 0.1
+    assert namespace["_supervisor_monitor_interval"](5) == 5
+    assert namespace["_supervisor_monitor_interval"](1000) == 120
+
+
 def test_recovery_overlay_preserves_manual_control_ownership(monkeypatch, tmp_path) -> None:
     namespace = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts" / "run-local-paper-scheduler.py"))
     state_path = tmp_path / "scheduler-state.json"

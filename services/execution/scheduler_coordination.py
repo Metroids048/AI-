@@ -182,15 +182,24 @@ class SchedulerCoordinator:
         fencing_token: int | None = None,
     ) -> None:
         with self.session_factory() as session:
-            lease = session.get(models.SchedulerLease, lease_name)
             expected_token = fencing_token or self._fencing_tokens.get(lease_name)
-            if (
-                lease is not None
-                and lease.owner_id == self.instance_id
-                and expected_token is not None
-                and int(lease.fencing_token or 0) == expected_token
-            ):
-                lease.expires_at = _db_time(datetime.now(UTC))
+            if expected_token is None:
+                return
+            # Keep the owner and fencing token in the UPDATE predicate. A stale
+            # owner must never expire a lease after another process takes over.
+            updated = (
+                session.query(models.SchedulerLease)
+                .filter(
+                    models.SchedulerLease.lease_name == lease_name,
+                    models.SchedulerLease.owner_id == self.instance_id,
+                    models.SchedulerLease.fencing_token == expected_token,
+                )
+                .update(
+                    {"expires_at": _db_time(datetime.now(UTC))},
+                    synchronize_session=False,
+                )
+            )
+            if updated == 1:
                 session.commit()
 
     def claim_cycle(

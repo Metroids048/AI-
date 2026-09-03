@@ -253,6 +253,10 @@ def _renew_supervisor_lease(lease: _SupervisorLease) -> bool:
     return bool(renewed and current_token == lease.fencing_token)
 
 
+def _supervisor_monitor_interval(monitor_seconds: float) -> float:
+    return max(0.1, min(float(monitor_seconds), SUPERVISOR_LEASE_TTL_SECONDS / 3))
+
+
 def run_supervisor(database_url: str, engine: str = "v2_shadow", monitor_seconds: float = 5.0) -> int:
     """Own the worker process so a hung to_thread call cannot create a second writer."""
     from services.execution.scheduler import persist_liveness_recovery_hold
@@ -261,6 +265,7 @@ def run_supervisor(database_url: str, engine: str = "v2_shadow", monitor_seconds
     if lease is None:
         print("ALREADY_RUNNING: supervisor lease is held", file=sys.stderr)
         return 2
+    monitor_interval = _supervisor_monitor_interval(monitor_seconds)
     worker: subprocess.Popen[bytes] | None = None
     started_at = time.monotonic()
     attempt = 0
@@ -270,7 +275,7 @@ def run_supervisor(database_url: str, engine: str = "v2_shadow", monitor_seconds
         worker = _spawn_worker(database_url, engine, restart_count=0)
         started_at = time.monotonic()
         while True:
-            time.sleep(max(monitor_seconds, 0.1))
+            time.sleep(monitor_interval)
             if worker is None:
                 return 1
             try:
@@ -289,7 +294,7 @@ def run_supervisor(database_url: str, engine: str = "v2_shadow", monitor_seconds
                 recovery_state = str((state.get("recovery") or {}).get("state") or "")
                 if worker.poll() is None and recovery_state in {"HEALTHY", "RECOVERED"}:
                     healthy_since = healthy_since or time.monotonic()
-                    if time.monotonic() - healthy_since >= max(30.0, monitor_seconds * 2):
+                    if time.monotonic() - healthy_since >= max(30.0, monitor_interval * 2):
                         attempt = 0
                 else:
                     healthy_since = None

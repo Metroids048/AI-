@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from services.execution.scheduler_coordination import SchedulerCoordinator, supervisor_lease_name, validate_fence
-from services.strategy_library.models import Base
+from services.strategy_library.models import Base, SchedulerLease
 
 
 def _coordinator(tmp_path, instance_id: str, *, process_id: int | None = None) -> SchedulerCoordinator:
@@ -73,6 +73,31 @@ def test_supervisor_lease_is_exclusive_per_database_and_execution_mode(tmp_path,
             fencing_token=second_token,
             now=now + timedelta(seconds=32),
         )
+
+
+def test_stale_owner_release_cannot_expire_new_supervisor_owner(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "services.execution.scheduler_coordination._local_pid_is_alive",
+        lambda pid: True,
+    )
+    first, second = _paired_coordinators(tmp_path)
+    lease_name = supervisor_lease_name("sqlite:///same.db", "v2_active")
+    now = datetime(2026, 9, 3, tzinfo=UTC)
+
+    assert first.acquire_or_renew_lease(lease_name=lease_name, now=now, ttl_seconds=30)
+    first_token = first.fencing_token(lease_name=lease_name)
+    assert second.acquire_or_renew_lease(lease_name=lease_name, now=now + timedelta(seconds=31), ttl_seconds=30)
+    second_token = second.fencing_token(lease_name=lease_name)
+    assert first_token == 1
+    assert second_token == 2
+
+    first.release_lease(lease_name=lease_name, fencing_token=first_token)
+    with second.session_factory() as session:
+        lease = session.get(SchedulerLease, lease_name)
+        assert lease is not None
+        assert lease.owner_id == "scheduler-b"
+        assert lease.fencing_token == second_token
+        assert lease.expires_at > now.replace(tzinfo=None)
 
 
 def test_only_one_instance_can_hold_the_paper_scheduler_lease(tmp_path, monkeypatch) -> None:
