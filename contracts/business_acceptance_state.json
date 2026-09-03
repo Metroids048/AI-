@@ -1,7 +1,7 @@
 {
   "schema_version": "business-acceptance-state-1",
-  "validated_code_sha": "10553708288e3ac2ea505924ad62ae93a2790d73",
-  "validated_at": "2026-09-03T03:50:24Z",
+  "validated_code_sha": "166b0bad860a863a286cdb1907a9d2d9978ce92d",
+  "validated_at": "2026-09-03T05:33:33Z",
   "runtime_readiness": "PASS",
   "natural_testnet_execution": "BLOCKED",
   "strategy_business_recovery": "NOT_VERIFIED",
@@ -11,5 +11,5 @@
     "logs/startup-last.log",
     "logs/scheduler-state.json"
   ],
-  "notes": "Runtime L1 passed on a real one-click Fresh Testnet launch. Natural L2 remains blocked because no natural candidate signal was observed; this does not assert strategy recovery or profitability."
+  "notes": "Runtime L1 and the single-supervisor lease gate were freshly validated against this code candidate. Natural L2 remains blocked because no natural candidate signal was observed; this does not assert strategy recovery or profitability. HEAD 6a20b1cb only refreezes contract metadata and has no executable runtime changes."
 }
