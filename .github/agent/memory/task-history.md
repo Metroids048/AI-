@@ -2424,3 +2424,29 @@
   filtering; no strategy, scheduler transaction, or authority semantics change.
 - Acceptance ledger was invalidated; six-case matrix must restart after the new
   executable candidate is refrozen.
+
+# 2026-09-04 FINAL_INFRASTRUCTURE_CLOSEOUT
+
+- Implemented account-scoped Binance Testnet writer ownership outside the
+  business DB. Binding is explicit, database identity is path-stable, leases
+  fence by owner and generation, same-DB crash takeover increments generation,
+  and a different DB cannot take over automatically.
+- Added unified mutation fencing to V2 Binance adapter/gateway paths, including
+  leverage, entry, protection, stop replacement, exit, emergency close, cancel,
+  and recovery. Exit/Recovery now fail closed for missing or invalid real
+  Binance capabilities. Direct Supervisor uses the official Alembic preparation
+  path. Adjudication uses formal `account_scope_key`.
+- Fixed a test/runtime type-boundary defect where a dynamic mock capability could
+  create a `MagicMock/` filesystem path; non-capability objects now reject
+  without filesystem access.
+- Local evidence: AWF tests, focused adapter/gateway/Supervisor tests, schema
+  and dual-DB adjudication tests passed; accelerated scheduler matrix was 96/96
+  with zero duplicate winners; full pytest was `2063 passed, 7 skipped,
+  17 warnings`; Ruff and mypy passed.
+- Commits: implementation `f05e789`; required frozen-contract rebaseline
+  `5994139`. The local acceptance ledger is
+  `会话记录/2026-09-04_Final-Infrastructure-Closeout.md`.
+- External boundary remains explicit: no Binance credentials/account identity
+  were available in this shell, no account endpoint was probed, no real ETH
+  recovery or Testnet order was performed, and `CORE_EXECUTION_FREEZE` was not
+  entered. Natural L2 remains `BLOCKED_NO_NATURAL_SIGNAL`.
