@@ -1,29 +1,29 @@
 {
   "contract_version": "automated-trading-freeze-1",
-  "baseline_sha": "fa442ab126b8e213833a49b902a0fa87f8c3f5bb",
+  "baseline_sha": "f05e789ef5c9f73759c01efe6b6d7795f994864d",
   "canonical_owner": "contracts/automated_trading_frozen_contract.json",
   "transaction_protected_paths": {
-    "services/automated_trading/application/cycle_service.py": "99eec5bb8d5c060080548649458974f01d3d6bcbffd40ce3c3ff1260b5dd3365",
+    "services/automated_trading/application/cycle_service.py": "bdb162b7f2e6b96142f56e2b14d1e27017b292366ffdc5a1d4a091040cf660de",
     "services/automated_trading/application/decision_service.py": "907994cf5a5eb639b1f0f52ed12083ffee1e83318eac534528caf1172c4367da",
     "services/automated_trading/application/entry_service.py": "c7a388fbef5df8075d2ecc7588def9352d71abb301127c5d83d222a2aaff68f4",
-    "services/automated_trading/application/exit_service.py": "fe5a636380dafd7db798310aed0b29d079b135d455b20f5f55fada033376d11c",
+    "services/automated_trading/application/exit_service.py": "725cb21f451a98db47fc4357bee7b471f20d58801b502e9d487d2704536e53ba",
     "services/automated_trading/application/fact_persistence.py": "d3de5ca6d4d289786a8138c36f669e4859c60ab79b76bb4259a80253f608bdb8",
     "services/automated_trading/application/protection_service.py": "bbec69abcc0d56e6d2adc78aa86890a0e68949b3be9ced74ce6d062406e5f0af",
     "services/automated_trading/application/reconciliation_service.py": "f403110b7c42e151baea0a60c5376784bfec3d176da149d71b817287e2f5f629",
     "services/automated_trading/application/recovery_service.py": "e70fe240669110122f26174e6ddc84b48ea0a7e3bb8fdc6d6cb5588060460ab9",
-    "services/automated_trading/infrastructure/binance_adapter.py": "9fd3f8694fb19f728fe5fec248256a36dd5004ce7deb2dd8a4d47addf384c618",
+    "services/automated_trading/infrastructure/binance_adapter.py": "aabc93d00a87d4d12555c512c67af4de3ee86bbd1afaaa23efd71d0ba3724c5a",
     "services/execution/scheduler.py": "7435177253eb89f802dc78a430a444bedb883cfd2be653579662bdeb674e621e",
-    "services/execution/v2_scheduler_entry.py": "cce33c2be762523cbe7efb167f4970e3dd823de42542ace98d0a16facec47dec"
+    "services/execution/v2_scheduler_entry.py": "c338f920a4f9eb82079b69ff288e60bd33a7cb592995e84598c89b14c7b4bca5"
   },
   "runtime_protected_paths": {
     "一键启动.cmd": "4c3c28275c81e76d9072a7fb49927c26aa824e299fb286e8b3db3808767d8c24",
     "scripts/launch-paper-console.ps1": "ab0cf0a1238764f5ae4b801f132bc83d1c60cf3159a6d554c48328acd9b2bb67",
-    "scripts/run-local-paper-scheduler.py": "c1ced55b0f7339bb638e17020830dfb09e97afe426c624d2426a2ec894749f6f",
+    "scripts/run-local-paper-scheduler.py": "4ff0d2d8dfb78d0cc762d897ecede53cb0d64272aa6f64e1febfc2b66404af04",
     "services/execution/bootstrap.py": "a66cb889ca8dc99d4b3a68edbf2cab166b2655554600e3a02ad13fdad1ef8144",
     "services/execution/natural_testnet_mode.py": "0ef5e841f2350b94245af867821e397c385a949bba36322a49c935208007eaa1",
     "services/execution/runtime_state.py": "da4a17901b33a0fa25148891f4d815901fb8c3bb9f35778b7d9c769da2221151",
     "services/execution/scheduler.py": "7435177253eb89f802dc78a430a444bedb883cfd2be653579662bdeb674e621e",
-    "services/execution/v2_scheduler_entry.py": "cce33c2be762523cbe7efb167f4970e3dd823de42542ace98d0a16facec47dec"
+    "services/execution/v2_scheduler_entry.py": "c338f920a4f9eb82079b69ff288e60bd33a7cb592995e84598c89b14c7b4bca5"
   },
   "runtime_invariants": [
     {"id": "AT-RUNTIME-001", "requirement": "v2_active is the only automated-trading writer."},
