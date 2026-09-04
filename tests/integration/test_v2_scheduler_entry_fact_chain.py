@@ -432,6 +432,45 @@ def test_v2_active_scheduler_persists_entry_fact_chain(v2_db, monkeypatch, caplo
         session.close()
 
 
+def test_v2_unready_entry_data_skips_forward_snapshot_until_a_closed_bar_exists(v2_db, monkeypatch) -> None:
+    """A retryable data-preparation cycle must not turn into a snapshot error."""
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.resolve_engine_activation",
+        lambda _settings: _active_config(),
+    )
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.run_automated_trading_cycle",
+        lambda request, _adapter: SimpleNamespace(
+            funnel_payload={
+                "terminal_stage": "ENTRY_DATA_PENDING",
+                "reason_code": "ENTRY_DATA_NOT_READY",
+                "entry_bar_retryable": True,
+            },
+            reconciliation_status=SimpleNamespace(value="HEALTHY"),
+            entry_submitted=False,
+            errors=[],
+        ),
+    )
+
+    def fail_if_snapshot_is_built(**_kwargs):
+        raise AssertionError("forward snapshot must not be built without a closed entry bar")
+
+    monkeypatch.setattr(
+        "services.execution.v2_scheduler_entry.build_decision_snapshot_from_funnel",
+        fail_if_snapshot_is_built,
+    )
+
+    result = execute_v2_automated_trading_cycles(
+        {"symbols": ["BTC/USDT"], "interval_seconds": 60, "scheduler_instance_id": "entry-data-pending"},
+        adapter_factory=_fake_adapter,
+        timeframe_loader=lambda _symbol, timeframe: TimeframeView(timeframe=timeframe, bars=()),
+    )
+
+    symbol_result = result["results"][0]
+    assert symbol_result["forward_snapshot_status"] == "ENTRY_DATA_NOT_READY"
+    assert "forward_snapshot_error" not in symbol_result
+
+
 def test_generic_scheduler_payload_cannot_arm_testnet_canary(v2_db, monkeypatch) -> None:
     """Only the dedicated acceptance capability may create a Canary writer."""
     monkeypatch.setattr(

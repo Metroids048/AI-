@@ -2025,6 +2025,7 @@ def ensure_v2_entry_data_ready(*, now: datetime | None = None) -> dict[str, Any]
     and never raises into the supervisor, leaving management/reconciliation
     available for existing positions.
     """
+    from services.data.binance import TIMEFRAME_TO_SECONDS
     from services.data.repository import DataRepository
     from services.data.tasks import market_data_heartbeat
     from services.database import get_session_factory
@@ -2044,12 +2045,47 @@ def ensure_v2_entry_data_ready(*, now: datetime | None = None) -> dict[str, Any]
                         reference_time=reference_time,
                         max_delay=max_delay,
                     )
-                if freshness.get("is_fresh"):
+                expected_closed_at = datetime.fromtimestamp(
+                    int(reference_time.timestamp() // TIMEFRAME_TO_SECONDS[timeframe])
+                    * TIMEFRAME_TO_SECONDS[timeframe],
+                    tz=UTC,
+                )
+
+                def has_current_closed_bar(
+                    candidate: dict[str, Any],
+                    *,
+                    expected: datetime = expected_closed_at,
+                ) -> bool:
+                    latest_close = candidate.get("latest_close_time")
+                    if not isinstance(latest_close, datetime):
+                        return False
+                    if latest_close.tzinfo is None:
+                        latest_close = latest_close.replace(tzinfo=UTC)
+                    return bool(candidate.get("is_fresh")) and latest_close.astimezone(UTC) >= expected
+
+                if has_current_closed_bar(freshness):
                     details[key] = {"status": "fresh", **freshness}
                     continue
                 result = market_data_heartbeat.run([symbol], timeframe, include_secondary=False)
-                status = "refreshed" if not isinstance(result, dict) or result.get("status") != "error" else "pending"
-                details[key] = {"status": status, "refresh": result}
+                with get_session_factory()() as session:
+                    refreshed = DataRepository(session).check_freshness(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        reference_time=reference_time,
+                        max_delay=max_delay,
+                    )
+                status = (
+                    "refreshed"
+                    if (not isinstance(result, dict) or result.get("status") != "error")
+                    and has_current_closed_bar(refreshed)
+                    else "pending"
+                )
+                details[key] = {
+                    "status": status,
+                    "expected_closed_at": expected_closed_at.isoformat(),
+                    "refresh": result,
+                    "freshness": refreshed,
+                }
             except Exception as exc:  # noqa: BLE001 - management must continue
                 details[key] = {"status": "pending", "error": str(exc)}
     pending = [key for key, value in details.items() if value.get("status") == "pending"]

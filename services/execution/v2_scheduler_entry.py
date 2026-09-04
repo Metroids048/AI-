@@ -1413,58 +1413,64 @@ def _execute_v2_automated_trading_cycles(
             )
             snapshot_hash = None
             shadow_count = 0
-            try:
-                risk_inputs, cost_inputs = _forward_snapshot_inputs(operator_settings)
-                snapshot_kwargs = {
-                    "cycle_id": cycle_id,
-                    "decision_id": decision_id,
-                    "symbol": symbol,
-                    "decision_time": now,
-                    "strategy_commit": _strategy_commit(),
-                    "strategy_version": str(funnel_payload.get("strategy_version") or "unknown"),
-                    "config_hash": str(operator_settings.active_snapshot_hash or "unknown"),
-                    "market_data_source": "runtime_data_repository",
-                    "entry_timeframe": entry_timeframe,
-                    "initial_risk_inputs": risk_inputs,
-                    "cost_inputs": cost_inputs,
-                    "config_snapshot_id": None,
-                    "already_evaluated_bars": request.already_evaluated_bars,
-                    "execution_mode": config.execution_mode.value,
-                    "engine_activation": config.v2_activation.value,
-                }
-                if result.decision_outcome is not None:
-                    snapshot = build_decision_snapshot(
-                        outcome=result.decision_outcome,
-                        **snapshot_kwargs,
-                    )
-                else:
-                    snapshot = build_decision_snapshot_from_funnel(
-                        funnel_payload=funnel_payload,
-                        candidate_payload=(
-                            funnel_payload.get("candidate")
-                            if isinstance(funnel_payload.get("candidate"), dict)
-                            else serialize_trade_candidate(production_candidate)
-                        ),
-                        **snapshot_kwargs,
-                    )
-                snapshot_id, shadow_count = _persist_forward_baseline(snapshot=snapshot)
-                snapshot_hash = str(snapshot["snapshot_hash"])
-                symbol_result["forward_snapshot_id"] = snapshot_id
-                symbol_result["forward_snapshot_hash"] = snapshot_hash
-                symbol_result["shadow_records"] = shadow_count
-            except Exception as exc:  # noqa: BLE001
-                symbol_result.update(
-                    {
-                        "forward_snapshot_status": "FORWARD_BASELINE_NOT_RECORDED",
-                        "forward_snapshot_error": _safe_error_message(exc),
+            if not entry_data_ready:
+                # Data preparation is retryable.  There is no closed entry bar
+                # to snapshot yet, so preserve the fail-closed cycle without
+                # manufacturing a terminal forward-baseline failure.
+                symbol_result["forward_snapshot_status"] = "ENTRY_DATA_NOT_READY"
+            else:
+                try:
+                    risk_inputs, cost_inputs = _forward_snapshot_inputs(operator_settings)
+                    snapshot_kwargs = {
+                        "cycle_id": cycle_id,
+                        "decision_id": decision_id,
+                        "symbol": symbol,
+                        "decision_time": now,
+                        "strategy_commit": _strategy_commit(),
+                        "strategy_version": str(funnel_payload.get("strategy_version") or "unknown"),
+                        "config_hash": str(operator_settings.active_snapshot_hash or "unknown"),
+                        "market_data_source": "runtime_data_repository",
+                        "entry_timeframe": entry_timeframe,
+                        "initial_risk_inputs": risk_inputs,
+                        "cost_inputs": cost_inputs,
+                        "config_snapshot_id": None,
+                        "already_evaluated_bars": request.already_evaluated_bars,
+                        "execution_mode": config.execution_mode.value,
+                        "engine_activation": config.v2_activation.value,
                     }
-                )
-                logger.error(
-                    "Forward baseline snapshot failed cycle=%s symbol=%s error=%s",
-                    cycle_id,
-                    symbol,
-                    _safe_error_message(exc),
-                )
+                    if result.decision_outcome is not None:
+                        snapshot = build_decision_snapshot(
+                            outcome=result.decision_outcome,
+                            **snapshot_kwargs,
+                        )
+                    else:
+                        snapshot = build_decision_snapshot_from_funnel(
+                            funnel_payload=funnel_payload,
+                            candidate_payload=(
+                                funnel_payload.get("candidate")
+                                if isinstance(funnel_payload.get("candidate"), dict)
+                                else serialize_trade_candidate(production_candidate)
+                            ),
+                            **snapshot_kwargs,
+                        )
+                    snapshot_id, shadow_count = _persist_forward_baseline(snapshot=snapshot)
+                    snapshot_hash = str(snapshot["snapshot_hash"])
+                    symbol_result["forward_snapshot_id"] = snapshot_id
+                    symbol_result["forward_snapshot_hash"] = snapshot_hash
+                    symbol_result["shadow_records"] = shadow_count
+                except Exception as exc:  # noqa: BLE001
+                    symbol_result.update(
+                        {
+                            "forward_snapshot_status": "FORWARD_BASELINE_NOT_RECORDED",
+                            "forward_snapshot_error": _safe_error_message(exc),
+                        }
+                    )
+                    logger.error(
+                        "Forward baseline snapshot failed cycle=%s symbol=%s error=%s",
+                        cycle_id,
+                        symbol,
+                        _safe_error_message(exc),
+                    )
             if not management_only:
                 pending_research.append(
                     {
