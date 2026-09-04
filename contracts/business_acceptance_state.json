@@ -1,22 +1,20 @@
 {
   "schema_version": "business-acceptance-state-1",
-  "validated_code_sha": "fa442ab126b8e213833a49b902a0fa87f8c3f5bb",
-  "validated_at": "2026-09-03T08:44:30Z",
+  "validated_code_sha": "82f33fd108e2b96c5236ace012a5eb55388563c2",
+  "validated_at": "2026-09-04T14:50:02Z",
   "runtime_readiness": "PASS",
   "runtime_recovery_resilience": "PASS",
   "natural_testnet_execution": "BLOCKED",
   "strategy_business_recovery": "NOT_VERIFIED",
   "profitability_validation": "NOT_VERIFIED",
   "evidence_refs": [
-    "logs/instances/a9a670837cce71d5/startup-result.json",
-    "logs/instances/a9a670837cce71d5/scheduler-state.json",
-    "Fresh: PASS (acceptance-fresh-2.db, 8027/5184, namespace a9a670837cce71d5)",
-    "Existing: PASS (active snapshot df975c07-56ce-4b5c-90a9-35905e2180c4, pending null)",
-    "Restart: PASS (snapshot stable, pending null, sampling true)",
-    "Single Supervisor: PASS (second process returned ALREADY_RUNNING; supervisor remained alive)",
-    "Worker Recovery #1: PASS (pid 21104 -> 1512, RECOVERED)",
-    "Worker Recovery #2: PASS (pid 1512 -> 28512, RECOVERED)",
-    "Frozen contract baseline/head verification: PASS"
+    "official 一键启动.cmd: ACTIVE/BINANCE_TESTNET/TESTNET_CANARY",
+    "scheduler-state.json: supervisor 27816 remained online",
+    "Worker Recovery #1: PASS (2772 -> 1152; LIVENESS_RECOVERY_RECOVERED; HEALTHY)",
+    "Worker Recovery #2: PASS (1152 -> 26548; LIVENESS_RECOVERY_RECOVERED; HEALTHY)",
+    "ETH_ATTRIBUTION_001: immutable-evidence preflight, exchange_writes=0",
+    "Account writer: BINANCE:TESTNET:primary_testnet bound to canonical sqlite identity",
+    "V2 and unified frozen-contract baseline/head verification: PASS"
   ],
-  "notes": "Validated candidate fa442ab126b8e213833a49b902a0fa87f8c3f5bb. Six-case runtime matrix passed on the same executable candidate. Subsequent read-only monitoring detected the pre-existing ETH/USDT QUARANTINED managed-position lifecycle (quantity 0.02), so reconciliation correctly entered RECOVERY_REQUIRED and entry is currently fail-closed; this state was not cleared or rewritten. Natural Testnet L2 has no qualifying natural candidate, and no strategy or transaction semantics were changed."
+  "notes": "Validated executable candidate 82f33fd108e2b96c5236ace012a5eb55388563c2. Official one-click runtime is ACTIVE/BINANCE_TESTNET/TESTNET_CANARY with active snapshot baceeb5f-848e-453d-85fa-f4bb11d06443, no pending snapshot, entry_authorized=true, and reconciliation=HEALTHY after two supervised worker recoveries. ETH_ATTRIBUTION_001 was recovered from immutable audit evidence without exchange writes. Natural Testnet L2 is armed and waiting for a natural closed-bar candidate; no signal, order, strategy, risk, or transaction semantic was manufactured or changed."
 }

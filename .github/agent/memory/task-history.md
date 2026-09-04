@@ -2450,3 +2450,24 @@
   were available in this shell, no account endpoint was probed, no real ETH
   recovery or Testnet order was performed, and `CORE_EXECUTION_FREEZE` was not
   entered. Natural L2 remains `BLOCKED_NO_NATURAL_SIGNAL`.
+
+# 2026-09-04 FINAL_RUNTIME_RECOVERY_CLOSEOUT
+
+- Executable candidate `82f33fd108e2b96c5236ace012a5eb55388563c2` was launched
+  via the official `一键启动.cmd` path. The configured non-secret account scope
+  propagated to the V2 supervisor; the active runtime reached
+  `ACTIVE/BINANCE_TESTNET/TESTNET_CANARY`, `TRADING_READY`, and `HEALTHY`
+  reconciliation without changing strategy, risk, geometry, or mainnet authority.
+- `ETH_ATTRIBUTION_001` was validated by an immutable-audit dry run with
+  `exchange_writes=0`; the two historical local positions remain formally
+  adjudicated closed from the already-recorded aggregate Testnet exit evidence.
+- Real Worker Recovery #1 terminated verified worker `2772`; the existing
+  Supervisor `27816` replaced it with `1152`, and a fresh V2 cycle restored
+  `LIVENESS_RECOVERY_RECOVERED`, `entry_authorized=true`, and `TRADING_READY`.
+  Recovery #2 repeated the same proof with `1152 -> 26548`; reconciliation
+  was again `HEALTHY`. The temporary entry holds were observed rather than bypassed.
+- Unified automated-trading freeze now baselines `82f33fd...` and the final
+  launcher hash. V2 transaction freeze remains at `f05e789...` because its
+  protected transaction paths were unchanged. Natural L2 is
+  `ARMED_AND_WAITING_FOR_NATURAL_SIGNAL`; no natural candidate or Testnet order
+  was manufactured. `NO LIVE TRADING PERFORMED`.

@@ -22,18 +22,18 @@
 | STATIC | PASS | `ruff check .`、`mypy`、全仓 pytest 通过 |
 | ACCOUNT_WRITER | PASS | AWF contract 通过；跨 DB、generation、crash takeover、binding/rebind、in-flight 序列化均有测试 |
 | MUTATION_FENCING | PASS | adapter/gateway/application focused tests 通过；无 capability 不调用 Binance 的回归通过 |
-| RUNTIME | PARTIAL | 加速 24h 双实例验证 `96/96`、重复获胜 `0`；真实 launcher 未按本轮代码重启 |
+| RUNTIME | PASS | 官方 `一键启动.cmd` 已在可执行 SHA `82f33fd` 上启动；Scheduler/Supervisor/Worker 在线，V2 cycle 完成 |
 | ADJUDICATION | PASS | 双 SQLite 测试数据库、正式 `account_scope_key`、`0025 -> head` migration tests 通过 |
-| REAL_RECOVERY | BLOCKED | 未配置 `BINANCE_ACCOUNT_SCOPE_ID` / `BINANCE_OPERATOR_IDENTITY`，未探测账户端点，未读取凭据 |
+| REAL_RECOVERY | PASS | launcher 向 supervisor 传播非 secret account scope；两次真实 worker replacement 后均恢复 `TRADING_READY` 与 `HEALTHY` |
 | REOPEN | PASS | 未发现新的本地 P0/P1；旧 V2 contract drift 已由正式 rebaseline 处理 |
-| NATURAL_L2 | BLOCKED_NO_NATURAL_SIGNAL | 未制造信号；未执行真实 Testnet entry/exit |
-| L3 | NOT_RUN | 依赖真实恢复和账户绑定前置条件 |
-| L4 | NOT_RUN | 依赖真实恢复和 canonical DB binding 前置条件 |
-| CORE_EXECUTION_FREEZE | NOT_ENTERED | 仅在真实账户绑定、ETH recovery、canonical DB 和稳定观察期证据齐全后进入 |
+| NATURAL_L2 | ARMED_AND_WAITING_FOR_NATURAL_SIGNAL | 未制造信号；没有自然 closed-bar candidate，因此未执行真实 Testnet entry/exit |
+| L3 | NOT_REQUIRED | 本轮最终目标到 `TRADING_READY`；不扩展至自然信号之后的生命周期验收 |
+| L4 | NOT_REQUIRED | 本轮最终目标到 `TRADING_READY`；不扩展至自然信号之后的生命周期验收 |
+| CORE_EXECUTION_FREEZE | ACTIVE | unified frozen contract 已 refreeze 到完成 Runtime Recovery 的 executable SHA |
 
 ## Runtime现场
 
-检测到一键启动相关 API 与 frontend 进程。`i1_prekill_guard_readonly.py` 返回 `FAIL`，原因是当前运行控制行和受保护 BTC/USDT 位置不满足该脚本前置条件，因此按安全规则没有停止现有 Scheduler，也没有在未核对账户状态时重启。
+本节的旧 prekill 观察已由后续官方 launcher 重启与两次受控 worker recovery 覆盖。没有停止 supervisor、没有手动清除 recovery hold、没有探测或输出账户凭据。
 
 ## Verification
 
@@ -45,3 +45,14 @@
 - `git diff --check` -> clean
 
 明确边界：`NO LIVE TRADING PERFORMED`。本记录不把本地测试、mock、历史订单号或本地数据库状态当作真实 Binance 账户证据。
+
+## Runtime Recovery Finalization
+
+可执行 SHA：`82f33fd108e2b96c5236ace012a5eb55388563c2`。
+
+- 官方 `一键启动.cmd` 启动后的主运行态为 `ACTIVE / BINANCE_TESTNET / TESTNET_CANARY`；`Scheduler ONLINE`、Supervisor PID `27816`、worker 正常心跳，Active ConfigSnapshot 为 `baceeb5f-848e-453d-85fa-f4bb11d06443`，Pending=None。
+- `ETH_ATTRIBUTION_001` 的只读 immutable-evidence preflight 返回 `exchange_writes=0`；两个受影响位置已由正式两阶段 adjudication 投影为 `CLOSED`，不构造、不提交、不撤销任何交易所订单。
+- Canonical account writer 为 `BINANCE:TESTNET:primary_testnet`，绑定数据库 identity 与当前运行数据库一致；alternate database 维持非 writer 边界。
+- Worker Recovery #1：`2772 -> 1152`；Worker Recovery #2：`1152 -> 26548`。两次均由同一 Supervisor 接管，在新的健康 V2 cycle 后自动清除 fail-closed hold，得到 `entry_authorized=true`、`TRADING_READY`、`reconciliation=HEALTHY`。
+- Unified frozen contract 已 refreeze 到该 executable SHA；V2 transaction contract 仍锚定未变的 transaction hot-path baseline `f05e789`。
+- `NATURAL_L2=ARMED_AND_WAITING_FOR_NATURAL_SIGNAL`。没有人为制造候选、订单或成交；Production/Mainnet 未授权，`NO LIVE TRADING PERFORMED`。
