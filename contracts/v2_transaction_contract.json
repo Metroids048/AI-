@@ -1,18 +1,18 @@
 {
   "contract_version": "v2-transaction-freeze-1",
-  "baseline_sha": "68b73db26c1418294736cb3d2571da80b9107901",
+  "baseline_sha": "f05e789ef5c9f73759c01efe6b6d7795f994864d",
   "protected_paths": {
-    "services/automated_trading/application/cycle_service.py": "43a251e78c7e00ee035a841c3ba500c5689853971786d4f37900d0570dbd8d66",
+    "services/automated_trading/application/cycle_service.py": "bdb162b7f2e6b96142f56e2b14d1e27017b292366ffdc5a1d4a091040cf660de",
     "services/automated_trading/application/decision_service.py": "907994cf5a5eb639b1f0f52ed12083ffee1e83318eac534528caf1172c4367da",
     "services/automated_trading/application/entry_service.py": "c7a388fbef5df8075d2ecc7588def9352d71abb301127c5d83d222a2aaff68f4",
-    "services/automated_trading/application/exit_service.py": "fe5a636380dafd7db798310aed0b29d079b135d455b20f5f55fada033376d11c",
+    "services/automated_trading/application/exit_service.py": "725cb21f451a98db47fc4357bee7b471f20d58801b502e9d487d2704536e53ba",
     "services/automated_trading/application/fact_persistence.py": "d3de5ca6d4d289786a8138c36f669e4859c60ab79b76bb4259a80253f608bdb8",
     "services/automated_trading/application/protection_service.py": "bbec69abcc0d56e6d2adc78aa86890a0e68949b3be9ced74ce6d062406e5f0af",
     "services/automated_trading/application/reconciliation_service.py": "f403110b7c42e151baea0a60c5376784bfec3d176da149d71b817287e2f5f629",
     "services/automated_trading/application/recovery_service.py": "e70fe240669110122f26174e6ddc84b48ea0a7e3bb8fdc6d6cb5588060460ab9",
-    "services/automated_trading/infrastructure/binance_adapter.py": "9fd3f8694fb19f728fe5fec248256a36dd5004ce7deb2dd8a4d47addf384c618",
-    "services/execution/scheduler.py": "954fe0851967fbde7bedf2053ec2d6198d480a62a071b4fe2e150ac95e22fa88",
-    "services/execution/v2_scheduler_entry.py": "cf8cb026bbe399dd1910e8a08052bbbe829e0f59d6e0266c41eb13ee5445fe01"
+    "services/automated_trading/infrastructure/binance_adapter.py": "aabc93d00a87d4d12555c512c67af4de3ee86bbd1afaaa23efd71d0ba3724c5a",
+    "services/execution/scheduler.py": "7435177253eb89f802dc78a430a444bedb883cfd2be653579662bdeb674e621e",
+    "services/execution/v2_scheduler_entry.py": "c338f920a4f9eb82079b69ff288e60bd33a7cb592995e84598c89b14c7b4bca5"
   },
   "approval": {
     "required_environment": "V2_HOTPATH_FIX_APPROVED=1",
