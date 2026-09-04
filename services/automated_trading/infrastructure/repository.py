@@ -23,11 +23,13 @@ from services.automated_trading.domain.invariants import (
 from services.automated_trading.domain.portfolio_risk import RiskExposure
 from services.automated_trading.domain.receipts import FillReceipt, ProtectionReceipt
 from services.automated_trading.domain.state import (
+    validate_historical_attribution_transition,
     validate_intent_transition,
     validate_position_transition,
     validate_protection_transition,
 )
 from services.automated_trading.infrastructure.models import (
+    V2AdjudicationFinalization,
     V2DecisionSnapshot,
     V2ExchangeFill,
     V2ExchangeOrder,
@@ -972,6 +974,89 @@ class AutomatedTradingRepository:
         )
         self.session.flush()
 
+    def finalize_quarantined_historical_attribution(
+        self,
+        *,
+        position_id: str,
+        adjudication_id: str,
+        exchange_order_id: str,
+        exchange_trade_id: str,
+        manifest_hash: str,
+        evidence_hash: str,
+        database_identity: str,
+        aggregate_quantity: Decimal,
+        allocated_quantity: Decimal,
+        occurred_at: datetime,
+        operator_identity: str,
+        operator_reason: str,
+    ) -> None:
+        """Project an explicitly adjudicated historical aggregate exit.
+
+        This is deliberately separate from normal exit receipt persistence: it
+        never creates an order/fill and only accepts a quarantined position
+        whose declared quantity was prepared by the adjudication protocol.
+        """
+        from services.automated_trading.domain.enums import V2PositionState as PosState
+
+        position = self.session.get(V2ManagedPosition, position_id)
+        if position is None:
+            raise ValueError("RECOVERY_FINALIZATION_INCOMPLETE")
+        existing = self.session.scalar(
+            select(V2AdjudicationFinalization).where(
+                V2AdjudicationFinalization.adjudication_id == adjudication_id,
+                V2AdjudicationFinalization.position_id == position_id,
+            )
+        )
+        if existing is not None:
+            if existing.exchange_trade_id != exchange_trade_id or existing.allocated_quantity != allocated_quantity:
+                raise ValueError("RECOVERY_FINALIZATION_CONFLICT")
+            return
+        if PosState(position.state) is not PosState.QUARANTINED:
+            raise ValueError("RECOVERY_FINALIZATION_INCOMPLETE")
+        if Decimal(str(position.quantity)) != allocated_quantity:
+            raise ValueError("RECOVERY_FINALIZATION_INCOMPLETE")
+        validate_historical_attribution_transition(PosState(position.state), PosState.CLOSED)
+        position.state = PosState.CLOSED.value
+        position.closed_at = occurred_at
+        position.version = int(position.version) + 1
+        self.append_event(
+            aggregate_id=position_id,
+            aggregate_type="POSITION",
+            event_type="QuarantinedLifecycleHistoricallyAttributedExit",
+            event_payload={
+                "adjudication_id": adjudication_id,
+                "exchange_order_id": exchange_order_id,
+                "exchange_trade_id": exchange_trade_id,
+                "aggregate_exchange_fill_quantity": str(aggregate_quantity),
+                "allocated_quantity": str(allocated_quantity),
+                "operator_identity": operator_identity,
+                "operator_reason": operator_reason,
+                "from_state": PosState.QUARANTINED.value,
+                "to_state": PosState.CLOSED.value,
+                "version": position.version,
+            },
+            occurred_at=occurred_at,
+        )
+        self.session.add(
+            V2AdjudicationFinalization(
+                adjudication_id=adjudication_id,
+                manifest_hash=manifest_hash,
+                evidence_hash=evidence_hash,
+                database_identity=database_identity,
+                position_id=position_id,
+                exchange_order_id=exchange_order_id,
+                exchange_trade_id=exchange_trade_id,
+                aggregate_quantity=aggregate_quantity,
+                allocated_quantity=allocated_quantity,
+                before_state=PosState.QUARANTINED.value,
+                after_state=PosState.CLOSED.value,
+                operator_identity=operator_identity,
+                operator_reason=operator_reason,
+                finalized_at=occurred_at,
+            )
+        )
+        self.session.flush()
+
     # ------------------------------------------------------------------
     # Protection
     # ------------------------------------------------------------------
@@ -1319,9 +1404,7 @@ class AutomatedTradingRepository:
     ) -> bool:
         """Atomically change RuntimeControl only while the observed owner still matches."""
         reason_predicate = (
-            V2RuntimeControl.reason.is_(None)
-            if expected_reason is None
-            else V2RuntimeControl.reason == expected_reason
+            V2RuntimeControl.reason.is_(None) if expected_reason is None else V2RuntimeControl.reason == expected_reason
         )
         result = self.session.execute(
             update(V2RuntimeControl)

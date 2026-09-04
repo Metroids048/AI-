@@ -14,6 +14,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 TEST_DB_DIR = Path(".local/test-runtime").resolve()
@@ -85,9 +86,14 @@ def _clear_all_tables() -> None:
     from services.strategy_library.models import Base
 
     with get_engine().begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
         for table in reversed(TIMESERIES_METADATA.sorted_tables):
+            if table.name not in existing_tables:
+                continue
             connection.execute(table.delete())
         for table in reversed(Base.metadata.sorted_tables):
+            if table.name not in existing_tables:
+                continue
             connection.execute(table.delete())
 
 

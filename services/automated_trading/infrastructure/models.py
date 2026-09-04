@@ -481,6 +481,122 @@ class V2ExecutionIncident(Base):
     )
 
 
+class V2AdjudicationCase(Base):
+    """Immutable operator manifest for a historical aggregate exchange exit."""
+
+    __tablename__ = "v2_adjudication_cases"
+
+    adjudication_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    case_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    exchange_account_identity: Mapped[str] = mapped_column(String(200), nullable=False)
+    manifest_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    evidence_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False)
+    exchange_order_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    exchange_trade_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    exchange_fill_quantity: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    exchange_fill_side: Mapped[str] = mapped_column(String(10), nullable=False)
+    exchange_fill_price: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    exchange_fill_timestamp: Mapped[datetime] = mapped_column(nullable=False)
+    operator_identity: Mapped[str] = mapped_column(String(200), nullable=False)
+    operator_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("exchange_order_id", "exchange_trade_id", name="uq_v2_adjudication_exchange_trade"),
+        CheckConstraint("exchange_fill_quantity > 0", name="ck_v2_adjudication_quantity_positive"),
+    )
+
+
+class V2AdjudicationAllocation(Base):
+    """Immutable per-database allocation prepared for one adjudication case."""
+
+    __tablename__ = "v2_adjudication_allocations"
+
+    allocation_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    adjudication_id: Mapped[str] = mapped_column(
+        String(100), ForeignKey("v2_adjudication_cases.adjudication_id"), nullable=False, index=True
+    )
+    manifest_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    evidence_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    database_identity: Mapped[str] = mapped_column(String(200), nullable=False)
+    position_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    allocated_quantity: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    prepared_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+    before_state: Mapped[str] = mapped_column(String(30), nullable=False, default="QUARANTINED")
+
+    __table_args__ = (
+        UniqueConstraint("adjudication_id", "database_identity", "position_id", name="uq_v2_adjudication_participant"),
+        CheckConstraint("allocated_quantity > 0", name="ck_v2_adjudication_allocation_positive"),
+    )
+
+
+class V2AdjudicationFinalization(Base):
+    """Append-only record of a participant finalized from a prepared case."""
+
+    __tablename__ = "v2_adjudication_finalizations"
+
+    finalization_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    adjudication_id: Mapped[str] = mapped_column(
+        String(100), ForeignKey("v2_adjudication_cases.adjudication_id"), nullable=False, index=True
+    )
+    manifest_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    evidence_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    database_identity: Mapped[str] = mapped_column(String(200), nullable=False)
+    position_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    exchange_order_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    exchange_trade_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    aggregate_quantity: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    allocated_quantity: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    before_state: Mapped[str] = mapped_column(String(30), nullable=False)
+    after_state: Mapped[str] = mapped_column(String(30), nullable=False)
+    operator_identity: Mapped[str] = mapped_column(String(200), nullable=False)
+    operator_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    finalized_at: Mapped[datetime] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "adjudication_id",
+            "database_identity",
+            "position_id",
+            name="uq_v2_adjudication_finalization_participant",
+        ),
+        CheckConstraint("aggregate_quantity > 0", name="ck_v2_adjudication_finalization_aggregate_positive"),
+        CheckConstraint("allocated_quantity > 0", name="ck_v2_adjudication_finalization_allocation_positive"),
+    )
+
+
+@event.listens_for(V2AdjudicationCase, "before_update")
+def _reject_adjudication_case_update(*_args):
+    raise ValueError("adjudication cases are append-only")
+
+
+@event.listens_for(V2AdjudicationCase, "before_delete")
+def _reject_adjudication_case_delete(*_args):
+    raise ValueError("adjudication cases are append-only")
+
+
+@event.listens_for(V2AdjudicationAllocation, "before_update")
+def _reject_adjudication_allocation_update(*_args):
+    raise ValueError("adjudication allocations are append-only")
+
+
+@event.listens_for(V2AdjudicationAllocation, "before_delete")
+def _reject_adjudication_allocation_delete(*_args):
+    raise ValueError("adjudication allocations are append-only")
+
+
+@event.listens_for(V2AdjudicationFinalization, "before_update")
+def _reject_adjudication_finalization_update(*_args):
+    raise ValueError("adjudication finalizations are append-only")
+
+
+@event.listens_for(V2AdjudicationFinalization, "before_delete")
+def _reject_adjudication_finalization_delete(*_args):
+    raise ValueError("adjudication finalizations are append-only")
+
+
 class V2RuntimeControl(Base):
     """Persisted runtime control flags. entry_enabled defaults false until Gate 5."""
 

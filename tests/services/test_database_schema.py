@@ -82,8 +82,48 @@ def test_prepare_database_creates_v2_automated_trading_tables(tmp_path) -> None:
             "v2_reconciliation_snapshots",
             "v2_execution_incidents",
             "v2_runtime_controls",
+            "v2_adjudication_cases",
+            "v2_adjudication_allocations",
+            "v2_adjudication_finalizations",
         }
         assert expected_tables.issubset(set(inspector.get_table_names()))
+        assert {column["name"] for column in inspector.get_columns("v2_adjudication_cases")} >= {
+            "case_key",
+            "exchange_account_identity",
+        }
+        assert {column["name"] for column in inspector.get_columns("v2_adjudication_allocations")} >= {
+            "manifest_hash",
+            "evidence_hash",
+        }
+        assert {column["name"] for column in inspector.get_columns("v2_adjudication_finalizations")} >= {
+            "manifest_hash",
+            "evidence_hash",
+        }
+    finally:
+        get_engine(database_url).dispose()
+        reset_database_caches()
+
+
+def test_adjudication_migration_upgrades_from_0025_to_head(tmp_path) -> None:
+    """0026 must run against the real 0025 schema and expose repository tables."""
+    from alembic import command
+    from alembic.config import Config
+
+    from scripts.prepare_database import prepare_database
+    from services.database import get_engine, reset_database_caches
+
+    database_url = f"sqlite:///{(tmp_path / 'adjudication-migration.db').as_posix()}"
+    try:
+        prepare_database(database_url)
+        config = Config("alembic.ini")
+        command.downgrade(config, "0025")
+        command.upgrade(config, "head")
+        inspector = inspect(get_engine(database_url))
+        assert {
+            "v2_adjudication_cases",
+            "v2_adjudication_allocations",
+            "v2_adjudication_finalizations",
+        }.issubset(set(inspector.get_table_names()))
     finally:
         get_engine(database_url).dispose()
         reset_database_caches()

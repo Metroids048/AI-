@@ -157,6 +157,15 @@ def validate_position_transition(
         )
 
 
+def validate_historical_attribution_transition(
+    current: V2PositionState,
+    next_state: V2PositionState,
+) -> None:
+    """Allow only the explicit operator adjudication recovery transition."""
+    if current is not V2PositionState.QUARANTINED or next_state is not V2PositionState.CLOSED:
+        raise ValueError("Historical attribution may transition only QUARANTINED -> CLOSED")
+
+
 def validate_protection_transition(
     current: V2ProtectionState,
     next_state: V2ProtectionState,
