@@ -27,6 +27,20 @@ logger = logging.getLogger(__name__)
 DEFAULT_STEP_SIZE = Decimal("0.001")
 
 
+def _recovery_writer_valid(adapter) -> bool:
+    """Require the machine account fence for Binance adapters; keep offline adapters usable."""
+    from services.automated_trading.infrastructure.account_writer import AccountWriterCapability, capability_is_current
+    from services.automated_trading.infrastructure.binance_adapter import BinanceTestnetAdapter
+
+    capability = getattr(adapter, "writer_capability", None)
+    if isinstance(adapter, BinanceTestnetAdapter):
+        return isinstance(capability, AccountWriterCapability) and capability_is_current(capability)
+    if not isinstance(capability, AccountWriterCapability):
+        return True
+
+    return capability_is_current(capability)
+
+
 @dataclass(frozen=True)
 class RecoveryExecutionResult:
     """Outcome of executing a recovery action plan."""
@@ -146,6 +160,7 @@ def _execute_emergency_close(
         requested_quantity=position.quantity,
         authoritative_position=ex_pos,
         step_size=step_size,
+        fencing_token_valid=_recovery_writer_valid(adapter),
     )
     if not decision.approved:
         logger.info("emergency close not approved for %s: %s", action.target_ref, decision.detail)

@@ -143,6 +143,7 @@ def _manifest(*, quantity: str = "0.04") -> AdjudicationManifest:
             ("db-a", "position-0", Decimal("0.02")),
             ("db-b", "position-1", Decimal("0.02")),
         ),
+        account_scope_key="BINANCE:TESTNET:test-account",
     )
 
 

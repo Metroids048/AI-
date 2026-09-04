@@ -763,6 +763,24 @@ def _fetch_step_size(adapter, symbol: str) -> Decimal:
         return default
 
 
+def _account_writer_valid_for_adapter(adapter: Any, execution_mode: V2ExecutionMode) -> bool:
+    """Expose the real account fence to the exit gate without weakening Paper paths."""
+    if execution_mode is not V2ExecutionMode.BINANCE_TESTNET:
+        return True
+    from services.automated_trading.infrastructure.account_writer import (
+        AccountWriterCapability,
+        capability_is_current,
+    )
+    from services.automated_trading.infrastructure.binance_adapter import BinanceTestnetAdapter
+
+    capability = getattr(adapter, "writer_capability", None)
+    if isinstance(adapter, BinanceTestnetAdapter):
+        return isinstance(capability, AccountWriterCapability) and capability_is_current(capability)
+    if not isinstance(capability, AccountWriterCapability):
+        return True
+    return capability_is_current(capability)
+
+
 def _calculate_quantity(
     request: CycleRequest,
     snapshot: AuthoritativeAccountSnapshot,
@@ -2035,6 +2053,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
             requested_quantity=pos.quantity,
             authoritative_position=ex_pos,
             step_size=step_size,
+            fencing_token_valid=_account_writer_valid_for_adapter(adapter, request.execution_mode),
         )
         if exit_decision.verdict is ExitVerdict.ALREADY_FLAT:
             continue
@@ -2136,8 +2155,7 @@ def run_automated_trading_cycle(request: CycleRequest, adapter: BinanceTestnetAd
         terminal_reason = (
             request.production_decision_reason
             if request.production_authorized
-            else request.entry_authority_reason
-            or DecisionReasonCode.NO_AUTHORIZED_PRODUCTION_STRATEGY.value
+            else request.entry_authority_reason or DecisionReasonCode.NO_AUTHORIZED_PRODUCTION_STRATEGY.value
         )
         result.funnel_payload = {
             "cycle_id": request.cycle_id,

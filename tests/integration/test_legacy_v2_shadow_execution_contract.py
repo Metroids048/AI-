@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import tempfile
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -8,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from services.automated_trading.application.cycle_service import run_automated_trading_cycle
+from services.automated_trading.infrastructure.account_writer import acquire_account_writer, bind_account
 from services.automated_trading.infrastructure.runtime_lock import EngineActivation, resolve_engine_activation
 from services.data import DataRepository
 from services.execution.decision_pipeline import DecisionPipelineResult
@@ -185,7 +188,26 @@ class RecordingActualLegacyGateway(RecordingFilledGateway):
     def __init__(self) -> None:
         super().__init__()
         self.client = ActualGatewayClient()
-        self.actual_gateway = BinanceUsdtPerpetualGateway(client=self.client, use_testnet=True)
+        registry = Path(tempfile.gettempdir()) / f"ai-quant-legacy-gateway-{os.getpid()}.json"
+        os.environ["V2_ACCOUNT_WRITER_REGISTRY_PATH"] = str(registry)
+        scope = "BINANCE:TESTNET:test-legacy-gateway"
+        if not registry.exists():
+            bind_account(
+                account_scope_key=scope,
+                database_id="legacy-gateway-test-db",
+                operator_identity="test",
+                operator_reason="legacy gateway contract test",
+            )
+        lease = acquire_account_writer(
+            account_scope_key=scope,
+            database_id="legacy-gateway-test-db",
+            owner_id=f"legacy:{os.getpid()}",
+        )
+        self.actual_gateway = BinanceUsdtPerpetualGateway(
+            client=self.client,
+            use_testnet=True,
+            writer_capability=lease.capability,
+        )
         self.last_result: dict | None = None
 
     def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict:

@@ -10,6 +10,11 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
+from services.automated_trading.infrastructure.account_writer import (
+    AccountWriterCapability,
+    AccountWriterFenceError,
+    mutation_guard,
+)
 from services.data.universe import FIXED_TOP20_SYMBOLS, platform_to_exchange_symbol
 from services.execution.bootstrap import AUTO_PAPER_EXECUTION_SYMBOLS
 from services.execution.execution_truth import binance_client_order_id
@@ -365,13 +370,32 @@ class BinanceUsdtPerpetualGateway:
         supports_reconciliation=True,
     )
 
-    def __init__(self, *, client: Any | None = None, use_testnet: bool | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        client: Any | None = None,
+        use_testnet: bool | None = None,
+        writer_capability: AccountWriterCapability | None = None,
+    ) -> None:
         self.use_testnet = settings.binance_use_testnet if use_testnet is None else use_testnet
+        self.writer_capability = writer_capability
         self.api_backend = "disabled"
         self.client = client or self._build_default_client()
         if self.use_testnet:
             self.api_backend = configure_binance_paper_client(self.client)
         self._assert_withdrawal_disabled()
+
+    def _require_mutation_fence(self) -> None:
+        """Testnet writes require the machine-scoped account writer capability."""
+        with self._mutation_context():
+            pass
+
+    def _mutation_context(self) -> Any:
+        if not self.use_testnet:
+            return contextlib.nullcontext()
+        if self.writer_capability is None:
+            raise AccountWriterFenceError("ACCOUNT_WRITER_FENCE_REJECTED", "capability missing")
+        return mutation_guard(self.writer_capability)
 
     def _assert_withdrawal_disabled(self) -> None:
         if isinstance(self.client, _UnavailableBinanceClient):
@@ -533,19 +557,22 @@ class BinanceUsdtPerpetualGateway:
         }
 
     def cancel_protection_order(self, *, symbol: str, gateway_order_id: str) -> None:
+        self._require_mutation_fence()
         cancel_algo = getattr(self.client, "fapiPrivateDeleteAlgoOrder", None)
         if callable(cancel_algo):
             try:
-                cancel_algo(
-                    {
-                        "symbol": _binance_market_id(_normalize_binance_symbol(symbol)),
-                        "algoId": gateway_order_id,
-                    }
-                )
+                with self._mutation_context():
+                    cancel_algo(
+                        {
+                            "symbol": _binance_market_id(_normalize_binance_symbol(symbol)),
+                            "algoId": gateway_order_id,
+                        }
+                    )
                 return
             except Exception:  # A fixed take-profit is a regular reduce-only LIMIT.
                 pass
-        self.client.cancel_order(gateway_order_id, _normalize_binance_symbol(symbol))
+        with self._mutation_context():
+            self.client.cancel_order(gateway_order_id, _normalize_binance_symbol(symbol))
 
     def pretrade_market_snapshot(
         self,
@@ -646,6 +673,7 @@ class BinanceUsdtPerpetualGateway:
         )
 
     def submit_order(self, *, live_run_id: str, order_request: ExecutionOrderRequest) -> dict[str, Any]:
+        self._require_mutation_fence()
         normalized_order = None
         if order_request.trade_intent is not None:
             if order_request.market_rules_snapshot is None:
@@ -705,14 +733,15 @@ class BinanceUsdtPerpetualGateway:
             params["reduceOnly"] = True
         _validate_protection_prices(order_request)
         try:
-            created = self.client.create_order(
-                _normalize_binance_symbol(order_request.symbol),
-                order_type,
-                side,
-                quantity,
-                order_request.entry_context.get("limit_price"),
-                params,
-            )
+            with self._mutation_context():
+                created = self.client.create_order(
+                    _normalize_binance_symbol(order_request.symbol),
+                    order_type,
+                    side,
+                    quantity,
+                    order_request.entry_context.get("limit_price"),
+                    params,
+                )
         except TimeoutError:
             client_order_id = params.get("newClientOrderId")
             lookup = getattr(self.client, "fapiPrivateGetOrder", None)
@@ -827,7 +856,9 @@ class BinanceUsdtPerpetualGateway:
         }
 
     def cancel_order(self, *, gateway_order_id: str) -> dict[str, Any]:
-        cancelled = self.client.cancel_order(gateway_order_id)
+        self._require_mutation_fence()
+        with self._mutation_context():
+            cancelled = self.client.cancel_order(gateway_order_id)
         return {
             "gateway_order_id": str(cancelled.get("id", gateway_order_id)),
             "gateway_status": _normalize_order_status(cancelled.get("status", "canceled")),
@@ -947,15 +978,18 @@ class BinanceUsdtPerpetualGateway:
         return {}
 
     def set_leverage(self, *, symbol: str, leverage: float) -> dict[str, Any]:
+        self._require_mutation_fence()
         normalized_symbol = _normalize_binance_symbol(symbol)
         method = getattr(self.client, "set_leverage", None)
         if callable(method):
-            result = method(int(leverage), normalized_symbol)
+            with self._mutation_context():
+                result = method(int(leverage), normalized_symbol)
         else:
             raw_method = getattr(self.client, "fapiPrivatePostLeverage", None)
             if not callable(raw_method):
                 raise ValueError("binance gateway client does not support leverage adjustment")
-            result = raw_method({"symbol": _binance_market_id(normalized_symbol), "leverage": int(leverage)})
+            with self._mutation_context():
+                result = raw_method({"symbol": _binance_market_id(normalized_symbol), "leverage": int(leverage)})
         return {
             "symbol": symbol,
             "leverage": leverage,
@@ -974,6 +1008,7 @@ class BinanceUsdtPerpetualGateway:
 
         Fail-closed: returns empty list when refresh cannot be confirmed.
         """
+        self._require_mutation_fence()
         symbol = _normalize_binance_symbol(order_request.symbol)
         for ref in previous_refs or []:
             algo_id = ref.get("algoId") or ref.get("orderId") or ref.get("id")
@@ -981,7 +1016,10 @@ class BinanceUsdtPerpetualGateway:
                 continue
             cancel = getattr(self.client, "fapiPrivateDeleteAlgoOrder", None)
             if callable(cancel):
-                with contextlib.suppress(Exception):
+                with (
+                    contextlib.suppress(Exception),
+                    self._mutation_context(),
+                ):
                     cancel({"algoId": algo_id, "symbol": _binance_market_id(symbol)})
             else:
                 with contextlib.suppress(Exception):
@@ -1002,6 +1040,7 @@ class BinanceUsdtPerpetualGateway:
         side: str,
         quantity: float,
     ) -> list[dict[str, Any]]:
+        self._require_mutation_fence()
         method = getattr(self.client, "fapiPrivatePostAlgoOrder", None)
         if not callable(method):
             return []
@@ -1028,7 +1067,7 @@ class BinanceUsdtPerpetualGateway:
             )
             refs.append(
                 {
-                    **self._submit_algo_order(
+                    **self._submit_protected_algo_order(
                         method,
                         {
                             "algoType": "CONDITIONAL",
@@ -1051,7 +1090,7 @@ class BinanceUsdtPerpetualGateway:
             )
             refs.append(
                 {
-                    **self.client.create_order(
+                    **self._create_protected_order(
                         _normalize_binance_symbol(order_request.symbol),
                         "limit",
                         close_side.lower(),
@@ -1074,6 +1113,14 @@ class BinanceUsdtPerpetualGateway:
             raise ValueError(f"empty protection order response for {payload.get('type')}")
         return result
 
+    def _submit_protected_algo_order(self, method: Any, payload: dict[str, Any]) -> dict[str, Any]:
+        with self._mutation_context():
+            return self._submit_algo_order(method, payload)
+
+    def _create_protected_order(self, *args: Any) -> dict[str, Any]:
+        with self._mutation_context():
+            return self.client.create_order(*args)
+
     def _protection_trigger_price(self, symbol: str, price: Any) -> Any:
         precision = getattr(self.client, "price_to_precision", None)
         if callable(precision):
@@ -1088,19 +1135,22 @@ class BinanceUsdtPerpetualGateway:
         entry_side: str,
         quantity: float,
     ) -> dict[str, Any]:
+        self._require_mutation_fence()
         order_id = _order_id(created)
         status = _normalize_order_status(created.get("status"))
         if status in {"open", "submitted", "new"} and order_id:
-            cancelled = self.client.cancel_order(order_id, symbol)
+            with self._mutation_context():
+                cancelled = self.client.cancel_order(order_id, symbol)
             return {"action": "cancel_entry", "gateway_order_id": _order_id(cancelled) or order_id}
-        closed = self.client.create_order(
-            symbol,
-            "market",
-            "sell" if entry_side == "buy" else "buy",
-            quantity,
-            None,
-            {"positionSide": "BOTH", "reduceOnly": True},
-        )
+        with self._mutation_context():
+            closed = self.client.create_order(
+                symbol,
+                "market",
+                "sell" if entry_side == "buy" else "buy",
+                quantity,
+                None,
+                {"positionSide": "BOTH", "reduceOnly": True},
+            )
         return {"action": "reduce_only_close", "gateway_order_id": _order_id(closed)}
 
     @staticmethod

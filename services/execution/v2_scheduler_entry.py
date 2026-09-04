@@ -136,9 +136,60 @@ def resolve_scheduler_v2_jobs(config: EngineActivationConfig) -> frozenset[str]:
 
 
 def _default_adapter_factory(execution_mode: V2ExecutionMode) -> Any:
+    from services.automated_trading.infrastructure.account_writer import capability_from_environment
     from services.automated_trading.infrastructure.binance_adapter import BinanceTestnetAdapter
 
-    return BinanceTestnetAdapter(execution_mode=execution_mode)
+    return BinanceTestnetAdapter(
+        execution_mode=execution_mode,
+        writer_capability=capability_from_environment(),
+    )
+
+
+def _account_writer_observability(execution_mode: V2ExecutionMode) -> dict[str, Any]:
+    """Return safe account-writer health fields for scheduler/API consumers."""
+    if execution_mode is not V2ExecutionMode.BINANCE_TESTNET:
+        return {
+            "account_scope_key": None,
+            "writer_status": "NOT_REQUIRED",
+            "bound_database_identity": None,
+            "current_database_identity": None,
+            "generation": None,
+            "lease_status": "NOT_REQUIRED",
+            "conflict_reason": None,
+        }
+    from services.automated_trading.infrastructure.account_writer import (
+        capability_from_environment,
+        database_identity,
+        writer_status,
+    )
+
+    try:
+        capability = capability_from_environment()
+    except Exception as exc:  # noqa: BLE001 - health must remain serializable
+        return {
+            "account_scope_key": None,
+            "writer_status": "INVALID_CAPABILITY",
+            "bound_database_identity": None,
+            "current_database_identity": database_identity(os.environ.get("POSTGRES_URL", "")),
+            "generation": None,
+            "lease_status": "UNKNOWN",
+            "conflict_reason": getattr(exc, "code", type(exc).__name__),
+        }
+    if capability is None:
+        return {
+            "account_scope_key": None,
+            "writer_status": "MISSING_CAPABILITY",
+            "bound_database_identity": None,
+            "current_database_identity": database_identity(os.environ.get("POSTGRES_URL", "")),
+            "generation": None,
+            "lease_status": "NONE",
+            "conflict_reason": "ACCOUNT_WRITER_FENCE_REJECTED",
+        }
+    return writer_status(
+        account_scope_key=capability.account_scope_key,
+        database_id=capability.database_identity,
+        capability=capability,
+    )
 
 
 def _managed_symbols_requiring_recovery(*, execution_mode: V2ExecutionMode) -> tuple[str, ...]:
@@ -1522,6 +1573,7 @@ def _execute_v2_automated_trading_cycles(
         "lease_name": lease_name,
         "writer_lease_name": writer_lease_name,
         "scheduler_cycle_id": scheduler_cycle_id,
+        "account_writer": _account_writer_observability(config.execution_mode),
         "symbols": symbols,
         "results": symbol_results,
     }

@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
+from tempfile import gettempdir
 
 import pytest
 
+from services.automated_trading.infrastructure.account_writer import (
+    AccountWriterFenceError,
+    acquire_account_writer,
+    bind_account,
+)
 from services.data.universe import FIXED_TOP20_SYMBOLS
 from services.execution.gateway import (
     BinanceUsdtPerpetualGateway,
@@ -26,6 +34,44 @@ from shared.models import (
     TradeIntent,
     TradeSide,
 )
+
+
+@pytest.fixture(autouse=True)
+def trusted_testnet_writer(monkeypatch: pytest.MonkeyPatch):
+    """Testnet gateway tests must exercise the same explicit capability contract."""
+    path = Path(gettempdir()) / f"ai-quant-gateway-test-{os.getpid()}.json"
+    monkeypatch.setenv("V2_ACCOUNT_WRITER_REGISTRY_PATH", str(path))
+    scope = "BINANCE:TESTNET:test-gateway"
+    if not path.exists():
+        bind_account(
+            account_scope_key=scope,
+            database_id="gateway-test-db",
+            operator_identity="test",
+            operator_reason="gateway unit test binding",
+        )
+    lease = acquire_account_writer(
+        account_scope_key=scope,
+        database_id="gateway-test-db",
+        owner_id=f"test:{os.getpid()}",
+    )
+    original_init = BinanceUsdtPerpetualGateway.__init__
+
+    def _init(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        if kwargs.get("use_testnet") is True and "writer_capability" not in kwargs:
+            kwargs["writer_capability"] = lease.capability
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(BinanceUsdtPerpetualGateway, "__init__", _init)
+    yield lease.capability
+
+
+def test_testnet_gateway_rejects_mutation_without_capability() -> None:
+    client = StubCcxtClient()
+    gateway = BinanceUsdtPerpetualGateway(client=client, use_testnet=True, writer_capability=None)
+
+    with pytest.raises(AccountWriterFenceError, match="ACCOUNT_WRITER_FENCE_REJECTED"):
+        gateway.set_leverage(symbol="BTC/USDT", leverage=2)
+    assert client.leverage_calls == []
 
 
 class StubCcxtClient:

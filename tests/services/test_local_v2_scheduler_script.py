@@ -4,7 +4,25 @@ import os
 import runpy
 from pathlib import Path
 
+import pytest
+
+from services.automated_trading.infrastructure import account_writer
+from services.automated_trading.infrastructure.binance_adapter import BinanceTestnetAdapter
 from services.strategy_library import models
+
+
+@pytest.fixture(autouse=True)
+def isolated_account_writer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Provide an explicitly bound synthetic account for supervisor unit tests."""
+    scope_id = f"supervisor-test-{tmp_path.name}"
+    monkeypatch.setenv("V2_ACCOUNT_WRITER_REGISTRY_PATH", str(tmp_path / "writer-registry.json"))
+    monkeypatch.setenv("BINANCE_ACCOUNT_SCOPE_ID", scope_id)
+    monkeypatch.setattr(
+        account_writer,
+        "account_scope_from_binance_client",
+        lambda _client: account_writer.resolve_account_scope(account_identity=scope_id),
+    )
+    monkeypatch.setattr(BinanceTestnetAdapter, "_ensure_gateway", lambda _adapter: object())
 
 
 def test_isolated_scheduler_enforces_v2_shadow_environment(
@@ -74,6 +92,12 @@ def test_scheduler_supervisor_uses_configured_state_path(monkeypatch, tmp_path) 
 def test_supervisor_lease_blocks_second_owner_for_same_database_and_mode(tmp_path) -> None:
     namespace = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts" / "run-local-paper-scheduler.py"))
     db_url = f"sqlite:///{(tmp_path / 'supervisor.db').as_posix()}"
+    account_writer.bind_account(
+        account_scope_key=f"BINANCE:TESTNET:supervisor-test-{tmp_path.name}",
+        database_id=account_writer.database_identity(db_url),
+        operator_identity="test",
+        operator_reason="supervisor unit test binding",
+    )
 
     first = namespace["_acquire_supervisor_lease"](db_url, "v2_active")
     assert first is not None
@@ -92,6 +116,12 @@ def test_supervisor_lease_blocks_second_owner_for_same_database_and_mode(tmp_pat
 def test_stale_supervisor_owner_cannot_renew_after_fenced_takeover(tmp_path) -> None:
     namespace = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts" / "run-local-paper-scheduler.py"))
     db_url = f"sqlite:///{(tmp_path / 'fencing.db').as_posix()}"
+    account_writer.bind_account(
+        account_scope_key=f"BINANCE:TESTNET:supervisor-test-{tmp_path.name}",
+        database_id=account_writer.database_identity(db_url),
+        operator_identity="test",
+        operator_reason="supervisor unit test binding",
+    )
     first = namespace["_acquire_supervisor_lease"](db_url, "v2_active")
     assert first is not None
     second = None

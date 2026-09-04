@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
+from tempfile import gettempdir
 from unittest.mock import MagicMock
 
 import pytest
@@ -22,6 +24,10 @@ from services.automated_trading.domain.commands import (
     SubmitReduceOnlyExit,
 )
 from services.automated_trading.domain.enums import V2ExecutionMode
+from services.automated_trading.infrastructure.account_writer import (
+    AccountWriterCapability,
+    bind_account,
+)
 from services.automated_trading.infrastructure.binance_adapter import (
     BinanceAdapterUnavailable,
     BinanceTestnetAdapter,
@@ -31,11 +37,35 @@ from services.automated_trading.infrastructure.binance_adapter import (
 
 def _adapter_with_mock_client(mock_client: MagicMock) -> BinanceTestnetAdapter:
     """Build an adapter with a pre-injected mock gateway (bypasses credential lookup)."""
-    adapter = BinanceTestnetAdapter(execution_mode=V2ExecutionMode.BINANCE_TESTNET)
+    adapter = BinanceTestnetAdapter(
+        execution_mode=V2ExecutionMode.BINANCE_TESTNET,
+        writer_capability=_test_capability(),
+    )
     mock_gateway = MagicMock()
     mock_gateway.client = mock_client
     adapter._gateway = mock_gateway
     return adapter
+
+
+def _test_capability() -> AccountWriterCapability:
+    path = Path(gettempdir()) / "ai-quant-adapter-test-account-writer.json"
+    import os
+
+    os.environ["V2_ACCOUNT_WRITER_REGISTRY_PATH"] = str(path)
+    if not path.exists():
+        bind_account(
+            account_scope_key="BINANCE:TESTNET:test-adapter",
+            database_id="adapter-test-db",
+            operator_identity="test",
+            operator_reason="adapter unit test",
+        )
+    from services.automated_trading.infrastructure.account_writer import acquire_account_writer
+
+    return acquire_account_writer(
+        account_scope_key="BINANCE:TESTNET:test-adapter",
+        database_id="adapter-test-db",
+        owner_id="adapter-test-owner",
+    ).capability
 
 
 def test_adapter_requires_binance_testnet_mode():

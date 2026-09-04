@@ -76,6 +76,7 @@ def default_evaluate(**overrides) -> ExitDecision:
         "requested_quantity": Decimal("0.01"),
         "authoritative_position": build_position(),
         "step_size": Decimal("0.001"),
+        "fencing_token_valid": True,
     }
     kwargs.update(overrides)
     return evaluate_exit(**kwargs)

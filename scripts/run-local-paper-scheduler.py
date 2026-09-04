@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -214,16 +216,17 @@ class _SupervisorLease:
     coordinator: Any
     lease_name: str
     fencing_token: int
+    account_lease: Any | None = None
 
 
 def _acquire_supervisor_lease(database_url: str, engine: str) -> _SupervisorLease | None:
     """Acquire the one-owner lease before a RuntimeScheduler worker is spawned."""
-    from services.database import create_relational_schema, get_session_factory
+    from scripts.prepare_database import prepare_database
+    from services.database import get_session_factory
     from services.execution.scheduler_coordination import SchedulerCoordinator, supervisor_lease_name
 
-    # The launcher normally prepares this schema first; keeping this check here
-    # makes direct supervisor invocation fail closed instead of racing schema setup.
-    create_relational_schema(database_url)
+    # Direct invocation must use the same Alembic preparation as the launcher.
+    prepare_database(database_url)
     lease_name = supervisor_lease_name(database_url, engine)
     coordinator = SchedulerCoordinator(
         session_factory=get_session_factory(database_url),
@@ -239,7 +242,35 @@ def _acquire_supervisor_lease(database_url: str, engine: str) -> _SupervisorLeas
     if fencing_token is None:
         coordinator.release_lease(lease_name=lease_name)
         raise RuntimeError("SUPERVISOR_LEASE_TOKEN_UNAVAILABLE")
-    return _SupervisorLease(coordinator=coordinator, lease_name=lease_name, fencing_token=fencing_token)
+    account_lease = None
+    try:
+        if engine == "v2_active":
+            from services.automated_trading.domain.enums import V2ExecutionMode
+            from services.automated_trading.infrastructure.account_writer import (
+                account_scope_from_binance_client,
+                acquire_account_writer,
+                capability_environment,
+                database_identity,
+            )
+            from services.automated_trading.infrastructure.binance_adapter import BinanceTestnetAdapter
+
+            adapter = BinanceTestnetAdapter(execution_mode=V2ExecutionMode.BINANCE_TESTNET)
+            scope = account_scope_from_binance_client(adapter._ensure_gateway())
+            account_lease = acquire_account_writer(
+                account_scope_key=scope.key,
+                database_id=database_identity(database_url),
+                owner_id=f"{socket.gethostname()}:{os.getpid()}",
+            )
+            os.environ.update(capability_environment(account_lease.capability))
+    except Exception:
+        coordinator.release_lease(lease_name=lease_name, fencing_token=fencing_token)
+        raise
+    return _SupervisorLease(
+        coordinator=coordinator,
+        lease_name=lease_name,
+        fencing_token=fencing_token,
+        account_lease=account_lease,
+    )
 
 
 def _renew_supervisor_lease(lease: _SupervisorLease) -> bool:
@@ -250,6 +281,13 @@ def _renew_supervisor_lease(lease: _SupervisorLease) -> bool:
         fencing_token=lease.fencing_token,
     )
     current_token = lease.coordinator.fencing_token(lease_name=lease.lease_name)
+    if lease.account_lease is not None:
+        from services.automated_trading.infrastructure.account_writer import renew_account_writer
+
+        try:
+            lease.account_lease = renew_account_writer(lease.account_lease)
+        except Exception:
+            return False
     return bool(renewed and current_token == lease.fencing_token)
 
 
@@ -259,6 +297,7 @@ def _supervisor_monitor_interval(monitor_seconds: float) -> float:
 
 def run_supervisor(database_url: str, engine: str = "v2_shadow", monitor_seconds: float = 5.0) -> int:
     """Own the worker process so a hung to_thread call cannot create a second writer."""
+    configure_scheduler_environment(database_url, engine)
     from services.execution.scheduler import persist_liveness_recovery_hold
 
     lease = _acquire_supervisor_lease(database_url, engine)
@@ -336,6 +375,11 @@ def run_supervisor(database_url: str, engine: str = "v2_shadow", monitor_seconds
             _terminate_worker(worker)
         return 0
     finally:
+        if lease.account_lease is not None:
+            from services.automated_trading.infrastructure.account_writer import release_account_writer
+
+            with contextlib.suppress(Exception):
+                release_account_writer(lease.account_lease)
         lease.coordinator.release_lease(lease_name=lease.lease_name, fencing_token=lease.fencing_token)
 
 

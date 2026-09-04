@@ -21,6 +21,11 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from services.automated_trading.domain.enums import V2ExecutionMode
+from services.automated_trading.infrastructure.account_writer import (
+    AccountWriterCapability,
+    AccountWriterFenceError,
+    mutation_guard,
+)
 from services.automated_trading.infrastructure.fill_normalizer import (
     deduplicate_fills,
     normalize_ccxt_trade,
@@ -116,7 +121,11 @@ class BinanceTestnetAdapter:
     - Cache or synthesize exchange responses
     """
 
-    def __init__(self, execution_mode: V2ExecutionMode):
+    def __init__(
+        self,
+        execution_mode: V2ExecutionMode,
+        writer_capability: AccountWriterCapability | None = None,
+    ):
         """Initialize adapter.
 
         Args:
@@ -129,7 +138,13 @@ class BinanceTestnetAdapter:
             raise ValueError(f"BinanceTestnetAdapter requires BINANCE_TESTNET mode, got {execution_mode}")
 
         self.execution_mode = execution_mode
+        self.writer_capability = writer_capability
         self._gateway: Any | None = None  # Lazy-initialized
+
+    def _mutation_guard(self):
+        if self.writer_capability is None:
+            raise AccountWriterFenceError("ACCOUNT_WRITER_FENCE_REJECTED", "capability missing")
+        return mutation_guard(self.writer_capability)
 
     def _ensure_gateway(self) -> Any:
         """Lazy-initialize the Binance gateway and return its exchange client.
@@ -326,19 +341,23 @@ class BinanceTestnetAdapter:
             # Fail before an entry is submitted when this prerequisite cannot be
             # established. Reduce-only exits use their own submission path.
             try:
-                client.set_leverage(command.leverage, symbol)
+                with self._mutation_guard():
+                    client.set_leverage(command.leverage, symbol)
+            except AccountWriterFenceError:
+                raise
             except Exception as exc:
                 raise BinanceAdapterUnavailable(f"leverage configuration failed: {exc}") from exc
 
-            order_response = client.create_order(
-                symbol=symbol,
-                type="market",
-                side=side,
-                amount=float(command.quantity),
-                params={
-                    "newClientOrderId": command.client_order_id,
-                },
-            )
+            with self._mutation_guard():
+                order_response = client.create_order(
+                    symbol=symbol,
+                    type="market",
+                    side=side,
+                    amount=float(command.quantity),
+                    params={
+                        "newClientOrderId": command.client_order_id,
+                    },
+                )
 
             return ExchangeOrderReceipt(
                 exchange_order_id=str(order_response["id"]),
@@ -352,6 +371,8 @@ class BinanceTestnetAdapter:
                 acknowledged_at=datetime.now(UTC),
             )
 
+        except AccountWriterFenceError:
+            raise
         except BinanceAdapterUnavailable:
             raise
         except Exception as e:
@@ -580,17 +601,18 @@ class BinanceTestnetAdapter:
 
         try:
             # Submit stop-loss
-            stop_response = client.create_order(
-                symbol=symbol,
-                type="stop_market",
-                side=side,
-                amount=float(quantity),
-                params={
-                    "stopPrice": float(command.stop_loss_price),
-                    "newClientOrderId": command.stop_client_order_id,
-                    "reduceOnly": True,
-                },
-            )
+            with self._mutation_guard():
+                stop_response = client.create_order(
+                    symbol=symbol,
+                    type="stop_market",
+                    side=side,
+                    amount=float(quantity),
+                    params={
+                        "stopPrice": float(command.stop_loss_price),
+                        "newClientOrderId": command.stop_client_order_id,
+                        "reduceOnly": True,
+                    },
+                )
 
             stop_receipt = ExchangeOrderReceipt(
                 exchange_order_id=str(stop_response["id"]),
@@ -607,17 +629,18 @@ class BinanceTestnetAdapter:
             # Submit take-profit (if requested)
             tp_receipt = None
             if command.take_profit_price and command.tp_client_order_id:
-                tp_response = client.create_order(
-                    symbol=symbol,
-                    type="take_profit_market",
-                    side=side,
-                    amount=float(quantity),
-                    params={
-                        "stopPrice": float(command.take_profit_price),
-                        "newClientOrderId": command.tp_client_order_id,
-                        "reduceOnly": True,
-                    },
-                )
+                with self._mutation_guard():
+                    tp_response = client.create_order(
+                        symbol=symbol,
+                        type="take_profit_market",
+                        side=side,
+                        amount=float(quantity),
+                        params={
+                            "stopPrice": float(command.take_profit_price),
+                            "newClientOrderId": command.tp_client_order_id,
+                            "reduceOnly": True,
+                        },
+                    )
 
                 tp_receipt = ExchangeOrderReceipt(
                     exchange_order_id=str(tp_response["id"]),
@@ -633,6 +656,8 @@ class BinanceTestnetAdapter:
 
             return stop_receipt, tp_receipt
 
+        except AccountWriterFenceError:
+            raise
         except Exception as e:
             logger.error(
                 "Failed to submit protection for %s: %s",
@@ -654,13 +679,14 @@ class BinanceTestnetAdapter:
         """Submit one replacement stop without duplicating the take-profit leg."""
         client = self._ensure_gateway()
         try:
-            response = client.create_order(
-                symbol=symbol,
-                type="stop_market",
-                side=side,
-                amount=float(quantity),
-                params={"stopPrice": float(stop_price), "newClientOrderId": client_order_id, "reduceOnly": True},
-            )
+            with self._mutation_guard():
+                response = client.create_order(
+                    symbol=symbol,
+                    type="stop_market",
+                    side=side,
+                    amount=float(quantity),
+                    params={"stopPrice": float(stop_price), "newClientOrderId": client_order_id, "reduceOnly": True},
+                )
             return ExchangeOrderReceipt(
                 exchange_order_id=str(response["id"]),
                 client_order_id=client_order_id,
@@ -672,6 +698,8 @@ class BinanceTestnetAdapter:
                 status=response["status"],
                 acknowledged_at=datetime.now(UTC),
             )
+        except AccountWriterFenceError:
+            raise
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to submit replacement protection for %s: %s", symbol, exc, exc_info=True)
             raise BinanceAdapterUnavailable(f"Cannot submit replacement protection: {exc}") from exc
@@ -698,16 +726,17 @@ class BinanceTestnetAdapter:
         client = self._ensure_gateway()
 
         try:
-            order_response = client.create_order(
-                symbol=symbol,
-                type="market",
-                side=side,
-                amount=float(command.reduce_quantity),
-                params={
-                    "newClientOrderId": command.client_order_id,
-                    "reduceOnly": True,
-                },
-            )
+            with self._mutation_guard():
+                order_response = client.create_order(
+                    symbol=symbol,
+                    type="market",
+                    side=side,
+                    amount=float(command.reduce_quantity),
+                    params={
+                        "newClientOrderId": command.client_order_id,
+                        "reduceOnly": True,
+                    },
+                )
 
             return ExchangeOrderReceipt(
                 exchange_order_id=str(order_response["id"]),
@@ -721,6 +750,8 @@ class BinanceTestnetAdapter:
                 acknowledged_at=datetime.now(UTC),
             )
 
+        except AccountWriterFenceError:
+            raise
         except Exception as e:
             logger.error(
                 "Failed to submit reduce-only exit %s %s %s: %s",
@@ -733,6 +764,11 @@ class BinanceTestnetAdapter:
             raise BinanceAdapterUnavailable(f"Cannot submit reduce-only exit: {e}") from e
 
     def cancel_order(self, symbol: str, exchange_order_id: str) -> ExchangeOrderReceipt:
+        """Cancel an order while holding the account mutation fence."""
+        with self._mutation_guard():
+            return self._cancel_order_unlocked(symbol, exchange_order_id)
+
+    def _cancel_order_unlocked(self, symbol: str, exchange_order_id: str) -> ExchangeOrderReceipt:
         """Cancel an open order.
 
         Args:

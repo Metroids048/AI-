@@ -86,12 +86,12 @@ class AdjudicationManifest:
     operator_identity: str
     operator_reason: str
     allocations: tuple[AllocationSpec | tuple[str, str, Decimal], ...]
-    exchange_account_identity: str = "binance_testnet"
+    account_scope_key: str
 
     @property
     def case_key(self) -> str:
         payload = {
-            "exchange_account_identity": self.exchange_account_identity,
+            "account_scope_key": self.account_scope_key,
             "symbol": self.symbol,
             "exchange_order_id": self.exchange_order_id,
             "exchange_trade_id": self.exchange_trade_id,
@@ -112,7 +112,7 @@ class AdjudicationManifest:
     def manifest_hash(self) -> str:
         payload = {
             "symbol": self.symbol,
-            "exchange_account_identity": self.exchange_account_identity,
+            "account_scope_key": self.account_scope_key,
             "exchange_order_id": self.exchange_order_id,
             "exchange_trade_id": self.exchange_trade_id,
             "exchange_fill_quantity": str(self.exchange_fill_quantity),
@@ -267,7 +267,7 @@ def prepare_adjudication(
     case = V2AdjudicationCase(
         adjudication_id=manifest.adjudication_id,
         case_key=manifest.case_key,
-        exchange_account_identity=manifest.exchange_account_identity,
+        exchange_account_identity=manifest.account_scope_key,
         manifest_hash=manifest.manifest_hash,
         symbol=manifest.symbol,
         exchange_order_id=manifest.exchange_order_id,

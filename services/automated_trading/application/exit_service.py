@@ -184,7 +184,7 @@ def evaluate_exit(
     authoritative_position: ExchangePositionSnapshot | None,
     step_size: Decimal,
     attempt: int = 1,
-    fencing_token_valid: bool = True,
+    fencing_token_valid: bool | None = None,
     gateway_available: bool = True,
 ) -> ExitDecision:
     """Decide whether and how much to reduce. Pure; no exchange calls.
