@@ -174,6 +174,32 @@ def _parse(value: str) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
+def _dead_local_supervisor_owner(owner_id: str) -> bool:
+    """Allow crash recovery only for a known-dead, same-host supervisor owner."""
+    if owner_id.count(":") != 1:
+        return False
+    owner_host, raw_pid = owner_id.rsplit(":", 1)
+    if owner_host.casefold() != socket.gethostname().casefold():
+        return False
+    try:
+        owner_pid = int(raw_pid)
+    except ValueError:
+        return False
+    if owner_pid <= 0:
+        return False
+    try:
+        os.kill(owner_pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    except OSError:
+        # Windows reports a non-existent PID as a generic OSError on some
+        # versions. Permission failures were handled above and remain fenced.
+        return True
+    return False
+
+
 def bind_account(
     *, account_scope_key: str, database_id: str, operator_identity: str, operator_reason: str
 ) -> dict[str, Any]:
@@ -276,7 +302,12 @@ def acquire_account_writer(
         existing_owner = str(current.get("owner_id") or "")
         existing_generation = int(current.get("generation") or 0)
         same_owner = existing_owner == owner
-        if existing_expiry is not None and existing_expiry > observed and not same_owner:
+        if (
+            existing_expiry is not None
+            and existing_expiry > observed
+            and not same_owner
+            and not _dead_local_supervisor_owner(existing_owner)
+        ):
             raise AccountWriterFenceError("ACCOUNT_WRITER_ALREADY_HELD")
         generation = (
             existing_generation

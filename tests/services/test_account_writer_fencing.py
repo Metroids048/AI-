@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
 import threading
 import time
 from unittest.mock import MagicMock
@@ -190,6 +192,27 @@ def test_awf_024_generation_cannot_switch_during_inflight_mutation(registry):
         assert not outcome
     thread.join(timeout=2)
     assert outcome == ["ACCOUNT_WRITER_ALREADY_HELD"]
+
+
+def test_awf_025_dead_local_supervisor_can_take_over_unexpired_same_database_lease(registry):
+    _bind(registry)
+    first = acquire_account_writer(
+        account_scope_key=SCOPE,
+        database_id="db-a",
+        owner_id=f"{socket.gethostname()}:{os.getpid() + 1_000_000}",
+    )
+
+    second = acquire_account_writer(account_scope_key=SCOPE, database_id="db-a", owner_id="replacement-owner")
+
+    assert second.capability.generation == first.capability.generation + 1
+
+
+def test_awf_026_remote_unexpired_owner_remains_fail_closed(registry):
+    _bind(registry)
+    acquire_account_writer(account_scope_key=SCOPE, database_id="db-a", owner_id="other-host:4242")
+
+    with pytest.raises(AccountWriterFenceError, match="ACCOUNT_WRITER_ALREADY_HELD"):
+        acquire_account_writer(account_scope_key=SCOPE, database_id="db-a", owner_id="replacement-owner")
 
 
 def test_awf_rejects_non_capability_without_touching_mock_path(registry):
