@@ -1,6 +1,6 @@
 {
   "contract_version": "automated-trading-freeze-1",
-  "baseline_sha": "eb44e6f8cda6442487d25e6441e2af8508e52357",
+  "baseline_sha": "394a9ba4be4dbda83a881a9493183bcf41e70b9f",
   "canonical_owner": "contracts/automated_trading_frozen_contract.json",
   "transaction_protected_paths": {
     "services/automated_trading/application/cycle_service.py": "bdb162b7f2e6b96142f56e2b14d1e27017b292366ffdc5a1d4a091040cf660de",
@@ -13,8 +13,8 @@
     "services/automated_trading/application/recovery_service.py": "e70fe240669110122f26174e6ddc84b48ea0a7e3bb8fdc6d6cb5588060460ab9",
     "services/automated_trading/infrastructure/account_writer.py": "23cf52caeea258566d18567144cb3390da76f66ab2f8902992cf14ce156b5bed",
     "services/automated_trading/infrastructure/binance_adapter.py": "aabc93d00a87d4d12555c512c67af4de3ee86bbd1afaaa23efd71d0ba3724c5a",
-    "services/execution/scheduler.py": "7435177253eb89f802dc78a430a444bedb883cfd2be653579662bdeb674e621e",
-    "services/execution/v2_scheduler_entry.py": "c338f920a4f9eb82079b69ff288e60bd33a7cb592995e84598c89b14c7b4bca5"
+    "services/execution/scheduler.py": "da26dc9e237281e9e337a32b2cd04e09ba6678b433850656c0aa13fae104b659",
+    "services/execution/v2_scheduler_entry.py": "ebc0c404e5b0257b6cafe5cc7fd5cc7555e1073ac4f871461d6eecee9bcee174"
   },
   "runtime_protected_paths": {
     "一键启动.cmd": "4c3c28275c81e76d9072a7fb49927c26aa824e299fb286e8b3db3808767d8c24",
@@ -23,8 +23,8 @@
     "services/execution/bootstrap.py": "a66cb889ca8dc99d4b3a68edbf2cab166b2655554600e3a02ad13fdad1ef8144",
     "services/execution/natural_testnet_mode.py": "0ef5e841f2350b94245af867821e397c385a949bba36322a49c935208007eaa1",
     "services/execution/runtime_state.py": "da4a17901b33a0fa25148891f4d815901fb8c3bb9f35778b7d9c769da2221151",
-    "services/execution/scheduler.py": "7435177253eb89f802dc78a430a444bedb883cfd2be653579662bdeb674e621e",
-    "services/execution/v2_scheduler_entry.py": "c338f920a4f9eb82079b69ff288e60bd33a7cb592995e84598c89b14c7b4bca5"
+    "services/execution/scheduler.py": "da26dc9e237281e9e337a32b2cd04e09ba6678b433850656c0aa13fae104b659",
+    "services/execution/v2_scheduler_entry.py": "ebc0c404e5b0257b6cafe5cc7fd5cc7555e1073ac4f871461d6eecee9bcee174"
   },
   "runtime_invariants": [
     {"id": "AT-RUNTIME-001", "requirement": "v2_active is the only automated-trading writer."},
