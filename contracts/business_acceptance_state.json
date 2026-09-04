@@ -1,20 +1,21 @@
 {
   "schema_version": "business-acceptance-state-1",
-  "validated_code_sha": "82f33fd108e2b96c5236ace012a5eb55388563c2",
-  "validated_at": "2026-09-04T14:50:02Z",
+  "validated_code_sha": "eb44e6f8cda6442487d25e6441e2af8508e52357",
+  "validated_at": "2026-09-04T15:12:56Z",
   "runtime_readiness": "PASS",
   "runtime_recovery_resilience": "PASS",
   "natural_testnet_execution": "BLOCKED",
   "strategy_business_recovery": "NOT_VERIFIED",
   "profitability_validation": "NOT_VERIFIED",
   "evidence_refs": [
-    "official 一键启动.cmd: ACTIVE/BINANCE_TESTNET/TESTNET_CANARY",
-    "scheduler-state.json: supervisor 27816 remained online",
+    "official 一键启动.cmd: ACTIVE/BINANCE_TESTNET/TESTNET_CANARY after dead-writer takeover",
+    "scheduler-state.json: supervisor 26864 and worker 21036 published a valid active snapshot",
     "Worker Recovery #1: PASS (2772 -> 1152; LIVENESS_RECOVERY_RECOVERED; HEALTHY)",
     "Worker Recovery #2: PASS (1152 -> 26548; LIVENESS_RECOVERY_RECOVERED; HEALTHY)",
     "ETH_ATTRIBUTION_001: immutable-evidence preflight, exchange_writes=0",
     "Account writer: BINANCE:TESTNET:primary_testnet bound to canonical sqlite identity",
+    "Dead local writer: 360s unexpired lease safely taken over only after local owner PID was gone",
     "V2 and unified frozen-contract baseline/head verification: PASS"
   ],
-  "notes": "Validated executable candidate 82f33fd108e2b96c5236ace012a5eb55388563c2. Official one-click runtime is ACTIVE/BINANCE_TESTNET/TESTNET_CANARY with active snapshot baceeb5f-848e-453d-85fa-f4bb11d06443, no pending snapshot, entry_authorized=true, and reconciliation=HEALTHY after two supervised worker recoveries. ETH_ATTRIBUTION_001 was recovered from immutable audit evidence without exchange writes. Natural Testnet L2 is armed and waiting for a natural closed-bar candidate; no signal, order, strategy, risk, or transaction semantic was manufactured or changed."
+  "notes": "Validated executable candidate eb44e6f8cda6442487d25e6441e2af8508e52357 supersedes the earlier 82f33fd runtime candidate. Official one-click runtime is ACTIVE/BINANCE_TESTNET/TESTNET_CANARY with a valid active snapshot, entry_authorized=true, and reconciliation=HEALTHY. An actual forced supervisor shutdown reproduced ACCOUNT_WRITER_ALREADY_HELD; the repair permits only a known-dead local supervisor owner to take over the same bound database with a new generation, while remote/unknown owners remain fenced. ETH_ATTRIBUTION_001 remains recovered from immutable audit evidence without exchange writes. Natural Testnet L2 is armed and waiting for a natural closed-bar candidate; no signal, order, strategy, risk, or transaction semantic was manufactured or changed."
 }

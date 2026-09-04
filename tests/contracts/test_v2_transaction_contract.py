@@ -17,7 +17,7 @@ def test_v2_transaction_contract_is_machine_readable_and_matches_baseline() -> N
 
     assert CONTRACT_PATH.exists()
     assert contract["contract_version"].startswith("v2-transaction-freeze-")
-    assert contract["baseline_sha"] == "f05e789ef5c9f73759c01efe6b6d7795f994864d"
+    assert contract["baseline_sha"] == "eb44e6f8cda6442487d25e6441e2af8508e52357"
     assert len(contract["protected_paths"]) >= 10
     assert baseline_hashes_match(contract) == []
 

@@ -2471,3 +2471,21 @@
   protected transaction paths were unchanged. Natural L2 is
   `ARMED_AND_WAITING_FOR_NATURAL_SIGNAL`; no natural candidate or Testnet order
   was manufactured. `NO LIVE TRADING PERFORMED`.
+
+# 2026-09-04 DEAD_ACCOUNT_WRITER_LEASE_RECOVERY
+
+- A real official launcher restart reproduced `ACCOUNT_WRITER_ALREADY_HELD`:
+  `Stop-Process -Force` cannot execute the supervisor's Python `finally`, so
+  the 360-second account-writer lease outlived a dead local owner. The first
+  recovery candidate `82f33fd...` is superseded by executable `eb44e6f...`.
+- Account-writer acquisition now permits a same-database takeover only when the
+  recorded owner has the strict local `host:pid` form and the PID is confirmed
+  dead. Remote, malformed, permission-uncertain, and live owners remain
+  `ACCOUNT_WRITER_ALREADY_HELD`; takeover advances the fencing generation.
+- Verified by actual one-click restart to `ACTIVE/BINANCE_TESTNET/TESTNET_CANARY`,
+  valid snapshot, `TRADING_READY`, writer `VALID`, and `HEALTHY`
+  reconciliation. AWF `27 passed`, focused runtime suite `67 passed`, and
+  isolated full pytest `2057 passed, 16 skipped, 2 warnings`; Ruff and mypy
+  passed. Both frozen contracts now protect `account_writer.py` at `eb44e6f...`.
+- No strategy, risk, geometry, authority, or mainnet setting changed. Natural
+  L2 remains `ARMED_AND_WAITING_FOR_NATURAL_SIGNAL`; no order was manufactured.
