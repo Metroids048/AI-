@@ -207,6 +207,42 @@ def test_awf_025_dead_local_supervisor_can_take_over_unexpired_same_database_lea
     assert second.capability.generation == first.capability.generation + 1
 
 
+def test_awf_025a_windows_invalid_pid_system_error_allows_dead_local_takeover(registry, monkeypatch):
+    """Windows reports a dead PID through SystemError(87), not ProcessLookupError."""
+    _bind(registry)
+    first = acquire_account_writer(
+        account_scope_key=SCOPE,
+        database_id="db-a",
+        owner_id=f"{socket.gethostname()}:424242",
+    )
+
+    def invalid_pid(_pid: int, _signal: int) -> None:
+        raise SystemError(87, "invalid parameter")
+
+    monkeypatch.setattr("services.automated_trading.infrastructure.account_writer.os.kill", invalid_pid)
+
+    second = acquire_account_writer(account_scope_key=SCOPE, database_id="db-a", owner_id="replacement-owner")
+
+    assert second.capability.generation == first.capability.generation + 1
+
+
+def test_awf_025b_unknown_system_error_keeps_unexpired_local_lease_fenced(registry, monkeypatch):
+    _bind(registry)
+    acquire_account_writer(
+        account_scope_key=SCOPE,
+        database_id="db-a",
+        owner_id=f"{socket.gethostname()}:424242",
+    )
+
+    def unknown_error(_pid: int, _signal: int) -> None:
+        raise SystemError("unexpected process probe failure")
+
+    monkeypatch.setattr("services.automated_trading.infrastructure.account_writer.os.kill", unknown_error)
+
+    with pytest.raises(AccountWriterFenceError, match="ACCOUNT_WRITER_ALREADY_HELD"):
+        acquire_account_writer(account_scope_key=SCOPE, database_id="db-a", owner_id="replacement-owner")
+
+
 def test_awf_026_remote_unexpired_owner_remains_fail_closed(registry):
     _bind(registry)
     acquire_account_writer(account_scope_key=SCOPE, database_id="db-a", owner_id="other-host:4242")

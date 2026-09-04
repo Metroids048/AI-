@@ -197,6 +197,16 @@ def _dead_local_supervisor_owner(owner_id: str) -> bool:
         # Windows reports a non-existent PID as a generic OSError on some
         # versions. Permission failures were handled above and remain fenced.
         return True
+    except SystemError as exc:
+        # CPython on Windows can wrap WinError 87 (invalid PID) in a
+        # SystemError after os.kill(pid, 0). Only that explicit dead-PID
+        # signal is recoverable; every other SystemError stays fail-closed.
+        cause = exc.__cause__
+        return bool(
+            getattr(exc, "winerror", None) == 87
+            or (exc.args and exc.args[0] == 87)
+            or getattr(cause, "winerror", None) == 87
+        )
     return False
 
 
