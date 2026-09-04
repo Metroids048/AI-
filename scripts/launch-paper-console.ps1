@@ -733,6 +733,14 @@ function Ensure-Runtime {
     $env:AUTOMATED_TRADING_ENGINE = "v2_shadow"
     if ($AutomatedTradingEngine -eq "v2_active") {
         $env:AUTOMATED_TRADING_ENGINE = $AutomatedTradingEngine
+        # These are logical account identifiers, not exchange credentials.
+        # The supervisor requires them to resolve the pre-bound Testnet writer.
+        if (-not $env:BINANCE_ACCOUNT_SCOPE_ID) {
+            $env:BINANCE_ACCOUNT_SCOPE_ID = "primary_testnet"
+        }
+        if (-not $env:BINANCE_OPERATOR_IDENTITY) {
+            $env:BINANCE_OPERATOR_IDENTITY = "local_operator"
+        }
     }
     if ($EnableNaturalTestnet) {
         # The one-click wrapper intentionally passes this switch for the

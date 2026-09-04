@@ -593,6 +593,16 @@ def test_console_launches_v2_in_shadow_mode() -> None:
     assert '$env:AUTOMATED_TRADING_ENGINE = "v2_shadow"' in launcher
 
 
+def test_active_console_provides_nonsecret_writer_scope_defaults() -> None:
+    launcher = (Path(__file__).resolve().parents[2] / "scripts" / "launch-paper-console.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'if ($AutomatedTradingEngine -eq "v2_active") {' in launcher
+    assert '$env:BINANCE_ACCOUNT_SCOPE_ID = "primary_testnet"' in launcher
+    assert '$env:BINANCE_OPERATOR_IDENTITY = "local_operator"' in launcher
+
+
 def test_natural_fresh_launcher_rearms_only_default_runtime_control() -> None:
     launcher = (Path(__file__).resolve().parents[2] / "scripts" / "launch-paper-console.ps1").read_text(
         encoding="utf-8"
