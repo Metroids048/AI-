@@ -39,9 +39,11 @@ def _local_pid_is_alive(pid: int | None) -> bool:
         # OpenProcess is more reliable than os.kill(pid, 0) on Windows for
         # distinguishing live vs gone PIDs across privilege boundaries.
         process_query_limited_information = 0x1000
-        handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, pid_i)
+        handle = ctypes.windll.kernel32.OpenProcess(  # type: ignore[attr-defined]
+            process_query_limited_information, False, pid_i
+        )
         if handle:
-            ctypes.windll.kernel32.CloseHandle(handle)
+            ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
             return True
         return False
     try:
