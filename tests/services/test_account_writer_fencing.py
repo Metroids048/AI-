@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import socket
+import subprocess
+import sys
 import threading
 import time
 from unittest.mock import MagicMock
@@ -13,6 +15,7 @@ import pytest
 
 from services.automated_trading.infrastructure.account_writer import (
     AccountWriterFenceError,
+    ProcessLiveness,
     acquire_account_writer,
     bind_account,
     capability_is_current,
@@ -207,26 +210,24 @@ def test_awf_025_dead_local_supervisor_can_take_over_unexpired_same_database_lea
     assert second.capability.generation == first.capability.generation + 1
 
 
-def test_awf_025a_windows_invalid_pid_system_error_allows_dead_local_takeover(registry, monkeypatch):
-    """Windows reports a dead PID through SystemError(87), not ProcessLookupError."""
+def test_awf_025a_dead_process_probe_allows_local_takeover(registry, monkeypatch):
     _bind(registry)
     first = acquire_account_writer(
         account_scope_key=SCOPE,
         database_id="db-a",
         owner_id=f"{socket.gethostname()}:424242",
     )
-
-    def invalid_pid(_pid: int, _signal: int) -> None:
-        raise SystemError(87, "invalid parameter")
-
-    monkeypatch.setattr("services.automated_trading.infrastructure.account_writer.os.kill", invalid_pid)
+    monkeypatch.setattr(
+        "services.automated_trading.infrastructure.account_writer._probe_process_liveness",
+        lambda _pid: ProcessLiveness.DEAD,
+    )
 
     second = acquire_account_writer(account_scope_key=SCOPE, database_id="db-a", owner_id="replacement-owner")
 
     assert second.capability.generation == first.capability.generation + 1
 
 
-def test_awf_025b_unknown_system_error_keeps_unexpired_local_lease_fenced(registry, monkeypatch):
+def test_awf_025b_unknown_process_probe_keeps_unexpired_local_lease_fenced(registry, monkeypatch):
     _bind(registry)
     acquire_account_writer(
         account_scope_key=SCOPE,
@@ -234,13 +235,46 @@ def test_awf_025b_unknown_system_error_keeps_unexpired_local_lease_fenced(regist
         owner_id=f"{socket.gethostname()}:424242",
     )
 
-    def unknown_error(_pid: int, _signal: int) -> None:
-        raise SystemError("unexpected process probe failure")
-
-    monkeypatch.setattr("services.automated_trading.infrastructure.account_writer.os.kill", unknown_error)
+    monkeypatch.setattr(
+        "services.automated_trading.infrastructure.account_writer._probe_process_liveness",
+        lambda _pid: ProcessLiveness.UNKNOWN,
+    )
 
     with pytest.raises(AccountWriterFenceError, match="ACCOUNT_WRITER_ALREADY_HELD"):
         acquire_account_writer(account_scope_key=SCOPE, database_id="db-a", owner_id="replacement-owner")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires the Windows process API")
+def test_awf_027_live_child_process_is_never_killed_by_writer_probe(registry):
+    _bind(registry)
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        first = acquire_account_writer(
+            account_scope_key=SCOPE,
+            database_id="db-a",
+            owner_id=f"{socket.gethostname()}:{child.pid}",
+        )
+        with pytest.raises(AccountWriterFenceError, match="ACCOUNT_WRITER_ALREADY_HELD"):
+            acquire_account_writer(account_scope_key=SCOPE, database_id="db-a", owner_id="replacement-owner")
+        assert child.poll() is None
+        assert first.capability.generation == 1
+    finally:
+        child.terminate()
+        child.wait(timeout=5)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires the Windows process API")
+def test_awf_028_dead_child_process_can_be_taken_over(registry):
+    _bind(registry)
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait(timeout=5)
+    first = acquire_account_writer(
+        account_scope_key=SCOPE,
+        database_id="db-a",
+        owner_id=f"{socket.gethostname()}:{child.pid}",
+    )
+    second = acquire_account_writer(account_scope_key=SCOPE, database_id="db-a", owner_id="replacement-owner")
+    assert second.capability.generation == first.capability.generation + 1
 
 
 def test_awf_026_remote_unexpired_owner_remains_fail_closed(registry):

@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,14 @@ REGISTRY_ENV = "V2_ACCOUNT_WRITER_REGISTRY_PATH"
 ACCOUNT_SCOPE_ENV = "BINANCE_ACCOUNT_SCOPE_ID"
 OPERATOR_IDENTITY_ENV = "BINANCE_OPERATOR_IDENTITY"
 DEFAULT_LEASE_SECONDS = 360.0
+
+
+class ProcessLiveness(StrEnum):
+    """Fail-closed classification for a same-host writer owner process."""
+
+    ALIVE = "ALIVE"
+    DEAD = "DEAD"
+    UNKNOWN = "UNKNOWN"
 
 
 class AccountWriterFenceError(RuntimeError):
@@ -174,40 +183,64 @@ def _parse(value: str) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def _dead_local_supervisor_owner(owner_id: str) -> bool:
-    """Allow crash recovery only for a known-dead, same-host supervisor owner."""
+def _owner_pid(owner_id: str) -> int | None:
     if owner_id.count(":") != 1:
-        return False
+        return None
     owner_host, raw_pid = owner_id.rsplit(":", 1)
     if owner_host.casefold() != socket.gethostname().casefold():
-        return False
+        return None
     try:
         owner_pid = int(raw_pid)
     except ValueError:
-        return False
+        return None
     if owner_pid <= 0:
-        return False
+        return None
+    return owner_pid
+
+
+def _windows_process_liveness(pid: int) -> ProcessLiveness:
+    """Query a Windows process without sending it a signal."""
+    import ctypes
+
+    process_query_limited_information = 0x1000
+    error_invalid_parameter = 87
+    still_active = 259
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        return ProcessLiveness.DEAD if ctypes.get_last_error() == error_invalid_parameter else ProcessLiveness.UNKNOWN
     try:
-        os.kill(owner_pid, 0)
+        exit_code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return ProcessLiveness.UNKNOWN
+        return ProcessLiveness.ALIVE if exit_code.value == still_active else ProcessLiveness.DEAD
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _probe_process_liveness(pid: int) -> ProcessLiveness:
+    """Return ALIVE, DEAD, or UNKNOWN without mutating the target process."""
+    if os.name == "nt":
+        return _windows_process_liveness(pid)
+    try:
+        os.kill(pid, 0)
     except ProcessLookupError:
-        return True
+        return ProcessLiveness.DEAD
     except PermissionError:
-        return False
-    except OSError:
-        # Windows reports a non-existent PID as a generic OSError on some
-        # versions. Permission failures were handled above and remain fenced.
-        return True
-    except SystemError as exc:
-        # CPython on Windows can wrap WinError 87 (invalid PID) in a
-        # SystemError after os.kill(pid, 0). Only that explicit dead-PID
-        # signal is recoverable; every other SystemError stays fail-closed.
-        cause = exc.__cause__
-        return bool(
-            getattr(exc, "winerror", None) == 87
-            or (exc.args and exc.args[0] == 87)
-            or getattr(cause, "winerror", None) == 87
-        )
-    return False
+        return ProcessLiveness.UNKNOWN
+    except OSError as exc:
+        return ProcessLiveness.DEAD if getattr(exc, "errno", None) == 3 else ProcessLiveness.UNKNOWN
+    except (OverflowError, SystemError, ValueError):
+        return ProcessLiveness.UNKNOWN
+    return ProcessLiveness.ALIVE
+
+
+def _dead_local_supervisor_owner(owner_id: str) -> ProcessLiveness:
+    """Classify a same-host supervisor owner; malformed/remote owners are unknown."""
+    owner_pid = _owner_pid(owner_id)
+    if owner_pid is None:
+        return ProcessLiveness.UNKNOWN
+    return _probe_process_liveness(owner_pid)
 
 
 def bind_account(
@@ -316,7 +349,7 @@ def acquire_account_writer(
             existing_expiry is not None
             and existing_expiry > observed
             and not same_owner
-            and not _dead_local_supervisor_owner(existing_owner)
+            and _dead_local_supervisor_owner(existing_owner) is not ProcessLiveness.DEAD
         ):
             raise AccountWriterFenceError("ACCOUNT_WRITER_ALREADY_HELD")
         generation = (

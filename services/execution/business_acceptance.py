@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -37,6 +38,8 @@ class BusinessAcceptanceState:
                 raise ValueError(f"invalid business acceptance state for {stage}: {value}")
         if any(getattr(self, stage) == "PASS" for stage in ACCEPTANCE_STAGES) and not self.validated_code_sha:
             raise ValueError("validated_code_sha is required for business acceptance PASS")
+        if self.validated_code_sha is not None and not re.fullmatch(r"[0-9a-f]{40}", self.validated_code_sha):
+            raise ValueError("validated_code_sha must be a full 40-character commit SHA")
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -23,6 +23,11 @@ def test_business_acceptance_pass_requires_validated_code_sha() -> None:
         BusinessAcceptanceState(validated_code_sha=None, runtime_readiness="PASS")
 
 
+def test_business_acceptance_sha_must_be_a_full_commit_sha() -> None:
+    with pytest.raises(ValueError, match="40-character commit SHA"):
+        BusinessAcceptanceState(validated_code_sha="not-a-sha", runtime_readiness="PASS")
+
+
 def test_business_acceptance_contract_is_machine_readable_and_not_code_pass() -> None:
     path = Path("contracts/business_acceptance_state.json")
     payload = json.loads(path.read_text(encoding="utf-8"))

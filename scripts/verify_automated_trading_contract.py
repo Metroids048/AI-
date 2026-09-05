@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -13,12 +14,59 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = REPO_ROOT / "contracts" / "automated_trading_frozen_contract.json"
+ACCEPTANCE_PATH = REPO_ROOT / "contracts" / "business_acceptance_state.json"
+V2_CONTRACT_PATH = REPO_ROOT / "contracts" / "v2_transaction_contract.json"
 FAILURE_CODE = "AUTO_TRADING_FROZEN_CONTRACT_VIOLATION"
 STALE_APPROVAL_CODE = "AUTO_TRADING_STALE_ENV_APPROVAL_REJECTED"
+LEDGER_FAILURE_CODE = "AUTO_TRADING_ACCEPTANCE_LEDGER_VIOLATION"
+FINAL_CLOSEOUT_FAILURE_CODE = "AUTO_TRADING_FINAL_CLOSEOUT_BLOCKED"
+_COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 def load_contract() -> dict[str, Any]:
     return json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+
+
+def load_acceptance_state() -> dict[str, Any]:
+    return json.loads(ACCEPTANCE_PATH.read_text(encoding="utf-8"))
+
+
+def load_v2_contract() -> dict[str, Any]:
+    return json.loads(V2_CONTRACT_PATH.read_text(encoding="utf-8"))
+
+
+def acceptance_ledger_errors(
+    contract: dict[str, Any],
+    acceptance: dict[str, Any] | None = None,
+    transaction: dict[str, Any] | None = None,
+    *,
+    require_natural: bool = False,
+) -> list[str]:
+    """Validate the cross-ledger SHA and stage gate before freeze/closeout."""
+    acceptance = acceptance or load_acceptance_state()
+    transaction = transaction or load_v2_contract()
+    errors: list[str] = []
+    frozen_sha = str(contract.get("baseline_sha") or "")
+    accepted_sha = str(acceptance.get("validated_code_sha") or "")
+    transaction_sha = str(transaction.get("baseline_sha") or "")
+    for label, value in (
+        ("frozen baseline_sha", frozen_sha),
+        ("business validated_code_sha", accepted_sha),
+        ("v2 transaction baseline_sha", transaction_sha),
+    ):
+        if not _COMMIT_SHA.fullmatch(value):
+            errors.append(f"{label} must be a full 40-character commit SHA")
+    if _COMMIT_SHA.fullmatch(frozen_sha) and _COMMIT_SHA.fullmatch(accepted_sha) and frozen_sha != accepted_sha:
+        errors.append(f"business validated_code_sha {accepted_sha} != frozen baseline_sha {frozen_sha}")
+    if _COMMIT_SHA.fullmatch(frozen_sha) and _COMMIT_SHA.fullmatch(transaction_sha) and frozen_sha != transaction_sha:
+        errors.append(f"v2 transaction baseline_sha {transaction_sha} != frozen baseline_sha {frozen_sha}")
+    if acceptance.get("runtime_readiness") != "PASS":
+        errors.append("runtime_readiness must be PASS for engineering freeze")
+    if acceptance.get("runtime_recovery_resilience") != "PASS":
+        errors.append("runtime_recovery_resilience must be PASS for engineering freeze")
+    if require_natural and acceptance.get("natural_testnet_execution") != "PASS":
+        errors.append("natural_testnet_execution must be PASS for final closeout")
+    return errors
 
 
 def protected_paths(contract: dict[str, Any]) -> dict[str, str]:
@@ -131,6 +179,14 @@ def main() -> int:
     parser.add_argument("--verify-baseline", action="store_true", help="verify hashes stored in the contract")
     parser.add_argument("--verify-head", action="store_true", help="verify protected paths in current HEAD")
     parser.add_argument(
+        "--verify-ledger", action="store_true", help="verify acceptance/freeze SHA and engineering stage"
+    )
+    parser.add_argument(
+        "--verify-final-closeout",
+        action="store_true",
+        help="require matching ledgers and natural Testnet PASS",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="emit a machine-readable result after the requested frozen-contract checks",
@@ -172,6 +228,24 @@ def main() -> int:
             print(f"PASS: bounded one-time approval covers {len(touched)} frozen path(s)")
         else:
             print("PASS: no automated-trading frozen paths staged")
+    if args.verify_ledger or args.verify_final_closeout:
+        ledger_failures = acceptance_ledger_errors(
+            contract,
+            require_natural=args.verify_final_closeout,
+        )
+        if ledger_failures:
+            print(
+                FINAL_CLOSEOUT_FAILURE_CODE if args.verify_final_closeout else LEDGER_FAILURE_CODE,
+                file=sys.stderr,
+            )
+            for failure in ledger_failures:
+                print(f"FAIL: {failure}", file=sys.stderr)
+            return 1
+        if args.verify_final_closeout:
+            print("FINAL_CLOSEOUT=PASS")
+        else:
+            natural = load_acceptance_state().get("natural_testnet_execution")
+            print(f"ENGINEERING_FREEZE=PASS; NATURAL_TESTNET_EXECUTION={natural}")
     if args.json:
         print(
             json.dumps(

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from scripts.verify_automated_trading_contract import (
     CONTRACT_PATH,
+    acceptance_ledger_errors,
     baseline_hashes_match,
     current_head_hashes_match,
     load_contract,
@@ -79,3 +80,32 @@ def test_unrelated_paths_do_not_trigger_the_automated_trading_freeze() -> None:
         )
         == []
     )
+
+
+def test_acceptance_and_freeze_ledgers_must_share_the_same_executable_sha() -> None:
+    contract = load_contract()
+    acceptance = {
+        "validated_code_sha": "a" * 40,
+        "runtime_readiness": "PASS",
+        "runtime_recovery_resilience": "PASS",
+        "natural_testnet_execution": "PENDING",
+    }
+    transaction = {"baseline_sha": "a" * 40}
+
+    failures = acceptance_ledger_errors(contract, acceptance, transaction)
+    assert failures
+    assert any("validated_code_sha" in item for item in failures)
+
+
+def test_engineering_freeze_allows_natural_pending_but_final_closeout_does_not() -> None:
+    contract = load_contract()
+    acceptance = {
+        "validated_code_sha": contract["baseline_sha"],
+        "runtime_readiness": "PASS",
+        "runtime_recovery_resilience": "PASS",
+        "natural_testnet_execution": "PENDING",
+    }
+    transaction = {"baseline_sha": contract["baseline_sha"]}
+
+    assert acceptance_ledger_errors(contract, acceptance, transaction) == []
+    assert acceptance_ledger_errors(contract, acceptance, transaction, require_natural=True)
