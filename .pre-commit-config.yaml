@@ -48,7 +48,7 @@ repos:
     hooks:
       - id: automated-trading-frozen-contract
         name: Automated trading product contract freeze
-        entry: python scripts/verify_automated_trading_contract.py --verify-baseline --verify-head --staged
+        entry: python scripts/verify_automated_trading_contract.py --verify-baseline --verify-head --verify-ledger --staged
         language: system
         pass_filenames: false
         always_run: true

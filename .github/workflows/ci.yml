@@ -38,6 +38,10 @@ jobs:
         run: python scripts/sync_skill_copies.py --check
       - name: Verify active manifest evidence
         run: python scripts/verify_current_state_evidence.py
+      - name: Verify automated trading acceptance and freeze ledgers
+        run: python scripts/verify_automated_trading_contract.py --verify-baseline --verify-head --verify-ledger
+      - name: Verify V2 transaction freeze
+        run: python scripts/verify_v2_transaction_contract.py --verify-baseline --verify-head
       - uses: actions/setup-node@v4
         with:
           node-version: "20.19.0"
