@@ -24,9 +24,9 @@ jobs:
         run: ruff check .
       - name: Ruff format check
         # runtime_state.py is byte-frozen by the automated-trading contract.
-        # Preserve the repository's configured archive excludes and extend them
-        # with exactly this frozen path.
-        run: ruff format --check --extend-exclude services/execution/runtime_state.py .
+        # The CLI exclude list therefore repeats the repository archive excludes
+        # and adds exactly this frozen path without changing runtime bytes.
+        run: ruff format --check --exclude scripts/archive --exclude docs/archive --exclude services/execution/runtime_state.py .
       - name: Mypy
         run: mypy
       - name: Python dependency audit
