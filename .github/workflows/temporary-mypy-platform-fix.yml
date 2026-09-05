@@ -48,7 +48,7 @@ jobs:
                   ),
                   (
                       "    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)\n    if not handle:\n        return ProcessLiveness.DEAD if ctypes.get_last_error() == error_invalid_parameter else ProcessLiveness.UNKNOWN",
-                      "    get_last_error = getattr(ctypes, \"get_last_error\")\n    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)\n    if not handle:\n        return ProcessLiveness.DEAD if get_last_error() == error_invalid_parameter else ProcessLiveness.UNKNOWN",
+                      "    get_last_error = ctypes.get_last_error  # type: ignore[attr-defined]\n    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)\n    if not handle:\n        return ProcessLiveness.DEAD if get_last_error() == error_invalid_parameter else ProcessLiveness.UNKNOWN",
                   ),
               ],
               "services/execution/scheduler_coordination.py": [
