@@ -23,7 +23,9 @@ jobs:
       - name: Ruff lint
         run: ruff check .
       - name: Ruff format check
-        run: ruff format --check .
+        # runtime_state.py is byte-frozen by the automated-trading contract.
+        # Incidental formatter rewrites must not bypass the explicit rebaseline process.
+        run: ruff format --check --exclude services/execution/runtime_state.py .
       - name: Mypy
         run: mypy
       - name: Python dependency audit
