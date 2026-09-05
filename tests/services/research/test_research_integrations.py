@@ -72,6 +72,19 @@ def test_orchestrator_enforces_bias_gate_and_never_authorizes() -> None:
 
 
 def test_orchestrator_surfaces_freqtrade_subprocess_failure() -> None:
+    class PassingVectorbt:
+        def screen(self, spec, rows, *, run_id):
+            return ResearchExperimentResult(
+                run_id=run_id,
+                engine="vectorbt",
+                input_spec_hash=spec.input_spec_hash,
+                dataset_hash=spec.dataset_hash,
+                cost_model_hash=spec.cost_model_hash,
+                strategy_hash=spec.strategy_hash,
+                status="completed",
+                parameter_plateau={"top_candidates": [{"parameters": {"entry": 1}}]},
+            )
+
     class FailingFreqtrade:
         def validate(self, spec, rows, *, run_id, candidate=None):
             return ResearchExperimentResult(
@@ -85,7 +98,7 @@ def test_orchestrator_surfaces_freqtrade_subprocess_failure() -> None:
                 failure_reason="FREQTRADE_UNAVAILABLE",
             )
 
-    result = ResearchOrchestrator(freqtrade=FailingFreqtrade()).run_pipeline(
+    result = ResearchOrchestrator(vectorbt=PassingVectorbt(), freqtrade=FailingFreqtrade()).run_pipeline(
         _spec(),
         [{"close": 100, "entry_signal": True, "exit_signal": False}],
         run_id="run-freqtrade-failure",
