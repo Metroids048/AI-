@@ -99,3 +99,17 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 strict_optional = true
 ignore_missing_imports = true
+
+# These modules intentionally contain Windows-only stdlib APIs. Linux typeshed
+# does not expose msvcrt.locking/LK_* or ctypes WinDLL/windll/get_last_error,
+# while the runtime files themselves are byte-frozen by the trading contract.
+# Keep the runtime bytes untouched and scope the cross-platform type exception
+# to exactly the affected modules instead of disabling attr-defined globally.
+[[tool.mypy.overrides]]
+module = ["services.automated_trading.infrastructure.account_writer"]
+disable_error_code = ["attr-defined"]
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = ["services.execution.runtime_state", "services.execution.scheduler_coordination"]
+disable_error_code = ["attr-defined"]
