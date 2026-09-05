@@ -1,0 +1,41 @@
+name: Temporary Ruff Format Recovery
+
+on:
+  push:
+    branches:
+      - fix/ci-ruff-formatter-contract
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/ci-ruff-formatter-contract
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install frozen Ruff formatter
+        run: pip install ruff==0.15.20
+      - name: Apply repository formatter contract
+        run: ruff format .
+      - name: Verify formatting and diff
+        run: |
+          ruff format --check .
+          git diff --check
+          git status --short
+      - name: Commit formatter-only changes when present
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No formatting changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git commit -m "style: apply Ruff 0.15.20 formatting"
+          git push origin HEAD:fix/ci-ruff-formatter-contract
