@@ -108,9 +108,7 @@ def test_orchestrator_surfaces_freqtrade_subprocess_failure() -> None:
 
 
 def test_freqtrade_result_marks_bias_checks_explicitly() -> None:
-    result = FreqtradeValidationAdapter(executable="freqtrade").validate(
-        _spec(), [{"return": 0.01}], run_id="run-3"
-    )
+    result = FreqtradeValidationAdapter(executable="freqtrade").validate(_spec(), [{"return": 0.01}], run_id="run-3")
     assert result.status == "failed"
     assert result.failure_reason == "FREQTRADE_CONFIGURATION_REQUIRED"
     assert result.provenance["trade_command_allowed"] is False
