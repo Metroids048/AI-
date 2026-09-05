@@ -1,6 +1,6 @@
 {
   "contract_version": "automated-trading-freeze-1",
-  "baseline_sha": "311bd4a736ad2559ce03aa37084f393b92a5c6a1",
+  "baseline_sha": "967ab9c841d228e0ae577d386b33b505ce06e624",
   "canonical_owner": "contracts/automated_trading_frozen_contract.json",
   "transaction_protected_paths": {
     "services/automated_trading/application/cycle_service.py": "bdb162b7f2e6b96142f56e2b14d1e27017b292366ffdc5a1d4a091040cf660de",
@@ -11,7 +11,7 @@
     "services/automated_trading/application/protection_service.py": "bbec69abcc0d56e6d2adc78aa86890a0e68949b3be9ced74ce6d062406e5f0af",
     "services/automated_trading/application/reconciliation_service.py": "f403110b7c42e151baea0a60c5376784bfec3d176da149d71b817287e2f5f629",
     "services/automated_trading/application/recovery_service.py": "e70fe240669110122f26174e6ddc84b48ea0a7e3bb8fdc6d6cb5588060460ab9",
-    "services/automated_trading/infrastructure/account_writer.py": "3a08f9deec15511ae3c6615fba7cfaa06074a3c98c250dadecd70b0f855eefaa",
+    "services/automated_trading/infrastructure/account_writer.py": "d9fd5bfbc1f593ed464ab5571872eb816015d1df0cd12a23524f05080b6f6984",
     "services/automated_trading/infrastructure/binance_adapter.py": "aabc93d00a87d4d12555c512c67af4de3ee86bbd1afaaa23efd71d0ba3724c5a",
     "services/execution/scheduler.py": "da26dc9e237281e9e337a32b2cd04e09ba6678b433850656c0aa13fae104b659",
     "services/execution/v2_scheduler_entry.py": "ebc0c404e5b0257b6cafe5cc7fd5cc7555e1073ac4f871461d6eecee9bcee174"
