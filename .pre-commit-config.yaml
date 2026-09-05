@@ -12,6 +12,9 @@ repos:
         args: [--fix]
         stages: [pre-commit]
       - id: ruff-format
+        # runtime_state.py is byte-frozen by contracts/automated_trading_frozen_contract.json.
+        # Formatting it requires the explicit rebaseline process, not an incidental tooling rewrite.
+        exclude: ^services/execution/runtime_state\.py$
         stages: [pre-commit]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
