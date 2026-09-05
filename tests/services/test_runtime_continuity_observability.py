@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 from services.execution.runtime_state import (
     derive_engine_health_status,
@@ -110,8 +111,10 @@ def test_runtime_state_uses_non_destructive_windows_pid_probe(monkeypatch, tmp_p
     def fail_if_called(_pid: int, _sig: int) -> None:
         raise AssertionError("Windows liveness must not call os.kill(pid, 0)")
 
-    monkeypatch.setattr(os, "name", "nt")
-    monkeypatch.setattr(os, "kill", fail_if_called)
+    # Patch only the runtime_state module's OS view. Mutating the process-wide
+    # os.name turns pathlib into WindowsPath on Linux and can crash pytest itself.
+    windows_os = SimpleNamespace(name="nt", getenv=os.getenv, kill=fail_if_called)
+    monkeypatch.setattr("services.execution.runtime_state.os", windows_os)
     monkeypatch.setattr("services.execution.runtime_state._windows_process_alive", lambda _pid: False)
     state = load_external_scheduler_state(now=now)
 
