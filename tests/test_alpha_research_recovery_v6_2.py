@@ -30,9 +30,33 @@ def test_archive_urls_are_official_and_probe_is_six_by_two() -> None:
 
 def test_zip_integrity_and_gkg_schema_probe() -> None:
     fields = [
-        "GKGRECORDID", "20230129123000", "1", "Example", "https://example.test/a",
-        "", "", "bitcoin", "bitcoin", "", "", "Alice", "Alice", "Binance", "Binance",
-        "1,2,3", "", "", "", "", "", "", "", "", "", "", "<PAGE_TITLE>Bitcoin</PAGE_TITLE>",
+        "GKGRECORDID",
+        "20230129123000",
+        "1",
+        "Example",
+        "https://example.test/a",
+        "",
+        "",
+        "bitcoin",
+        "bitcoin",
+        "",
+        "",
+        "Alice",
+        "Alice",
+        "Binance",
+        "Binance",
+        "1,2,3",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "<PAGE_TITLE>Bitcoin</PAGE_TITLE>",
     ]
     data = _zip_bytes("20230129.gkg.csv", ("\t".join(fields) + "\n").encode())
     assert inspect_zip(data)["zip_ok"] is True
@@ -44,8 +68,7 @@ def test_zip_integrity_and_gkg_schema_probe() -> None:
 
 def test_gkg_1_0_header_and_day_date_remain_day_level() -> None:
     header = (
-        "DATE\tNUMARTS\tCOUNTS\tTHEMES\tLOCATIONS\tPERSONS\tORGANIZATIONS\t"
-        "TONE\tCAMEOEVENTIDS\tSOURCES\tSOURCEURLS\n"
+        "DATE\tNUMARTS\tCOUNTS\tTHEMES\tLOCATIONS\tPERSONS\tORGANIZATIONS\tTONE\tCAMEOEVENTIDS\tSOURCES\tSOURCEURLS\n"
     )
     row = "20250701\t1\t\tbitcoin#1\t\tAlice\tBinance\t0,0,0\t\texample.com\thttps://example.test/item\n"
     result = inspect_gkg(_zip_bytes("20250701.gkg.csv", (header + row).encode()))

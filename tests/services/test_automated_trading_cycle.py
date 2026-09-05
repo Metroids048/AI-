@@ -640,7 +640,7 @@ def test_runtime_hold_preserves_forward_authority_in_cycle_payload() -> None:
             "promotion_eligible": False,
             "trading_state": "TRADING_READY",
             "reason_code": "multi_timeframe_disagreement",
-        }
+        },
     )
 
     _apply_runtime_entry_pause(result, entry_enabled=False)

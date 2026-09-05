@@ -122,18 +122,18 @@ def replay_candidate_windows(session: Session, *, window_minutes: int = 5) -> di
         bid_liquidity = Decimal(str(snapshot.bids[0][1])) if snapshot.bids else Decimal("0")
         ask_liquidity = Decimal(str(snapshot.asks[0][1])) if snapshot.asks else Decimal("0")
         window = ReplayWindow(
-                    side=side,
-                    quantity=qty,
-                    reference_price=reference,
-                    target_price=target,
-                    stop_price=stop,
-                    best_bid=snapshot.best_bid,
-                    best_ask=snapshot.best_ask,
-                    bid_liquidity=bid_liquidity,
-                    ask_liquidity=ask_liquidity,
-                    future_touch=False,
-                    timeout=True,
-                )
+            side=side,
+            quantity=qty,
+            reference_price=reference,
+            target_price=target,
+            stop_price=stop,
+            best_bid=snapshot.best_bid,
+            best_ask=snapshot.best_ask,
+            bid_liquidity=bid_liquidity,
+            ask_liquidity=ask_liquidity,
+            future_touch=False,
+            timeout=True,
+        )
         market_results.append(replay_market_control(window))
         challenger_results.append(replay_window(window))
     market_net = sum((result.net_r for result in market_results), Decimal("0"))

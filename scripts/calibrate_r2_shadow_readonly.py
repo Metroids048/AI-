@@ -69,7 +69,14 @@ def _trade_result(
 
 def _metrics(trades: list[dict]) -> dict:
     if not trades:
-        return {"trades": 0, "wins": 0, "win_rate": None, "net_expectancy_r": None, "profit_factor": None, "max_drawdown_r": None}
+        return {
+            "trades": 0,
+            "wins": 0,
+            "win_rate": None,
+            "net_expectancy_r": None,
+            "profit_factor": None,
+            "max_drawdown_r": None,
+        }
     net = [Decimal(str(item["net_r"])) for item in trades]
     wins = sum(value > 0 for value in net)
     equity = Decimal("0")
@@ -153,7 +160,14 @@ def main() -> int:
                     "stop_distance": str(stop_distance),
                     "gross_r": str(gross_r),
                     "exit_index": exit_index,
-                    "cost": {key: {"cost_r": str(value.cost_r), "payoff": str(value.theoretical_net_payoff), "passed": value.passed} for key, value in cost_by_threshold.items()},
+                    "cost": {
+                        key: {
+                            "cost_r": str(value.cost_r),
+                            "payoff": str(value.theoretical_net_payoff),
+                            "passed": value.passed,
+                        }
+                        for key, value in cost_by_threshold.items()
+                    },
                 }
             )
         threshold_results: dict[str, object] = {}
@@ -175,8 +189,7 @@ def main() -> int:
                 windows[stamp.strftime("%Y-%m")].append(trade)
             window_metrics = {window: _metrics(items) for window, items in sorted(windows.items())}
             positive_windows = sum(
-                metric["trades"] > 0 and (metric["net_expectancy_r"] or 0) > 0
-                for metric in window_metrics.values()
+                metric["trades"] > 0 and (metric["net_expectancy_r"] or 0) > 0 for metric in window_metrics.values()
             )
             overall = _metrics(trades)
             threshold_results[key] = {

@@ -127,7 +127,13 @@ def fetch_transport(url: str, *, timeout: int = 15) -> tuple[list[dict[str, Any]
             return rows, {"transport": transport, "http_status": status, "ok": True, "record_count": len(rows)}
         except json.JSONDecodeError:
             errors.append(f"{transport}:JSONDecodeError")
-            return [], {"transport": transport, "http_status": status if "status" in locals() else None, "ok": False, "parse_failed": True, "errors": errors}
+            return [], {
+                "transport": transport,
+                "http_status": status if "status" in locals() else None,
+                "ok": False,
+                "parse_failed": True,
+                "errors": errors,
+            }
         except Exception as exc:  # noqa: BLE001 - record each transport failure
             errors.append(f"{transport}:{type(exc).__name__}")
     return [], {"transport": None, "http_status": None, "ok": False, "errors": errors}
@@ -235,8 +241,17 @@ def acquire_probe_slice(
 
 
 def _manifest_line(
-    *, query_family: str, start: datetime, end: datetime, transport: str | None, attempts: int,
-    http_status: int | None, record_count: int, saturated: bool, status: str, response: str = "",
+    *,
+    query_family: str,
+    start: datetime,
+    end: datetime,
+    transport: str | None,
+    attempts: int,
+    http_status: int | None,
+    record_count: int,
+    saturated: bool,
+    status: str,
+    response: str = "",
 ) -> dict[str, Any]:
     return {
         "query_family": query_family,
@@ -275,11 +290,7 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
 
 def append_canonical_records(path: Path, rows: Iterable[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing = {
-        str(item.get("record_id"))
-        for item in load_manifest(path)
-        if item.get("record_id")
-    }
+    existing = {str(item.get("record_id")) for item in load_manifest(path) if item.get("record_id")}
     with path.open("a", encoding="utf-8") as handle:
         for row in rows:
             record_id = str(row.get("record_id") or "")

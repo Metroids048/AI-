@@ -88,8 +88,12 @@ def main() -> int:
             )
 
         print(f"paper_run_id={run.paper_run_id}")
-        print(f"before risk_per_trade={current.get('risk_per_trade')} max_leverage={current.get('max_leverage')} max_symbol_exposure={current.get('max_symbol_exposure')}")
-        print(f"after  risk_per_trade={updated['risk_per_trade']} max_leverage={updated['max_leverage']} max_symbol_exposure={updated['max_symbol_exposure']}")
+        print(
+            f"before risk_per_trade={current.get('risk_per_trade')} max_leverage={current.get('max_leverage')} max_symbol_exposure={current.get('max_symbol_exposure')}"
+        )
+        print(
+            f"after  risk_per_trade={updated['risk_per_trade']} max_leverage={updated['max_leverage']} max_symbol_exposure={updated['max_symbol_exposure']}"
+        )
         if not args.apply:
             print("DRY RUN: no configuration written")
             session.rollback()

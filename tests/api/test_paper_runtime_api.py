@@ -398,7 +398,7 @@ def test_operator_settings_remain_authoritative_after_strategy_rules_drift(api_c
 
     generator = PaperSignalGenerator(data_repo=DataRepository(db_session))
     assert (
-            generator._requested_leverage(
+        generator._requested_leverage(
             strategy=updated,
             paper_run=paper_run,
             symbol="BTC/USDT",

@@ -1442,8 +1442,7 @@ def build_no_trade_summary(
     runtime_health = (
         "checking"
         if summary_code == "EXCHANGE_RECONCILIATION_IN_PROGRESS"
-        else
-        "degraded"
+        else "degraded"
         if summary_code
         in {
             "SCHEDULER_OFFLINE",
@@ -1508,11 +1507,7 @@ def build_no_trade_summary(
             "last_fill_at": None,
         }
 
-    authorization_reason = (
-        entry_pause_reason
-        if summary_category == "AUTHORIZATION_BLOCKED"
-        else None
-    )
+    authorization_reason = entry_pause_reason if summary_category == "AUTHORIZATION_BLOCKED" else None
     system_failure_reason = active_blocker if summary_category == "SYSTEM_BLOCKED" else None
     strategy_reason = (
         max(strategy_filter_counts, key=lambda reason: (strategy_filter_counts[reason], reason))

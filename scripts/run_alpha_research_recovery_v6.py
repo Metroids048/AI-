@@ -42,9 +42,30 @@ WINDOW_DAYS = 7
 PROBE_WINDOWS = 1
 GDELT_TIMEOUT_SECONDS = 15
 SCHEDULED_FOMC_DATES = {
-    "2023-02-01", "2023-03-22", "2023-05-03", "2023-06-14", "2023-07-26", "2023-09-20", "2023-11-01", "2023-12-13",
-    "2024-01-31", "2024-03-20", "2024-05-01", "2024-06-12", "2024-07-31", "2024-09-18", "2024-11-07", "2024-12-18",
-    "2025-01-29", "2025-03-19", "2025-05-07", "2025-06-18", "2025-07-30", "2025-09-17", "2025-10-29", "2025-12-10",
+    "2023-02-01",
+    "2023-03-22",
+    "2023-05-03",
+    "2023-06-14",
+    "2023-07-26",
+    "2023-09-20",
+    "2023-11-01",
+    "2023-12-13",
+    "2024-01-31",
+    "2024-03-20",
+    "2024-05-01",
+    "2024-06-12",
+    "2024-07-31",
+    "2024-09-18",
+    "2024-11-07",
+    "2024-12-18",
+    "2025-01-29",
+    "2025-03-19",
+    "2025-05-07",
+    "2025-06-18",
+    "2025-07-30",
+    "2025-09-17",
+    "2025-10-29",
+    "2025-12-10",
 }
 
 _NOT_RUN_ARTIFACTS = (
@@ -119,7 +140,9 @@ def audit_gdelt(
             )
             raw_rows.extend([{**row, "_query_family": family} for row in rows])
             manifest_rows.extend(outcomes)
-            probes.append({"query_family": family, "start": start.isoformat(), "end": end.isoformat(), "outcomes": outcomes})
+            probes.append(
+                {"query_family": family, "start": start.isoformat(), "end": end.isoformat(), "outcomes": outcomes}
+            )
     deduped = dedupe_records(raw_rows)
     retrieved_at = datetime.now(UTC)
     canonical = [
@@ -157,7 +180,9 @@ def audit_gdelt(
         if month == 13:
             year += 1
             month = 1
-    leaf_failures = [item for item in manifest_rows if item.get("status") == "NETWORK_FAILED" and not item.get("split_for_recovery")]
+    leaf_failures = [
+        item for item in manifest_rows if item.get("status") == "NETWORK_FAILED" and not item.get("split_for_recovery")
+    ]
     unresolved_saturated = [item for item in manifest_rows if item.get("status") == "SATURATED"]
     transport_counts: dict[str, int] = {}
     for item in manifest_rows:
@@ -265,7 +290,9 @@ def audit_fomc() -> dict[str, Any]:
                 if not raw_statement:
                     raise RuntimeError("STATEMENT_FETCH_FAILED")
                 statement_text = strip_html(raw_statement)
-                resolved = resolve_release_timestamp(statement_text, release_date=datetime.fromisoformat(item["meeting_date"]).date())
+                resolved = resolve_release_timestamp(
+                    statement_text, release_date=datetime.fromisoformat(item["meeting_date"]).date()
+                )
                 entry.update(resolved)
                 entry["statement_found"] = True
                 entry["release_time_verified"] = resolved["status"] == "VERIFIED"
@@ -287,7 +314,10 @@ def audit_fomc() -> dict[str, Any]:
         payload["first_event"] = min(release_times) if release_times else None
         payload["last_event"] = max(release_times) if release_times else None
         payload["publication_timestamp_available"] = payload["verified_release_times"] > 0
-        payload["usable"] = payload["scheduled_meetings"] == len(SCHEDULED_FOMC_DATES) and payload["verified_release_times"] == payload["scheduled_meetings"]
+        payload["usable"] = (
+            payload["scheduled_meetings"] == len(SCHEDULED_FOMC_DATES)
+            and payload["verified_release_times"] == payload["scheduled_meetings"]
+        )
         payload["missing_periods"] = [] if payload["usable"] else ["unverified_statement_release_timestamp"]
     except Exception as exc:  # noqa: BLE001 - source audit records the failure
         payload["calendar_retrieved"] = False
@@ -327,7 +357,9 @@ def _write_empty_cluster_ledger(path: Path) -> None:
 def write_blocked_artifacts(*, output_dir: Path, audits: list[dict[str, Any]], blocker: str) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     gdelt = next((item for item in audits if item.get("source") == "GDELT_DOC_2.0"), audits[0] if audits else {})
-    fomc = next((item for item in audits if item.get("source") == "FEDERAL_RESERVE_FOMC"), audits[1] if len(audits) > 1 else {})
+    fomc = next(
+        (item for item in audits if item.get("source") == "FEDERAL_RESERVE_FOMC"), audits[1] if len(audits) > 1 else {}
+    )
     _dump(
         output_dir / "EVENT_DATA_AUDIT.json",
         {
@@ -409,9 +441,19 @@ def main() -> int:
     fomc = audit_fomc()
     gdelt_pass = bool(gdelt.get("usable"))
     if not gdelt_pass:
-        blocker = "GDELT_HISTORICAL_SOURCE_UNAVAILABLE" if gdelt.get("status") == "BLOCKED" else "GDELT_FULL_HISTORY_NOT_PROVEN"
+        blocker = (
+            "GDELT_HISTORICAL_SOURCE_UNAVAILABLE"
+            if gdelt.get("status") == "BLOCKED"
+            else "GDELT_FULL_HISTORY_NOT_PROVEN"
+        )
         report = write_blocked_artifacts(output_dir=args.output_dir, audits=[gdelt, fomc], blocker=blocker)
-        print(json.dumps({"status": report["status"], "blocker": blocker, "gdelt": gdelt, "fomc": fomc}, indent=2, ensure_ascii=False))
+        print(
+            json.dumps(
+                {"status": report["status"], "blocker": blocker, "gdelt": gdelt, "fomc": fomc},
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
         return 2
 
     # The original V6 clustering/replay stage is intentionally not reimplemented here;
@@ -419,7 +461,10 @@ def main() -> int:
     # completed H1/H2/H3 evidence.
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    _dump(output_dir / "EVENT_DATA_AUDIT.json", {"status": "EVENT_DATA_ACQUISITION_RECOVERED", "gdelt": gdelt, "fomc": fomc, "event_research_ready": True})
+    _dump(
+        output_dir / "EVENT_DATA_AUDIT.json",
+        {"status": "EVENT_DATA_ACQUISITION_RECOVERED", "gdelt": gdelt, "fomc": fomc, "event_research_ready": True},
+    )
     _dump(output_dir / "FOMC_EVENT_LEDGER.json", {"source": fomc.get("source"), "events": fomc.get("ledger", [])})
     report = {
         "status": "EVENT_DATA_ACQUISITION_RECOVERED",

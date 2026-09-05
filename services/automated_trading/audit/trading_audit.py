@@ -298,7 +298,6 @@ def grouped_losses(episodes: Iterable[TradeEpisode], key: str) -> list[dict[str,
         value = episode.as_row().get(key) or "UNKNOWN"
         groups[str(value)].append(episode.net_pnl)
     rows = [
-        {"cause": cause, "trades": len(values), "net_pnl": str(sum(values, ZERO))}
-        for cause, values in groups.items()
+        {"cause": cause, "trades": len(values), "net_pnl": str(sum(values, ZERO))} for cause, values in groups.items()
     ]
     return sorted(rows, key=lambda row: Decimal(row["net_pnl"]))

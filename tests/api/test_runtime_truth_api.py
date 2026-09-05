@@ -1037,9 +1037,7 @@ def test_runtime_reconciliation_reports_v2_exchange_unknown_intent(
     assert body["actions"] == ["EXCHANGE_UNKNOWN_REQUIRES_RECONCILIATION"]
     assert body["unresolved_exchange_order_ids"] == ["runtime-v2-unknown"]
     assert no_trade["timeline"]["last_entry_attempt_at"] == intent.created_at.replace(tzinfo=UTC).isoformat()
-    assert no_trade["symbols"]["BTC/USDT"]["last_entry_attempt_at"] == intent.created_at.replace(
-        tzinfo=UTC
-    ).isoformat()
+    assert no_trade["symbols"]["BTC/USDT"]["last_entry_attempt_at"] == intent.created_at.replace(tzinfo=UTC).isoformat()
 
 
 def test_runtime_reconciliation_stale_cache_does_not_force_full_entry_block(

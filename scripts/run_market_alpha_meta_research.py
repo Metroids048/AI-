@@ -405,10 +405,7 @@ def _run_arm(
                 ]
                 metrics = _metrics(selected)
                 score = (float(metrics["expectancy"]), threshold)
-                if (
-                    len(selected) >= MIN_VALIDATION_TRADES
-                    and (best is None or score > best)
-                ):
+                if len(selected) >= MIN_VALIDATION_TRADES and (best is None or score > best):
                     best = score
         if best is None or not oos:
             window_reports.append({"window_id": window.window_id, "config": None, "metrics": _metrics(())})

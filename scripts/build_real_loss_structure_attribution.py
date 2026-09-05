@@ -46,9 +46,8 @@ def _row_for_entry(entry: Any, outcome: dict[str, Any], db_path: Path) -> dict[s
     confirmation_against = False
     if following is not None:
         confirmation_against = (
-            (entry.side == "long" and upper_sweep and following.low < current.low and following.close < upper)
-            or (entry.side == "short" and lower_sweep and following.high > current.high and following.close > lower)
-        )
+            entry.side == "long" and upper_sweep and following.low < current.low and following.close < upper
+        ) or (entry.side == "short" and lower_sweep and following.high > current.high and following.close > lower)
     return {
         "position_id": entry.position_id,
         "symbol": entry.symbol,
@@ -96,7 +95,11 @@ def main() -> int:
     source = json.loads(args.input.read_text(encoding="utf-8"))
     outcomes = {str(row["position_id"]): row for row in source.get("trades", [])}
     entries = {entry.position_id: entry for entry in load_real_entries(args.database.resolve())}
-    rows = [_row_for_entry(entries[position_id], outcome, args.database.resolve()) for position_id, outcome in outcomes.items() if position_id in entries]
+    rows = [
+        _row_for_entry(entries[position_id], outcome, args.database.resolve())
+        for position_id, outcome in outcomes.items()
+        if position_id in entries
+    ]
     stop_rows = [row for row in rows if row.get("exit_reason") == "STOP"]
     report = {
         "status": "READ_ONLY",
@@ -104,12 +107,22 @@ def main() -> int:
         "source_report": str(args.input),
         "episode_count": len(rows),
         "stop_episode_count": len(stop_rows),
-        "opposite_sweep_confirmed_count": sum(bool(row.get("entry_against_sweep") and row.get("next_bar_confirmation_against_entry")) for row in stop_rows),
+        "opposite_sweep_confirmed_count": sum(
+            bool(row.get("entry_against_sweep") and row.get("next_bar_confirmation_against_entry")) for row in stop_rows
+        ),
         "rows": rows,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({key: report[key] for key in ("episode_count", "stop_episode_count", "opposite_sweep_confirmed_count", "holdout_accessed")}, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                key: report[key]
+                for key in ("episode_count", "stop_episode_count", "opposite_sweep_confirmed_count", "holdout_accessed")
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

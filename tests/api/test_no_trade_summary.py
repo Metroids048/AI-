@@ -195,9 +195,7 @@ def test_forward_authorization_failure_is_not_counted_as_system_failure():
 
     assert result["summary_code"] == "NO_FORWARD_VALIDATION_CANDIDATE"
     assert result["summary_category"] == "AUTHORIZATION_BLOCKED"
-    assert result["historical_window"]["operational_block_counts"] == {
-        "NO_FORWARD_VALIDATION_CANDIDATE": 1
-    }
+    assert result["historical_window"]["operational_block_counts"] == {"NO_FORWARD_VALIDATION_CANDIDATE": 1}
     assert result["historical_window"]["system_failure_counts"] == {}
 
 

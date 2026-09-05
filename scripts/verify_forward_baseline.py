@@ -42,8 +42,7 @@ def verify(*, min_cycles: int = 100, symbol: str | None = None) -> dict[str, Any
     eligible_snapshots = [
         row
         for row in snapshots
-        if row.payload.get("execution_mode") == "BINANCE_TESTNET"
-        and row.payload.get("engine_activation") == "ACTIVE"
+        if row.payload.get("execution_mode") == "BINANCE_TESTNET" and row.payload.get("engine_activation") == "ACTIVE"
     ]
     comparisons = [compare_decision_snapshot(dict(row.payload)) for row in eligible_snapshots]
     total = len(comparisons)

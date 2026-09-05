@@ -1,4 +1,5 @@
 """Research-only attribution and three bounded experiments for volatility_expansion_v1."""
+
 from __future__ import annotations
 
 import argparse
@@ -51,9 +52,7 @@ def _replay(strategy: StrategyContract, market_data: dict, *, exit_mode: str, st
         max_workers=2,
         exit_mode=exit_mode,
     )
-    return service.replay(
-        strategy=strategy, market_data=market_data, start_at=start_at, end_at=end_at
-    )
+    return service.replay(strategy=strategy, market_data=market_data, start_at=start_at, end_at=end_at)
 
 
 def _stats(metrics) -> dict:
@@ -72,9 +71,21 @@ def _stats(metrics) -> dict:
         "drawdown": float(metrics.max_drawdown),
         "average_hold_hours": float(metrics.average_hold_hours),
         "exit_reasons": dict(Counter(t.exit_reason for t in trades)),
-        "mfe_r": {"mean": float(mean(mfe)) if mfe else 0.0, "median": float(median(mfe)) if mfe else 0.0, "max": float(max(mfe)) if mfe else 0.0},
-        "mae_r": {"mean": float(mean(mae)) if mae else 0.0, "median": float(median(mae)) if mae else 0.0, "min": float(min(mae)) if mae else 0.0},
-        "profit_capture_ratio": float(sum(max(0.0, t.net_return) for t in trades) / sum(max(0.0, t.mfe_r) for t in trades)) if sum(max(0.0, t.mfe_r) for t in trades) else 0.0,
+        "mfe_r": {
+            "mean": float(mean(mfe)) if mfe else 0.0,
+            "median": float(median(mfe)) if mfe else 0.0,
+            "max": float(max(mfe)) if mfe else 0.0,
+        },
+        "mae_r": {
+            "mean": float(mean(mae)) if mae else 0.0,
+            "median": float(median(mae)) if mae else 0.0,
+            "min": float(min(mae)) if mae else 0.0,
+        },
+        "profit_capture_ratio": float(
+            sum(max(0.0, t.net_return) for t in trades) / sum(max(0.0, t.mfe_r) for t in trades)
+        )
+        if sum(max(0.0, t.mfe_r) for t in trades)
+        else 0.0,
         "trades_detail": [t.as_dict() for t in trades],
     }
 
@@ -119,7 +130,13 @@ def _regime_summary(trades, market_data):
     for name, rows in buckets.items():
         wins = sum(max(0.0, t.net_return) for t in rows)
         losses = abs(sum(min(0.0, t.net_return) for t in rows))
-        result[name] = {"trades": len(rows), "pf": wins / losses if losses else 0.0, "expectancy": mean(t.net_return for t in rows), "mfe_mean_r": mean(t.mfe_r for t in rows), "mae_mean_r": mean(t.mae_r for t in rows)}
+        result[name] = {
+            "trades": len(rows),
+            "pf": wins / losses if losses else 0.0,
+            "expectancy": mean(t.net_return for t in rows),
+            "mfe_mean_r": mean(t.mfe_r for t in rows),
+            "mae_mean_r": mean(t.mae_r for t in rows),
+        }
     return result
 
 
@@ -146,21 +163,39 @@ def main() -> int:
     data = _load_technical_market_data(args.database, end_at=all_end)
     data = _trim_research_data(data, all_start, all_end)
     base_config = deepcopy(get_candidate("volatility_expansion_v1").get_config())
-    base = _replay(_strategy(base_config, "_baseline"), data, exit_mode=EXIT_MODE_FIXED_2R, start_at=all_start, end_at=all_end)
+    base = _replay(
+        _strategy(base_config, "_baseline"), data, exit_mode=EXIT_MODE_FIXED_2R, start_at=all_start, end_at=all_end
+    )
     base_stats = _stats(base)
-    ladder = _replay(_strategy(base_config, "_exit_ladder"), data, exit_mode=EXIT_MODE_EXIT_LADDER, start_at=all_start, end_at=all_end)
+    ladder = _replay(
+        _strategy(base_config, "_exit_ladder"),
+        data,
+        exit_mode=EXIT_MODE_EXIT_LADDER,
+        start_at=all_start,
+        end_at=all_end,
+    )
     ladder_stats = _stats(ladder)
     regime_config = deepcopy(base_config)
-    regime_config["entry_rules"] = {**regime_config["entry_rules"], "regime_adx_minimum": 22, "high_volatility_atr_percentile": 75}
+    regime_config["entry_rules"] = {
+        **regime_config["entry_rules"],
+        "regime_adx_minimum": 22,
+        "high_volatility_atr_percentile": 75,
+    }
     # The current canonical evaluator does not consume these research-only keys;
     # do not spend another full replay pretending they are active.
     regime = base
     regime_stats = _stats(regime)
     mtf_config = deepcopy(base_config)
-    mtf_config["entry_rules"] = {**mtf_config["entry_rules"], "direction_timeframe": "4h", "state_timeframe": "1h", "higher_timeframes": ("4h", "1h")}
+    mtf_config["entry_rules"] = {
+        **mtf_config["entry_rules"],
+        "direction_timeframe": "4h",
+        "state_timeframe": "1h",
+        "higher_timeframes": ("4h", "1h"),
+    }
     # Baseline already uses 4h direction + 1h state, so this is not a distinct path.
     mtf = base
     mtf_stats = _stats(mtf)
+
     def holdout_stats(metrics):
         return _trade_slice_stats(t for t in metrics.trades if t.opened_at >= split.final_start)
 
@@ -173,12 +208,63 @@ def main() -> int:
     result = {
         "generated_at": datetime.now(UTC).isoformat(),
         "baseline": "volatility_expansion_v1",
-        "data": {"database": str(args.database), "research_start": all_start.isoformat(), "research_end": all_end.isoformat(), "same_entry_replay": True},
-        "attribution": {"entry": {"classification": "B" if base_stats["mfe_r"]["mean"] > 0.75 and base_stats["profit_capture_ratio"] < 0.5 else "A", "summary": base_stats}, "exit": base_stats, "regime": _regime_summary(base.trades, data)},
+        "data": {
+            "database": str(args.database),
+            "research_start": all_start.isoformat(),
+            "research_end": all_end.isoformat(),
+            "same_entry_replay": True,
+        },
+        "attribution": {
+            "entry": {
+                "classification": "B"
+                if base_stats["mfe_r"]["mean"] > 0.75 and base_stats["profit_capture_ratio"] < 0.5
+                else "A",
+                "summary": base_stats,
+            },
+            "exit": base_stats,
+            "regime": _regime_summary(base.trades, data),
+        },
         "experiments": [
-            {"name": "Exit Optimization", "change": "ExitLadder partial targets and ratchet vs fixed 2R", "pf_before": base_stats["pf"], "pf_after": ladder_stats["pf"], "drawdown": ladder_stats["drawdown"], "trades": ladder_stats["trades"], "holdout": ladder_holdout, "status": "PASS" if ladder_stats["pf"] > base_stats["pf"] and ladder_stats["drawdown"] <= base_stats["drawdown"] and ladder_stats["trades"] > 100 and ladder_holdout["expectancy"] > 0 else "FAIL", "metrics": ladder_stats},
-            {"name": "Regime Filter", "change": "research-only regime_adx_minimum=22 and high_volatility_atr_percentile=75", "pf_before": base_stats["pf"], "pf_after": regime_stats["pf"], "drawdown": regime_stats["drawdown"], "trades": regime_stats["trades"], "holdout": regime_holdout, "status": "FAIL", "evaluation_note": "FAIL: research-only regime keys are not consumed by the canonical evaluator; no distinct path was run", "metrics": regime_stats},
-            {"name": "Multi timeframe", "change": "research-only explicit 4h direction + 1h state confirmation", "pf_before": base_stats["pf"], "pf_after": mtf_stats["pf"], "drawdown": mtf_stats["drawdown"], "trades": mtf_stats["trades"], "holdout": mtf_holdout, "status": "FAIL", "evaluation_note": "FAIL: 4h/1h confirmation already exists in baseline; no distinct path was run", "metrics": mtf_stats},
+            {
+                "name": "Exit Optimization",
+                "change": "ExitLadder partial targets and ratchet vs fixed 2R",
+                "pf_before": base_stats["pf"],
+                "pf_after": ladder_stats["pf"],
+                "drawdown": ladder_stats["drawdown"],
+                "trades": ladder_stats["trades"],
+                "holdout": ladder_holdout,
+                "status": "PASS"
+                if ladder_stats["pf"] > base_stats["pf"]
+                and ladder_stats["drawdown"] <= base_stats["drawdown"]
+                and ladder_stats["trades"] > 100
+                and ladder_holdout["expectancy"] > 0
+                else "FAIL",
+                "metrics": ladder_stats,
+            },
+            {
+                "name": "Regime Filter",
+                "change": "research-only regime_adx_minimum=22 and high_volatility_atr_percentile=75",
+                "pf_before": base_stats["pf"],
+                "pf_after": regime_stats["pf"],
+                "drawdown": regime_stats["drawdown"],
+                "trades": regime_stats["trades"],
+                "holdout": regime_holdout,
+                "status": "FAIL",
+                "evaluation_note": "FAIL: research-only regime keys are not consumed by the canonical evaluator; no distinct path was run",
+                "metrics": regime_stats,
+            },
+            {
+                "name": "Multi timeframe",
+                "change": "research-only explicit 4h direction + 1h state confirmation",
+                "pf_before": base_stats["pf"],
+                "pf_after": mtf_stats["pf"],
+                "drawdown": mtf_stats["drawdown"],
+                "trades": mtf_stats["trades"],
+                "holdout": mtf_holdout,
+                "status": "FAIL",
+                "evaluation_note": "FAIL: 4h/1h confirmation already exists in baseline; no distinct path was run",
+                "metrics": mtf_stats,
+            },
         ],
     }
     experiments = cast(list[dict[str, Any]], result["experiments"])
@@ -186,7 +272,21 @@ def main() -> int:
         result["terminal_status"] = "CURRENT_ALPHA_SPACE_EXHAUSTED"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(json.dumps({"output": str(args.output), "terminal_status": result.get("terminal_status"), "baseline": base_stats, "experiments": [{k: item[k] for k in ("name", "pf_before", "pf_after", "drawdown", "trades", "status")} for item in experiments]}, indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "output": str(args.output),
+                "terminal_status": result.get("terminal_status"),
+                "baseline": base_stats,
+                "experiments": [
+                    {k: item[k] for k in ("name", "pf_before", "pf_after", "drawdown", "trades", "status")}
+                    for item in experiments
+                ],
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

@@ -202,7 +202,18 @@ def _checksum(url: str) -> str:
     curl = shutil.which("curl.exe") or shutil.which("curl")
     if curl:
         result = subprocess.run(
-            [curl, "--location", "--fail", "--silent", "--show-error", "--connect-timeout", "15", "--max-time", "60", checksum_url],
+            [
+                curl,
+                "--location",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--connect-timeout",
+                "15",
+                "--max-time",
+                "60",
+                checksum_url,
+            ],
             capture_output=True,
             text=True,
             timeout=75,
@@ -292,19 +303,39 @@ def _download(
             previous = json.loads(ledger_path.read_text(encoding="utf-8")).get("objects", {}).get(object_key, {})
         except (OSError, TypeError, ValueError):
             previous = {}
-        if previous.get("status") == "CHECKSUM_VALID" and previous.get("sha256") == hashlib.sha256(destination.read_bytes()).hexdigest():
-            result: dict[str, Any] = {**previous, "path": str(destination), "bytes": destination.stat().st_size, "cached": True}
+        if (
+            previous.get("status") == "CHECKSUM_VALID"
+            and previous.get("sha256") == hashlib.sha256(destination.read_bytes()).hexdigest()
+        ):
+            result: dict[str, Any] = {
+                **previous,
+                "path": str(destination),
+                "bytes": destination.stat().st_size,
+                "cached": True,
+            }
             _write_ledger(ledger_path, object_key, result)
             return result
     checksum: str
     try:
         checksum = _checksum(url)
     except _OfficialArchiveMissing:
-        result = {"url": url, "path": str(destination), "status": "HTTP_NOT_FOUND", "classification": "SOURCE_ARCHIVE_NOT_PUBLISHED"}
+        result = {
+            "url": url,
+            "path": str(destination),
+            "status": "HTTP_NOT_FOUND",
+            "classification": "SOURCE_ARCHIVE_NOT_PUBLISHED",
+        }
         _write_ledger(ledger_path, object_key or url, result)
         return result
     if destination.exists() and hashlib.sha256(destination.read_bytes()).hexdigest() == checksum:
-        result = {"url": url, "path": str(destination), "bytes": destination.stat().st_size, "cached": True, "status": "CHECKSUM_VALID", "sha256": checksum}
+        result = {
+            "url": url,
+            "path": str(destination),
+            "bytes": destination.stat().st_size,
+            "cached": True,
+            "status": "CHECKSUM_VALID",
+            "sha256": checksum,
+        }
         _write_ledger(ledger_path, object_key or url, result)
         return result
     destination.unlink(missing_ok=True)
@@ -321,23 +352,61 @@ def _download(
                 if actual != checksum:
                     temporary.unlink(missing_ok=True)
                     checksum_mismatch_seen = True
-                    failure = {"attempt": attempt, "transport": transport, "error": "CHECKSUM_MISMATCH", "elapsed_s": round(time.perf_counter() - started, 3)}
+                    failure = {
+                        "attempt": attempt,
+                        "transport": transport,
+                        "error": "CHECKSUM_MISMATCH",
+                        "elapsed_s": round(time.perf_counter() - started, 3),
+                    }
                     failures.append(failure)
-                    _write_ledger(ledger_path, object_key or url, {"url": url, "status": "CHECKSUM_FAILED", "attempts": failures})
+                    _write_ledger(
+                        ledger_path, object_key or url, {"url": url, "status": "CHECKSUM_FAILED", "attempts": failures}
+                    )
                     continue
                 temporary.replace(destination)
-                result = {"url": url, "path": str(destination), "bytes": size, "cached": False, "status": "CHECKSUM_VALID", "sha256": actual, "transport": transport, "attempts": failures + [{"attempt": attempt, "transport": transport, "elapsed_s": round(time.perf_counter() - started, 3)}]}
+                result = {
+                    "url": url,
+                    "path": str(destination),
+                    "bytes": size,
+                    "cached": False,
+                    "status": "CHECKSUM_VALID",
+                    "sha256": actual,
+                    "transport": transport,
+                    "attempts": failures
+                    + [
+                        {
+                            "attempt": attempt,
+                            "transport": transport,
+                            "elapsed_s": round(time.perf_counter() - started, 3),
+                        }
+                    ],
+                }
                 _write_ledger(ledger_path, object_key or url, result)
                 return result
             except _OfficialArchiveMissing:
                 temporary.unlink(missing_ok=True)
-                result = {"url": url, "path": str(destination), "status": "HTTP_NOT_FOUND", "classification": "SOURCE_ARCHIVE_NOT_PUBLISHED"}
+                result = {
+                    "url": url,
+                    "path": str(destination),
+                    "status": "HTTP_NOT_FOUND",
+                    "classification": "SOURCE_ARCHIVE_NOT_PUBLISHED",
+                }
                 _write_ledger(ledger_path, object_key or url, result)
                 return result
             except Exception as exc:  # transport failures are per-object recoverable errors
                 temporary.unlink(missing_ok=True)
-                failures.append({"attempt": attempt, "transport": transport, "error_type": type(exc).__name__, "error": str(exc), "elapsed_s": round(time.perf_counter() - started, 3)})
-        _write_ledger(ledger_path, object_key or url, {"url": url, "status": "RETRYING", "attempt": attempt, "attempts": failures})
+                failures.append(
+                    {
+                        "attempt": attempt,
+                        "transport": transport,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                        "elapsed_s": round(time.perf_counter() - started, 3),
+                    }
+                )
+        _write_ledger(
+            ledger_path, object_key or url, {"url": url, "status": "RETRYING", "attempt": attempt, "attempts": failures}
+        )
         if attempt < len(RETRY_BACKOFFS):
             time.sleep(backoff)
     result = {
@@ -946,7 +1015,13 @@ def _build_symbol_features(
         import pyarrow.parquet as pq
 
         table = pa.Table.from_pylist([asdict(row) for row in features])
-        pq.write_table(table, Path(os.environ.get("LOCALAPPDATA", ".")) / "ai-quant" / "microstructure-v3" / f"{symbol}-microstructure-5m.parquet")
+        pq.write_table(
+            table,
+            Path(os.environ.get("LOCALAPPDATA", "."))
+            / "ai-quant"
+            / "microstructure-v3"
+            / f"{symbol}-microstructure-5m.parquet",
+        )
     except ImportError:
         pass
     return symbol, features, funding, quality
@@ -1141,7 +1216,9 @@ def main() -> int:
             "end_exclusive": HOLDOUT_START.isoformat(),
             "research_end": research_end.isoformat(),
         },
-        "usable": all(metrics_coverage[symbol]["gate"] and aggtrades_coverage[symbol]["complete"] for symbol in SYMBOLS),
+        "usable": all(
+            metrics_coverage[symbol]["gate"] and aggtrades_coverage[symbol]["complete"] for symbol in SYMBOLS
+        ),
     }
     _write(args.output_dir / "DATA_AUDIT.json", audit)
     plan: dict[str, Any] = {
@@ -1176,7 +1253,11 @@ def main() -> int:
     }
     _write(args.output_dir / "RESEARCH_PLAN.json", plan)
     if not audit["usable"] or args.audit_only:
-        status = "BLOCKED_ETH_AGGTRADES" if not audit["usable"] and not aggtrades_coverage["ETHUSDT"]["complete"] else ("BLOCKED_MICROSTRUCTURE_HISTORICAL_DATA" if not audit["usable"] else "AUDIT_ONLY")
+        status = (
+            "BLOCKED_ETH_AGGTRADES"
+            if not audit["usable"] and not aggtrades_coverage["ETHUSDT"]["complete"]
+            else ("BLOCKED_MICROSTRUCTURE_HISTORICAL_DATA" if not audit["usable"] else "AUDIT_ONLY")
+        )
         _write(
             args.output_dir / "FINAL_REPORT.json",
             {
@@ -1239,32 +1320,68 @@ def main() -> int:
             validation_trades.extend(row for row in trades if validation_start <= _dt(row.opened_at) < HOLDOUT_START)
         research_metrics = _metrics(research_trades)
         validation_metrics = _metrics(validation_trades)
-        total_min = {"H1_AGGRESSOR_FLOW_CONTINUATION": 150, "H2_FLOW_ABSORPTION_REVERSAL": 100, "H3_OI_FLOW_BUILDUP": 120}[family]
-        symbol_min = {"H1_AGGRESSOR_FLOW_CONTINUATION": 50, "H2_FLOW_ABSORPTION_REVERSAL": 30, "H3_OI_FLOW_BUILDUP": 40}[family]
+        total_min = {
+            "H1_AGGRESSOR_FLOW_CONTINUATION": 150,
+            "H2_FLOW_ABSORPTION_REVERSAL": 100,
+            "H3_OI_FLOW_BUILDUP": 120,
+        }[family]
+        symbol_min = {
+            "H1_AGGRESSOR_FLOW_CONTINUATION": 50,
+            "H2_FLOW_ABSORPTION_REVERSAL": 30,
+            "H3_OI_FLOW_BUILDUP": 40,
+        }[family]
         symbol_research: dict[str, dict[str, Any]] = {}
         for symbol in SYMBOLS:
             metrics = research_metrics["by_symbol"][symbol]
             symbol_research[symbol] = {
                 **metrics,
-                "status": "PASS" if metrics["trades"] >= symbol_min and metrics["profit_factor"] > 1.10 and metrics["expectancy"] > 0 else "FAIL",
+                "status": "PASS"
+                if metrics["trades"] >= symbol_min and metrics["profit_factor"] > 1.10 and metrics["expectancy"] > 0
+                else "FAIL",
             }
-        research_status = "PASS" if (
-            research_metrics["trades"] >= total_min
-            and research_metrics["profit_factor"] > 1.10
-            and research_metrics["expectancy"] > 0
-            and all(item["status"] == "PASS" for item in symbol_research.values())
-        ) else ("SYMBOL_SPECIFIC_PASS" if any(item["status"] == "PASS" for item in symbol_research.values()) else "FAIL")
+        research_status = (
+            "PASS"
+            if (
+                research_metrics["trades"] >= total_min
+                and research_metrics["profit_factor"] > 1.10
+                and research_metrics["expectancy"] > 0
+                and all(item["status"] == "PASS" for item in symbol_research.values())
+            )
+            else (
+                "SYMBOL_SPECIFIC_PASS" if any(item["status"] == "PASS" for item in symbol_research.values()) else "FAIL"
+            )
+        )
         validation_symbols: dict[str, dict[str, Any]] = {}
         for symbol in SYMBOLS:
             metrics = validation_metrics["by_symbol"][symbol]
             validation_symbols[symbol] = {
                 **metrics,
-                "status": "NOT_RUN" if symbol_research[symbol]["status"] != "PASS" else ("PASS" if metrics["profit_factor"] > 1.10 and metrics["expectancy"] > 0 else "FAIL"),
+                "status": "NOT_RUN"
+                if symbol_research[symbol]["status"] != "PASS"
+                else ("PASS" if metrics["profit_factor"] > 1.10 and metrics["expectancy"] > 0 else "FAIL"),
             }
-        validation_status = "PASS" if research_status == "PASS" and all(item["status"] == "PASS" for item in validation_symbols.values()) else ("SYMBOL_SPECIFIC_PASS" if any(item["status"] == "PASS" for item in validation_symbols.values()) else "NOT_RUN")
-        if research_status == "PASS" and validation_status == "PASS" and research_metrics["profit_factor"] >= 1.20 and validation_metrics["profit_factor"] >= 1.10 and research_metrics["max_drawdown"] <= 0.20:
+        validation_status = (
+            "PASS"
+            if research_status == "PASS" and all(item["status"] == "PASS" for item in validation_symbols.values())
+            else (
+                "SYMBOL_SPECIFIC_PASS"
+                if any(item["status"] == "PASS" for item in validation_symbols.values())
+                else "NOT_RUN"
+            )
+        )
+        if (
+            research_status == "PASS"
+            and validation_status == "PASS"
+            and research_metrics["profit_factor"] >= 1.20
+            and validation_metrics["profit_factor"] >= 1.10
+            and research_metrics["max_drawdown"] <= 0.20
+        ):
             survivors.append(family)
-        symbol_survivors = [f"{family}:{symbol}" for symbol, item in validation_symbols.items() if item["status"] == "PASS" and symbol_research[symbol]["status"] == "PASS"]
+        symbol_survivors = [
+            f"{family}:{symbol}"
+            for symbol, item in validation_symbols.items()
+            if item["status"] == "PASS" and symbol_research[symbol]["status"] == "PASS"
+        ]
         payload = {
             "candidate": family,
             "parameters": plan["families"][family],
@@ -1291,8 +1408,14 @@ def main() -> int:
         args.output_dir / "VALIDATION_RESULTS.json", {family: candidates[family]["validation"] for family in candidates}
     )
     _write(args.output_dir / "STABILITY_RESULTS.json", stability)
-    symbol_specific_survivors = sorted({item for value in candidates.values() for item in value["symbol_specific_survivors"]})
-    status = "MICROSTRUCTURE_ALPHA_SURVIVOR" if survivors else ("SYMBOL_SPECIFIC_ALPHA_SURVIVOR" if symbol_specific_survivors else "MICROSTRUCTURE_ALPHA_BATCH_EXHAUSTED")
+    symbol_specific_survivors = sorted(
+        {item for value in candidates.values() for item in value["symbol_specific_survivors"]}
+    )
+    status = (
+        "MICROSTRUCTURE_ALPHA_SURVIVOR"
+        if survivors
+        else ("SYMBOL_SPECIFIC_ALPHA_SURVIVOR" if symbol_specific_survivors else "MICROSTRUCTURE_ALPHA_BATCH_EXHAUSTED")
+    )
     deltas = {
         family: {
             "delta_pf_vs_baseline": candidates[family]["research"]["metrics"]["profit_factor"]
