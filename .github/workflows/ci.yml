@@ -34,7 +34,7 @@ jobs:
           python -m pip install pip-audit
           pip-audit --progress-spinner off
       - name: Pytest
-        run: pytest -x -vv -m "not integration" --junit-xml=.pytest-report.xml
+        run: pytest -vv -m "not integration" --junit-xml=.pytest-report.xml
       - name: Verify CURRENT_STATE.md verification block is current
         # Regenerated from the JUnit report above, so the documented count is
         # always a real number from a real run rather than a hand-typed claim.
