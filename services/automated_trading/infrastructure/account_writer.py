@@ -100,11 +100,11 @@ def _registry_lock(path: Path) -> Iterator[None]:
             import msvcrt
 
             lock_file.seek(0)
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
         else:
             import fcntl
 
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)  # type: ignore[attr-defined]
         try:
             yield
         finally:
@@ -112,11 +112,11 @@ def _registry_lock(path: Path) -> Iterator[None]:
                 import msvcrt
 
                 lock_file.seek(0)
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined]
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
             else:
                 import fcntl
 
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)  # type: ignore[attr-defined]
 
 
 def _read(path: Path) -> dict[str, Any] | None:
@@ -205,11 +205,10 @@ def _windows_process_liveness(pid: int) -> ProcessLiveness:
     process_query_limited_information = 0x1000
     error_invalid_parameter = 87
     still_active = 259
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
-    get_last_error = ctypes.get_last_error  # type: ignore[attr-defined]
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
     if not handle:
-        return ProcessLiveness.DEAD if get_last_error() == error_invalid_parameter else ProcessLiveness.UNKNOWN
+        return ProcessLiveness.DEAD if ctypes.get_last_error() == error_invalid_parameter else ProcessLiveness.UNKNOWN
     try:
         exit_code = ctypes.c_ulong()
         if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):

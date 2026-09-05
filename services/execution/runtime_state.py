@@ -114,7 +114,7 @@ def _windows_process_alive(pid: int) -> bool:
 
     process_query_limited_information = 0x1000
     still_active = 259
-    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    kernel32 = ctypes.windll.kernel32
     handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
     if not handle:
         return False
@@ -302,7 +302,9 @@ def load_external_scheduler_state(
             if isinstance(raw.get("production_authorization_reason"), str)
             else None
         ),
-        forward_authorized=(raw.get("forward_authorized") if isinstance(raw.get("forward_authorized"), bool) else None),
+        forward_authorized=(
+            raw.get("forward_authorized") if isinstance(raw.get("forward_authorized"), bool) else None
+        ),
         forward_authorization_reason=(
             raw.get("forward_authorization_reason")
             if isinstance(raw.get("forward_authorization_reason"), str)
@@ -410,7 +412,9 @@ def active_startup_contract_errors(
         and state.trading_state == "ENTRY_BLOCKED"
     )
     management_only = (
-        state.entry_enabled is False and state.entry_authorized is False and state.trading_state == "MANAGEMENT_ONLY"
+        state.entry_enabled is False
+        and state.entry_authorized is False
+        and state.trading_state == "MANAGEMENT_ONLY"
     )
     trading_ready = (
         state.entry_enabled is True
