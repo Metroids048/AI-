@@ -252,10 +252,6 @@ def _write_empty_signal_ledger(path: Path) -> None:
     except ModuleNotFoundError:
         fallback = Path.home() / ".agent-reach-venv" / "Lib" / "site-packages"
         if not fallback.exists():
-            # The blocked path must still emit its declared artifact marker in
-            # minimal CI environments where the optional parquet writer is not
-            # installed. No research rows are claimed by this marker.
-            path.touch()
             return
         import sys
 
