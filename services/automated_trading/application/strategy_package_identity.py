@@ -92,7 +92,11 @@ def _strategy_code_hash(*, strategy_id: str, source_root: Path) -> str:
     for relative_path in strategy_source_files(strategy_id):
         path = source_root / relative_path
         try:
-            content_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+            # Hash the logical source text so Git checkout line-ending policy
+            # cannot revoke an otherwise identical strategy package.
+            with path.open("r", encoding="utf-8", newline="") as source:
+                content = source.read().replace("\r\n", "\n")
+            content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         except OSError as exc:
             raise ValueError(f"strategy source is unavailable: {relative_path}") from exc
         digest.update(relative_path.encode("utf-8"))

@@ -333,6 +333,9 @@ def _write_empty_cluster_ledger(path: Path) -> None:
     except ModuleNotFoundError:
         fallback = Path.home() / ".agent-reach-venv" / "Lib" / "site-packages"
         if not fallback.exists():
+            # Keep blocked-run artifact shape deterministic without claiming
+            # that an optional parquet backend was available.
+            path.touch()
             return
         import sys
 

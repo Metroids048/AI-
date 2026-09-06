@@ -4,13 +4,22 @@
   "strategy_id": "trend_momentum_v2_enriched",
   "strategy_version": "2.0.0",
   "rules_hash": "1da72b9aaabb3b412f8c0cbbfb6c8658df1a0c773f0b80e7c39e6f92d24c5e78",
-  "strategy_code_hash": "5b752ec05f4b4054d1b655c36febbc33017a892e37c911d4abd2762f07177372",
-  "strategy_package_hash": "cd83ba9f6313fe1c393ec092c8389840176f8647c3be69a0d8503b9b720f73f9",
+  "strategy_code_hash": "cec7361be36455812e1cf50738ad0cc0b543589ecf4e364543e7ac23da5e70e9",
+  "strategy_package_hash": "e22587d69e8e935eff21fd01e5f8633a336f2c9d07d6b464696c523c495a70bb",
   "strategy_source_commit": "470d3d3d1c43e775bfd05062b777d3d26a2bfb15",
   "approval_commit": null,
-  "configured_execution_scope": ["BTC/USDT", "ETH/USDT"],
+  "configured_execution_scope": [
+    "BTC/USDT",
+    "ETH/USDT"
+  ],
   "eligible_execution_symbols": [],
-  "research_symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"],
+  "research_symbols": [
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "XRP/USDT",
+    "BNB/USDT"
+  ],
   "validation_evidence": {
     "dataset_hash": null,
     "walk_forward_oos_report": null,

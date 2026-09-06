@@ -113,7 +113,7 @@ STATUS_NETWORK = "BLOCKED_GDELT_RAW_ARCHIVE_NETWORK"
 STATUS_SCHEMA = "BLOCKED_GDELT_RAW_SCHEMA_FOR_V6"
 STATUS_TIMESTAMP = "BLOCKED_EVENT_TIMESTAMP_RESOLUTION"
 STATUS_RECOVERED = "EVENT_DATA_ACQUISITION_RECOVERED"
-FOMC_LEDGER_PATH = Path("artifacts/alpha_research_recovery_v6_1/FOMC_EVENT_LEDGER.json")
+FOMC_LEDGER_PATH = Path(__file__).with_name("data") / "fomc_event_ledger.json"
 
 
 def archive_url(day: str, kind: str) -> str:
