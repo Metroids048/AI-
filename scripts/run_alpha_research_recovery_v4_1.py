@@ -25,9 +25,10 @@ EXPECTED = {
     "expectancy": 0.001512451049147131,
     "max_drawdown": 0.18736432836022304,
 }
-HISTORICAL_DB = Path.home() / "AppData/Local/Temp/ai-quant-p2-evidence.db"
-HISTORICAL_ROOT = Path.home() / "AppData/Local/Temp/ai-quant-p2-champion"
-V4_ROOT = Path("artifacts/alpha_research_recovery_v4")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+HISTORICAL_DB = REPO_ROOT / "scripts" / "data" / "v4_historical_evidence.db"
+HISTORICAL_ROOT = REPO_ROOT / "scripts" / "data" / "v4_champion"
+V4_ROOT = REPO_ROOT / "scripts" / "data" / "v4_current"
 SYMBOLS = ("BTC/USDT", "ETH/USDT")
 HISTORICAL_SOURCE_COMMIT = "470d3d3d1c43e77505062b777d3d26a2bfb15"
 STRATEGY_PATH = Path("services/strategy_library/candidates/volatility_expansion_v1.py")

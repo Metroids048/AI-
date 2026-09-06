@@ -1,0 +1,17 @@
+{
+  "candidate": "volatility_expansion_v1",
+  "scope": "Champion Research OOS aggregate",
+  "metrics": {
+    "trades": 281,
+    "profit_factor": 1.1576630479094718,
+    "expectancy": 0.001512451049147131,
+    "max_drawdown": 0.18736432836022304
+  },
+  "event_id_hash": "610cf67cf21e2598ce1afca3f63b667a92c0151ce6dd59a0f2ae7353e8fdea0c",
+  "ledger": "BASELINE_EVENT_LEDGER.parquet",
+  "validation_scope": {
+    "start": "2025-02-22T14:24:00+00:00",
+    "end": "2025-11-10T19:12:00+00:00"
+  },
+  "final_holdout_accessed": false
+}

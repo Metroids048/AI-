@@ -26,7 +26,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-BASELINE_ROOT = Path("artifacts/alpha_research_recovery_v4_1")
+BASELINE_ROOT = Path(__file__).resolve().parent / "data" / "v4_1_baseline"
 DEFAULT_OUTPUT = Path("artifacts/alpha_research_recovery_v4_resume")
 FINAL_HOLDOUT_START = datetime(2026, 1, 29, tzinfo=UTC)
 BASELINE_EXPECTED = {

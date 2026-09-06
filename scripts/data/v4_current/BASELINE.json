@@ -1,0 +1,48 @@
+{
+  "candidate": "volatility_expansion_v1",
+  "expected": {
+    "trades": 281,
+    "profit_factor": 1.1576630479094718,
+    "expectancy": 0.001512451049147131,
+    "max_drawdown": 0.18736432836022304
+  },
+  "actual": {
+    "trades": 732,
+    "profit_factor": 0.9198940644960274,
+    "expectancy": -0.0014049180327868843,
+    "max_drawdown": 1.0228369250562876,
+    "net_return": -1.0283999999999993,
+    "gross_return": -0.14999999999999947,
+    "win_rate": 0.33060109289617484,
+    "exit_reasons": {}
+  },
+  "comparison": {
+    "trades": {
+      "expected": 281,
+      "actual": 732,
+      "delta": 451
+    },
+    "profit_factor": {
+      "expected": 1.1576630479094718,
+      "actual": 0.9198940644960274,
+      "delta": -0.23776898341344443
+    },
+    "expectancy": {
+      "expected": 0.001512451049147131,
+      "actual": -0.0014049180327868843,
+      "delta": -0.0029173690819340155
+    },
+    "max_drawdown": {
+      "expected": 0.18736432836022304,
+      "actual": 1.0228369250562876,
+      "delta": 0.8354725966960646
+    }
+  },
+  "reproduced": false,
+  "research_start": "2023-01-29T00:00:00+00:00",
+  "research_end": "2025-02-22T14:24:00+00:00",
+  "validation_start": "2025-02-22T14:24:00+00:00",
+  "holdout_start": "2026-01-29T00:00:00+00:00",
+  "final_holdout_accessed": false,
+  "signal_time_semantics": "ReplayTrade exposes entry time; signal_time is recorded as entry_time."
+}

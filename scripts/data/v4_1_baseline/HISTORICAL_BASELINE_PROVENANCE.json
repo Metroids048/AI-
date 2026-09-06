@@ -1,0 +1,166 @@
+{
+  "artifact": "C:\\Users\\Windows11\\AppData\\Local\\Temp\\ai-quant-p2-champion\\FINAL_REPORT.json",
+  "candidate": "volatility_expansion_v1",
+  "candidate_metadata": {
+    "candidate_id": "volatility_expansion_v1",
+    "canonical_replay_reachable": true,
+    "eligible_for_tournament": true,
+    "entry_contract": "proposal",
+    "evaluator_path": "proposal_pipeline -> ProposalReplayRunner",
+    "exclusion_reason": null,
+    "execution_eligible": false,
+    "family": "breakout",
+    "reason": null,
+    "registered": true,
+    "research_only": true,
+    "superseded_by": null,
+    "symbols": [
+      "BTC/USDT",
+      "ETH/USDT"
+    ],
+    "timeframe": "15m",
+    "tournament_disposition": "REACHABLE_TOURNAMENT_CANDIDATE",
+    "version": "1.0.0-generation-3"
+  },
+  "metrics": {
+    "trades": 281,
+    "profit_factor": 1.1576630479094718,
+    "expectancy": 0.001512451049147131,
+    "max_drawdown": 0.18736432836022304
+  },
+  "variant_id": "volatility_expansion_v1",
+  "generation": 0,
+  "database_hash": "24a6c836b66758f3f4a3b733a7393c4e290e04f0b1610254984456058605e5cb",
+  "parameters": {
+    "source": "historical candidate artifact; exact config object is not embedded in FINAL_REPORT",
+    "strategy_version": "1.0.0-generation-3",
+    "current_default_config": {
+      "compression_bars": 6,
+      "compression_ratio": "0.80",
+      "breakout_body_atr": "0.80",
+      "breakout_buffer_atr": "0.10",
+      "minimum_volume_ratio": "1.20",
+      "stop_atr_buffer": "0.25",
+      "target_rr": "2.0",
+      "expected_round_trip_cost_bps": "12",
+      "max_price_drift_bps": "20"
+    }
+  },
+  "per_symbol": {
+    "BTC/USDT": {
+      "trades": 132,
+      "profit_factor": 1.1661301694062363,
+      "expectancy": 0.0015079813701020597
+    },
+    "ETH/USDT": {
+      "trades": 149,
+      "profit_factor": 1.150888053816723,
+      "expectancy": 0.001516410764811221
+    }
+  },
+  "window_trade_counts": {
+    "research_1": {
+      "BNB/USDT": 0,
+      "BTC/USDT": 48,
+      "ETH/USDT": 42,
+      "SOL/USDT": 0,
+      "XRP/USDT": 0
+    },
+    "research_2": {
+      "BNB/USDT": 0,
+      "BTC/USDT": 38,
+      "ETH/USDT": 47,
+      "SOL/USDT": 0,
+      "XRP/USDT": 0
+    },
+    "research_3": {
+      "BNB/USDT": 0,
+      "BTC/USDT": 46,
+      "ETH/USDT": 60,
+      "SOL/USDT": 0,
+      "XRP/USDT": 0
+    }
+  },
+  "window_definitions_from_artifact": {
+    "research_1": {
+      "embargo_end": "2024-05-20T12:48:00+00:00",
+      "embargo_start": "2024-05-19T12:48:00+00:00",
+      "oos_end": "2024-05-19T12:48:00+00:00",
+      "oos_start": "2024-01-01T00:00:00+00:00",
+      "purge_end": "2024-01-01T00:00:00+00:00",
+      "purge_start": "2023-12-31T00:00:00+00:00",
+      "train_end": "2023-12-31T00:00:00+00:00",
+      "train_start": "2023-01-01T00:00:00+00:00",
+      "window_id": "research_1"
+    },
+    "research_2": {
+      "embargo_end": "2024-10-07T01:36:00+00:00",
+      "embargo_start": "2024-10-06T01:36:00+00:00",
+      "oos_end": "2024-10-06T01:36:00+00:00",
+      "oos_start": "2024-05-19T12:48:00+00:00",
+      "purge_end": "2024-05-19T12:48:00+00:00",
+      "purge_start": "2024-05-18T12:48:00+00:00",
+      "train_end": "2024-05-18T12:48:00+00:00",
+      "train_start": "2023-01-01T00:00:00+00:00",
+      "window_id": "research_2"
+    },
+    "research_3": {
+      "embargo_end": "2025-02-23T14:24:00+00:00",
+      "embargo_start": "2025-02-22T14:24:00+00:00",
+      "oos_end": "2025-02-22T14:24:00+00:00",
+      "oos_start": "2024-10-06T01:36:00+00:00",
+      "purge_end": "2024-10-06T01:36:00+00:00",
+      "purge_start": "2024-10-05T01:36:00+00:00",
+      "train_end": "2024-10-05T01:36:00+00:00",
+      "train_start": "2023-01-01T00:00:00+00:00",
+      "window_id": "research_3"
+    }
+  },
+  "window_definitions_rebuilt": [
+    {
+      "window_id": "research_1",
+      "train_start": "2023-01-01T00:00:00+00:00",
+      "train_end": "2023-12-31T00:00:00+00:00",
+      "purge_start": "2023-12-31T00:00:00+00:00",
+      "purge_end": "2024-01-01T00:00:00+00:00",
+      "oos_start": "2024-01-01T00:00:00+00:00",
+      "oos_end": "2024-05-19T12:48:00+00:00",
+      "embargo_start": "2024-05-19T12:48:00+00:00",
+      "embargo_end": "2024-05-20T12:48:00+00:00"
+    },
+    {
+      "window_id": "research_2",
+      "train_start": "2023-01-01T00:00:00+00:00",
+      "train_end": "2024-05-18T12:48:00+00:00",
+      "purge_start": "2024-05-18T12:48:00+00:00",
+      "purge_end": "2024-05-19T12:48:00+00:00",
+      "oos_start": "2024-05-19T12:48:00+00:00",
+      "oos_end": "2024-10-06T01:36:00+00:00",
+      "embargo_start": "2024-10-06T01:36:00+00:00",
+      "embargo_end": "2024-10-07T01:36:00+00:00"
+    },
+    {
+      "window_id": "research_3",
+      "train_start": "2023-01-01T00:00:00+00:00",
+      "train_end": "2024-10-05T01:36:00+00:00",
+      "purge_start": "2024-10-05T01:36:00+00:00",
+      "purge_end": "2024-10-06T01:36:00+00:00",
+      "oos_start": "2024-10-06T01:36:00+00:00",
+      "oos_end": "2025-02-22T14:24:00+00:00",
+      "embargo_start": "2025-02-22T14:24:00+00:00",
+      "embargo_end": "2025-02-23T14:24:00+00:00"
+    }
+  ],
+  "event_key_count": 281,
+  "event_id_hash": "610cf67cf21e2598ce1afca3f63b667a92c0151ce6dd59a0f2ae7353e8fdea0c",
+  "first_signal": "2024-01-01T03:45:00+00:00",
+  "last_signal": "2025-02-19T15:00:00+00:00",
+  "evaluation_path": "proposal_pipeline -> ProposalReplayRunner",
+  "cost_provenance": {
+    "funding_rate_per_interval": "OBSERVED",
+    "latency_slippage_bps_per_side": "ASSUMED",
+    "partial_fill_fraction": "ASSUMED",
+    "spread_bps_per_side": "ASSUMED",
+    "taker_fee_bps_per_side": "CONFIGURED"
+  }
+}
