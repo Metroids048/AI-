@@ -1,0 +1,2 @@
+# Match Ruff and Git blob bytes on Windows without changing runtime semantics.
+*.py text eol=lf

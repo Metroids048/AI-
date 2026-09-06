@@ -253,7 +253,8 @@ def test_supervisor_keeps_running_after_ten_recoverable_external_failures(monkey
     monkeypatch.setattr(module_globals["time"], "sleep", lambda seconds: sleeps.append(seconds))
     monkeypatch.setattr("services.execution.scheduler.persist_liveness_recovery_hold", lambda _reason: True)
 
-    assert namespace["run_supervisor"]("sqlite:///runtime.db", monitor_seconds=0.1) == 0
+    database_url = f"sqlite:///{(tmp_path / 'runtime.db').as_posix()}"
+    assert namespace["run_supervisor"](database_url, monitor_seconds=0.1) == 0
     assert len(spawned) == 11
     assert len(overlays) == 10
     assert all(item["state_name"] == "DEGRADED_EXTERNAL" for item in overlays)
@@ -283,7 +284,8 @@ def test_supervisor_exits_only_for_explicit_fatal_boot_error(monkeypatch, tmp_pa
     monkeypatch.setitem(module_globals, "_write_recovery_overlay", lambda **kwargs: overlays.append(kwargs))
     monkeypatch.setattr(module_globals["time"], "sleep", lambda _seconds: None)
 
-    assert namespace["run_supervisor"]("sqlite:///runtime.db", monitor_seconds=0.1) == 1
+    database_url = f"sqlite:///{(tmp_path / 'runtime.db').as_posix()}"
+    assert namespace["run_supervisor"](database_url, monitor_seconds=0.1) == 1
     assert overlays == [
         {
             "state": {},

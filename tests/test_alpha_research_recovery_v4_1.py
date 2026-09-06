@@ -1,9 +1,11 @@
 from pathlib import Path
 
-from scripts.run_alpha_research_recovery_v4_1 import build_report
+from scripts.run_alpha_research_recovery_v4_1 import HISTORICAL_DB, build_report
 
 
-def test_v4_1_recovers_champion_baseline_without_touching_holdout(tmp_path: Path) -> None:
+def test_v4_1_recovers_champion_baseline_without_touching_holdout(tmp_path: Path, allow_readonly_database) -> None:
+    allow_readonly_database(Path(".strategy_refactor_history.db"))
+    allow_readonly_database(HISTORICAL_DB)
     report = build_report(database=Path(".strategy_refactor_history.db"), output=tmp_path)
 
     assert report["status"] == "BASELINE_REPRODUCED"
@@ -16,7 +18,9 @@ def test_v4_1_recovers_champion_baseline_without_touching_holdout(tmp_path: Path
     assert (tmp_path / "BASELINE_EVENT_LEDGER.parquet").is_file()
 
 
-def test_v4_event_set_is_distinct_from_champion_event_set(tmp_path: Path) -> None:
+def test_v4_event_set_is_distinct_from_champion_event_set(tmp_path: Path, allow_readonly_database) -> None:
+    allow_readonly_database(Path(".strategy_refactor_history.db"))
+    allow_readonly_database(HISTORICAL_DB)
     report = build_report(database=Path(".strategy_refactor_history.db"), output=tmp_path)
     diff = report["event_set_diff"]
 

@@ -7,6 +7,7 @@ unless POSTGRES_URL points at a reachable database.
 from __future__ import annotations
 
 import os
+import tempfile
 from collections.abc import Generator
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -17,10 +18,31 @@ import pytest
 from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
-TEST_DB_DIR = Path(".local/test-runtime").resolve()
+from tests.runtime_safety import RuntimeSafetyGuard, UnsafeTestResourceError
+
+ROOT = Path(__file__).resolve().parents[1]
+TEST_DB_DIR = ROOT / ".local" / "test-runtime" / f"pytest-{os.getpid()}"
 TEST_DB_DIR.mkdir(parents=True, exist_ok=True)
 TEST_DB_PATH = TEST_DB_DIR / f"pytest_ai_quant.{os.getpid()}.db"
-os.environ["POSTGRES_URL"] = f"sqlite:///{TEST_DB_PATH.as_posix()}"
+TEST_DB_URL = f"sqlite:///{TEST_DB_PATH.as_posix()}"
+RUNTIME_ENV = {
+    "POSTGRES_URL": TEST_DB_URL,
+    "LOCAL_SCHEDULER_STATE_PATH": str(TEST_DB_DIR / "scheduler-state.json"),
+    "V2_ACCOUNT_WRITER_REGISTRY_PATH": str(TEST_DB_DIR / "account-writer-registry.json"),
+}
+registry_base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share")
+SAFETY_GUARD = RuntimeSafetyGuard(
+    [TEST_DB_DIR],
+    [
+        ROOT / ".local_paper_console.db",
+        ROOT / "logs" / "scheduler-state.json",
+        registry_base / "AIQuant" / "account-writer-registry.json",
+        *(Path(os.environ[key]) for key in RUNTIME_ENV if key.endswith("_PATH") and os.environ.get(key)),
+    ],
+)
+SAFETY_GUARD.install()
+SAFETY_GUARD.guard_sqlite_attachments()
+os.environ.update(RUNTIME_ENV)
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -62,17 +84,19 @@ def unauth_api_client():
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _bootstrap_sqlite_schema() -> Generator[None, None, None]:
+def _bootstrap_sqlite_schema(tmp_path_factory: pytest.TempPathFactory) -> Generator[None, None, None]:
     from services.data.repository import create_timeseries_schema
     from services.database import create_relational_schema, get_engine, reset_database_caches
 
+    SAFETY_GUARD.allow_root(tmp_path_factory.getbasetemp())
     if TEST_DB_PATH.exists():
         TEST_DB_PATH.unlink()
     reset_database_caches()
-    create_relational_schema()
-    create_timeseries_schema(get_engine())
+    create_relational_schema(TEST_DB_URL)
+    engine = get_engine(TEST_DB_URL)
+    create_timeseries_schema(engine)
     yield
-    get_engine().dispose()
+    engine.dispose()
     reset_database_caches()
     if TEST_DB_PATH.exists():
         with suppress(PermissionError):
@@ -80,12 +104,54 @@ def _bootstrap_sqlite_schema() -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
-def _clear_all_tables() -> None:
+def _isolate_runtime_resources(_bootstrap_sqlite_schema, tmp_path) -> Generator[None, None, None]:
+    from services.database import get_engine, reset_database_caches
+
+    # Own the restoration even when command entry points write os.environ directly.
+    with pytest.MonkeyPatch.context() as patch:
+        for key, value in RUNTIME_ENV.items():
+            patch.setenv(key, value)
+        patch.setenv("LOCAL_SCHEDULER_STATE_PATH", str(tmp_path / "scheduler-state.json"))
+        patch.setenv("V2_ACCOUNT_WRITER_REGISTRY_PATH", str(tmp_path / "account-writer-registry.json"))
+        patch.setattr(tempfile, "tempdir", str(tmp_path))
+        for key in ("TMP", "TEMP", "TMPDIR"):
+            patch.setenv(key, str(tmp_path))
+        for key in ("AUTOMATED_TRADING_ENGINE", "BINANCE_USE_TESTNET", "LIVE_TRADING_ENABLED"):
+            if key in os.environ:
+                patch.setenv(key, os.environ[key])
+            else:
+                patch.delenv(key, raising=False)
+        reset_database_caches()
+        engine = get_engine(TEST_DB_URL)
+        try:
+            yield
+        finally:
+            engine.dispose()
+            reset_database_caches()
+
+
+@pytest.fixture
+def allow_readonly_database():
+    previous = set(SAFETY_GUARD.readonly_databases)
+    try:
+        yield lambda path: SAFETY_GUARD.readonly_databases.add(path.resolve())
+    finally:
+        SAFETY_GUARD.readonly_databases = previous
+
+
+@pytest.fixture(autouse=True)
+def _clear_all_tables(_isolate_runtime_resources) -> None:
     from services.data.repository import TIMESERIES_METADATA
     from services.database import get_engine
     from services.strategy_library.models import Base
 
-    with get_engine().begin() as connection:
+    engine = get_engine(TEST_DB_URL)
+    if engine.dialect.name != "sqlite" or Path(engine.url.database or "").resolve() != TEST_DB_PATH:
+        raise UnsafeTestResourceError("PYTEST_REFUSED_CLEANUP_ENGINE")
+    with engine.begin() as connection:
+        databases = connection.exec_driver_sql("PRAGMA database_list").all()
+        if any(name != "temp" and Path(path).resolve() != TEST_DB_PATH for _, name, path in databases):
+            raise UnsafeTestResourceError("PYTEST_REFUSED_CLEANUP_DATABASE")
         existing_tables = set(inspect(connection).get_table_names())
         for table in reversed(TIMESERIES_METADATA.sorted_tables):
             if table.name not in existing_tables:

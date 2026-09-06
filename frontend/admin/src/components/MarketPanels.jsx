@@ -82,13 +82,7 @@ export function KlinePanel({ candles, latestKline, snapshotVersion, orders, symb
     });
     chartRef.current = chart;
     seriesRef.current = series;
-    const resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) chart.resize(Math.floor(entry.contentRect.width), Math.floor(entry.contentRect.height));
-    });
-    resizeObserver.observe(container);
     return () => {
-      resizeObserver.disconnect();
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
